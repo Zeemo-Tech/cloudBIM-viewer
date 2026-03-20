@@ -7,6 +7,7 @@ import {
   validateStoredSession,
 } from '@/features/auth/auth.service'
 import LoginView from '@/views/login/LoginView.vue'
+import AssetPreviewView from '@/views/preview/AssetPreviewView.vue'
 import SplitPreviewView from '@/views/preview/SplitPreviewView.vue'
 import UploadView from '@/views/upload/UploadView.vue'
 
@@ -24,11 +25,14 @@ function readRouteState() {
 
   return {
     view: search.get('view'),
+    previewType: search.get('previewType'),
+    assetId: parseNumber(search.get('assetId')),
     bimAssetId: parseNumber(search.get('bimAssetId') || search.get('bimFileId')),
     pointcloudAssetId: parseNumber(
       search.get('pointcloudAssetId') || search.get('pointcloudFileId'),
     ),
-    bimDisplayName: search.get('bimDisplayName') || undefined,
+    displayName:
+      search.get('displayName') || search.get('bimDisplayName') || undefined,
   }
 }
 
@@ -38,6 +42,10 @@ const routeKey = computed(() => currentUrl.value)
 const currentView = computed(() => {
   if (!session.value) {
     return 'login'
+  }
+
+  if (routeState.value.view === 'asset-preview') {
+    return 'asset-preview'
   }
 
   return routeState.value.view === 'split-preview' ? 'split-preview' : 'upload'
@@ -88,11 +96,19 @@ onBeforeUnmount(() => {
     @logout="handleLogout"
   />
 
+  <AssetPreviewView
+    v-else-if="session && currentView === 'asset-preview'"
+    :key="routeKey"
+    :preview-type="routeState.previewType === 'pointcloud' ? 'pointcloud' : 'bim'"
+    :asset-id="routeState.assetId"
+    :display-name="routeState.displayName"
+  />
+
   <SplitPreviewView
     v-else-if="session && currentView === 'split-preview'"
     :key="routeKey"
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
-    :bim-display-name="routeState.bimDisplayName"
+    :bim-display-name="routeState.displayName"
   />
 </template>

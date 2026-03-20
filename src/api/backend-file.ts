@@ -1,6 +1,7 @@
 import {
   backendRequest,
   backendRequestRaw,
+  backendTusRequestRaw,
   normalizeBackendUrl,
   readResponseHeader,
   type BackendResult,
@@ -143,8 +144,9 @@ export function getUploadStatus(uploadId: string) {
 }
 
 export async function createTusUpload(params: CreateTusUploadParams) {
-  const response = await backendRequestRaw<never>('/uploads', {
+  const response = await backendTusRequestRaw<never>('/uploads', {
     method: 'POST',
+    data: null,
     headers: createTusHeaders({
       'Upload-Length': String(params.fileSize),
       'Upload-Metadata': encodeTusMetadata({
@@ -173,7 +175,7 @@ export async function createTusUpload(params: CreateTusUploadParams) {
 }
 
 export async function getTusUploadOffset(uploadId: string) {
-  const response = await backendRequestRaw<never>(`/uploads/${uploadId}`, {
+  const response = await backendTusRequestRaw<never>(`/uploads/${uploadId}`, {
     method: 'HEAD',
     headers: createTusHeaders(),
   })
@@ -189,7 +191,7 @@ export async function uploadTusChunk(
   chunk: Blob,
   uploadOffset: number,
 ) {
-  const response = await backendRequestRaw<never>(`/uploads/${uploadId}`, {
+  const response = await backendTusRequestRaw<never>(`/uploads/${uploadId}`, {
     method: 'PATCH',
     data: chunk,
     headers: createTusHeaders({
@@ -205,7 +207,7 @@ export async function uploadTusChunk(
 }
 
 export function terminateTusUpload(uploadId: string) {
-  return backendRequestRaw<never>(`/uploads/${uploadId}`, {
+  return backendTusRequestRaw<never>(`/uploads/${uploadId}`, {
     method: 'DELETE',
     headers: createTusHeaders(),
   })
@@ -226,4 +228,14 @@ export function getBimMetadata(resourcePath: string) {
 
 export function getPointcloudTilesetUrl(resourcePath: string) {
   return normalizeBackendUrl(normalizeAssetPath(resourcePath))
+}
+
+export function getPointcloudTilesAsset(
+  resourcePath: string,
+  responseType: 'json' | 'arraybuffer' = 'arraybuffer',
+) {
+  return backendRequest<unknown | ArrayBuffer>(normalizeAssetPath(resourcePath), {
+    method: 'GET',
+    responseType: responseType === 'arraybuffer' ? 'arraybuffer' : 'json',
+  })
 }

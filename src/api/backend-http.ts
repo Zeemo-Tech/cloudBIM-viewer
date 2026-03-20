@@ -131,16 +131,19 @@ export const backendClient = axios.create({
   },
 })
 
-backendClient.interceptors.request.use((config) => {
+function createAuthorizedHeaders(headers?: unknown) {
+  const nextHeaders = AxiosHeaders.from(headers as any)
   const token = getStoredAccessToken()
 
-  if (token) {
-    const headers = AxiosHeaders.from(config.headers)
-    if (!headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${token}`)
-    }
-    config.headers = headers
+  if (token && !nextHeaders.has('Authorization')) {
+    nextHeaders.set('Authorization', `Bearer ${token}`)
   }
+
+  return nextHeaders
+}
+
+backendClient.interceptors.request.use((config) => {
+  config.headers = createAuthorizedHeaders(config.headers)
 
   if (config.url) {
     config.url = normalizeBackendUrl(config.url)
@@ -162,6 +165,26 @@ export async function backendRequestRaw<T = unknown>(
     return await backendClient.request<T>({
       ...options,
       url: path,
+    })
+  } catch (error) {
+    throw createApiError(error)
+  }
+}
+
+export async function backendTusRequestRaw<T = unknown>(
+  path: string,
+  options: BackendRequestOptions = {},
+) {
+  try {
+    const headers = createAuthorizedHeaders(options.headers)
+    headers.delete('X-Requested-With')
+    headers.set('Accept', '*/*')
+
+    return await axios.request<T>({
+      ...options,
+      url: normalizeBackendUrl(path),
+      timeout: REQUEST_TIMEOUT,
+      headers,
     })
   } catch (error) {
     throw createApiError(error)

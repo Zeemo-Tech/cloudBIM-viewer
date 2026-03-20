@@ -32,6 +32,11 @@ const canSync = computed(() => {
 })
 
 function closePage() {
+  if (window.opener) {
+    window.close()
+    return
+  }
+
   window.history.pushState({}, '', window.location.origin)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }

@@ -9,8 +9,6 @@ import {
   getAssetDetail,
   listAssets,
 } from '@/api/backend-file'
-import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
-import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import UploadDropCard from '@/components/upload/UploadDropCard.vue'
 import type { AuthSession } from '@/features/auth/auth.service'
 import {
@@ -30,7 +28,7 @@ type UploadTaskState = {
   result: AssetDetail | null
 }
 
-type PreviewMode = 'bim' | 'pointcloud' | 'split' | null
+type PreviewMode = 'bim' | 'pointcloud' | 'split'
 type UploadKind = 'bim' | 'pointcloud'
 
 const props = defineProps<{
@@ -43,7 +41,6 @@ defineEmits<{
 
 const bimFile = ref<File | null>(null)
 const pointCloudFile = ref<File | null>(null)
-const previewMode = ref<PreviewMode>(null)
 const activeUploadKind = ref<UploadKind | null>(null)
 const cancelRequested = ref(false)
 const loadingAssets = ref(false)
@@ -67,22 +64,6 @@ const canPreviewSplit = computed(() => canPreviewBim.value && canPreviewPointclo
 const bimUploadedFiles = computed(() => assetCollections.bim)
 const pointcloudUploadedFiles = computed(() => assetCollections.pointcloud)
 const userName = computed(() => props.session.username)
-
-const previewTitle = computed(() => {
-  if (previewMode.value === 'bim') {
-    return 'BIM 模型预览'
-  }
-
-  if (previewMode.value === 'pointcloud') {
-    return '点云预览'
-  }
-
-  if (previewMode.value === 'split') {
-    return '二分屏预览'
-  }
-
-  return '预览窗口'
-})
 
 function createInitialTaskState(): UploadTaskState {
   return {
@@ -196,9 +177,6 @@ function syncTaskResultsWithCollections() {
     const matchedAsset = assetCollections[kind].find((asset) => asset.id === currentResult.id)
     if (!matchedAsset) {
       resetTask(kind)
-      if (previewMode.value === kind || previewMode.value === 'split') {
-        previewMode.value = null
-      }
       return
     }
 
@@ -219,20 +197,6 @@ watch(bimFile, () => {
 
 watch(pointCloudFile, () => {
   resetTask('pointcloud')
-})
-
-watch([canPreviewBim, canPreviewPointcloud], ([bimReady, pointcloudReady]) => {
-  if (previewMode.value === 'bim' && !bimReady) {
-    previewMode.value = null
-  }
-
-  if (previewMode.value === 'pointcloud' && !pointcloudReady) {
-    previewMode.value = null
-  }
-
-  if (previewMode.value === 'split' && !(bimReady && pointcloudReady)) {
-    previewMode.value = null
-  }
 })
 
 onMounted(() => {
@@ -460,9 +424,23 @@ function buildSplitPreviewUrl(bimAsset: AssetDetail, pointcloudAsset: AssetDetai
   return url.toString()
 }
 
-function navigateInCurrentWindow(url: string) {
-  window.history.pushState({}, '', url)
-  window.dispatchEvent(new PopStateEvent('popstate'))
+function buildAssetPreviewUrl(mode: Exclude<PreviewMode, 'split'>, asset: AssetDetail) {
+  const url = new URL(window.location.origin)
+  url.searchParams.set('view', 'asset-preview')
+  url.searchParams.set('previewType', mode)
+  url.searchParams.set('assetId', String(asset.id))
+  if (asset.sourceName) {
+    url.searchParams.set('displayName', asset.sourceName)
+  }
+  return url.toString()
+}
+
+function openPreviewPage(url: string) {
+  const previewWindow = window.open(url, '_blank')
+
+  if (!previewWindow) {
+    window.location.href = url
+  }
 }
 
 async function openPreview(mode: PreviewMode) {
@@ -478,6 +456,9 @@ async function openPreview(mode: PreviewMode) {
       ElMessage.info('BIM 文件仍在处理中，请点击刷新状态后重试')
       return
     }
+
+    openPreviewPage(buildAssetPreviewUrl('bim', refreshed))
+    return
   }
 
   if (mode === 'pointcloud') {
@@ -492,6 +473,9 @@ async function openPreview(mode: PreviewMode) {
       ElMessage.info('点云文件仍在处理中，请点击刷新状态后重试')
       return
     }
+
+    openPreviewPage(buildAssetPreviewUrl('pointcloud', refreshed))
+    return
   }
 
   if (mode === 'split') {
@@ -519,15 +503,9 @@ async function openPreview(mode: PreviewMode) {
       nextBim || selectedBim,
       nextPointcloud || selectedPointcloud,
     )
-    navigateInCurrentWindow(previewUrl)
+    openPreviewPage(previewUrl)
     return
   }
-
-  previewMode.value = mode
-}
-
-function closePreview() {
-  previewMode.value = null
 }
 </script>
 
@@ -750,42 +728,6 @@ function closePreview() {
         </div>
       </section>
 
-      <section class="preview-workspace card-surface">
-        <div class="workspace-head">
-          <div>
-            <h2>{{ previewTitle }}</h2>
-          </div>
-
-          <el-button v-if="previewMode" plain @click="closePreview">
-            收起预览
-          </el-button>
-        </div>
-
-        <div v-if="!previewMode" class="workspace-empty">
-          <el-icon><View /></el-icon>
-          <h3>上传完成后开始预览</h3>
-          <p>支持单独查看点云或 BIM 模型，两个文件均上传完成后可切换为二分屏展示。</p>
-        </div>
-
-        <PointcloudPreviewPanel
-          v-else-if="previewMode === 'pointcloud'"
-          :asset-id="uploadTasks.pointcloud.result?.id || null"
-        />
-
-        <BimPreviewPanel
-          v-else-if="previewMode === 'bim'"
-          :asset-id="uploadTasks.bim.result?.id || null"
-          :display-name="uploadTasks.bim.result?.sourceName"
-        />
-
-        <div v-else class="split-preview">
-          <PointcloudPreviewPanel :asset-id="uploadTasks.pointcloud.result?.id || null" />
-          <BimPreviewPanel
-            :asset-id="uploadTasks.bim.result?.id || null"
-            :display-name="uploadTasks.bim.result?.sourceName"
-          />
-        </div>
-      </section>
     </div>
   </section>
 </template>
@@ -996,55 +938,6 @@ function closePreview() {
   gap: 8px;
 }
 
-.preview-workspace {
-  margin-top: 20px;
-  padding: 24px;
-  border-radius: 24px;
-}
-
-.workspace-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.workspace-head h2 {
-  margin: 0;
-  color: #0f172a;
-}
-
-.workspace-empty {
-  min-height: 420px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: #64748b;
-}
-
-.workspace-empty h3 {
-  margin: 0;
-  color: #0f172a;
-}
-
-.workspace-empty p {
-  margin: 0;
-  text-align: center;
-  max-width: 560px;
-  line-height: 1.7;
-}
-
-.split-preview {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
 @media (max-width: 960px) {
   .page-header,
   .library-head {
@@ -1053,8 +946,7 @@ function closePreview() {
   }
 
   .upload-grid,
-  .library-grid,
-  .split-preview {
+  .library-grid {
     grid-template-columns: 1fr;
   }
 }
