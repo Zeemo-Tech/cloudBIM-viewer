@@ -1,0 +1,46 @@
+:root {
+  font-family:
+    'Avenir Next',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #102033;
+  background:
+    radial-gradient(circle at top left, rgba(32, 227, 178, 0.16), transparent 24%),
+    radial-gradient(circle at right center, rgba(29, 78, 216, 0.12), transparent 28%),
+    linear-gradient(180deg, #eef4fb 0%, #f7fafc 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --color-primary: #0f9f80;
+  --color-text-strong: #102033;
+  --color-text-muted: #546173;
+  --color-text-soft: #718096;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
