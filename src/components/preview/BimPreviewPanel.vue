@@ -12,6 +12,8 @@ type CameraPose = {
   target: THREE.Vector3
 }
 
+type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+
 const props = withDefaults(
   defineProps<{
     assetId: number | null
@@ -47,6 +49,60 @@ let isRendering = false
 let needsRender = false
 let isMountedReady = false
 let loadToken = 0
+let axesHelper: THREE.AxesHelper | null = null
+let gridHelper: THREE.GridHelper | null = null
+let wireframeEnabled = false
+let showAxesEnabled = false
+let showGridEnabled = false
+let sectionEnabled = false
+let sectionRatio = 50
+let sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
+let sectionBounds: { minY: number; maxY: number } | null = null
+let backgroundTheme: PreviewBackgroundTheme = 'deep'
+
+function getBackgroundColor(theme: PreviewBackgroundTheme) {
+  switch (theme) {
+    case 'light':
+      return '#f7fbff'
+    case 'black':
+      return '#000000'
+    case 'gradient':
+      return '#17365f'
+    case 'deep':
+    default:
+      return '#08111d'
+  }
+}
+
+function getGridThemeColors(theme: PreviewBackgroundTheme) {
+  switch (theme) {
+    case 'light':
+      return {
+        center: '#2563eb',
+        grid: '#94a3b8',
+        opacity: 0.72,
+      }
+    case 'black':
+      return {
+        center: '#67e8f9',
+        grid: '#334155',
+        opacity: 0.62,
+      }
+    case 'gradient':
+      return {
+        center: '#38bdf8',
+        grid: '#1d4ed8',
+        opacity: 0.78,
+      }
+    case 'deep':
+    default:
+      return {
+        center: '#5eead4',
+        grid: '#334155',
+        opacity: 0.55,
+      }
+  }
+}
 
 function emitCameraPose() {
   emit('camera-change', getCameraPose())
@@ -89,6 +145,78 @@ function fitCameraToObject(
   nextCamera.updateProjectionMatrix()
   nextCamera.updateMatrixWorld()
   nextControls.update()
+}
+
+function syncSceneBackground() {
+  if (!scene) {
+    return
+  }
+
+  const nextBackground = new THREE.Color(getBackgroundColor(backgroundTheme))
+  scene.background = nextBackground
+  renderer?.setClearColor(nextBackground, 1)
+}
+
+function syncHelperStyle() {
+  const themeColors = getGridThemeColors(backgroundTheme)
+
+  if (gridHelper) {
+    ;(gridHelper as THREE.GridHelper & {
+      setColors?: (center: THREE.ColorRepresentation, grid: THREE.ColorRepresentation) => void
+    }).setColors?.(themeColors.center, themeColors.grid)
+    ;(gridHelper.material as THREE.Material).transparent = true
+    ;(gridHelper.material as THREE.Material).opacity = themeColors.opacity
+    ;(gridHelper.material as THREE.Material).needsUpdate = true
+  }
+}
+
+function syncHelperVisibility() {
+  if (axesHelper) {
+    axesHelper.visible = showAxesEnabled
+  }
+
+  if (gridHelper) {
+    gridHelper.visible = showGridEnabled
+  }
+}
+
+function updateSectionPlane() {
+  if (!sectionBounds) {
+    return
+  }
+
+  const range = Math.max(0.001, sectionBounds.maxY - sectionBounds.minY)
+  const cutY = sectionBounds.minY + range * (sectionRatio / 100)
+  sectionPlane.set(new THREE.Vector3(0, -1, 0), cutY)
+}
+
+function applyMaterialState(material: THREE.Material) {
+  if ('wireframe' in material) {
+    ;(material as THREE.Material & { wireframe: boolean }).wireframe = wireframeEnabled
+  }
+
+  material.clippingPlanes = sectionEnabled ? [sectionPlane] : null
+  material.needsUpdate = true
+}
+
+function syncModelPresentation() {
+  if (!modelRoot) {
+    return
+  }
+
+  modelRoot.traverse((child: any) => {
+    const material = child?.material
+    if (!material) {
+      return
+    }
+
+    if (Array.isArray(material)) {
+      material.forEach((item) => item && applyMaterialState(item))
+      return
+    }
+
+    applyMaterialState(material)
+  })
 }
 
 function syncRendererSize() {
@@ -150,7 +278,7 @@ function initViewer() {
   }
 
   scene = new THREE.Scene()
-  scene.background = new THREE.Color(defaultBgColor)
+  syncSceneBackground()
 
   const width = viewportEl.value.clientWidth || 1
   const height = viewportEl.value.clientHeight || 1
@@ -165,6 +293,7 @@ function initViewer() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap))
   renderer.setSize(width, height)
   renderer.setClearColor(new THREE.Color(defaultBgColor), 1)
+  renderer.localClippingEnabled = true
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1
   if ('outputColorSpace' in renderer) {
@@ -186,6 +315,15 @@ function initViewer() {
   const fillLight = new THREE.DirectionalLight(0x99bbff, 0.45)
   fillLight.position.set(-8, 6, -6)
   scene.add(fillLight)
+
+  axesHelper = new THREE.AxesHelper(24)
+  axesHelper.visible = showAxesEnabled
+  scene.add(axesHelper)
+
+  gridHelper = new THREE.GridHelper(280, 56, 0x5eead4, 0x334155)
+  gridHelper.visible = showGridEnabled
+  syncHelperStyle()
+  scene.add(gridHelper)
 
   resizeObserver = new ResizeObserver(() => {
     if (syncRendererSize()) {
@@ -249,6 +387,14 @@ async function loadByAssetId(assetId: number, displayName: string) {
       scene.add(modelRoot)
       modelRoot.updateMatrixWorld(true)
       fitCameraToObject(camera, controls, modelRoot)
+      modelRoot.updateMatrixWorld(true)
+      const modelBox = new THREE.Box3().setFromObject(modelRoot)
+      sectionBounds = {
+        minY: modelBox.min.y,
+        maxY: modelBox.max.y,
+      }
+      updateSectionPlane()
+      syncModelPresentation()
       modelLoaded.value = true
       statusText.value = `已加载：${displayName}`
       emit('loaded-change', true)
@@ -318,6 +464,39 @@ function resetView() {
   requestRender()
 }
 
+function setBackgroundTheme(theme: PreviewBackgroundTheme) {
+  backgroundTheme = theme
+  syncSceneBackground()
+  syncHelperStyle()
+  requestRender()
+}
+
+function setShowAxes(visible: boolean) {
+  showAxesEnabled = visible
+  syncHelperVisibility()
+  requestRender()
+}
+
+function setShowGrid(visible: boolean) {
+  showGridEnabled = visible
+  syncHelperVisibility()
+  requestRender()
+}
+
+function setWireframe(enabled: boolean) {
+  wireframeEnabled = enabled
+  syncModelPresentation()
+  requestRender()
+}
+
+function setSectionState(enabled: boolean, ratio = sectionRatio) {
+  sectionEnabled = enabled
+  sectionRatio = ratio
+  updateSectionPlane()
+  syncModelPresentation()
+  requestRender()
+}
+
 function reload() {
   if (!props.assetId) {
     statusText.value = '暂无可预览 BIM 文件'
@@ -369,6 +548,9 @@ function cleanup() {
   camera = null
   renderer = null
   controls = null
+  axesHelper = null
+  gridHelper = null
+  sectionBounds = null
 }
 
 defineExpose({
@@ -376,6 +558,11 @@ defineExpose({
   getCameraPose,
   setCameraPose,
   resetView,
+  setBackgroundTheme,
+  setShowAxes,
+  setShowGrid,
+  setWireframe,
+  setSectionState,
 })
 
 watch(

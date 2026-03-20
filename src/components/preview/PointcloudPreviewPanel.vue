@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RefreshRight, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
-import { NodeMaterial, WebGPURenderer } from 'three/webgpu'
-import { color as tslColor } from 'three/tsl'
+import { NodeMaterial, PointsNodeMaterial, WebGPURenderer } from 'three/webgpu'
+import { color as tslColor, float } from 'three/tsl'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
@@ -21,6 +21,8 @@ type CameraPose = {
   target: THREE.Vector3
 }
 
+type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+
 const props = withDefaults(
   defineProps<{
     assetId: number | null
@@ -37,9 +39,10 @@ const emit = defineEmits<{
 }>()
 
 const viewportEl = ref<HTMLDivElement | null>(null)
-
+const statusText = ref('等待加载点云')
 const loaded = ref(false)
-const pointColor = ref('#8be9ff')
+const pointColor = ref('#f8fafc')
+const pointSizeScale = ref(1)
 
 const defaultBgColor = '#0b1020'
 const dprCap = 1.25
@@ -71,11 +74,93 @@ let initPromise: Promise<void> | null = null
 let rendererMode: 'webgpu' | 'webgl' | null = null
 let isMountedReady = false
 let loadToken = 0
+let axesHelper: THREE.AxesHelper | null = null
+let gridHelper: THREE.GridHelper | null = null
+let showAxesEnabled = false
+let showGridEnabled = false
+let backgroundTheme: PreviewBackgroundTheme = 'deep'
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
 const pointColorText = computed(() => pointColor.value.toUpperCase())
+
+function getBackgroundColor(theme: PreviewBackgroundTheme) {
+  switch (theme) {
+    case 'light':
+      return '#f7fbff'
+    case 'black':
+      return '#000000'
+    case 'gradient':
+      return '#17365f'
+    case 'deep':
+    default:
+      return '#08111d'
+  }
+}
+
+function getGridThemeColors(theme: PreviewBackgroundTheme) {
+  switch (theme) {
+    case 'light':
+      return {
+        center: '#2563eb',
+        grid: '#94a3b8',
+        opacity: 0.72,
+      }
+    case 'black':
+      return {
+        center: '#67e8f9',
+        grid: '#334155',
+        opacity: 0.62,
+      }
+    case 'gradient':
+      return {
+        center: '#38bdf8',
+        grid: '#1d4ed8',
+        opacity: 0.78,
+      }
+    case 'deep':
+    default:
+      return {
+        center: '#5eead4',
+        grid: '#334155',
+        opacity: 0.55,
+      }
+  }
+}
+
+function syncSceneBackground() {
+  if (!scene) {
+    return
+  }
+
+  const nextBackground = new THREE.Color(getBackgroundColor(backgroundTheme))
+  scene.background = nextBackground
+  renderer?.setClearColor(nextBackground, 1)
+}
+
+function syncHelperStyle() {
+  const themeColors = getGridThemeColors(backgroundTheme)
+
+  if (gridHelper) {
+    ;(gridHelper as THREE.GridHelper & {
+      setColors?: (center: THREE.ColorRepresentation, grid: THREE.ColorRepresentation) => void
+    }).setColors?.(themeColors.center, themeColors.grid)
+    ;(gridHelper.material as THREE.Material).transparent = true
+    ;(gridHelper.material as THREE.Material).opacity = themeColors.opacity
+    ;(gridHelper.material as THREE.Material).needsUpdate = true
+  }
+}
+
+function syncHelperVisibility() {
+  if (axesHelper) {
+    axesHelper.visible = showAxesEnabled
+  }
+
+  if (gridHelper) {
+    gridHelper.visible = showGridEnabled
+  }
+}
 
 function ensureTrailingSlash(value: string) {
   return value.endsWith('/') ? value : `${value}/`
@@ -161,6 +246,14 @@ function applyPointcloudColorToMaterial(material: any) {
     material.colorNode = tslColor(pointColor.value)
   }
 
+  if ('size' in material && typeof material.size === 'number') {
+    material.size = Math.max(0.2, pointSizeScale.value)
+  }
+
+  if ('sizeNode' in material) {
+    material.sizeNode = float(Math.max(0.2, pointSizeScale.value))
+  }
+
   material.needsUpdate = true
 }
 
@@ -201,12 +294,15 @@ function getOrCreateUnlitMaterialWebGL(
   return material
 }
 
-function getOrCreateUnlitTSLMaterial(src: any, opts: { vertexColors: boolean }) {
+function getOrCreateUnlitTSLMaterial(
+  src: any,
+  opts: { vertexColors: boolean; isPoints: boolean },
+) {
   const entry = unlitTSLMaterialCache.get(src) ?? {}
-  const cached = opts.vertexColors ? entry.v1 : entry.v0
+  const cached = opts.isPoints ? entry.v1 : entry.v0
   if (cached) return cached
 
-  const material = new NodeMaterial()
+  const material = opts.isPoints ? new PointsNodeMaterial() : new NodeMaterial()
   material.name = src?.name ? `${src.name} (TSL Unlit)` : 'TSL Unlit'
   material.fog = false
   material.lights = false
@@ -215,9 +311,12 @@ function getOrCreateUnlitTSLMaterial(src: any, opts: { vertexColors: boolean }) 
   material.toneMapped = false
   material.colorNode = tslColor(pointColor.value)
   material.vertexColors = false
+  if ('sizeNode' in material) {
+    material.sizeNode = float(Math.max(0.2, pointSizeScale.value))
+  }
 
   ;(material as any).__viewerOriginalMaterial = src
-  if (opts.vertexColors) entry.v1 = material
+  if (opts.isPoints) entry.v1 = material
   else entry.v0 = material
   unlitTSLMaterialCache.set(src, entry)
 
@@ -231,11 +330,13 @@ function applyMaterialMode(root: any) {
     if (!obj?.material) return
 
     const hasVertexColors = !!obj.geometry?.attributes?.color
+    const isPoints = Boolean(obj.isPoints)
     if (rendererMode === 'webgpu') {
       if (Array.isArray(obj.material)) return
       const src = (obj.material as any)?.__viewerOriginalMaterial ?? obj.material
       const next = getOrCreateUnlitTSLMaterial(src, {
         vertexColors: hasVertexColors,
+        isPoints,
       })
       if (obj.material !== next) obj.material = next
       applyPointcloudColorToMaterial(next)
@@ -505,7 +606,7 @@ async function initViewer() {
     const height = viewportEl.value.clientHeight || 1
 
     scene = new THREE.Scene()
-    scene.background = new THREE.Color(defaultBgColor)
+    syncSceneBackground()
     camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 100000)
     camera.position.set(0, 10, 20)
 
@@ -526,6 +627,15 @@ async function initViewer() {
       const fillLight = new THREE.DirectionalLight(0x99bbff, 0.45)
       fillLight.position.set(-8, 6, -6)
       scene?.add(fillLight)
+
+      axesHelper = new THREE.AxesHelper(24)
+      axesHelper.visible = showAxesEnabled
+      scene?.add(axesHelper)
+
+      gridHelper = new THREE.GridHelper(280, 56, 0x5eead4, 0x334155)
+      gridHelper.visible = showGridEnabled
+      syncHelperStyle()
+      scene?.add(gridHelper)
 
       if (!resizeObserver && typeof ResizeObserver !== 'undefined' && viewportEl.value) {
         resizeObserver = new ResizeObserver(() => {
@@ -606,6 +716,10 @@ function bumpTilesLoading(delta: number) {
 }
 
 function getPlaceholderText() {
+  if (statusText.value.trim()) {
+    return statusText.value
+  }
+
   if (props.assetId) {
     return '自动加载点云中...'
   }
@@ -719,6 +833,7 @@ async function loadTileset(assetId: number) {
   }
 
   loaded.value = false
+  statusText.value = '加载点云中...'
   emit('loaded-change', false)
   tilesLoadingCount = 0
   isPointcloudLoading = true
@@ -808,6 +923,7 @@ async function loadTileset(assetId: number) {
 
   nextTileset.addEventListener('tiles-load-start', () => {
     if (activeToken !== loadToken) return
+    statusText.value = '点云加载中...'
     loaded.value = false
     emit('loaded-change', false)
     bumpTilesLoading(1)
@@ -815,6 +931,7 @@ async function loadTileset(assetId: number) {
   })
   nextTileset.addEventListener('tiles-load-end', () => {
     if (activeToken !== loadToken) return
+    statusText.value = '点云加载完成'
     loaded.value = true
     emit('loaded-change', true)
     bumpTilesLoading(-1)
@@ -840,6 +957,7 @@ async function loadTileset(assetId: number) {
       event?.message ||
       event?.target?.error?.message ||
       '点云加载失败'
+    statusText.value = message
     loaded.value = false
     emit('loaded-change', false)
     tilesLoadingCount = 0
@@ -914,6 +1032,8 @@ function cleanup() {
   rendererMode = null
   rendererReady = false
   initPromise = null
+  axesHelper = null
+  gridHelper = null
 }
 
 function reload() {
@@ -932,11 +1052,43 @@ function reload() {
   })
 }
 
+function setBackgroundTheme(theme: PreviewBackgroundTheme) {
+  backgroundTheme = theme
+  syncSceneBackground()
+  syncHelperStyle()
+  requestRender()
+}
+
+function setShowAxes(visible: boolean) {
+  showAxesEnabled = visible
+  syncHelperVisibility()
+  requestRender()
+}
+
+function setShowGrid(visible: boolean) {
+  showGridEnabled = visible
+  syncHelperVisibility()
+  requestRender()
+}
+
+function setPointColor(color: string) {
+  pointColor.value = color
+}
+
+function setPointSizeScale(scale: number) {
+  pointSizeScale.value = clamp(scale, 0.2, 6)
+}
+
 defineExpose({
   reload,
   resetPointcloudView,
   getCameraPose,
   syncFromExternalPose,
+  setBackgroundTheme,
+  setShowAxes,
+  setShowGrid,
+  setPointColor,
+  setPointSizeScale,
 })
 
 watch(
@@ -951,6 +1103,15 @@ watch(
 )
 
 watch(pointColor, () => {
+  if (!tileset) {
+    return
+  }
+
+  applyMaterialMode(tileset.group)
+  requestRender()
+})
+
+watch(pointSizeScale, () => {
   if (!tileset) {
     return
   }
@@ -985,6 +1146,7 @@ onBeforeUnmount(() => {
           />
           <span class="color-value">{{ pointColorText }}</span>
         </label>
+        <span class="panel-status">{{ statusText }}</span>
         <button
           class="panel-refresh-btn"
           type="button"
