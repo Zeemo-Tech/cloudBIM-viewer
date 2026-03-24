@@ -28,6 +28,7 @@ import { createBimAlignment, getBimAlignment } from '@/api/backend-alignment'
 import {
   getAssetDetail,
   getBimGlbFile,
+  getBimMetadata,
   getPointcloudTilesAsset,
   getPointcloudTilesetUrl,
 } from '@/api/backend-file'
@@ -92,8 +93,11 @@ const enableElementPicking = ref(true)
 const pickedElement = ref<null | {
   label: string
   ifcId?: string
+  stepId?: number | string
+  type?: string
   sourceLabel?: string
 }>(null)
+const bimMetadata = ref<any | null>(null)
 const bimLoaded = ref(false)
 const pointcloudLoaded = ref(false)
 const bimVisible = ref(true)
@@ -143,12 +147,9 @@ const loadedItemOptions = computed(() => {
   return list
 })
 
-const pickedElementText = computed(() => {
-  if (!pickedElement.value) return '未选择'
-  const parts = [pickedElement.value.label]
-  if (pickedElement.value.ifcId) parts.push(`ID: ${pickedElement.value.ifcId}`)
-  if (pickedElement.value.sourceLabel) parts.push(`来源: ${pickedElement.value.sourceLabel}`)
-  return parts.join(' | ')
+const pickedElementTitle = computed(() => {
+  if (!pickedElement.value) return ''
+  return pickedElement.value.label || pickedElement.value.ifcId || '构件'
 })
 
 const webgpuSupported = computed(
@@ -418,6 +419,30 @@ function syncGridVisibility() {
   }
 }
 
+function updateGridPlacement() {
+  if (!gridHelper || !contentGroup) return
+
+  const placementTarget =
+    pointcloudWrapper ?? (contentGroup.children.length ? contentGroup : null)
+
+  if (!placementTarget) {
+    gridHelper.position.set(0, -10.01, 0)
+    return
+  }
+
+  placementTarget.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(placementTarget)
+  if (box.isEmpty()) {
+    gridHelper.position.set(0, -10.01, 0)
+    return
+  }
+
+  const center = box.getCenter(new THREE.Vector3())
+  const size = box.getSize(new THREE.Vector3())
+  const offset = Math.max(10.5, size.y * 0.01)
+  gridHelper.position.set(center.x, box.min.y - offset, center.z)
+}
+
 function updateSelectionHighlight() {
   if (!scene) return
   if (editMode.value) {
@@ -497,6 +522,10 @@ function getElementIdFromObject(object: THREE.Object3D | null) {
   while (current) {
     const name = String(current.name || '').trim()
     if (name) {
+      if (/^[0-9A-Za-z_$]{22}$/.test(name)) {
+        return name
+      }
+
       const [baseName] = name.split('_')
       if (baseName?.trim()) {
         return baseName.trim()
@@ -510,6 +539,39 @@ function getElementIdFromObject(object: THREE.Object3D | null) {
   }
 
   return undefined
+}
+
+function findMetadataElementById(id: unknown) {
+  if (!bimMetadata.value) return null
+
+  const key = String(id ?? '').trim()
+  if (!key) return null
+
+  const elements = bimMetadata.value?.elements
+  if (!elements || typeof elements !== 'object') return null
+
+  if (elements[key]) {
+    return {
+      id: key,
+      meta: elements[key] as Record<string, unknown>,
+    }
+  }
+
+  for (const [elementId, meta] of Object.entries(elements as Record<string, unknown>)) {
+    const current = meta as Record<string, unknown>
+    if (
+      current?.stepId === Number(key) ||
+      current?.id === key ||
+      current?.name === key
+    ) {
+      return {
+        id: elementId,
+        meta: current,
+      }
+    }
+  }
+
+  return null
 }
 
 function restoreHighlightedElement() {
@@ -581,6 +643,7 @@ function syncBoundsHelpers() {
   if (!showBounds.value) {
     if (bimBoundsHelper) bimBoundsHelper.visible = false
     if (pointcloudBoundsHelper) pointcloudBoundsHelper.visible = false
+    updateGridPlacement()
     updateSelectionHighlight()
     return
   }
@@ -603,6 +666,7 @@ function syncBoundsHelpers() {
     pointcloudBoundsHelper.visible = true
   }
 
+  updateGridPlacement()
   updateSelectionHighlight()
 }
 
@@ -820,9 +884,15 @@ async function initScene() {
       scene.add(fillLight)
 
       axesHelper = new THREE.AxesHelper(18)
+      axesHelper.setColors('#fb7185', '#86efac', '#67e8f9')
+      ;(axesHelper.material as THREE.LineBasicMaterial).transparent = true
+      ;(axesHelper.material as THREE.LineBasicMaterial).opacity = 0.95
       scene.add(axesHelper)
 
-      gridHelper = new THREE.GridHelper(280, 56, 0x5eead4, 0x334155)
+      gridHelper = new THREE.GridHelper(10000, 2000, 0x67e8f9, 0x2a6f82)
+      ;(gridHelper.material as THREE.LineBasicMaterial).transparent = true
+      ;(gridHelper.material as THREE.LineBasicMaterial).opacity = 0.62
+      gridHelper.position.set(0, -10.01, 0)
       scene.add(gridHelper)
       syncGridVisibility()
 
@@ -963,13 +1033,13 @@ function setPresetView(kind: 'front' | 'top' | 'side') {
   const size = box.getSize(new THREE.Vector3())
   const center = box.getCenter(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z, 1)
-  const distance = maxDim * 2.4
+  const distance = maxDim * 1.45
   controls.target.copy(center)
 
   if (kind === 'front') {
     activeCamera.position.set(center.x, center.y, center.z + distance)
   } else if (kind === 'top') {
-    activeCamera.position.set(center.x, center.y + distance, center.z + 0.01)
+    activeCamera.position.set(center.x, center.y + distance, center.z + 0.1)
   } else {
     activeCamera.position.set(center.x + distance, center.y, center.z)
   }
@@ -1700,6 +1770,10 @@ function onEditModeChange() {
     selectedItemId.value = loadedItemOptions.value[0]?.value ?? ''
   }
 
+  if (editMode.value && enableElementPicking.value) {
+    enableElementPicking.value = false
+  }
+
   syncTransformModeForSelection()
 
   if (!editMode.value) {
@@ -1714,6 +1788,17 @@ function onEditModeChange() {
   }
 
   refreshSelectedTransformUi(false)
+}
+
+function onElementPickingChange() {
+  if (enableElementPicking.value) {
+    if (editMode.value) {
+      editMode.value = false
+    }
+    return
+  }
+
+  clearPickedElement()
 }
 
 function onSelectedItemChange() {
@@ -1774,9 +1859,22 @@ function handleViewportPointerDown(event: PointerEvent) {
 
   if (wantElementPick) {
     const mesh = pickedHit.object
+    const ifcId = getElementIdFromObject(mesh)
+    const metadataMatch = findMetadataElementById(ifcId)
+    const metadata = metadataMatch?.meta
     pickedElement.value = {
-      label: mesh?.name || (mesh as any)?.userData?.name || (mesh as any)?.userData?.label || '构件',
-      ifcId: getElementIdFromObject(mesh),
+      label:
+        String(metadata?.name || '').trim() ||
+        mesh?.name ||
+        (mesh as any)?.userData?.name ||
+        (mesh as any)?.userData?.label ||
+        '构件',
+      ifcId: metadataMatch?.id || ifcId,
+      stepId:
+        typeof metadata?.stepId === 'number' || typeof metadata?.stepId === 'string'
+          ? metadata.stepId
+          : undefined,
+      type: String(metadata?.type || '').trim() || undefined,
       sourceLabel: props.bimDisplayName || 'BIM 模型',
     }
     highlightPickedElement(mesh)
@@ -2142,6 +2240,7 @@ async function handleLoadBimFromApi(silent = false) {
   const token = ++bimLoadToken
   loadingBim.value = true
   statusText.value = '加载 BIM 模型中...'
+  bimMetadata.value = null
 
   try {
     const assetDetailResult = await getAssetDetail(props.bimAssetId)
@@ -2156,6 +2255,17 @@ async function handleLoadBimFromApi(silent = false) {
 
     const blob = await getBimGlbFile(assetDetail.glbUrl)
     if (token !== bimLoadToken) return
+
+    if (assetDetail.metadataUrl) {
+      try {
+        const metadata = await getBimMetadata(assetDetail.metadataUrl)
+        if (token === bimLoadToken) {
+          bimMetadata.value = metadata
+        }
+      } catch (error) {
+        console.error('[BimPointcloudAlign] 加载 BIM metadata 失败:', error)
+      }
+    }
 
     const objectUrl = URL.createObjectURL(blob)
     const loader = new GLTFLoader()
@@ -2423,6 +2533,10 @@ watch(selectedItemId, () => {
 
 watch(editMode, () => {
   onEditModeChange()
+})
+
+watch(enableElementPicking, () => {
+  onElementPickingChange()
 })
 
 watch(transformMode, () => {
@@ -2930,12 +3044,27 @@ onBeforeUnmount(() => {
             <el-switch v-model="enableElementPicking" />
             <span class="label">点击高亮</span>
           </div>
-          <div class="control-row" :class="{ disabled: !enableElementPicking || !hasModel }">
-            <span class="label">已选</span>
-            <el-input :model-value="pickedElementText" readonly placeholder="未选择" />
-            <el-button size="small" :disabled="!enableElementPicking || !pickedElement" @click="clearPickedElement">
-              清除
-            </el-button>
+          <div v-if="pickedElement" class="picked-element-card" :class="{ disabled: !enableElementPicking || !hasModel }">
+            <div class="picked-element-card__head">
+              <span class="picked-element-card__label">已选构件</span>
+              <el-button
+                size="small"
+                :disabled="!enableElementPicking || !pickedElement"
+                @click="clearPickedElement"
+              >
+                清除
+              </el-button>
+            </div>
+            <div class="picked-element-card__title">
+              {{ pickedElementTitle }}
+            </div>
+          </div>
+          <div
+            v-else
+            class="picked-element-empty"
+            :class="{ disabled: !enableElementPicking || !hasModel }"
+          >
+            未选择构件
           </div>
         </div>
 
@@ -3275,6 +3404,59 @@ onBeforeUnmount(() => {
   width: 128px !important;
   :deep(.el-select__wrapper) {
   min-height: 25px !important;}
+}
+
+.picked-element-card,
+.picked-element-empty {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.picked-element-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.picked-element-card__label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.picked-element-card__title {
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.picked-element-card__meta {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.picked-element-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+}
+
+.picked-element-empty {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 13px;
 }
 
 .slider {
