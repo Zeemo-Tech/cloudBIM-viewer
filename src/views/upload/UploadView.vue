@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { SwitchButton, View } from '@element-plus/icons-vue'
 import {
   type AssetDetail,
   type AssetStatus,
   type AssetSummary,
+  deleteAsset,
   getAssetDetail,
   listAssets,
 } from '@/api/backend-file'
@@ -44,10 +45,14 @@ const pointCloudFile = ref<File | null>(null)
 const activeUploadKind = ref<UploadKind | null>(null)
 const cancelRequested = ref(false)
 const loadingAssets = ref(false)
+const alignmentDialogVisible = ref(false)
+const selectedAlignmentBimId = ref<number | null>(null)
+const selectedAlignmentPointcloudId = ref<number | null>(null)
 const refreshingState = reactive<Record<UploadKind, boolean>>({
   bim: false,
   pointcloud: false,
 })
+const deletingAssetIds = reactive<Record<number, boolean>>({})
 const assetCollections = reactive<Record<UploadKind, AssetSummary[]>>({
   bim: [],
   pointcloud: [],
@@ -63,6 +68,20 @@ const canPreviewPointcloud = computed(() => !!getPreviewTarget('pointcloud'))
 const canPreviewSplit = computed(() => canPreviewBim.value && canPreviewPointcloud.value)
 const bimUploadedFiles = computed(() => assetCollections.bim)
 const pointcloudUploadedFiles = computed(() => assetCollections.pointcloud)
+const alignmentBimOptions = computed(() =>
+  assetCollections.bim.map((asset) => ({
+    label: `${asset.sourceName} · ${getStatusText(asset.status)}`,
+    value: asset.id,
+    disabled: !isAssetReady(asset.status),
+  })),
+)
+const alignmentPointcloudOptions = computed(() =>
+  assetCollections.pointcloud.map((asset) => ({
+    label: `${asset.sourceName} · ${getStatusText(asset.status)}`,
+    value: asset.id,
+    disabled: !isAssetReady(asset.status),
+  })),
+)
 const userName = computed(() => props.session.username)
 
 function createInitialTaskState(): UploadTaskState {
@@ -145,6 +164,11 @@ function getLatestPreviewableAsset(type: UploadKind) {
   return assetCollections[type].find((asset) => asset.status === 'ready') || null
 }
 
+function getAssetById(kind: UploadKind, assetId: number | null) {
+  if (!assetId) return null
+  return assetCollections[kind].find((asset) => asset.id === assetId) || null
+}
+
 function getPreviewTarget(kind: UploadKind): AssetDetail | null {
   const currentResult = uploadTasks[kind].result
   if (isPreviewReady(currentResult)) {
@@ -169,21 +193,54 @@ function ensurePreviewSelection(kind: UploadKind) {
   return target
 }
 
-function syncTaskResultsWithCollections() {
-  ;(['bim', 'pointcloud'] as UploadKind[]).forEach((kind) => {
-    const currentResult = uploadTasks[kind].result
-    if (!currentResult) return
+function getLooseAssetSelection(kind: UploadKind): AssetDetail | null {
+  if (uploadTasks[kind].result) {
+    return uploadTasks[kind].result
+  }
 
-    const matchedAsset = assetCollections[kind].find((asset) => asset.id === currentResult.id)
-    if (!matchedAsset) {
-      resetTask(kind)
-      return
-    }
+  const firstAsset = assetCollections[kind][0]
+  return firstAsset ? buildAssetDetailFromSummary(firstAsset) : null
+}
 
+function getDefaultAlignmentAssetId(kind: UploadKind) {
+  const selectedAssetId = uploadTasks[kind].result?.id ?? null
+  const selectedAsset = getAssetById(kind, selectedAssetId)
+  if (selectedAsset && isAssetReady(selectedAsset.status)) {
+    return selectedAsset.id
+  }
+
+  return getLatestPreviewableAsset(kind)?.id ?? null
+}
+
+function syncTaskResultWithCollection(kind: UploadKind) {
+  const currentResult = uploadTasks[kind].result
+  if (!currentResult) return
+
+  const matchedAsset = assetCollections[kind].find((asset) => asset.id === currentResult.id)
+  if (matchedAsset) {
     uploadTasks[kind].result = {
       ...currentResult,
       ...buildAssetDetailFromSummary(matchedAsset),
     }
+    return
+  }
+
+  const fallbackAsset = assetCollections[kind][0]
+    ? buildAssetDetailFromSummary(assetCollections[kind][0])
+    : null
+  if (fallbackAsset) {
+    uploadTasks[kind].result = fallbackAsset
+    uploadTasks[kind].status = isPreviewReady(fallbackAsset) ? 'success' : 'idle'
+    uploadTasks[kind].errorMessage = ''
+    return
+  }
+
+  resetTask(kind)
+}
+
+function syncTaskResultsWithCollections() {
+  ;(['bim', 'pointcloud'] as UploadKind[]).forEach((kind) => {
+    syncTaskResultWithCollection(kind)
   })
 }
 
@@ -372,6 +429,70 @@ async function handlePreviewFromList(kind: UploadKind, asset: AssetSummary) {
   await openPreview(kind)
 }
 
+async function handleDeleteAsset(kind: UploadKind, asset: AssetSummary) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除资产“${asset.sourceName || `#${asset.id}`}”吗？删除后不可恢复。`,
+      '删除资产',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    )
+  } catch {
+    return
+  }
+
+  deletingAssetIds[asset.id] = true
+
+  try {
+    await deleteAsset(asset.id)
+    assetCollections[kind] = assetCollections[kind].filter((item) => item.id !== asset.id)
+    syncTaskResultWithCollection(kind)
+    ElMessage.success('资产已删除')
+  } catch (error) {
+    ElMessage({
+      type: 'error',
+      grouping: true,
+      message: error instanceof Error ? error.message : '删除资产失败',
+    })
+  } finally {
+    delete deletingAssetIds[asset.id]
+  }
+}
+
+function openAlignmentSelector() {
+  selectedAlignmentBimId.value = getDefaultAlignmentAssetId('bim')
+  selectedAlignmentPointcloudId.value = getDefaultAlignmentAssetId('pointcloud')
+
+  if (!selectedAlignmentBimId.value || !selectedAlignmentPointcloudId.value) {
+    ElMessage.warning('请先确保 BIM 和点云列表中至少各有一个可用文件')
+    return
+  }
+
+  alignmentDialogVisible.value = true
+}
+
+function confirmAlignmentSelection() {
+  const selectedBim = getAssetById('bim', selectedAlignmentBimId.value)
+  const selectedPointcloud = getAssetById('pointcloud', selectedAlignmentPointcloudId.value)
+
+  if (!selectedBim || !selectedPointcloud) {
+    ElMessage.warning('请选择 BIM 和点云文件')
+    return
+  }
+
+  if (!isAssetReady(selectedBim.status) || !isAssetReady(selectedPointcloud.status)) {
+    ElMessage.warning('请选择已就绪的 BIM 和点云文件')
+    return
+  }
+
+  alignmentDialogVisible.value = false
+  openPreviewPage(buildAlignmentUrl(selectedBim, selectedPointcloud))
+}
+
 function getTaskTitle(kind: UploadKind) {
   return kind === 'bim' ? 'BIM 模型' : '点云文件'
 }
@@ -421,6 +542,31 @@ function buildSplitPreviewUrl(bimAsset: AssetDetail, pointcloudAsset: AssetDetai
   url.searchParams.set('bimAssetId', String(bimAsset.id))
   url.searchParams.set('pointcloudAssetId', String(pointcloudAsset.id))
   url.searchParams.set('bimDisplayName', bimAsset.sourceName || 'BIM 模型')
+  return url.toString()
+}
+
+function buildLooseSplitPreviewUrl(
+  bimAsset: AssetDetail | null,
+  pointcloudAsset: AssetDetail | null,
+) {
+  const url = new URL(window.location.origin)
+  url.searchParams.set('view', 'split-preview')
+  if (bimAsset?.id) {
+    url.searchParams.set('bimAssetId', String(bimAsset.id))
+    url.searchParams.set('bimDisplayName', bimAsset.sourceName || 'BIM 模型')
+  }
+  if (pointcloudAsset?.id) {
+    url.searchParams.set('pointcloudAssetId', String(pointcloudAsset.id))
+  }
+  return url.toString()
+}
+
+function buildAlignmentUrl(bimAsset: AssetDetail, pointcloudAsset: AssetDetail) {
+  const url = new URL('/alignment/model', window.location.origin)
+  url.searchParams.set('bimAssetId', String(bimAsset.id))
+  url.searchParams.set('pointcloudAssetId', String(pointcloudAsset.id))
+  url.searchParams.set('bimDisplayName', bimAsset.sourceName || 'BIM 模型')
+  url.searchParams.set('pointcloudDisplayName', pointcloudAsset.sourceName || '点云场景')
   return url.toString()
 }
 
@@ -479,34 +625,33 @@ async function openPreview(mode: PreviewMode) {
   }
 
   if (mode === 'split') {
-    const selectedPointcloud = ensurePreviewSelection('pointcloud')
-    const selectedBim = ensurePreviewSelection('bim')
-    if (!selectedPointcloud || !selectedBim) {
-      ElMessage.warning('请先确保 BIM 文件和点云文件列表中都有可预览文件')
-      return
-    }
+    const selectedPointcloud = ensurePreviewSelection('pointcloud') || getLooseAssetSelection('pointcloud')
+    const selectedBim = ensurePreviewSelection('bim') || getLooseAssetSelection('bim')
 
     const [nextPointcloud, nextBim] = await Promise.all([
-      refreshUploadedFile('pointcloud', true),
-      refreshUploadedFile('bim', true),
+      selectedPointcloud ? refreshUploadedFile('pointcloud', true) : Promise.resolve(null),
+      selectedBim ? refreshUploadedFile('bim', true) : Promise.resolve(null),
     ])
 
     const pointcloudReady = isPreviewReady(nextPointcloud || selectedPointcloud)
     const bimReady = isPreviewReady(nextBim || selectedBim)
 
-    if (!pointcloudReady || !bimReady) {
-      ElMessage.info('当前仍有文件处理中，请点击刷新状态后重试')
+    if (pointcloudReady && bimReady && selectedPointcloud && selectedBim) {
+      const previewUrl = buildSplitPreviewUrl(
+        nextBim || selectedBim,
+        nextPointcloud || selectedPointcloud,
+      )
+      openPreviewPage(previewUrl)
       return
     }
 
-    const previewUrl = buildSplitPreviewUrl(
-      nextBim || selectedBim,
-      nextPointcloud || selectedPointcloud,
+    openPreviewPage(
+      buildLooseSplitPreviewUrl(nextBim || selectedBim, nextPointcloud || selectedPointcloud),
     )
-    openPreviewPage(previewUrl)
     return
   }
 }
+
 </script>
 
 <template>
@@ -515,21 +660,19 @@ async function openPreview(mode: PreviewMode) {
       <header class="page-header card-surface">
         <div class="header-copy">
           <p class="eyebrow">CloudBIM Viewer</p>
-          <h1>文件上传与预览</h1>
-          <p class="summary">
-            当前已切换为真实后端：登录使用 JWT，上传使用 TUS，资产状态从后端实时拉取。
-          </p>
-          <p class="account-line">当前登录账号：{{ userName }}</p>
+          <h2>文件上传与预览</h2>
         </div>
 
         <div class="header-actions">
           <el-button
             type="primary"
             :icon="View"
-            :disabled="!canPreviewSplit"
             @click="openPreview('split')"
           >
             二分屏预览
+          </el-button>
+          <el-button plain @click="openAlignmentSelector">
+            校准页面
           </el-button>
           <el-button plain :icon="SwitchButton" @click="$emit('logout')">
             退出登录
@@ -540,10 +683,6 @@ async function openPreview(mode: PreviewMode) {
       <section class="upload-grid">
         <UploadDropCard v-model:file="pointCloudFile" :config="POINT_CLOUD_UPLOAD_CONFIG">
           <template #actions>
-            <div class="task-summary">
-              <strong>{{ getTaskTitle('pointcloud') }}</strong>
-              <span>{{ getTaskMeta('pointcloud') }}</span>
-            </div>
 
             <el-progress
               v-if="uploadTasks.pointcloud.status !== 'idle'"
@@ -593,10 +732,6 @@ async function openPreview(mode: PreviewMode) {
 
         <UploadDropCard v-model:file="bimFile" :config="BIM_UPLOAD_CONFIG">
           <template #actions>
-            <div class="task-summary">
-              <strong>{{ getTaskTitle('bim') }}</strong>
-              <span>{{ getTaskMeta('bim') }}</span>
-            </div>
 
             <el-progress
               v-if="uploadTasks.bim.status !== 'idle'"
@@ -642,7 +777,6 @@ async function openPreview(mode: PreviewMode) {
         <div class="library-head">
           <div>
             <h2>资产列表</h2>
-            <p>后端通过 `GET /assets` 返回 BIM 与点云资产，列表按创建时间倒序展示。</p>
           </div>
           <el-button plain :loading="loadingAssets" @click="loadAssets()">
             刷新列表
@@ -682,6 +816,15 @@ async function openPreview(mode: PreviewMode) {
                     <el-button plain size="small" @click="handlePreviewFromList('bim', asset)">
                       预览
                     </el-button>
+                    <el-button
+                      plain
+                      size="small"
+                      type="danger"
+                      :loading="!!deletingAssetIds[asset.id]"
+                      @click="handleDeleteAsset('bim', asset)"
+                    >
+                      删除
+                    </el-button>
                   </div>
                 </div>
               </article>
@@ -720,6 +863,15 @@ async function openPreview(mode: PreviewMode) {
                     <el-button plain size="small" @click="handlePreviewFromList('pointcloud', asset)">
                       预览
                     </el-button>
+                    <el-button
+                      plain
+                      size="small"
+                      type="danger"
+                      :loading="!!deletingAssetIds[asset.id]"
+                      @click="handleDeleteAsset('pointcloud', asset)"
+                    >
+                      删除
+                    </el-button>
                   </div>
                 </div>
               </article>
@@ -727,6 +879,58 @@ async function openPreview(mode: PreviewMode) {
           </div>
         </div>
       </section>
+
+      <el-dialog
+        v-model="alignmentDialogVisible"
+        title="选择校准文件"
+        width="520px"
+        destroy-on-close
+      >
+        <div class="alignment-dialog-body">
+          <div class="alignment-field">
+            <span class="alignment-field__label">BIM 文件</span>
+            <el-select
+              v-model="selectedAlignmentBimId"
+              placeholder="请选择 BIM 文件"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="option in alignmentBimOptions"
+                :key="`alignment-bim-${option.value}`"
+                :label="option.label"
+                :value="option.value"
+                :disabled="option.disabled"
+              />
+            </el-select>
+          </div>
+
+          <div class="alignment-field">
+            <span class="alignment-field__label">点云文件</span>
+            <el-select
+              v-model="selectedAlignmentPointcloudId"
+              placeholder="请选择点云文件"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="option in alignmentPointcloudOptions"
+                :key="`alignment-pointcloud-${option.value}`"
+                :label="option.label"
+                :value="option.value"
+                :disabled="option.disabled"
+              />
+            </el-select>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="alignment-dialog-footer">
+            <el-button @click="alignmentDialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="confirmAlignmentSelection">
+              打开校准页面
+            </el-button>
+          </div>
+        </template>
+      </el-dialog>
 
     </div>
   </section>
@@ -755,7 +959,7 @@ async function openPreview(mode: PreviewMode) {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 28px 32px;
+  padding: 28px 32px 10px;
   border-radius: 24px;
 }
 
@@ -766,14 +970,6 @@ async function openPreview(mode: PreviewMode) {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #3b82f6;
-}
-
-.header-copy h1 {
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 2.7rem);
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-  color: #0f172a;
 }
 
 .summary {
@@ -823,6 +1019,30 @@ async function openPreview(mode: PreviewMode) {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.alignment-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.alignment-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alignment-field__label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.alignment-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .file-library {

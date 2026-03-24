@@ -133,7 +133,6 @@ function handleRemoveFile() {
       </div>
       <div class="head-copy">
         <h3>{{ config.title }}</h3>
-        <p>{{ config.subtitle }}</p>
       </div>
     </div>
 
@@ -189,7 +188,6 @@ function handleRemoveFile() {
             </el-icon>
           </div>
           <strong>{{ config.placeholder }}</strong>
-          <p>{{ config.description }}</p>
           <div class="chips">
             <span class="chip">
               <el-icon><Document /></el-icon>

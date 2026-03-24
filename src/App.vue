@@ -7,6 +7,7 @@ import {
   validateStoredSession,
 } from '@/features/auth/auth.service'
 import LoginView from '@/views/login/LoginView.vue'
+import BimPointcloudAlignView from '@/views/alignment/BimPointcloudAlignView.vue'
 import AssetPreviewView from '@/views/preview/AssetPreviewView.vue'
 import SplitPreviewView from '@/views/preview/SplitPreviewView.vue'
 import UploadView from '@/views/upload/UploadView.vue'
@@ -24,6 +25,7 @@ function readRouteState() {
   }
 
   return {
+    path: url.pathname,
     view: search.get('view'),
     previewType: search.get('previewType'),
     assetId: parseNumber(search.get('assetId')),
@@ -33,6 +35,8 @@ function readRouteState() {
     ),
     displayName:
       search.get('displayName') || search.get('bimDisplayName') || undefined,
+    pointcloudDisplayName:
+      search.get('pointcloudDisplayName') || search.get('scanDisplayName') || undefined,
   }
 }
 
@@ -42,6 +46,10 @@ const routeKey = computed(() => currentUrl.value)
 const currentView = computed(() => {
   if (!session.value) {
     return 'login'
+  }
+
+  if (routeState.value.path.startsWith('/alignment')) {
+    return 'alignment'
   }
 
   if (routeState.value.view === 'asset-preview') {
@@ -110,5 +118,14 @@ onBeforeUnmount(() => {
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
     :bim-display-name="routeState.displayName"
+  />
+
+  <BimPointcloudAlignView
+    v-else-if="session && currentView === 'alignment'"
+    :key="routeKey"
+    :bim-asset-id="routeState.bimAssetId"
+    :pointcloud-asset-id="routeState.pointcloudAssetId"
+    :bim-display-name="routeState.displayName"
+    :pointcloud-display-name="routeState.pointcloudDisplayName"
   />
 </template>

@@ -137,6 +137,12 @@ export function getAssetDetail(assetId: number) {
   })
 }
 
+export function deleteAsset(assetId: number) {
+  return backendRequest<BackendResult<null>>(`/assets/${assetId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function getUploadStatus(uploadId: string) {
   return backendRequest<BackendResult<UploadStatus>>(`/uploads/${uploadId}`, {
     method: 'GET',

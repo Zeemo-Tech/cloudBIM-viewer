@@ -6,7 +6,7 @@ import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.
 
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 
-const DEFAULT_POINT_COLOR = '#f8fafc'
+const DEFAULT_POINT_COLOR = '#86898D'
 
 const props = defineProps<{
   previewType: 'bim' | 'pointcloud'
@@ -40,7 +40,7 @@ const pointColorPresets = [
   { label: '青色', value: '#67e8f9' },
   { label: '橙色', value: '#fb923c' },
   { label: '绿色', value: '#4ade80' },
-  { label: '灰色', value: '#cbd5e1' },
+  { label: '灰色', value: '#86898D' },
 ]
 
 const backgroundOptions: Array<{ label: string; value: PreviewBackgroundTheme }> = [

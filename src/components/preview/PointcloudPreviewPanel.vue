@@ -41,7 +41,7 @@ const emit = defineEmits<{
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('等待加载点云')
 const loaded = ref(false)
-const pointColor = ref('#f8fafc')
+const pointColor = ref('#86898D')
 const pointSizeScale = ref(1)
 
 const defaultBgColor = '#0b1020'
