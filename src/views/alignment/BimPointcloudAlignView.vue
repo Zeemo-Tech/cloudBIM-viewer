@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft,
@@ -26,6 +26,9 @@ import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import {
   createBimAlignment,
+  getBimAlignment,
+  getScanCalibration,
+  type BimAlignmentResult,
 } from '@/api/backend-alignment'
 import {
   getAssetDetail,
@@ -181,6 +184,7 @@ let clippingGroup: ClippingGroup | null = null
 let gridHelper: THREE.GridHelper | null = null
 let axesHelper: THREE.AxesHelper | null = null
 let transformControls: ViewerTransformControls | null = null
+let transformHelper: THREE.Object3D | null = null
 let selectionHelper: THREE.BoxHelper | null = null
 let pickedElementHelper: THREE.BoxHelper | null = null
 let bimPivot: THREE.Group | null = null
@@ -193,6 +197,9 @@ let clippingPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)
 let orthoViewSize = 10
 let bimLoadToken = 0
 let pointcloudLoadToken = 0
+let pointcloudRootReady = false
+let loggedSavedAlignmentKey = ''
+let restoredSavedAlignmentKey = ''
 let raycaster: THREE.Raycaster | null = null
 let pointcloudMaxDim = 1
 let rendererMode: 'webgpu' | 'webgl' | null = null
@@ -219,11 +226,27 @@ function isOrthographicCamera(
 }
 
 function closePage() {
+  console.info('[BimPointcloudAlign] closePage start', {
+    hasOpener: !!window.opener,
+    historyLength: window.history.length,
+    href: window.location.href,
+  })
+
   if (window.opener) {
     window.close()
+    window.setTimeout(() => {
+      console.warn('[BimPointcloudAlign] window.close attempted', {
+        hasOpener: !!window.opener,
+        closed: window.closed,
+        href: window.location.href,
+      })
+    }, 150)
     return
   }
 
+  console.info('[BimPointcloudAlign] closePage fallback redirect', {
+    target: window.location.origin,
+  })
   window.location.href = window.location.origin
 }
 
@@ -237,6 +260,36 @@ function parseColor(value: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+function vectorToPlainObject(vector: THREE.Vector3) {
+  return {
+    x: vector.x,
+    y: vector.y,
+    z: vector.z,
+  }
+}
+
+function quaternionToPlainObject(quaternion: THREE.Quaternion) {
+  return {
+    x: quaternion.x,
+    y: quaternion.y,
+    z: quaternion.z,
+    w: quaternion.w,
+  }
+}
+
+function findFirstRenderableDescendant(root: THREE.Object3D | null): THREE.Object3D | null {
+  if (!root) return null
+
+  let found: THREE.Object3D | null = null
+  root.traverse((obj) => {
+    if (found) return
+    if ((obj as any)?.isMesh || (obj as any)?.isPoints || (obj as any)?.isBatchedMesh) {
+      found = obj
+    }
+  })
+  return found
 }
 
 function ensureTrailingSlash(value: string) {
@@ -792,7 +845,9 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
 
   if (scene && renderer) {
     if (transformControls) {
-      scene.remove(transformControls.getHelper() as unknown as THREE.Object3D)
+      if (transformHelper) {
+        scene.remove(transformHelper)
+      }
       transformControls.dispose()
     }
 
@@ -802,24 +857,44 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
     ) as ViewerTransformControls
     transformControls.visible = false
     transformControls.enabled = false
+    transformControls.setSize?.(1.5)
+    transformControls.setSpace?.('world')
     transformControls.setMode(transformMode.value)
+    transformHelper = transformControls.getHelper() as unknown as THREE.Object3D
+    transformHelper.visible = false
+    transformHelper.frustumCulled = false
+    transformHelper.traverse?.((obj: any) => {
+      obj.frustumCulled = false
+      if (!obj.material) return
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach((item: any) => {
+          if (item) item.depthTest = false
+        })
+        return
+      }
+      obj.material.depthTest = false
+    })
     transformControls.addEventListener('dragging-changed', (event: any) => {
+      const dragging = !!event?.value
       if (controls) {
-        controls.enabled = !event.value
+        controls.enabled = !dragging
       }
 
-      if (!event.value) {
-        syncAllTransformFixValuesFromSelected()
+      if (!dragging) {
+        syncTransformFixFromSelected()
+      }
+
+      if (!dragging && enableClipping.value) {
+        updateClipRangeFromContent({ preserveT: true })
+        applyClippingState()
       }
     })
-    transformControls.addEventListener('objectChange', () => {
-      syncAllTransformFixValuesFromSelected()
+    transformControls.addEventListener('change', () => {
+      syncTransformFixFromSelected()
       syncBoundsHelpers()
-      scheduleClipRangeUpdate()
-      applyClippingState()
       requestRender()
     })
-    scene.add(transformControls.getHelper() as unknown as THREE.Object3D)
+    scene.add(transformHelper)
   }
 }
 
@@ -837,10 +912,10 @@ async function initScene() {
     const width = viewportEl.value.clientWidth || 1
     const height = viewportEl.value.clientHeight || 1
 
-    perspectiveCamera = new THREE.PerspectiveCamera(55, width / height, 0.1, 100000)
-    perspectiveCamera.position.set(0, 14, 24)
+    perspectiveCamera = new THREE.PerspectiveCamera(50, width / height, 0.01, 5000)
+    perspectiveCamera.position.set(0, 1.5, 4)
 
-    orthographicCamera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100000)
+    orthographicCamera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.01, 5000)
     orthographicCamera.position.copy(perspectiveCamera.position)
 
     activeCamera = perspectiveCamera
@@ -981,6 +1056,34 @@ function fitCameraToContent() {
   const box = getVisibleContentBox()
   if (!box) return
   fitCameraToBox(box)
+}
+
+function fitCameraToObject(object: THREE.Object3D | null) {
+  if (!object || !activeCamera || !controls) return
+
+  const box = new THREE.Box3().setFromObject(object)
+  const size = box.getSize(new THREE.Vector3())
+  const maxDim = Math.max(size.x, size.y, size.z, 1)
+
+  controls.target.set(0, 0, 0)
+
+  if (isOrthographicCamera(activeCamera)) {
+    orthoViewSize = maxDim * 0.5 * 1.2
+    updateOrthographicFrustum()
+    activeCamera.position.set(0, maxDim * 0.15, maxDim * 2.2)
+    activeCamera.near = Math.max(0.01, maxDim / 100)
+    activeCamera.far = Math.max(5000, maxDim * 200)
+    activeCamera.updateProjectionMatrix()
+  } else {
+    const fov = THREE.MathUtils.degToRad(activeCamera.fov)
+    const distance = maxDim / 2 / Math.tan(fov / 2)
+    activeCamera.position.set(0, maxDim * 0.15, distance * 2.2)
+    activeCamera.near = Math.max(0.01, distance / 100)
+    activeCamera.far = Math.max(5000, distance * 100)
+    activeCamera.updateProjectionMatrix()
+  }
+
+  controls.update()
 }
 
 function fitCameraToRadius(
@@ -1541,13 +1644,45 @@ function onClippingParamsChange() {
   applyClippingState()
 }
 
-function ensureTransformState(obj: THREE.Object3D | null) {
-  if (!obj) return
+function ensureOrientationBase(obj: THREE.Object3D | null) {
+  if (!obj?.quaternion) return null
+  obj.userData = obj.userData ?? {}
+  if (!obj.userData.__orientationBaseQuat) {
+    obj.userData.__orientationBaseQuat = obj.quaternion.clone()
+  }
+  return obj.userData.__orientationBaseQuat as THREE.Quaternion
+}
 
-  obj.userData.__initialPosition = obj.userData.__initialPosition || obj.position.clone()
-  obj.userData.__initialQuaternion = obj.userData.__initialQuaternion || obj.quaternion.clone()
-  obj.userData.__basePosition = obj.userData.__basePosition || obj.position.clone()
-  obj.userData.__baseQuaternion = obj.userData.__baseQuaternion || obj.quaternion.clone()
+function ensurePositionBase(obj: THREE.Object3D | null) {
+  if (!obj?.position) return null
+  obj.userData = obj.userData ?? {}
+  if (!obj.userData.__positionBaseVec3) {
+    obj.userData.__positionBaseVec3 = obj.position.clone()
+  }
+  return obj.userData.__positionBaseVec3 as THREE.Vector3
+}
+
+function ensureInitialOrientation(obj: THREE.Object3D | null) {
+  if (!obj?.quaternion) return null
+  obj.userData = obj.userData ?? {}
+  if (!obj.userData.__initialOrientationQuat) {
+    obj.userData.__initialOrientationQuat = obj.quaternion.clone()
+  }
+  return obj.userData.__initialOrientationQuat as THREE.Quaternion
+}
+
+function ensureInitialPosition(obj: THREE.Object3D | null) {
+  if (!obj?.position) return null
+  obj.userData = obj.userData ?? {}
+  if (!obj.userData.__initialPositionVec3) {
+    obj.userData.__initialPositionVec3 = obj.position.clone()
+  }
+  return obj.userData.__initialPositionVec3 as THREE.Vector3
+}
+
+function ensureInitialTransformState(obj: THREE.Object3D | null) {
+  ensureInitialOrientation(obj)
+  ensureInitialPosition(obj)
 }
 
 function getSelectedObject() {
@@ -1710,24 +1845,37 @@ function syncOrientationFixFromSelected() {
   const target = getSelectedObject()
   if (!target) return
 
-  ensureTransformState(target)
-  const base = target.userData.__baseQuaternion as THREE.Quaternion
+  const base = ensureOrientationBase(target)
+  if (!base) return
   const offsetQuat = target.quaternion.clone().multiply(base.clone().invert())
-  const offsetEuler = new THREE.Euler().setFromQuaternion(offsetQuat, 'YXZ')
+  if (transformMode.value === 'rotate') {
+    const offsetEuler = new THREE.Euler().setFromQuaternion(offsetQuat, 'YXZ')
+    orientationDegX.value = 0
+    orientationDegY.value = roundToStep(
+      normalizeDegrees(THREE.MathUtils.radToDeg(offsetEuler.y)),
+    )
+    orientationDegZ.value = 0
+    return
+  }
 
-  orientationDegX.value = 0
+  const offsetEuler = new THREE.Euler().setFromQuaternion(offsetQuat, 'XYZ')
+  orientationDegX.value = roundToStep(
+    normalizeDegrees(THREE.MathUtils.radToDeg(offsetEuler.x)),
+  )
   orientationDegY.value = roundToStep(
     normalizeDegrees(THREE.MathUtils.radToDeg(offsetEuler.y)),
   )
-  orientationDegZ.value = 0
+  orientationDegZ.value = roundToStep(
+    normalizeDegrees(THREE.MathUtils.radToDeg(offsetEuler.z)),
+  )
 }
 
 function syncPositionFixFromSelected() {
   const target = getSelectedObject()
   if (!target) return
 
-  ensureTransformState(target)
-  const base = target.userData.__basePosition as THREE.Vector3
+  const base = ensurePositionBase(target)
+  if (!base) return
   const offset = target.position.clone().sub(base)
   positionOffsetX.value = roundToStep(offset.x)
   positionOffsetY.value = roundToStep(offset.z)
@@ -1748,34 +1896,24 @@ function syncAllTransformFixValuesFromSelected() {
   syncPositionFixFromSelected()
 }
 
-function refreshSelectedTransformUi(rebaseBase = true) {
+function applyTransformSelection() {
   const target = getSelectedObject()
-  if (!target) {
-    if (transformControls) {
+  if (transformControls) {
+    if (!editMode.value || !selectedItemId.value || !target) {
       transformControls.detach()
       transformControls.visible = false
       transformControls.enabled = false
+      if (transformHelper) transformHelper.visible = false
+      requestRender()
+      return
     }
-    updateSelectionHighlight()
-    return
-  }
 
-  syncTransformModeForSelection()
-  ensureTransformState(target)
-  target.matrixAutoUpdate = true
-  target.updateMatrixWorld(true)
-  updateSelectionHighlight()
-  resetOrientationFix()
-  resetPositionFix()
+    target.matrixAutoUpdate = true
+    target.updateMatrixWorld(true)
+    ensureInitialTransformState(target)
+    syncTransformModeForSelection()
 
-  if (rebaseBase) {
-    target.userData.__basePosition = target.position.clone()
-    target.userData.__baseQuaternion = target.quaternion.clone()
-  } else {
-    syncAllTransformFixValuesFromSelected()
-  }
-
-  if (transformControls) {
+    transformControls.setSpace?.('world')
     transformControls.setMode(transformMode.value)
 
     if (selectedItemIsPointcloud.value) {
@@ -1785,6 +1923,12 @@ function refreshSelectedTransformUi(rebaseBase = true) {
       transformControls.detach()
       transformControls.visible = false
       transformControls.enabled = false
+      if (transformHelper) transformHelper.visible = false
+      resetOrientationFix()
+      ensureOrientationBase(target)
+      resetPositionFix()
+      ensurePositionBase(target)
+      requestRender()
       return
     }
 
@@ -1799,9 +1943,44 @@ function refreshSelectedTransformUi(rebaseBase = true) {
     }
 
     transformControls.attach(target)
-    transformControls.visible = editMode.value
-    transformControls.enabled = editMode.value
+    transformControls.visible = true
+    transformControls.enabled = true
+    if (transformHelper) {
+      transformHelper.visible = true
+      transformHelper.updateMatrixWorld?.(true)
+    }
+    resetOrientationFix()
+    ensureOrientationBase(target)
+    resetPositionFix()
+    ensurePositionBase(target)
+    requestRender()
   }
+
+  updateSelectionHighlight()
+}
+
+function refreshSelectedTransformUi(rebaseBase = true) {
+  syncTransformModeForSelection()
+  applyTransformSelection()
+  syncBoundsHelpers()
+  resetOrientationFix()
+  resetPositionFix()
+
+  const target = getSelectedObject()
+  ensureInitialTransformState(target)
+  if (rebaseBase) {
+    if (target?.quaternion) {
+      target.userData = target.userData ?? {}
+      target.userData.__orientationBaseQuat = target.quaternion.clone()
+    }
+    if (target?.position) {
+      target.userData = target.userData ?? {}
+      target.userData.__positionBaseVec3 = target.position.clone()
+    }
+    return
+  }
+
+  syncAllTransformFixValuesFromSelected()
 }
 
 function setTransformMode(mode: TransformMode) {
@@ -1838,6 +2017,7 @@ function onEditModeChange() {
   }
 
   refreshSelectedTransformUi(false)
+  logBimRelativeTransform()
 }
 
 function onElementPickingChange() {
@@ -1949,15 +2129,18 @@ function applyPositionFixRealtime() {
     return
   }
 
-  ensureTransformState(target)
-  const base = target.userData.__basePosition as THREE.Vector3
-  target.position.set(
-    base.x + positionOffsetX.value,
-    base.y + positionOffsetZ.value,
-    base.z + positionOffsetY.value,
+  const base = ensurePositionBase(target)
+  if (!base) return
+
+  target.position.copy(base).add(
+    new THREE.Vector3(
+      positionOffsetX.value,
+      positionOffsetZ.value,
+      positionOffsetY.value,
+    ),
   )
   target.updateMatrixWorld(true)
-  syncAllTransformFixValuesFromSelected()
+  transformHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   requestRender()
 }
@@ -1966,17 +2149,15 @@ function applyOrientationFixRealtime() {
   const target = getSelectedObject()
   if (!target) return
 
-  ensureTransformState(target)
-  const base = target.userData.__baseQuaternion as THREE.Quaternion
+  const base = ensureOrientationBase(target)
+  if (!base) return
   const delta = new THREE.Quaternion().setFromAxisAngle(
     new THREE.Vector3(0, 1, 0),
     THREE.MathUtils.degToRad(orientationDegY.value),
   )
-  orientationDegX.value = 0
-  orientationDegZ.value = 0
   target.quaternion.copy(delta).multiply(base)
   target.updateMatrixWorld(true)
-  syncAllTransformFixValuesFromSelected()
+  transformHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   requestRender()
 }
@@ -1985,10 +2166,43 @@ function resetCurrentObjectTransform() {
   const target = getSelectedObject()
   if (!target) return
 
-  ensureTransformState(target)
-  target.position.copy(target.userData.__initialPosition as THREE.Vector3)
-  target.quaternion.copy(target.userData.__initialQuaternion as THREE.Quaternion)
-  refreshSelectedTransformUi(true)
+  target.userData = target.userData ?? {}
+  const currentPosition = target.position?.clone() ?? null
+  const currentQuaternion = target.quaternion?.clone() ?? null
+
+  const initialQuat = ensureInitialOrientation(target)
+  if (initialQuat) {
+    target.quaternion.copy(initialQuat)
+    target.userData.__orientationBaseQuat = initialQuat.clone()
+  }
+
+  const initialPos = ensureInitialPosition(target)
+  if (initialPos) {
+    target.position.copy(initialPos)
+    target.userData.__positionBaseVec3 = initialPos.clone()
+  }
+
+  console.info('[BimPointcloudAlign] resetCurrentObjectTransform', {
+    selectedItemId: selectedItemId.value,
+    currentPosition: currentPosition ? vectorToPlainObject(currentPosition) : null,
+    currentQuaternion: currentQuaternion ? quaternionToPlainObject(currentQuaternion) : null,
+    initialPosition: initialPos ? vectorToPlainObject(initialPos.clone()) : null,
+    initialQuaternion: initialQuat ? quaternionToPlainObject(initialQuat.clone()) : null,
+    basePosition: target.userData.__positionBaseVec3
+      ? vectorToPlainObject((target.userData.__positionBaseVec3 as THREE.Vector3).clone())
+      : null,
+    baseQuaternion: target.userData.__orientationBaseQuat
+      ? quaternionToPlainObject((target.userData.__orientationBaseQuat as THREE.Quaternion).clone())
+      : null,
+  })
+
+  resetOrientationFix()
+  resetPositionFix()
+  target.updateMatrixWorld(true)
+  transformHelper?.updateMatrixWorld?.(true)
+  syncBoundsHelpers()
+  logBimRelativeTransform()
+  requestRender()
 }
 
 function focusSelected() {
@@ -2089,13 +2303,90 @@ function recenterLoadedContentAsWhole() {
   contentGroup.updateMatrixWorld(true)
 }
 
+function recordNormalizationOffset(
+  target: THREE.Object3D | null,
+  center: THREE.Vector3 | null,
+  mode: 'self' | 'child',
+) {
+  if (!target || !center) return
+
+  target.userData = target.userData ?? {}
+  target.userData.__viewerNormalizationCenter = center.clone()
+  target.userData.__viewerNormalizationTranslation = center.clone().multiplyScalar(-1)
+  target.userData.__viewerNormalizationMode = mode
+}
+
+function flattenStaticMeshesToRoot(root: THREE.Object3D) {
+  root.updateMatrixWorld(true)
+
+  const rootInverse = new THREE.Matrix4().copy(root.matrixWorld).invert()
+  const meshes: THREE.Mesh[] = []
+
+  root.traverse((obj: any) => {
+    if (!obj?.isMesh) return
+    if (obj === root) return
+    if (obj?.isSkinnedMesh) return
+    if (obj?.isInstancedMesh) return
+    if (!obj?.geometry?.isBufferGeometry) return
+    meshes.push(obj as THREE.Mesh)
+  })
+
+  let flattenedCount = 0
+
+  meshes.forEach((mesh) => {
+    const bakedMatrix = new THREE.Matrix4().multiplyMatrices(
+      rootInverse,
+      mesh.matrixWorld,
+    )
+    const nextGeometry = mesh.geometry.clone()
+    nextGeometry.applyMatrix4(bakedMatrix)
+    nextGeometry.computeBoundingBox?.()
+    nextGeometry.computeBoundingSphere?.()
+
+    const parent = mesh.parent
+    if (parent && parent !== root) {
+      parent.remove(mesh)
+      root.add(mesh)
+    }
+
+    mesh.geometry.dispose?.()
+    mesh.geometry = nextGeometry
+    mesh.position.set(0, 0, 0)
+    mesh.quaternion.identity()
+    mesh.scale.set(1, 1, 1)
+    mesh.updateMatrix()
+    mesh.updateMatrixWorld(true)
+    flattenedCount += 1
+  })
+
+  root.updateMatrixWorld(true)
+
+  console.info('[BimPointcloudAlign] flattenStaticMeshesToRoot', {
+    flattenedCount,
+  })
+}
+
+function createCenteredPivot(root: THREE.Object3D) {
+  const box = new THREE.Box3().setFromObject(root)
+  const center = box.getCenter(new THREE.Vector3())
+  const pivot = new THREE.Group()
+
+  root.position.sub(center)
+  recordNormalizationOffset(pivot, center, 'child')
+  pivot.add(root)
+  pivot.updateMatrixWorld(true)
+
+  return pivot
+}
+
 function getRawMatrixWorldForCalibration(obj: THREE.Object3D | null) {
   const matrix = new THREE.Matrix4().copy(obj?.matrixWorld ?? new THREE.Matrix4())
-  const center =
-    (obj?.userData?.__viewerNormalizationCenter as THREE.Vector3 | undefined) ||
-    (obj?.userData?.__normalizationCenter as THREE.Vector3 | undefined)
+  const center = obj?.userData?.__viewerNormalizationCenter as
+    | THREE.Vector3
+    | undefined
+  const mode = obj?.userData?.__viewerNormalizationMode as 'self' | 'child' | undefined
 
-  if (!center) {
+  if (!center || mode !== 'child') {
     return matrix
   }
 
@@ -2108,6 +2399,337 @@ function getRawMatrixWorldForCalibration(obj: THREE.Object3D | null) {
   )
 
   return matrix
+}
+
+function logBimRelativeTransform() {
+  if (!bimPivot || !pointcloudGroup) {
+    return
+  }
+
+  contentGroup?.updateMatrixWorld(true)
+  bimPivot.updateMatrixWorld(true)
+  pointcloudWrapper?.updateMatrixWorld(true)
+  pointcloudGroup.updateMatrixWorld(true)
+
+  const relativeMatrix = new THREE.Matrix4()
+    .copy(getRawMatrixWorldForCalibration(pointcloudGroup))
+    .invert()
+    .multiply(getRawMatrixWorldForCalibration(bimPivot))
+
+  const position = new THREE.Vector3()
+  const quaternion = new THREE.Quaternion()
+  relativeMatrix.decompose(position, quaternion, new THREE.Vector3())
+
+  console.info('[BimPointcloudAlign] BIM相对点云变换', {
+    bimRelativePositionToPointcloud: vectorToPlainObject(position),
+    bimRelativeQuaternionToPointcloud: quaternionToPlainObject(quaternion),
+  })
+}
+
+function matrixToPlainArray(matrix: THREE.Matrix4) {
+  return matrix.toArray().map((value) => Number(value))
+}
+
+function logCalibrationDiagnostics() {
+  if (!bimPivot || !pointcloudWrapper || !pointcloudGroup) {
+    return
+  }
+
+  contentGroup?.updateMatrixWorld(true)
+  bimPivot.updateMatrixWorld(true)
+  pointcloudWrapper.updateMatrixWorld(true)
+  pointcloudGroup.updateMatrixWorld(true)
+
+  const bimRawMatrixWorld = getRawMatrixWorldForCalibration(bimPivot)
+  const pointcloudRawMatrixWorld = getRawMatrixWorldForCalibration(pointcloudGroup)
+  const relativeRaw = new THREE.Matrix4()
+    .copy(bimRawMatrixWorld)
+    .invert()
+    .multiply(pointcloudRawMatrixWorld)
+
+  const relativeRigid = new THREE.Matrix4()
+  const relativePosition = new THREE.Vector3()
+  const relativeQuaternion = new THREE.Quaternion()
+  relativeRaw.decompose(relativePosition, relativeQuaternion, new THREE.Vector3())
+  relativeRigid.compose(
+    relativePosition,
+    relativeQuaternion,
+    new THREE.Vector3(1, 1, 1),
+  )
+
+  const p0 = new THREE.Vector3(0, 0, 0).applyMatrix4(relativeRigid)
+  const p1 = new THREE.Vector3(1, 0, 0).applyMatrix4(relativeRigid)
+  const p2 = new THREE.Vector3(0, 1, 0).applyMatrix4(relativeRigid)
+  const basisX = p1.clone().sub(p0)
+  const basisY = p2.clone().sub(p0)
+
+  console.info('[BimPointcloudAlign] calibration diagnostics', {
+    bimPivotPosition: vectorToPlainObject(bimPivot.position.clone()),
+    bimPivotQuaternion: quaternionToPlainObject(bimPivot.quaternion.clone()),
+    bimRawMatrixWorld: matrixToPlainArray(bimRawMatrixWorld),
+    pointcloudRawMatrixWorld: matrixToPlainArray(pointcloudRawMatrixWorld),
+    relativeMatrixScanToBim: matrixToPlainArray(relativeRigid),
+    basisFromScanXToBim: vectorToPlainObject(basisX),
+    basisFromScanYToBim: vectorToPlainObject(basisY),
+    samplePoints: {
+      p0: vectorToPlainObject(p0),
+      p1: vectorToPlainObject(p1),
+      p2: vectorToPlainObject(p2),
+    },
+  })
+}
+
+function logScenePoseDiagnostics(stage: string) {
+  const cameraPosition =
+    activeCamera?.position ? vectorToPlainObject(activeCamera.position.clone()) : null
+  const cameraQuaternion =
+    activeCamera?.quaternion
+      ? quaternionToPlainObject(activeCamera.quaternion.clone())
+      : null
+  const controlTarget = controls?.target ? vectorToPlainObject(controls.target.clone()) : null
+  const bimPivotBox = bimPivot ? new THREE.Box3().setFromObject(bimPivot) : null
+  const bimRootBox = bimRoot ? new THREE.Box3().setFromObject(bimRoot) : null
+  const pointcloudFirstRenderable = findFirstRenderableDescendant(pointcloudGroup) as
+    | THREE.Object3D
+    | null
+  const bimFirstRenderable = findFirstRenderableDescendant(bimRoot) as
+    | THREE.Object3D
+    | null
+
+  console.info(`[BimPointcloudAlign] scene pose diagnostics ${stage}`, {
+    stage,
+    bimPivotPosition: bimPivot?.position
+      ? vectorToPlainObject(bimPivot.position.clone())
+      : null,
+    bimPivotQuaternion: bimPivot?.quaternion
+      ? quaternionToPlainObject(bimPivot.quaternion.clone())
+      : null,
+    bimRootQuaternion: bimRoot?.quaternion
+      ? quaternionToPlainObject(bimRoot.quaternion.clone())
+      : null,
+    bimPivotBoxCenter:
+      bimPivotBox && !bimPivotBox.isEmpty()
+        ? vectorToPlainObject(bimPivotBox.getCenter(new THREE.Vector3()))
+        : null,
+    bimPivotBoxSize:
+      bimPivotBox && !bimPivotBox.isEmpty()
+        ? vectorToPlainObject(bimPivotBox.getSize(new THREE.Vector3()))
+        : null,
+    bimRootBoxCenter:
+      bimRootBox && !bimRootBox.isEmpty()
+        ? vectorToPlainObject(bimRootBox.getCenter(new THREE.Vector3()))
+        : null,
+    bimRootBoxSize:
+      bimRootBox && !bimRootBox.isEmpty()
+        ? vectorToPlainObject(bimRootBox.getSize(new THREE.Vector3()))
+        : null,
+    pointcloudWrapperPosition: pointcloudWrapper?.position
+      ? vectorToPlainObject(pointcloudWrapper.position.clone())
+      : null,
+    pointcloudWrapperQuaternion: pointcloudWrapper?.quaternion
+      ? quaternionToPlainObject(pointcloudWrapper.quaternion.clone())
+      : null,
+    pointcloudGroupQuaternion: pointcloudGroup?.quaternion
+      ? quaternionToPlainObject(pointcloudGroup.quaternion.clone())
+      : null,
+    pointcloudFirstRenderablePosition: pointcloudFirstRenderable?.position
+      ? vectorToPlainObject(pointcloudFirstRenderable.position.clone())
+      : null,
+    pointcloudFirstRenderableQuaternion: pointcloudFirstRenderable?.quaternion
+      ? quaternionToPlainObject(pointcloudFirstRenderable.quaternion.clone())
+      : null,
+    bimFirstRenderablePosition: bimFirstRenderable?.position
+      ? vectorToPlainObject(bimFirstRenderable.position.clone())
+      : null,
+    bimFirstRenderableQuaternion: bimFirstRenderable?.quaternion
+      ? quaternionToPlainObject(bimFirstRenderable.quaternion.clone())
+      : null,
+    cameraPosition,
+    cameraQuaternion,
+    controlTarget,
+  })
+}
+
+function logSavedAlignmentMatrix(alignment: BimAlignmentResult) {
+  console.info('[BimPointcloudAlign] 后端已保存校准矩阵', {
+    modelScanFileId: alignment.modelScanFileId,
+    modelBimFileId: alignment.modelBimFileId,
+    modelMatrix: Array.isArray(alignment.modelMatrix) ? alignment.modelMatrix : [],
+    modelTranslation: {
+      x: alignment.modelTranslationX,
+      y: alignment.modelTranslationY,
+      z: alignment.modelTranslationZ,
+    },
+    modelQuaternion: {
+      x: alignment.modelRotationQx,
+      y: alignment.modelRotationQy,
+      z: alignment.modelRotationQz,
+      w: alignment.modelRotationQw,
+    },
+    modelPairCount: alignment.modelPairCount,
+    modelInlierCount: alignment.modelInlierCount,
+    modelRmse: alignment.modelRmse,
+    modelMaxError: alignment.modelMaxError,
+  })
+}
+
+function buildAlignmentMatrix(alignment: BimAlignmentResult) {
+  const rawMatrix = new THREE.Matrix4()
+  if (Array.isArray(alignment.modelMatrix) && alignment.modelMatrix.length === 16) {
+    rawMatrix.fromArray(alignment.modelMatrix)
+  } else {
+    rawMatrix.compose(
+      new THREE.Vector3(
+        alignment.modelTranslationX,
+        alignment.modelTranslationY,
+        alignment.modelTranslationZ,
+      ),
+      new THREE.Quaternion(
+        alignment.modelRotationQx,
+        alignment.modelRotationQy,
+        alignment.modelRotationQz,
+        alignment.modelRotationQw,
+      ),
+      new THREE.Vector3(1, 1, 1),
+    )
+  }
+
+  const position = new THREE.Vector3()
+  const quaternion = new THREE.Quaternion()
+  rawMatrix.decompose(position, quaternion, new THREE.Vector3())
+  return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(1, 1, 1))
+}
+
+function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
+  if (!bimPivot || !pointcloudWrapper || !pointcloudGroup || !pointcloudRootReady) {
+    return false
+  }
+
+  const restoreKey = `${alignment.modelScanFileId}:${alignment.modelBimFileId}:${alignment.modelId}`
+  if (restoredSavedAlignmentKey === restoreKey) {
+    return true
+  }
+
+  const bimCenter = bimPivot.userData?.__viewerNormalizationCenter as THREE.Vector3 | undefined
+  if (!bimCenter) {
+    return false
+  }
+
+  const preservedBaseQuat = ensureOrientationBase(bimPivot)?.clone() ?? null
+  const preservedBasePos = ensurePositionBase(bimPivot)?.clone() ?? null
+
+  contentGroup?.updateMatrixWorld(true)
+  pointcloudWrapper.updateMatrixWorld(true)
+  pointcloudGroup.updateMatrixWorld(true)
+  bimPivot.updateMatrixWorld(true)
+
+  const alignmentMatrix = buildAlignmentMatrix(alignment)
+  const pointcloudRawMatrixWorld = getRawMatrixWorldForCalibration(pointcloudGroup)
+  const desiredBimWorld = new THREE.Matrix4()
+    .copy(pointcloudRawMatrixWorld)
+    .multiply(alignmentMatrix.clone().invert())
+    .multiply(new THREE.Matrix4().makeTranslation(bimCenter.x ?? 0, bimCenter.y ?? 0, bimCenter.z ?? 0))
+
+  const parentInverse = new THREE.Matrix4()
+    .copy(bimPivot.parent?.matrixWorld ?? new THREE.Matrix4())
+    .invert()
+  const localMatrix = new THREE.Matrix4().multiplyMatrices(parentInverse, desiredBimWorld)
+
+  const position = new THREE.Vector3()
+  const quaternion = new THREE.Quaternion()
+  const scale = new THREE.Vector3()
+  localMatrix.decompose(position, quaternion, scale)
+
+  bimPivot.position.copy(position)
+  bimPivot.quaternion.copy(quaternion)
+  bimPivot.scale.set(1, 1, 1)
+  bimPivot.userData = bimPivot.userData ?? {}
+  if (preservedBaseQuat) {
+    bimPivot.userData.__orientationBaseQuat = preservedBaseQuat
+  }
+  if (preservedBasePos) {
+    bimPivot.userData.__positionBaseVec3 = preservedBasePos
+  }
+  bimPivot.updateMatrixWorld(true)
+  recenterLoadedContentAsWhole()
+  editMode.value = true
+  transformMode.value = 'translate'
+  selectedItemId.value = 'bim'
+  refreshSelectedTransformUi(false)
+  void nextTick(() => {
+    applyTransformSelection()
+    syncAllTransformFixValuesFromSelected()
+    requestRender()
+  })
+  syncBoundsHelpers()
+  updateClipRangeFromContent({ preserveT: true })
+  applyClippingState()
+  restoredSavedAlignmentKey = restoreKey
+
+  console.info('[BimPointcloudAlign] 已恢复后端校准矩阵到场景', {
+    restoreKey,
+    bimPivotPosition: vectorToPlainObject(bimPivot.position.clone()),
+    bimPivotQuaternion: quaternionToPlainObject(bimPivot.quaternion.clone()),
+  })
+  logBimRelativeTransform()
+  return true
+}
+
+async function fetchAndLogSavedAlignmentIfExists() {
+  if (
+    !props.pointcloudAssetId ||
+    !props.bimAssetId ||
+    !bimPivot ||
+    !pointcloudGroup ||
+    !pointcloudRootReady
+  ) {
+    return
+  }
+
+  const logKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
+  if (loggedSavedAlignmentKey === logKey) {
+    return
+  }
+
+  try {
+    const calibration = await getScanCalibration(props.pointcloudAssetId)
+    const currentBimId = calibration?.data?.bimFileId ?? null
+
+    if (!calibration?.data?.hasBimAlignment || currentBimId !== props.bimAssetId) {
+      console.info('[BimPointcloudAlign] 当前组合暂无后端已保存校准矩阵', {
+        pointcloudAssetId: props.pointcloudAssetId,
+        bimAssetId: props.bimAssetId,
+      })
+      loggedSavedAlignmentKey = logKey
+      return
+    }
+
+    const response = await getBimAlignment({
+      modelScanFileId: props.pointcloudAssetId,
+      modelBimFileId: props.bimAssetId,
+    })
+
+    if (!response?.data) {
+      return
+    }
+
+    logSavedAlignmentMatrix(response.data)
+    tryRestoreSavedAlignment(response.data)
+    logBimRelativeTransform()
+    loggedSavedAlignmentKey = logKey
+  } catch (error: any) {
+    const status = error?.response?.status
+    if (status === 400 || status === 404) {
+      console.info('[BimPointcloudAlign] 当前组合暂无后端已保存校准矩阵', {
+        pointcloudAssetId: props.pointcloudAssetId,
+        bimAssetId: props.bimAssetId,
+      })
+      loggedSavedAlignmentKey = logKey
+      return
+    }
+
+    console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
+  }
 }
 
 function collectCalibrationSnapshot(options?: { warnOnMissing?: boolean }) {
@@ -2166,24 +2788,32 @@ async function handleSaveAlignment() {
   }
 
   try {
+    logCalibrationDiagnostics()
+    console.info('[BimPointcloudAlign] save alignment payload', payload)
+    logBimRelativeTransform()
     await createBimAlignment(payload)
     ElMessage.success('校准结果已保存')
+    console.info('[BimPointcloudAlign] save alignment success')
     return true
   } catch (error) {
+    console.error('[BimPointcloudAlign] save alignment failed', error)
     ElMessage.error(error instanceof Error ? error.message : '保存校准结果失败')
     return false
   }
 }
 
 async function handleSaveAndContinue() {
+  console.info('[BimPointcloudAlign] handleSaveAndContinue start')
   const saved = await handleSaveAlignment()
+  console.info('[BimPointcloudAlign] handleSaveAndContinue result', { saved })
   if (!saved) return
-  closePage()
+  ElMessage.success('校准已保存，当前保留页面用于排查')
 }
 
 function handleCalibrationComplete() {
   const snapshot = collectCalibrationSnapshot({ warnOnMissing: true })
   if (!snapshot) return
+  logBimRelativeTransform()
   ElMessage.success('已生成 3 组校准点对')
 }
 
@@ -2248,13 +2878,8 @@ async function handleLoadBimFromApi(silent = false) {
           }
 
           const root = gltf.scene
-          const box = new THREE.Box3().setFromObject(root)
-          const center = box.getCenter(new THREE.Vector3())
-          root.position.sub(center)
-
-          const pivot = new THREE.Group()
-          pivot.userData.__normalizationCenter = center.clone()
-          pivot.add(root)
+          flattenStaticMeshesToRoot(root)
+          const pivot = createCenteredPivot(root)
           nextContentGroup.add(pivot)
 
           bimRoot = root
@@ -2262,15 +2887,19 @@ async function handleLoadBimFromApi(silent = false) {
           bimLoaded.value = true
           bimVisible.value = true
 
-          ensureTransformState(bimPivot)
+          ensureInitialTransformState(bimPivot)
           recenterLoadedContentAsWhole()
           applySceneVisibility()
           applyBimMaterialMode(bimPivot)
           updateClipRangeFromContent({ preserveT: true })
           applyClippingState()
           syncBoundsHelpers()
-          fitCameraToContent()
+          fitCameraToObject(bimPivot)
           statusText.value = `已加载 BIM：${props.bimDisplayName || assetDetail.sourceName}`
+          logScenePoseDiagnostics('after-bim-load')
+          if (pointcloudRootReady) {
+            void fetchAndLogSavedAlignmentIfExists()
+          }
           resolve()
         },
         undefined,
@@ -2321,6 +2950,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
       tileset = null
     }
     pointcloudMaxDim = 1
+    pointcloudRootReady = false
     const assetDetailResult = await getAssetDetail(props.pointcloudAssetId)
     const assetDetail = assetDetailResult.data
     if (
@@ -2381,7 +3011,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
     tileset = nextTileset
     pointcloudLoaded.value = true
     pointcloudVisible.value = true
-    ensureTransformState(pointcloudWrapper)
+    ensureInitialTransformState(pointcloudWrapper)
     recenterLoadedContentAsWhole()
     applySceneVisibility()
     updateClipRangeFromContent({ preserveT: true })
@@ -2403,23 +3033,18 @@ async function handleLoadPointCloudFromApi(silent = false) {
         sanitizeObjectForWebGPU(nextTileset.group)
       }
       applyPointcloudMaterialMode(nextTileset.group)
-      const sphere = new THREE.Sphere()
-      if (nextTileset.getBoundingSphere?.(sphere)) {
-        nextTileset.group.position.copy(sphere.center).multiplyScalar(-1)
-        if (isPerspectiveCamera(activeCamera)) {
-          fitCameraToRadius(activeCamera, controls, sphere.radius)
-          setTopViewForPerspective(activeCamera, controls, sphere.radius * 2.2)
-          applyTilesErrorTarget()
-        } else {
-          fitCameraToContent()
-        }
-      }
-      ensureTransformState(pointcloudWrapper)
+      pointcloudRootReady = true
       recenterLoadedContentAsWhole()
+      pointcloudWrapper?.updateMatrixWorld(true)
+      nextTileset.group.updateMatrixWorld(true)
+      scheduleClipRangeUpdate()
+      ensureInitialTransformState(pointcloudWrapper)
       updateClipRangeFromContent({ preserveT: true })
       applyClippingState()
       syncBoundsHelpers()
       statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
+      logScenePoseDiagnostics('after-pointcloud-root-load')
+      void fetchAndLogSavedAlignmentIfExists()
     })
     nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
       if (token !== pointcloudLoadToken || !tileScene) return
@@ -2435,6 +3060,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
     statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
   } catch (error) {
     console.error(error)
+    pointcloudRootReady = false
     if (!silent) {
       ElMessage.error(error instanceof Error ? error.message : '加载点云失败')
     }
@@ -2519,11 +3145,13 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  pointcloudRootReady = false
+  loggedSavedAlignmentKey = ''
   stopRenderLoop()
   resizeObserver?.disconnect()
   controls?.dispose()
-  if (scene && transformControls) {
-    scene.remove(transformControls.getHelper() as unknown as THREE.Object3D)
+  if (scene && transformHelper) {
+    scene.remove(transformHelper)
   }
   transformControls?.dispose()
   tileset?.dispose?.()
