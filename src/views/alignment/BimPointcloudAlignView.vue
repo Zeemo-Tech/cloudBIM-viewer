@@ -24,7 +24,9 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
-import { createBimAlignment, getBimAlignment } from '@/api/backend-alignment'
+import {
+  createBimAlignment,
+} from '@/api/backend-alignment'
 import {
   getAssetDetail,
   getBimGlbFile,
@@ -60,9 +62,6 @@ const statusText = ref('准备就绪')
 const showPanel = ref(true)
 const loadingBim = ref(false)
 const loadingPointcloud = ref(false)
-const loadingAlignmentMatrix = ref(false)
-const showAlignmentMatrixDialog = ref(false)
-const alignmentMatrixDialogText = ref('[]')
 const projectionMode = ref<ProjectionMode>('perspective')
 const materialMode = ref<MaterialMode>('unlit')
 const showGrid = ref(true)
@@ -139,12 +138,6 @@ const loadedItemOptions = computed(() => {
       value: 'bim',
     })
   }
-  if (hasTileset.value) {
-    list.push({
-      label: props.pointcloudDisplayName || `点云-${props.pointcloudAssetId ?? ''}`,
-      value: 'pointcloud',
-    })
-  }
   return list
 })
 
@@ -200,7 +193,6 @@ let clippingPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)
 let orthoViewSize = 10
 let bimLoadToken = 0
 let pointcloudLoadToken = 0
-let lastAlignmentKey = ''
 let raycaster: THREE.Raycaster | null = null
 let pointcloudMaxDim = 1
 let rendererMode: 'webgpu' | 'webgl' | null = null
@@ -815,24 +807,17 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
       if (controls) {
         controls.enabled = !event.value
       }
+
+      if (!event.value) {
+        syncAllTransformFixValuesFromSelected()
+      }
     })
     transformControls.addEventListener('objectChange', () => {
+      syncAllTransformFixValuesFromSelected()
       syncBoundsHelpers()
       scheduleClipRangeUpdate()
       applyClippingState()
-    })
-    transformControls.addEventListener('mouseUp', () => {
-      const target = getSelectedObject()
-      if (!target) return
-      ensureTransformState(target)
-      target.userData.__basePosition = target.position.clone()
-      target.userData.__baseQuaternion = target.quaternion.clone()
-      positionOffsetX.value = 0
-      positionOffsetY.value = 0
-      positionOffsetZ.value = 0
-      orientationDegX.value = 0
-      orientationDegY.value = 0
-      orientationDegZ.value = 0
+      requestRender()
     })
     scene.add(transformControls.getHelper() as unknown as THREE.Object3D)
   }
@@ -1758,6 +1743,11 @@ function syncTransformFixFromSelected() {
   syncPositionFixFromSelected()
 }
 
+function syncAllTransformFixValuesFromSelected() {
+  syncOrientationFixFromSelected()
+  syncPositionFixFromSelected()
+}
+
 function refreshSelectedTransformUi(rebaseBase = true) {
   const target = getSelectedObject()
   if (!target) {
@@ -1782,7 +1772,7 @@ function refreshSelectedTransformUi(rebaseBase = true) {
     target.userData.__basePosition = target.position.clone()
     target.userData.__baseQuaternion = target.quaternion.clone()
   } else {
-    syncTransformFixFromSelected()
+    syncAllTransformFixValuesFromSelected()
   }
 
   if (transformControls) {
@@ -1827,7 +1817,7 @@ function setTransformMode(mode: TransformMode) {
 
 function onEditModeChange() {
   if (editMode.value && !selectedItemId.value) {
-    selectedItemId.value = loadedItemOptions.value[0]?.value ?? ''
+    selectedItemId.value = hasModel.value ? 'bim' : ''
   }
 
   if (editMode.value && enableElementPicking.value) {
@@ -1967,7 +1957,9 @@ function applyPositionFixRealtime() {
     base.z + positionOffsetY.value,
   )
   target.updateMatrixWorld(true)
+  syncAllTransformFixValuesFromSelected()
   syncBoundsHelpers()
+  requestRender()
 }
 
 function applyOrientationFixRealtime() {
@@ -1984,7 +1976,9 @@ function applyOrientationFixRealtime() {
   orientationDegZ.value = 0
   target.quaternion.copy(delta).multiply(base)
   target.updateMatrixWorld(true)
+  syncAllTransformFixValuesFromSelected()
   syncBoundsHelpers()
+  requestRender()
 }
 
 function resetCurrentObjectTransform() {
@@ -2071,18 +2065,70 @@ function resetView() {
   setTopView()
 }
 
-function collectCalibrationSnapshot() {
-  if (!bimPivot || !pointcloudGroup || !props.bimAssetId || !props.pointcloudAssetId) {
+function recenterLoadedContentAsWhole() {
+  if (!contentGroup) return
+  if (!contentGroup.children?.length) {
+    contentGroup.position.set(0, 0, 0)
+    contentGroup.updateMatrixWorld(true)
+    return
+  }
+
+  const previousPosition = contentGroup.position.clone()
+  contentGroup.position.set(0, 0, 0)
+  contentGroup.updateMatrixWorld(true)
+
+  const box = new THREE.Box3().setFromObject(contentGroup)
+  if (box.isEmpty()) {
+    contentGroup.position.copy(previousPosition)
+    contentGroup.updateMatrixWorld(true)
+    return
+  }
+
+  const center = box.getCenter(new THREE.Vector3())
+  contentGroup.position.copy(previousPosition).sub(center)
+  contentGroup.updateMatrixWorld(true)
+}
+
+function getRawMatrixWorldForCalibration(obj: THREE.Object3D | null) {
+  const matrix = new THREE.Matrix4().copy(obj?.matrixWorld ?? new THREE.Matrix4())
+  const center =
+    (obj?.userData?.__viewerNormalizationCenter as THREE.Vector3 | undefined) ||
+    (obj?.userData?.__normalizationCenter as THREE.Vector3 | undefined)
+
+  if (!center) {
+    return matrix
+  }
+
+  matrix.multiply(
+    new THREE.Matrix4().makeTranslation(
+      -(center.x ?? 0),
+      -(center.y ?? 0),
+      -(center.z ?? 0),
+    ),
+  )
+
+  return matrix
+}
+
+function collectCalibrationSnapshot(options?: { warnOnMissing?: boolean }) {
+  const warnOnMissing = options?.warnOnMissing ?? false
+
+  if (!bimPivot || !pointcloudWrapper || !pointcloudGroup || !props.bimAssetId || !props.pointcloudAssetId) {
+    if (warnOnMissing) {
+      ElMessage.warning('缺少 BIM 或点云，无法生成校准点对')
+    }
     return null
   }
 
+  contentGroup?.updateMatrixWorld(true)
   bimPivot.updateMatrixWorld(true)
+  pointcloudWrapper.updateMatrixWorld(true)
   pointcloudGroup.updateMatrixWorld(true)
 
   const relative = new THREE.Matrix4()
-    .copy(bimPivot.matrixWorld)
+    .copy(getRawMatrixWorldForCalibration(bimPivot))
     .invert()
-    .multiply(pointcloudGroup.matrixWorld)
+    .multiply(getRawMatrixWorldForCalibration(pointcloudGroup))
 
   const rigid = new THREE.Matrix4()
   const pos = new THREE.Vector3()
@@ -2114,16 +2160,14 @@ function collectCalibrationSnapshot() {
 }
 
 async function handleSaveAlignment() {
-  const payload = collectCalibrationSnapshot()
+  const payload = collectCalibrationSnapshot({ warnOnMissing: true })
   if (!payload) {
-    ElMessage.warning('请先加载 BIM 与点云后再保存校准结果')
     return false
   }
 
   try {
     await createBimAlignment(payload)
     ElMessage.success('校准结果已保存')
-    lastAlignmentKey = `${payload.modelScanFileId}:${payload.modelBimFileId}`
     return true
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '保存校准结果失败')
@@ -2131,158 +2175,16 @@ async function handleSaveAlignment() {
   }
 }
 
-async function handleCalibrationComplete() {
+async function handleSaveAndContinue() {
   const saved = await handleSaveAlignment()
   if (!saved) return
   closePage()
 }
 
-function buildAlignmentMatrix(alignment: {
-  modelMatrix: number[]
-  modelRotationQx: number
-  modelRotationQy: number
-  modelRotationQz: number
-  modelRotationQw: number
-  modelTranslationX: number
-  modelTranslationY: number
-  modelTranslationZ: number
-}) {
-  const raw = new THREE.Matrix4()
-  if (Array.isArray(alignment.modelMatrix) && alignment.modelMatrix.length === 16) {
-    raw.fromArray(alignment.modelMatrix)
-  } else {
-    raw.compose(
-      new THREE.Vector3(
-        alignment.modelTranslationX,
-        alignment.modelTranslationY,
-        alignment.modelTranslationZ,
-      ),
-      new THREE.Quaternion(
-        alignment.modelRotationQx,
-        alignment.modelRotationQy,
-        alignment.modelRotationQz,
-        alignment.modelRotationQw,
-      ),
-      new THREE.Vector3(1, 1, 1),
-    )
-  }
-
-  const pos = new THREE.Vector3()
-  const quat = new THREE.Quaternion()
-  raw.decompose(pos, quat, new THREE.Vector3())
-  return new THREE.Matrix4().compose(pos, quat, new THREE.Vector3(1, 1, 1))
-}
-
-function tryRestoreAlignment(alignment: {
-  modelMatrix: number[]
-  modelRotationQx: number
-  modelRotationQy: number
-  modelRotationQz: number
-  modelRotationQw: number
-  modelTranslationX: number
-  modelTranslationY: number
-  modelTranslationZ: number
-}) {
-  if (!bimPivot || !pointcloudWrapper || !pointcloudGroup) return false
-
-  bimPivot.updateMatrixWorld(true)
-  pointcloudWrapper.updateMatrixWorld(true)
-  pointcloudGroup.updateMatrixWorld(true)
-
-  const alignmentMatrix = buildAlignmentMatrix(alignment)
-  const desiredGroupWorld = new THREE.Matrix4()
-    .copy(bimPivot.matrixWorld)
-    .multiply(alignmentMatrix)
-
-  const wrapperInverse = new THREE.Matrix4()
-    .copy(pointcloudWrapper.matrixWorld)
-    .invert()
-  const wrapperToGroup = new THREE.Matrix4().multiplyMatrices(
-    wrapperInverse,
-    pointcloudGroup.matrixWorld,
-  )
-  const wrapperWorld = new THREE.Matrix4()
-    .copy(desiredGroupWorld)
-    .multiply(wrapperToGroup.invert())
-
-  pointcloudWrapper.parent?.updateMatrixWorld(true)
-  const parentInverse = new THREE.Matrix4()
-    .copy(pointcloudWrapper.parent?.matrixWorld ?? new THREE.Matrix4())
-    .invert()
-  const wrapperLocal = new THREE.Matrix4().multiplyMatrices(parentInverse, wrapperWorld)
-
-  const pos = new THREE.Vector3()
-  const quat = new THREE.Quaternion()
-  const scale = new THREE.Vector3()
-  wrapperLocal.decompose(pos, quat, scale)
-  pointcloudWrapper.position.copy(pos)
-  pointcloudWrapper.quaternion.copy(quat)
-  pointcloudWrapper.scale.set(1, 1, 1)
-  pointcloudWrapper.updateMatrixWorld(true)
-  ensureTransformState(pointcloudWrapper)
-  refreshSelectedTransformUi(selectedItemId.value === 'pointcloud')
-  fitCameraToContent()
-  return true
-}
-
-async function fetchAndRestoreAlignment() {
-  if (!props.pointcloudAssetId || !props.bimAssetId || !bimPivot || !pointcloudWrapper) {
-    return
-  }
-
-  const key = `${props.pointcloudAssetId}:${props.bimAssetId}`
-  if (lastAlignmentKey === key) return
-
-  try {
-    const response = await getBimAlignment({
-      modelScanFileId: props.pointcloudAssetId,
-      modelBimFileId: props.bimAssetId,
-    })
-    if (response?.data && tryRestoreAlignment(response.data)) {
-      lastAlignmentKey = key
-      statusText.value = '已恢复后端校准结果'
-    }
-  } catch (error: any) {
-    const status = error?.response?.status
-    if (status === 400 || status === 404) {
-      return
-    }
-    console.error(error)
-  }
-}
-
-async function handleFetchAlignmentMatrix() {
-  if (!props.pointcloudAssetId || !props.bimAssetId) {
-    ElMessage.warning('缺少 BIM 或点云资产 ID')
-    return
-  }
-
-  loadingAlignmentMatrix.value = true
-  try {
-    const response = await getBimAlignment({
-      modelScanFileId: props.pointcloudAssetId,
-      modelBimFileId: props.bimAssetId,
-    })
-    const values = Array.isArray(response?.data?.modelMatrix) ? response.data.modelMatrix : null
-    if (!values || values.length !== 16) {
-      ElMessage.warning('后端暂未返回有效的 modelMatrix')
-      return
-    }
-
-    alignmentMatrixDialogText.value = JSON.stringify(values, null, 2)
-    showAlignmentMatrixDialog.value = true
-  } catch (error: any) {
-    const status = error?.response?.status
-    if (status === 400 || status === 404) {
-      ElMessage.warning('当前组合暂无已保存的校准矩阵')
-      return
-    }
-
-    console.error(error)
-    ElMessage.error(error instanceof Error ? error.message : '读取校准矩阵失败')
-  } finally {
-    loadingAlignmentMatrix.value = false
-  }
+function handleCalibrationComplete() {
+  const snapshot = collectCalibrationSnapshot({ warnOnMissing: true })
+  if (!snapshot) return
+  ElMessage.success('已生成 3 组校准点对')
 }
 
 async function handleLoadBimFromApi(silent = false) {
@@ -2361,6 +2263,7 @@ async function handleLoadBimFromApi(silent = false) {
           bimVisible.value = true
 
           ensureTransformState(bimPivot)
+          recenterLoadedContentAsWhole()
           applySceneVisibility()
           applyBimMaterialMode(bimPivot)
           updateClipRangeFromContent({ preserveT: true })
@@ -2379,7 +2282,6 @@ async function handleLoadBimFromApi(silent = false) {
       )
     })
 
-    await fetchAndRestoreAlignment()
   } catch (error) {
     console.error(error)
     if (!silent) {
@@ -2419,7 +2321,6 @@ async function handleLoadPointCloudFromApi(silent = false) {
       tileset = null
     }
     pointcloudMaxDim = 1
-
     const assetDetailResult = await getAssetDetail(props.pointcloudAssetId)
     const assetDetail = assetDetailResult.data
     if (
@@ -2481,6 +2382,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
     pointcloudLoaded.value = true
     pointcloudVisible.value = true
     ensureTransformState(pointcloudWrapper)
+    recenterLoadedContentAsWhole()
     applySceneVisibility()
     updateClipRangeFromContent({ preserveT: true })
     applyClippingState()
@@ -2513,11 +2415,11 @@ async function handleLoadPointCloudFromApi(silent = false) {
         }
       }
       ensureTransformState(pointcloudWrapper)
+      recenterLoadedContentAsWhole()
       updateClipRangeFromContent({ preserveT: true })
       applyClippingState()
       syncBoundsHelpers()
       statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
-      void fetchAndRestoreAlignment()
     })
     nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
       if (token !== pointcloudLoadToken || !tileScene) return
@@ -2543,12 +2445,18 @@ async function handleLoadPointCloudFromApi(silent = false) {
 }
 
 async function preloadFromRoute() {
+  const tasks: Promise<unknown>[] = []
+
   if (props.bimAssetId) {
-    await handleLoadBimFromApi(true)
+    tasks.push(handleLoadBimFromApi(true))
   }
   if (props.pointcloudAssetId) {
-    await handleLoadPointCloudFromApi(true)
+    tasks.push(handleLoadPointCloudFromApi(true))
   }
+
+  if (!tasks.length) return
+
+  await Promise.allSettled(tasks)
 }
 
 watch(backgroundColor, () => {
@@ -2645,10 +2553,7 @@ onBeforeUnmount(() => {
 
       <div class="topbar-right">
         <el-button :icon="ArrowLeft" @click="closePage">返回</el-button>
-        <el-button :loading="loadingAlignmentMatrix" @click="handleFetchAlignmentMatrix">
-          校准矩阵
-        </el-button>
-        <el-button type="success" @click="handleSaveAlignment">保存</el-button>
+        <el-button type="success" @click="handleSaveAndContinue">保存并继续</el-button>
         <el-button type="primary" :disabled="!hasModel || !hasTileset" @click="handleCalibrationComplete">
           校准完成
         </el-button>
@@ -3131,599 +3036,9 @@ onBeforeUnmount(() => {
       <el-tag v-if="!webgpuSupported" type="warning" size="small">WebGPU 不支持</el-tag>
       <span class="status-text">{{ statusText }}</span>
     </footer>
-
-    <el-dialog
-      v-model="showAlignmentMatrixDialog"
-      title="校准矩阵"
-      width="720px"
-      append-to-body
-    >
-      <div class="matrix-dialog">
-        <div class="matrix-dialog__meta">
-          <span>bimAssetId: {{ bimAssetId }}</span>
-          <span>pointcloudAssetId: {{ pointcloudAssetId }}</span>
-        </div>
-        <pre class="matrix-dialog__content">{{ alignmentMatrixDialogText }}</pre>
-      </div>
-    </el-dialog>
   </section>
 </template>
 
 <style lang="scss" scoped>
-.BimPointcloudAlign-container {
-  position: relative;
-  width: 100%;
-  height: 100vh;
-  background: radial-gradient(1000px 700px at 20% 10%, #1b2a5a 0%, #0b1020 55%, #070914 100%);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.topbar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 20px;
-  background: rgba(10, 14, 30, 0.95);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  z-index: 20;
-}
-
-.topbar-left,
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.topbar-center {
-  display: flex;
-  align-items: center;
-}
-
-.brand-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  letter-spacing: 0.4px;
-}
-
-.main-content {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-
-.left-toolbar {
-  flex-shrink: 0;
-  width: 72px;
-  padding: 10px 8px;
-  background: rgba(20, 30, 60, 0.95);
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.tool-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.tool-btn {
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  font-size: 18px;
-  color: rgba(255, 255, 255, 0.92);
-  border: 1px solid transparent;
-  background: transparent;
-}
-
-.tool-btn:hover,
-.tool-btn:focus-visible {
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(255, 255, 255, 0.92);
-}
-
-.tool-btn.is-on {
-  color: #ffffff;
-  background: rgba(64, 158, 255, 0.9);
-  border-color: rgba(64, 158, 255, 0.9);
-}
-
-.tool-btn--text {
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.tool-btn--img {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.tool-btn__img {
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-  filter: brightness(0) invert(1);
-}
-
-.tool-btn__img1 {
-  width: 15px;
-  height: 15px;
-  object-fit: contain;
-  filter: brightness(0) invert(1);
-}
-
-.tool-btn:hover .tool-btn__img,
-.tool-btn:focus-visible .tool-btn__img,
-.tool-btn:hover .tool-btn__img1,
-.tool-btn:focus-visible .tool-btn__img1 {
-  filter: none;
-}
-
-.tool-label {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.72);
-  line-height: 1;
-  text-align: center;
-}
-
-.left-toolbar :deep(.el-divider) {
-  margin: 8px 0;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.viewport {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-  background: #000;
-}
-
-.right-panel {
-  flex-shrink: 0;
-  width: 320px;
-  padding: 16px;
-  overflow-y: auto;
-  background: linear-gradient(180deg, rgba(20, 30, 60, 0.96) 0%, rgba(14, 20, 44, 0.96) 100%);
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-}
-
-.panel-section {
-  margin-bottom: 14px;
-  padding: 14px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-}
-
-.panel-section:last-child {
-  margin-bottom: 0;
-}
-
-.section-title {
-  margin-bottom: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(125, 194, 255, 0.95);
-  letter-spacing: 0.6px;
-}
-
-.control-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.control-row:last-child {
-  margin-bottom: 0;
-}
-
-.control-row--compact {
-  margin-bottom: 0;
-}
-
-.control-row.disabled {
-  opacity: 0.48;
-}
-
-.label {
-  width: 52px;
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.68);
-}
-
-.value {
-  width: 52px;
-  text-align: right;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.hint2 {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.56);
-}
-
-.matrix-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.matrix-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.matrix-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.matrix-cell {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 12px;
-  text-align: center;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.matrix-meta {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.58);
-}
-
-.color-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.color-picker {
-  width: 40px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.color-hex {
-  width: 140px;
-  height: 32px;
-  padding: 0 10px;
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  outline: none;
-}
-
-.control-row--orientation {
-  align-items: stretch;
-  flex-direction: column;
-}
-
-.control-row--orientation .label {
-  width: auto;
-}
-
-.orientation-sliders {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.step-control-group {
-    display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.step-label {
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.68);
-}
-
-.step-select {
-  width: 128px !important;
-  :deep(.el-select__wrapper) {
-  min-height: 25px !important;}
-}
-
-.picked-element-card,
-.picked-element-empty {
-  margin-top: 8px;
-  padding: 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.picked-element-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.picked-element-card__label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.picked-element-card__title {
-  margin-top: 10px;
-  color: rgba(255, 255, 255, 0.96);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-.picked-element-card__meta {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.picked-element-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 12px;
-}
-
-.picked-element-empty {
-  color: rgba(255, 255, 255, 0.56);
-  font-size: 13px;
-}
-
-.slider {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 12px;
-  font-weight: 600;
-  user-select: none;
-  cursor: pointer;
-}
-
-.slider input[type='range'] {
-  width: 60px;
-  accent-color: #409eff;
-}
-
-.slider .val {
-  min-width: 36px;
-  text-align: right;
-  color: rgba(255, 255, 255, 0.92);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.slider .val.wide {
-  min-width: 48px;
-}
-
-.slider .axis {
-  width: 16px;
-  color: rgba(255, 255, 255, 0.55);
-  text-align: center;
-  font-size: 11px;
-}
-
-.slider.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.control-row--orientation .slider {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 20px 1fr 56px;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-.control-row--orientation .slider input[type='range'] {
-  width: 100%;
-  min-width: 0;
-}
-
-.orientation-actions {
-  align-self: flex-end;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.status-bar {
-  flex-shrink: 0;
-  min-height: 36px;
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(5, 8, 18, 0.94);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.status-text {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.74);
-}
-
-.matrix-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.matrix-dialog__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-  color: #7fb3ff;
-  font-size: 13px;
-}
-
-.matrix-dialog__content {
-  margin: 0;
-  max-height: 420px;
-  overflow: auto;
-  padding: 16px;
-  border-radius: 8px;
-  background: #0b1020;
-  color: #dbe8ff;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.right-panel :deep(.el-input),
-.right-panel :deep(.el-select),
-.right-panel :deep(.el-slider),
-.right-panel :deep(.el-input-number) {
-  flex: 1;
-}
-
-.right-panel :deep(.el-input__wrapper),
-.right-panel :deep(.el-select__wrapper),
-.right-panel :deep(.el-input-number__wrapper) {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.right-panel :deep(.el-input__inner),
-.right-panel :deep(.el-select__placeholder),
-.right-panel :deep(.el-select__selected-item) {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.right-panel :deep(.el-button + .el-button) {
-  margin-left: 0;
-}
-
-.right-panel :deep(.el-switch__label),
-.right-panel :deep(.el-radio-button__inner) {
-  color: rgba(255, 255, 255, 0.86);
-}
-
-.right-panel :deep(.el-radio-button__inner) {
-  background: #ffffff;
-  border-color: rgba(255, 255, 255, 0.92);
-  color: #0f172a;
-  box-shadow: none;
-}
-
-.right-panel :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background: #409eff;
-  border-color: #409eff;
-  color: #ffffff;
-  box-shadow: -1px 0 0 0 #409eff;
-}
-
-.right-panel :deep(.el-radio-button.is-disabled .el-radio-button__inner) {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(255, 255, 255, 0.72);
-  color: rgba(15, 23, 42, 0.46);
-}
-
-@media (max-width: 1280px) {
-  .right-panel {
-    width: 300px;
-  }
-}
-
-@media (max-width: 1080px) {
-  .topbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .topbar-right {
-    flex-wrap: wrap;
-  }
-
-  .right-panel {
-    width: 280px;
-  }
-}
-</style>
-<style>
-.el-popper.bpa-right-popper {
-  background: rgba(6, 12, 28, 0.55) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(64, 158, 255, 0.35);
-  box-shadow:
-    0 0 0 1px rgba(64, 158, 255, 0.15),
-    0 12px 32px rgba(0, 0, 0, 0.6),
-    0 0 24px rgba(64, 158, 255, 0.25);
-}
-
-.el-popper.bpa-right-popper .el-select-dropdown {
-  background: transparent;
-}
-
-.el-popper.bpa-right-popper .el-select-dropdown__item {
-  color: rgba(120, 190, 255, 0.85);
-}
-
-.el-popper.bpa-right-popper .el-select-dropdown__item:hover {
-  background: linear-gradient(
-    90deg,
-    rgba(64, 158, 255, 0.05),
-    rgba(64, 158, 255, 0.18),
-    rgba(64, 158, 255, 0.05)
-  );
-}
-
-.el-popper.bpa-right-popper .el-select-dropdown__item.selected {
-  background: rgba(64, 158, 255, 0.28);
-  color: #fff;
-}
+@use './index.scss';
 </style>
