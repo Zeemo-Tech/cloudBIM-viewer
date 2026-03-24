@@ -106,6 +106,7 @@ const activeView = ref('')
 
 const hasModel = computed(() => bimLoaded.value)
 const hasTileset = computed(() => pointcloudLoaded.value)
+const hasClippableContent = computed(() => hasModel.value || hasTileset.value)
 const bimVisibilityLabel = computed(() => (bimVisible.value ? '隐藏模型' : '显示模型'))
 const pointcloudVisibilityLabel = computed(() =>
   pointcloudVisible.value ? '隐藏点云' : '显示点云',
@@ -163,6 +164,8 @@ const clipStep = computed(() => {
   return Math.max(span / 1000, 1e-6)
 })
 const originalMaterialStore = new WeakMap<THREE.Object3D, THREE.Material | THREE.Material[]>()
+const bimUnlitMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
+const bimLambertMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
 const pointcloudUnlitMaterialCache = new WeakMap<
   THREE.Material,
   THREE.Material | { single?: THREE.Material; multi?: THREE.Material }
@@ -192,8 +195,7 @@ let bimRoot: THREE.Object3D | null = null
 let pointcloudWrapper: THREE.Group | null = null
 let pointcloudGroup: THREE.Group | null = null
 let tileset: TilesRenderer | null = null
-let bimBoundsHelper: THREE.BoxHelper | null = null
-let pointcloudBoundsHelper: THREE.BoxHelper | null = null
+let boundsBoxHelper: THREE.Box3Helper | null = null
 let clippingPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)
 let orthoViewSize = 10
 let bimLoadToken = 0
@@ -641,29 +643,35 @@ function syncBoundsHelpers() {
   if (!scene) return
 
   if (!showBounds.value) {
-    if (bimBoundsHelper) bimBoundsHelper.visible = false
-    if (pointcloudBoundsHelper) pointcloudBoundsHelper.visible = false
+    if (boundsBoxHelper) boundsBoxHelper.visible = false
     updateGridPlacement()
     updateSelectionHighlight()
     return
   }
 
+  const boundsBox = new THREE.Box3()
+  let hasAny = false
+
   if (bimPivot) {
-    if (!bimBoundsHelper) {
-      bimBoundsHelper = new THREE.BoxHelper(bimPivot, 0x60a5fa)
-      scene.add(bimBoundsHelper)
-    }
-    bimBoundsHelper.setFromObject(bimPivot)
-    bimBoundsHelper.visible = true
+    boundsBox.expandByObject(bimPivot)
+    hasAny = true
   }
 
-  if (pointcloudGroup) {
-    if (!pointcloudBoundsHelper) {
-      pointcloudBoundsHelper = new THREE.BoxHelper(pointcloudGroup, 0x22d3ee)
-      scene.add(pointcloudBoundsHelper)
+  if (pointcloudWrapper) {
+    boundsBox.expandByObject(pointcloudWrapper)
+    hasAny = true
+  }
+
+  if (hasAny && !boundsBox.isEmpty()) {
+    if (!boundsBoxHelper) {
+      boundsBoxHelper = new THREE.Box3Helper(boundsBox.clone(), 0x67e8f9)
+      scene.add(boundsBoxHelper)
     }
-    pointcloudBoundsHelper.setFromObject(pointcloudGroup)
-    pointcloudBoundsHelper.visible = true
+    boundsBoxHelper.box.copy(boundsBox)
+    boundsBoxHelper.visible = true
+    boundsBoxHelper.updateMatrixWorld(true)
+  } else if (boundsBoxHelper) {
+    boundsBoxHelper.visible = false
   }
 
   updateGridPlacement()
@@ -1129,6 +1137,50 @@ function getMaterialClone(
     return next
   }
 
+  if (rendererMode === 'webgpu') {
+    const cache = mode === 'lambert' ? bimLambertMaterialCache : bimUnlitMaterialCache
+    const key = opts.vertexColors ? 'v1' : 'v0'
+    const cached = cache.get(source)?.[key]
+    if (cached) {
+      return cached
+    }
+
+    const next =
+      mode === 'lambert' ? new MeshLambertNodeMaterial() : new MeshBasicNodeMaterial()
+
+    next.name = (source as any)?.name
+      ? `${(source as any).name} (${mode === 'lambert' ? 'TSL Lambert' : 'TSL Unlit'})`
+      : mode === 'lambert'
+        ? 'TSL Lambert'
+        : 'TSL Unlit'
+    next.fog = false
+    next.lights = mode === 'lambert'
+    applySharedMaterialFlags(next, source)
+    next.toneMapped = mode === 'lambert'
+    if ('map' in next) {
+      ;(next as any).map = (source as any)?.map ?? null
+    }
+    if ('alphaMap' in next) {
+      ;(next as any).alphaMap = (source as any)?.alphaMap ?? null
+    }
+
+    if (opts.vertexColors || (source as any)?.vertexColors) {
+      next.colorNode = tslVertexColor()
+      next.vertexColors = true
+    } else {
+      const colorValue =
+        (source as any)?.color?.clone?.() ?? (source as any)?.color ?? new THREE.Color(0xffffff)
+      next.colorNode = tslColor(colorValue)
+      next.vertexColors = false
+    }
+
+    ;(next as any).__viewerOriginalMaterial = source
+    const entry = cache.get(source) ?? {}
+    entry[key] = next
+    cache.set(source, entry)
+    return next
+  }
+
   if (mode === 'unlit') {
     const next = new THREE.MeshBasicMaterial({
       color: (source as any).color?.clone?.() ?? new THREE.Color(0xffffff),
@@ -1432,7 +1484,7 @@ function applyMaterialClipping(enabled: boolean) {
 }
 
 function applyClippingState() {
-  const enabled = !!enableClipping.value && !!hasModel.value && !!showBounds.value
+  const enabled = !!enableClipping.value && !!hasClippableContent.value && !!showBounds.value
 
   const axisVector =
     clipAxis.value === 'x'
@@ -1447,6 +1499,11 @@ function applyClippingState() {
     clipInvert.value ? clipPosition.value : -clipPosition.value,
   )
 
+  // Always push the plane down to materials as well.
+  // In the current viewer stack this is needed to keep BIM and point cloud
+  // clipping behavior consistent across renderer/material combinations.
+  applyMaterialClipping(enabled)
+
   if (rendererMode === 'webgpu' && clippingGroup) {
     clippingGroup.enabled = enabled
     clippingGroup.clippingPlanes.length = 0
@@ -1456,8 +1513,6 @@ function applyClippingState() {
     requestRender()
     return
   }
-
-  applyMaterialClipping(enabled)
 }
 
 function scheduleClipRangeUpdate() {
@@ -1480,10 +1535,15 @@ function onShowBoundsChange() {
 
 function onClippingEnabledChange() {
   if (!contentGroup) return
-  if (!showBounds.value) {
-    enableClipping.value = false
-    ElMessage.warning('请先开启包围盒')
+
+  if (!enableClipping.value) {
+    showBounds.value = false
+    applyClippingState()
     return
+  }
+
+  if (enableClipping.value && !showBounds.value) {
+    showBounds.value = true
   }
 
   updateClipRangeFromContent({ resetPosition: true })
@@ -2660,7 +2720,7 @@ onBeforeUnmount(() => {
               circle
               text
               :icon="Box"
-              :disabled="!hasModel"
+              :disabled="!hasClippableContent"
               @click="showBounds = !showBounds"
             />
             <span class="tool-label">包围盒</span>
@@ -3003,16 +3063,12 @@ onBeforeUnmount(() => {
         <div class="panel-section">
           <div class="section-title">剖切</div>
           <div class="control-row">
-            <span class="label">包围盒</span>
-            <el-switch v-model="showBounds" :disabled="!hasModel && !hasTileset" />
-          </div>
-          <div class="control-row">
             <span class="label">剖切</span>
-            <el-switch v-model="enableClipping" :disabled="!hasModel || !showBounds" />
+            <el-switch v-model="enableClipping" :disabled="!hasClippableContent" />
           </div>
-          <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasModel }">
+          <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasClippableContent }">
             <span class="label">剖切轴</span>
-            <el-select v-model="clipAxis" :disabled="!enableClipping || !showBounds || !hasModel">
+            <el-select v-model="clipAxis" :disabled="!enableClipping || !showBounds || !hasClippableContent">
               <el-option label="X" value="x" />
               <el-option label="Y" value="y" />
               <el-option label="Z" value="z" />
@@ -3022,17 +3078,17 @@ onBeforeUnmount(() => {
               inline-prompt
               active-text="反"
               inactive-text="正"
-              :disabled="!enableClipping || !showBounds || !hasModel"
+              :disabled="!enableClipping || !showBounds || !hasClippableContent"
             />
           </div>
-          <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasModel }">
+          <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasClippableContent }">
             <span class="label">位置</span>
             <el-slider
               v-model="clipPosition"
               :min="clipRange.min"
               :max="clipRange.max"
               :step="clipStep"
-              :disabled="!enableClipping || !showBounds || !hasModel"
+              :disabled="!enableClipping || !showBounds || !hasClippableContent"
             />
             <span class="value">{{ clipPosition.toFixed(2) }}</span>
           </div>
