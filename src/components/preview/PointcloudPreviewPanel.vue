@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RefreshRight, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
-import { NodeMaterial, PointsNodeMaterial, WebGPURenderer } from 'three/webgpu'
-import { color as tslColor, float } from 'three/tsl'
+import { WebGPURenderer } from 'three/webgpu'
+import { color as tslColor } from 'three/tsl'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
@@ -41,18 +41,16 @@ const emit = defineEmits<{
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('等待加载点云')
 const loaded = ref(false)
-const pointColor = ref('#86898D')
-const pointSizeScale = ref(1)
+const pointColorOverride = ref<string | null>(null)
 
 const defaultBgColor = '#0b1020'
+const baseGridSize = 10000
+const baseGridDivisions = 2000
 const dprCap = 1.25
 const tilesErrorTargetMin = 2
 const tilesErrorTargetMax = 64
 const tilesErrorTargetNear = 0.6
 const tilesErrorTargetFar = 4
-const materialMode = 'unlit'
-const unlitMaterialCache = new WeakMap<any, THREE.Material>()
-const unlitTSLMaterialCache = new WeakMap<any, { v0?: any; v1?: any }>()
 
 let scene: THREE.Scene | null = null
 let camera: THREE.PerspectiveCamera | null = null
@@ -77,13 +75,12 @@ let loadToken = 0
 let axesHelper: THREE.AxesHelper | null = null
 let gridHelper: THREE.GridHelper | null = null
 let showAxesEnabled = false
-let showGridEnabled = false
+let showGridEnabled = true
 let backgroundTheme: PreviewBackgroundTheme = 'deep'
+const materialStateCache = new WeakMap<any, { color?: THREE.Color | null; vertexColors?: boolean; colorNode?: any }>()
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
-
-const pointColorText = computed(() => pointColor.value.toUpperCase())
 
 function getBackgroundColor(theme: PreviewBackgroundTheme) {
   switch (theme) {
@@ -162,6 +159,56 @@ function syncHelperVisibility() {
   }
 }
 
+function getObjectBounds(object: THREE.Object3D | null) {
+  if (!object) {
+    return null
+  }
+
+  object.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(object)
+  if (box.isEmpty()) {
+    return null
+  }
+
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+
+  return {
+    box,
+    size,
+    center,
+    maxDim: Math.max(size.x, size.y, size.z, 1),
+  }
+}
+
+function resetGridPlacement() {
+  if (!gridHelper) {
+    return
+  }
+
+  gridHelper.scale.setScalar(1)
+  gridHelper.position.set(0, -10.01, 0)
+}
+
+function syncGridToPointcloud(object: THREE.Object3D | null) {
+  if (!gridHelper) {
+    return
+  }
+
+  const bounds = getObjectBounds(object)
+  if (!bounds) {
+    resetGridPlacement()
+    return
+  }
+
+  const planarSize = Math.max(bounds.size.x, bounds.size.z, 40)
+  const scale = clamp((planarSize * 1.2) / baseGridSize, 1, 500)
+  const offset = Math.max(10.5, bounds.size.y * 0.01)
+
+  gridHelper.scale.setScalar(scale)
+  gridHelper.position.set(bounds.center.x, bounds.box.min.y - offset, bounds.center.z)
+}
+
 function ensureTrailingSlash(value: string) {
   return value.endsWith('/') ? value : `${value}/`
 }
@@ -222,146 +269,73 @@ function disposeObject3D(obj: THREE.Object3D) {
   })
 }
 
-function applySharedMaterialFlags(mat: any, src: any) {
-  const alphaTest = src?.alphaTest ?? 0
-  const opacity = src?.opacity ?? 1
-  mat.alphaTest = alphaTest
-  mat.opacity = opacity
-  mat.transparent = alphaTest > 0 ? false : !!src?.transparent || opacity < 1
-  mat.side = src?.side ?? THREE.FrontSide
-}
-
-function applyPointcloudColorToMaterial(material: any) {
-  const nextColor = new THREE.Color(pointColor.value)
-
-  if (material?.color?.isColor) {
-    material.color.copy(nextColor)
+function ensureMaterialState(material: any) {
+  const cached = materialStateCache.get(material)
+  if (cached) {
+    return cached
   }
 
+  const nextState = {
+    color: material?.color?.isColor ? material.color.clone() : null,
+    vertexColors: 'vertexColors' in material ? material.vertexColors : undefined,
+    colorNode: 'colorNode' in material ? material.colorNode : undefined,
+  }
+  materialStateCache.set(material, nextState)
+  return nextState
+}
+
+function applyColorOverrideToMaterial(material: any, color: string | null) {
+  if (!material) {
+    return
+  }
+
+  const original = ensureMaterialState(material)
+  if (!color) {
+    if (material?.color?.isColor && original.color) {
+      material.color.copy(original.color)
+    }
+    if ('vertexColors' in material && original.vertexColors !== undefined) {
+      material.vertexColors = original.vertexColors
+    }
+    if ('colorNode' in material) {
+      material.colorNode = original.colorNode
+    }
+    material.needsUpdate = true
+    return
+  }
+
+  if (material?.color?.isColor) {
+    material.color.set(color)
+  }
   if ('vertexColors' in material) {
     material.vertexColors = false
   }
-
   if ('colorNode' in material) {
-    material.colorNode = tslColor(pointColor.value)
+    material.colorNode = tslColor(color)
   }
-
-  if ('size' in material && typeof material.size === 'number') {
-    material.size = Math.max(0.2, pointSizeScale.value)
-  }
-
-  if ('sizeNode' in material) {
-    material.sizeNode = float(Math.max(0.2, pointSizeScale.value))
-  }
-
   material.needsUpdate = true
 }
 
-function getOrCreateUnlitMaterialWebGL(
-  src: any,
-  opts: { vertexColors: boolean; isPoints: boolean },
-) {
-  const cached = unlitMaterialCache.get(src)
-  if (cached) return cached
-
-  const baseColor = new THREE.Color(pointColor.value)
-
-  let material: THREE.Material
-  if (opts.isPoints) {
-    const next = new THREE.PointsMaterial({
-      size: src?.size ?? 1,
-      sizeAttenuation: src?.sizeAttenuation ?? true,
-      color: baseColor,
-      vertexColors: false,
-    })
-    if (src?.map) next.map = src.map
-    applySharedMaterialFlags(next, src)
-    next.toneMapped = false
-    material = next
-  } else {
-    const next = new THREE.MeshBasicMaterial({
-      color: baseColor,
-      vertexColors: false,
-    })
-    if (src?.map) next.map = src.map
-    if (src?.alphaMap) next.alphaMap = src.alphaMap
-    applySharedMaterialFlags(next, src)
-    next.toneMapped = false
-    material = next
+function applyPointcloudColorOverride(root: THREE.Object3D | null, color: string | null) {
+  if (!root) {
+    return
   }
-
-  unlitMaterialCache.set(src, material)
-  return material
-}
-
-function getOrCreateUnlitTSLMaterial(
-  src: any,
-  opts: { vertexColors: boolean; isPoints: boolean },
-) {
-  const entry = unlitTSLMaterialCache.get(src) ?? {}
-  const cached = opts.isPoints ? entry.v1 : entry.v0
-  if (cached) return cached
-
-  const material = opts.isPoints ? new PointsNodeMaterial() : new NodeMaterial()
-  material.name = src?.name ? `${src.name} (TSL Unlit)` : 'TSL Unlit'
-  material.fog = false
-  material.lights = false
-
-  applySharedMaterialFlags(material, src)
-  material.toneMapped = false
-  material.colorNode = tslColor(pointColor.value)
-  material.vertexColors = false
-  if ('sizeNode' in material) {
-    material.sizeNode = float(Math.max(0.2, pointSizeScale.value))
-  }
-
-  ;(material as any).__viewerOriginalMaterial = src
-  if (opts.isPoints) entry.v1 = material
-  else entry.v0 = material
-  unlitTSLMaterialCache.set(src, entry)
-
-  return material
-}
-
-function applyMaterialMode(root: any) {
-  if (materialMode !== 'unlit') return
 
   root.traverse((obj: any) => {
-    if (!obj?.material) return
-
-    const hasVertexColors = !!obj.geometry?.attributes?.color
-    const isPoints = Boolean(obj.isPoints)
-    if (rendererMode === 'webgpu') {
-      if (Array.isArray(obj.material)) return
-      const src = (obj.material as any)?.__viewerOriginalMaterial ?? obj.material
-      const next = getOrCreateUnlitTSLMaterial(src, {
-        vertexColors: hasVertexColors,
-        isPoints,
-      })
-      if (obj.material !== next) obj.material = next
-      applyPointcloudColorToMaterial(next)
+    const material = obj?.material
+    if (!material) {
       return
     }
 
-    const opts = {
-      vertexColors: hasVertexColors,
-      isPoints: Boolean(obj.isPoints),
-    }
-    if (Array.isArray(obj.material)) {
-      const next = obj.material.map((src: any) =>
-        getOrCreateUnlitMaterialWebGL(src, opts),
-      )
-      const isSame = obj.material.every((src: any, index: number) => src === next[index])
-      if (!isSame) obj.material = next
-      next.forEach((material: THREE.Material) => applyPointcloudColorToMaterial(material))
+    if (Array.isArray(material)) {
+      material.forEach((item) => applyColorOverrideToMaterial(item, color))
       return
     }
 
-    const next = getOrCreateUnlitMaterialWebGL(obj.material, opts)
-    if (obj.material !== next) obj.material = next
-    applyPointcloudColorToMaterial(next)
+    applyColorOverrideToMaterial(material, color)
   })
 }
+
 
 function getCameraPose(): CameraPose | null {
   if (!camera || !controls) {
@@ -470,21 +444,18 @@ function fitCameraToObject(
   nextControls: OrbitControls,
   object: THREE.Object3D,
 ) {
-  const box = new THREE.Box3().setFromObject(object)
-  const size = box.getSize(new THREE.Vector3())
-  const center = box.getCenter(new THREE.Vector3())
-
-  object.position.sub(center)
-  const maxDim = Math.max(size.x, size.y, size.z)
-  if (maxDim <= 0) {
+  const bounds = getObjectBounds(object)
+  if (!bounds) {
     return
   }
+
+  const { center, maxDim } = bounds
   pointcloudMaxDim = maxDim
 
   const fov = THREE.MathUtils.degToRad(nextCamera.fov)
   const distance = maxDim / 2 / Math.tan(fov / 2)
-  nextControls.target.set(0, 0, 0)
-  nextCamera.position.set(0, maxDim * 0.15, distance * 2.2)
+  nextControls.target.copy(center)
+  nextCamera.position.set(center.x, center.y + maxDim * 0.15, center.z + distance * 2.2)
   nextCamera.near = Math.max(0.01, distance / 100)
   nextCamera.far = Math.max(100000, distance * 200)
   nextCamera.updateProjectionMatrix()
@@ -495,6 +466,7 @@ function fitCameraToRadius(
   nextCamera: THREE.PerspectiveCamera,
   nextControls: OrbitControls,
   radius: number,
+  center = new THREE.Vector3(),
 ) {
   const safeRadius = Math.max(radius, 1)
   const maxDim = safeRadius * 2
@@ -502,8 +474,8 @@ function fitCameraToRadius(
   const fov = THREE.MathUtils.degToRad(nextCamera.fov)
   const distance = maxDim / 2 / Math.tan(fov / 2)
 
-  nextControls.target.set(0, 0, 0)
-  nextCamera.position.set(0, maxDim * 0.15, distance * 2.2)
+  nextControls.target.copy(center)
+  nextCamera.position.set(center.x, center.y + maxDim * 0.15, center.z + distance * 2.2)
   nextCamera.near = Math.max(0.01, distance / 100)
   nextCamera.far = Math.max(100000, distance * 200)
   nextCamera.updateProjectionMatrix()
@@ -514,11 +486,12 @@ function setTopView(
   nextCamera: THREE.PerspectiveCamera,
   nextControls: OrbitControls,
   height: number,
+  target = new THREE.Vector3(),
 ) {
   const safeHeight = Number.isFinite(height) && height > 0 ? height : 10
-  nextControls.target.set(0, 0, 0)
-  nextCamera.position.set(0, safeHeight, 0.1)
-  nextCamera.lookAt(0, 0, 0)
+  nextControls.target.copy(target)
+  nextCamera.position.set(target.x, target.y + safeHeight, target.z + 0.1)
+  nextCamera.lookAt(target)
   nextCamera.near = 0.01
   nextCamera.far = Math.max(5000, safeHeight * 200)
   nextCamera.updateProjectionMatrix()
@@ -632,7 +605,7 @@ async function initViewer() {
       axesHelper.visible = showAxesEnabled
       scene?.add(axesHelper)
 
-      gridHelper = new THREE.GridHelper(280, 56, 0x5eead4, 0x334155)
+      gridHelper = new THREE.GridHelper(baseGridSize, baseGridDivisions, 0x67e8f9, 0x2a6f82)
       gridHelper.visible = showGridEnabled
       syncHelperStyle()
       scene?.add(gridHelper)
@@ -753,6 +726,22 @@ function resetPointcloudView() {
   }
 
   if (tileset) {
+    const targetObject = tilesetWrapper ?? tileset.group
+    syncGridToPointcloud(targetObject)
+    const bounds = getObjectBounds(targetObject)
+
+    if (bounds) {
+      pointcloudMaxDim = bounds.maxDim
+      setTopView(
+        camera,
+        controls,
+        Math.max(bounds.maxDim * 1.2, 10),
+        bounds.center,
+      )
+      requestRender()
+      return
+    }
+
     const sphere = new THREE.Sphere()
     if (tileset.getBoundingSphere?.(sphere)) {
       fitCameraToRadius(camera, controls, sphere.radius)
@@ -761,7 +750,7 @@ function resetPointcloudView() {
       return
     }
 
-    fitCameraToObject(camera, controls, tileset.group)
+    fitCameraToObject(camera, controls, targetObject)
     requestRender()
     return
   }
@@ -806,6 +795,7 @@ function renderPointcloud() {
     }
 
     const isActiveLoading = tilesLoadingCount > 0 || isPointcloudLoading
+    const hasActiveTileset = Boolean(tileset)
     if (needsRender || didUpdate || isActiveLoading) {
       runWithSuppressedConsoleAssert(() => {
         currentRenderer.render(currentScene, currentCamera)
@@ -813,7 +803,7 @@ function renderPointcloud() {
       needsRender = false
     }
 
-    if (needsRender || didUpdate || isActiveLoading) {
+    if (needsRender || didUpdate || isActiveLoading || hasActiveTileset) {
       animationId = requestAnimationFrame(renderPointcloud)
     } else {
       isRendering = false
@@ -840,6 +830,7 @@ async function loadTileset(assetId: number) {
   lastTilesErrorTarget = -1
   pointcloudMaxDim = 1
   fixedViewSize = null
+  resetGridPlacement()
   requestRender()
 
   if (tileset) {
@@ -946,7 +937,14 @@ async function loadTileset(assetId: number) {
     if (rendererMode === 'webgpu') {
       sanitizeObjectForWebGPU(tileScene)
     }
-    applyMaterialMode(tileScene)
+    applyPointcloudColorOverride(tileScene, pointColorOverride.value)
+    const placementTarget = tilesetWrapper ?? nextTileset.group
+    syncGridToPointcloud(placementTarget)
+    if (!loaded.value) {
+      loaded.value = true
+      emit('loaded-change', true)
+    }
+    statusText.value = tilesLoadingCount > 0 ? '点云加载中...' : '点云加载完成'
     requestRender()
   })
   nextTileset.addEventListener('load-error', (event: any) => {
@@ -973,11 +971,13 @@ async function loadTileset(assetId: number) {
     if (rendererMode === 'webgpu') {
       sanitizeObjectForWebGPU(nextTileset.group)
     }
-    applyMaterialMode(nextTileset.group)
+    applyPointcloudColorOverride(nextTileset.group, pointColorOverride.value)
 
     const sphere = new THREE.Sphere()
     if (nextTileset.getBoundingSphere?.(sphere)) {
       nextTileset.group.position.copy(sphere.center).multiplyScalar(-1)
+      nextTileset.group.updateMatrixWorld(true)
+      syncGridToPointcloud(tilesetWrapper ?? nextTileset.group)
       fitCameraToRadius(camera, controls, sphere.radius)
       setTopView(camera, controls, sphere.radius * 2.2)
       emitCameraPose()
@@ -985,7 +985,9 @@ async function loadTileset(assetId: number) {
       return
     }
 
-    fitCameraToObject(camera, controls, nextTileset.group)
+    const placementTarget = tilesetWrapper ?? nextTileset.group
+    syncGridToPointcloud(placementTarget)
+    fitCameraToObject(camera, controls, placementTarget)
     emitCameraPose()
     requestRender()
   })
@@ -1029,6 +1031,9 @@ function cleanup() {
   camera = null
   renderer = null
   controls = null
+  pointcloudMaxDim = 1
+  fixedViewSize = null
+  lastTilesErrorTarget = -1
   rendererMode = null
   rendererReady = false
   initPromise = null
@@ -1039,6 +1044,7 @@ function cleanup() {
 function reload() {
   if (!props.assetId) {
     loaded.value = false
+    resetGridPlacement()
     emit('loaded-change', false)
     requestRender()
     return
@@ -1071,12 +1077,8 @@ function setShowGrid(visible: boolean) {
   requestRender()
 }
 
-function setPointColor(color: string) {
-  pointColor.value = color
-}
-
-function setPointSizeScale(scale: number) {
-  pointSizeScale.value = clamp(scale, 0.2, 6)
+function setPointColor(color: string | null) {
+  pointColorOverride.value = color
 }
 
 defineExpose({
@@ -1088,7 +1090,6 @@ defineExpose({
   setShowAxes,
   setShowGrid,
   setPointColor,
-  setPointSizeScale,
 })
 
 watch(
@@ -1102,21 +1103,8 @@ watch(
   },
 )
 
-watch(pointColor, () => {
-  if (!tileset) {
-    return
-  }
-
-  applyMaterialMode(tileset.group)
-  requestRender()
-})
-
-watch(pointSizeScale, () => {
-  if (!tileset) {
-    return
-  }
-
-  applyMaterialMode(tileset.group)
+watch(pointColorOverride, () => {
+  applyPointcloudColorOverride(tileset?.group ?? null, pointColorOverride.value)
   requestRender()
 })
 
@@ -1137,15 +1125,6 @@ onBeforeUnmount(() => {
     <div v-if="!minimal" class="panel-header">
       <span class="panel-title">点云预览</span>
       <div class="panel-actions">
-        <label class="color-control">
-          <span class="color-label">点云颜色</span>
-          <input
-            v-model="pointColor"
-            class="color-input"
-            type="color"
-          />
-          <span class="color-value">{{ pointColorText }}</span>
-        </label>
         <span class="panel-status">{{ statusText }}</span>
         <button
           class="panel-refresh-btn"
