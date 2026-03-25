@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRightBold, DArrowRight } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 
@@ -14,6 +15,7 @@ const props = defineProps<{
   displayName?: string
 }>()
 
+const router = useRouter()
 const bimPanelRef = ref<any>(null)
 const pointcloudPanelRef = ref<any>(null)
 
@@ -29,13 +31,13 @@ const bimControls = reactive({
 })
 
 const pointcloudControls = reactive({
-  showAxes: true,
+  showAxes: false,
   showGrid: true,
+  colorMode: 'original' as 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
 })
 
 const pointColorPresets = [
-  { label: '默认', value: DEFAULT_POINT_COLOR },
   { label: '白色', value: '#f8fafc' },
   { label: '青色', value: '#67e8f9' },
   { label: '橙色', value: '#fb923c' },
@@ -70,8 +72,7 @@ function closePage() {
     return
   }
 
-  window.history.pushState({}, '', window.location.origin)
-  window.dispatchEvent(new PopStateEvent('popstate'))
+  void router.push('/upload')
 }
 
 function resetView() {
@@ -101,10 +102,13 @@ function applyPanelSettings() {
 
   panel.setShowAxes?.(pointcloudControls.showAxes)
   panel.setShowGrid?.(pointcloudControls.showGrid)
-  panel.setPointColor?.(pointcloudControls.pointColor)
+  panel.setPointColor?.(
+    pointcloudControls.colorMode === 'custom' ? pointcloudControls.pointColor : null,
+  )
 }
 
 function applyPointColorPreset(color: string) {
+  pointcloudControls.colorMode = 'custom'
   pointcloudControls.pointColor = color
 }
 
@@ -123,6 +127,7 @@ watch(
     bimControls.sectionRatio,
     pointcloudControls.showAxes,
     pointcloudControls.showGrid,
+    pointcloudControls.colorMode,
     pointcloudControls.pointColor,
     bimPanelRef.value,
     pointcloudPanelRef.value,
@@ -321,12 +326,31 @@ onMounted(() => {
                 <div class="card-heading">
                   <p class="section-kicker">Point Cloud</p>
                   <h3>点云显示</h3>
-                  <p class="section-desc">使用统一颜色方案，便于不同背景下观察点云形态。</p>
+                  <p class="section-desc">默认保留后端原始颜色，需要时可切换为统一覆盖色。</p>
                 </div>
 
-                <div class="color-block">
+                <div class="option-row">
+                  <button
+                    class="chip-btn"
+                    :class="{ 'is-active': pointcloudControls.colorMode === 'original' }"
+                    type="button"
+                    @click="pointcloudControls.colorMode = 'original'"
+                  >
+                    原始颜色
+                  </button>
+                  <button
+                    class="chip-btn"
+                    :class="{ 'is-active': pointcloudControls.colorMode === 'custom' }"
+                    type="button"
+                    @click="pointcloudControls.colorMode = 'custom'"
+                  >
+                    自定义颜色
+                  </button>
+                </div>
+
+                <div class="color-block" :class="{ 'is-disabled': pointcloudControls.colorMode !== 'custom' }">
                   <div class="range-head">
-                    <span>点云颜色</span>
+                    <span>覆盖颜色</span>
                     <strong>{{ pointcloudControls.pointColor.toUpperCase() }}</strong>
                   </div>
                   <div class="color-row">
@@ -334,6 +358,7 @@ onMounted(() => {
                       v-model="pointcloudControls.pointColor"
                       class="color-input"
                       type="color"
+                      :disabled="pointcloudControls.colorMode !== 'custom'"
                     />
                   </div>
                   <div class="option-row">
@@ -341,7 +366,7 @@ onMounted(() => {
                       v-for="preset in pointColorPresets"
                       :key="preset.value"
                       class="chip-btn color-chip"
-                      :class="{ 'is-active': pointcloudControls.pointColor === preset.value }"
+                      :class="{ 'is-active': pointcloudControls.pointColor === preset.value && pointcloudControls.colorMode === 'custom' }"
                       type="button"
                       @click="applyPointColorPreset(preset.value)"
                     >

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   clearStoredSession,
   getStoredSession,
@@ -13,35 +14,43 @@ import SplitPreviewView from '@/views/preview/SplitPreviewView.vue'
 import UploadView from '@/views/upload/UploadView.vue'
 
 const session = ref<AuthSession | null>(getStoredSession())
-const currentUrl = ref(window.location.href)
+const route = useRoute()
+const router = useRouter()
 
 function readRouteState() {
-  const url = new URL(currentUrl.value)
-  const search = url.searchParams
   const parseNumber = (value: string | null) => {
     if (!value) return null
     const next = Number(value)
     return Number.isFinite(next) ? next : null
   }
+  const pickString = (value: unknown) => {
+    if (Array.isArray(value)) {
+      return typeof value[0] === 'string' ? value[0] : null
+    }
+
+    return typeof value === 'string' ? value : null
+  }
 
   return {
-    path: url.pathname,
-    view: search.get('view'),
-    previewType: search.get('previewType'),
-    assetId: parseNumber(search.get('assetId')),
-    bimAssetId: parseNumber(search.get('bimAssetId') || search.get('bimFileId')),
+    path: route.path,
+    view: pickString(route.query.view),
+    previewType: pickString(route.query.previewType),
+    assetId: parseNumber(pickString(route.query.assetId)),
+    bimAssetId: parseNumber(pickString(route.query.bimAssetId) || pickString(route.query.bimFileId)),
     pointcloudAssetId: parseNumber(
-      search.get('pointcloudAssetId') || search.get('pointcloudFileId'),
+      pickString(route.query.pointcloudAssetId) || pickString(route.query.pointcloudFileId),
     ),
     displayName:
-      search.get('displayName') || search.get('bimDisplayName') || undefined,
+      pickString(route.query.displayName) || pickString(route.query.bimDisplayName) || undefined,
     pointcloudDisplayName:
-      search.get('pointcloudDisplayName') || search.get('scanDisplayName') || undefined,
+      pickString(route.query.pointcloudDisplayName) ||
+      pickString(route.query.scanDisplayName) ||
+      undefined,
   }
 }
 
 const routeState = computed(() => readRouteState())
-const routeKey = computed(() => currentUrl.value)
+const routeKey = computed(() => route.fullPath)
 
 const currentView = computed(() => {
   if (!session.value) {
@@ -52,29 +61,31 @@ const currentView = computed(() => {
     return 'alignment'
   }
 
-  if (routeState.value.view === 'asset-preview') {
+  if (
+    routeState.value.path.startsWith('/preview/asset') ||
+    routeState.value.view === 'asset-preview'
+  ) {
     return 'asset-preview'
   }
 
-  return routeState.value.view === 'split-preview' ? 'split-preview' : 'upload'
+  if (
+    routeState.value.path.startsWith('/preview/split') ||
+    routeState.value.view === 'split-preview'
+  ) {
+    return 'split-preview'
+  }
+
+  return 'upload'
 })
 
 function handleLoginSuccess(nextSession: AuthSession) {
   session.value = nextSession
-}
-
-function handleLogout() {
-  clearStoredSession()
-  session.value = null
-}
-
-function handleLocationChange() {
-  currentUrl.value = window.location.href
+  if (route.path === '/') {
+    void router.replace('/upload')
+  }
 }
 
 onMounted(() => {
-  window.addEventListener('popstate', handleLocationChange)
-
   if (session.value) {
     void validateStoredSession()
       .then((nextSession) => {
@@ -87,9 +98,11 @@ onMounted(() => {
   }
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('popstate', handleLocationChange)
-})
+function handleLogout() {
+  clearStoredSession()
+  session.value = null
+  void router.replace('/upload')
+}
 </script>
 
 <template>

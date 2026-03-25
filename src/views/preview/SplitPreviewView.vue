@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { ArrowLeft, RefreshRight, 
 Connection } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 
@@ -16,6 +17,7 @@ const props = defineProps<{
   bimDisplayName?: string
 }>()
 
+const router = useRouter()
 const isReady = computed(() => {
   return !!props.bimAssetId && !!props.pointcloudAssetId
 })
@@ -37,8 +39,7 @@ function closePage() {
     return
   }
 
-  window.history.pushState({}, '', window.location.origin)
-  window.dispatchEvent(new PopStateEvent('popstate'))
+  void router.push('/upload')
 }
 
 function releaseSyncLock() {

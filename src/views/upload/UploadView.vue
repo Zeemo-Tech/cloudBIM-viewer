@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { SwitchButton, View } from '@element-plus/icons-vue'
+import { useRouter, type RouteLocationRaw } from 'vue-router'
 import {
   type AssetDetail,
   type AssetStatus,
@@ -40,6 +41,7 @@ defineEmits<{
   logout: []
 }>()
 
+const router = useRouter()
 const bimFile = ref<File | null>(null)
 const pointCloudFile = ref<File | null>(null)
 const activeUploadKind = ref<UploadKind | null>(null)
@@ -490,7 +492,7 @@ function confirmAlignmentSelection() {
   }
 
   alignmentDialogVisible.value = false
-  openPreviewPage(buildAlignmentUrl(selectedBim, selectedPointcloud))
+  openPreviewPage(buildAlignmentRoute(selectedBim, selectedPointcloud))
 }
 
 function getTaskTitle(kind: UploadKind) {
@@ -536,56 +538,69 @@ function getProgressStatus(task: UploadTaskState) {
   return undefined
 }
 
-function buildSplitPreviewUrl(bimAsset: AssetDetail, pointcloudAsset: AssetDetail) {
-  const url = new URL(window.location.origin)
-  url.searchParams.set('view', 'split-preview')
-  url.searchParams.set('bimAssetId', String(bimAsset.id))
-  url.searchParams.set('pointcloudAssetId', String(pointcloudAsset.id))
-  url.searchParams.set('bimDisplayName', bimAsset.sourceName || 'BIM 模型')
-  return url.toString()
+function buildSplitPreviewRoute(
+  bimAsset: AssetDetail,
+  pointcloudAsset: AssetDetail,
+): RouteLocationRaw {
+  return {
+    path: '/preview/split',
+    query: {
+      bimAssetId: String(bimAsset.id),
+      pointcloudAssetId: String(pointcloudAsset.id),
+      bimDisplayName: bimAsset.sourceName || 'BIM 模型',
+    },
+  }
 }
 
-function buildLooseSplitPreviewUrl(
+function buildLooseSplitPreviewRoute(
   bimAsset: AssetDetail | null,
   pointcloudAsset: AssetDetail | null,
-) {
-  const url = new URL(window.location.origin)
-  url.searchParams.set('view', 'split-preview')
-  if (bimAsset?.id) {
-    url.searchParams.set('bimAssetId', String(bimAsset.id))
-    url.searchParams.set('bimDisplayName', bimAsset.sourceName || 'BIM 模型')
+): RouteLocationRaw {
+  return {
+    path: '/preview/split',
+    query: {
+      bimAssetId: bimAsset?.id ? String(bimAsset.id) : undefined,
+      pointcloudAssetId: pointcloudAsset?.id ? String(pointcloudAsset.id) : undefined,
+      bimDisplayName: bimAsset?.sourceName || undefined,
+    },
   }
-  if (pointcloudAsset?.id) {
-    url.searchParams.set('pointcloudAssetId', String(pointcloudAsset.id))
-  }
-  return url.toString()
 }
 
-function buildAlignmentUrl(bimAsset: AssetDetail, pointcloudAsset: AssetDetail) {
-  const url = new URL('/alignment/model', window.location.origin)
-  url.searchParams.set('bimAssetId', String(bimAsset.id))
-  url.searchParams.set('pointcloudAssetId', String(pointcloudAsset.id))
-  url.searchParams.set('bimDisplayName', bimAsset.sourceName || 'BIM 模型')
-  url.searchParams.set('pointcloudDisplayName', pointcloudAsset.sourceName || '点云场景')
-  return url.toString()
-}
-
-function buildAssetPreviewUrl(mode: Exclude<PreviewMode, 'split'>, asset: AssetDetail) {
-  const url = new URL(window.location.origin)
-  url.searchParams.set('view', 'asset-preview')
-  url.searchParams.set('previewType', mode)
-  url.searchParams.set('assetId', String(asset.id))
-  if (asset.sourceName) {
-    url.searchParams.set('displayName', asset.sourceName)
+function buildAlignmentRoute(
+  bimAsset: AssetDetail,
+  pointcloudAsset: AssetDetail,
+): RouteLocationRaw {
+  return {
+    path: '/alignment/model',
+    query: {
+      bimAssetId: String(bimAsset.id),
+      pointcloudAssetId: String(pointcloudAsset.id),
+      bimDisplayName: bimAsset.sourceName || 'BIM 模型',
+      pointcloudDisplayName: pointcloudAsset.sourceName || '点云场景',
+    },
   }
-  return url.toString()
 }
 
-function openPreviewPage(url: string) {
-  const previewWindow = window.open(url, '_blank')
+function buildAssetPreviewRoute(
+  mode: Exclude<PreviewMode, 'split'>,
+  asset: AssetDetail,
+): RouteLocationRaw {
+  return {
+    path: '/preview/asset',
+    query: {
+      previewType: mode,
+      assetId: String(asset.id),
+      displayName: asset.sourceName || undefined,
+    },
+  }
+}
+
+function openPreviewPage(location: RouteLocationRaw) {
+  const href = router.resolve(location).href
+  const previewWindow = window.open(href, '_blank')
 
   if (!previewWindow) {
-    window.location.href = url
+    void router.push(location)
   }
 }
 
@@ -603,7 +618,7 @@ async function openPreview(mode: PreviewMode) {
       return
     }
 
-    openPreviewPage(buildAssetPreviewUrl('bim', refreshed))
+    openPreviewPage(buildAssetPreviewRoute('bim', refreshed))
     return
   }
 
@@ -620,7 +635,7 @@ async function openPreview(mode: PreviewMode) {
       return
     }
 
-    openPreviewPage(buildAssetPreviewUrl('pointcloud', refreshed))
+    openPreviewPage(buildAssetPreviewRoute('pointcloud', refreshed))
     return
   }
 
@@ -637,16 +652,16 @@ async function openPreview(mode: PreviewMode) {
     const bimReady = isPreviewReady(nextBim || selectedBim)
 
     if (pointcloudReady && bimReady && selectedPointcloud && selectedBim) {
-      const previewUrl = buildSplitPreviewUrl(
+      const previewRoute = buildSplitPreviewRoute(
         nextBim || selectedBim,
         nextPointcloud || selectedPointcloud,
       )
-      openPreviewPage(previewUrl)
+      openPreviewPage(previewRoute)
       return
     }
 
     openPreviewPage(
-      buildLooseSplitPreviewUrl(nextBim || selectedBim, nextPointcloud || selectedPointcloud),
+      buildLooseSplitPreviewRoute(nextBim || selectedBim, nextPointcloud || selectedPointcloud),
     )
     return
   }

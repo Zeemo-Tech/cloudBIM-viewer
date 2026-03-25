@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
   Box,
@@ -60,6 +61,7 @@ const props = defineProps<{
   pointcloudDisplayName?: string
 }>()
 
+const router = useRouter()
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
 const showPanel = ref(true)
@@ -245,9 +247,9 @@ function closePage() {
   }
 
   console.info('[BimPointcloudAlign] closePage fallback redirect', {
-    target: window.location.origin,
+    target: '/upload',
   })
-  window.location.href = window.location.origin
+  void router.push('/upload')
 }
 
 function parseColor(value: string) {
