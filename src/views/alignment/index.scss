@@ -173,6 +173,29 @@
   letter-spacing: 0.6px;
 }
 
+.section-title--with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-icon-btn {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.section-icon-btn:hover,
+.section-icon-btn:focus-visible {
+  color: rgba(125, 194, 255, 0.98);
+  background: rgba(125, 194, 255, 0.12);
+}
+
+.section-icon-btn.is-disabled,
+.section-icon-btn:disabled {
+  color: rgba(255, 255, 255, 0.24);
+  background: transparent;
+}
+
 .control-row {
   display: flex;
   align-items: center;

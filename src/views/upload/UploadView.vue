@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { SwitchButton, View } from '@element-plus/icons-vue'
+import { SwitchButton } from '@element-plus/icons-vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 import { getScanCalibration } from '@/api/backend-alignment'
 import {
@@ -87,7 +87,26 @@ const uploadTasks = reactive<Record<UploadKind, UploadTaskState>>({
 
 const canPreviewBim = computed(() => !!getPreviewTarget('bim'))
 const canPreviewPointcloud = computed(() => !!getPreviewTarget('pointcloud'))
-const canPreviewSplit = computed(() => canPreviewBim.value && canPreviewPointcloud.value)
+const canOpenAlignmentStep = computed(
+  () => !!getDefaultAlignmentAssetId('bim') && !!getDefaultAlignmentAssetId('pointcloud'),
+)
+const canOpenSplitPreviewStep = computed(() => calibratedSplitPreviewOptions.value.length > 0)
+const headerWorkflowActive = computed(() => {
+  if (canOpenSplitPreviewStep.value) {
+    return 2
+  }
+
+  if (canOpenAlignmentStep.value) {
+    return 1
+  }
+
+  return 0
+})
+const headerWorkflowSteps = computed(() => [
+  { title: '上传文件', action: 'upload', disabled: false },
+  { title: '校准页面', action: 'alignment', disabled: !canOpenAlignmentStep.value },
+  { title: '二分屏预览', action: 'split-preview', disabled: !canOpenSplitPreviewStep.value },
+] as const)
 const bimUploadedFiles = computed(() => assetCollections.bim)
 const pointcloudUploadedFiles = computed(() => assetCollections.pointcloud)
 const alignmentBimOptions = computed(() =>
@@ -301,6 +320,7 @@ async function loadAssets(silent = false) {
       (a, b) => b.createdAt - a.createdAt,
     )
     syncTaskResultsWithCollections()
+    await loadCalibratedSplitPreviewOptions(true)
   } catch (error) {
     if (!silent) {
       ElMessage({
@@ -500,14 +520,8 @@ function openAlignmentSelector() {
   alignmentDialogVisible.value = true
 }
 
-async function openSplitPreviewSelector() {
-  splitPreviewDialogVisible.value = true
-  loadingSplitPreviewOptions.value = true
-  selectedSplitPreviewKeys.value = []
-
+async function loadCalibratedSplitPreviewOptions(silent = false) {
   try {
-    await loadAssets(true)
-
     const readyPointclouds = assetCollections.pointcloud.filter((asset) => isAssetReady(asset.status))
     const readyBimMap = new Map(
       assetCollections.bim
@@ -515,47 +529,68 @@ async function openSplitPreviewSelector() {
         .map((asset) => [asset.id, asset] as const),
     )
 
+    if (!readyPointclouds.length || !readyBimMap.size) {
+      calibratedSplitPreviewOptions.value = []
+      return []
+    }
+
     const rawOptions: Array<CalibratedSplitPreviewOption | null> = await Promise.all(
-        readyPointclouds.map(async (pointcloudAsset) => {
-          try {
-            const calibration = await getScanCalibration(pointcloudAsset.id)
-            const data = calibration?.data
-            if (!data?.hasBimAlignment || !data.bimFileId) {
-              return null
-            }
-
-            const bimAsset = readyBimMap.get(data.bimFileId)
-            if (!bimAsset) {
-              return null
-            }
-
-            return {
-              key: `${pointcloudAsset.id}:${bimAsset.id}`,
-              bimAssetId: bimAsset.id,
-              pointcloudAssetId: pointcloudAsset.id,
-              bimDisplayName: bimAsset.sourceName || `BIM-${bimAsset.id}`,
-              pointcloudDisplayName: pointcloudAsset.sourceName || `点云-${pointcloudAsset.id}`,
-              bimCreatedAt: bimAsset.createdAt,
-              pointcloudCreatedAt: pointcloudAsset.createdAt,
-            }
-          } catch (error: any) {
-            const status = error?.response?.status
-            if (status === 400 || status === 404) {
-              return null
-            }
-            throw error
+      readyPointclouds.map(async (pointcloudAsset) => {
+        try {
+          const calibration = await getScanCalibration(pointcloudAsset.id)
+          const data = calibration?.data
+          if (!data?.hasBimAlignment || !data.bimFileId) {
+            return null
           }
-        }),
-      )
+
+          const bimAsset = readyBimMap.get(data.bimFileId)
+          if (!bimAsset) {
+            return null
+          }
+
+          return {
+            key: `${pointcloudAsset.id}:${bimAsset.id}`,
+            bimAssetId: bimAsset.id,
+            pointcloudAssetId: pointcloudAsset.id,
+            bimDisplayName: bimAsset.sourceName || `BIM-${bimAsset.id}`,
+            pointcloudDisplayName: pointcloudAsset.sourceName || `点云-${pointcloudAsset.id}`,
+            bimCreatedAt: bimAsset.createdAt,
+            pointcloudCreatedAt: pointcloudAsset.createdAt,
+          }
+        } catch (error: any) {
+          const status = error?.response?.status
+          if (status === 400 || status === 404) {
+            return null
+          }
+          throw error
+        }
+      }),
+    )
+
     const options = rawOptions
       .filter(isCalibratedSplitPreviewOption)
       .sort((a, b) => (b.pointcloudCreatedAt ?? 0) - (a.pointcloudCreatedAt ?? 0))
 
     calibratedSplitPreviewOptions.value = options
-    selectedSplitPreviewKeys.value = options[0]?.key ? [options[0].key] : []
+    return options
   } catch (error) {
     calibratedSplitPreviewOptions.value = []
-    ElMessage.error(error instanceof Error ? error.message : '加载已校准文件组失败')
+    if (!silent) {
+      ElMessage.error(error instanceof Error ? error.message : '加载已校准文件组失败')
+    }
+    return []
+  }
+}
+
+async function openSplitPreviewSelector() {
+  splitPreviewDialogVisible.value = true
+  loadingSplitPreviewOptions.value = true
+  selectedSplitPreviewKeys.value = []
+
+  try {
+    await loadAssets(true)
+    const options = await loadCalibratedSplitPreviewOptions(false)
+    selectedSplitPreviewKeys.value = options[0]?.key ? [options[0].key] : []
   } finally {
     loadingSplitPreviewOptions.value = false
   }
@@ -642,6 +677,24 @@ function getProgressStatus(task: UploadTaskState) {
   }
 
   return undefined
+}
+
+function handleHeaderStepClick(
+  step: (typeof headerWorkflowSteps.value)[number],
+) {
+  if (step.disabled) {
+    return
+  }
+
+  const { action } = step
+  if (action === 'alignment') {
+    openAlignmentSelector()
+    return
+  }
+
+  if (action === 'split-preview') {
+    void openSplitPreviewSelector()
+  }
 }
 
 function buildSplitPreviewRoute(
@@ -775,24 +828,32 @@ async function openPreview(mode: PreviewMode) {
     <div class="page-shell">
       <header class="page-header card-surface">
         <div class="header-copy">
-          <p class="eyebrow">CloudBIM Viewer</p>
-          <h2>文件上传与预览</h2>
+          <h2>实模一致系统</h2>
         </div>
 
         <div class="header-actions">
-          <el-button
-            type="primary"
-            :icon="View"
-            @click="openSplitPreviewSelector"
-          >
-            二分屏预览
-          </el-button>
-          <el-button plain @click="openAlignmentSelector">
-            校准页面
-          </el-button>
           <el-button plain :icon="SwitchButton" @click="$emit('logout')">
             退出登录
           </el-button>
+        </div>
+
+        <div class="header-progress">
+          <el-steps
+            class="header-steps"
+            :active="headerWorkflowActive"
+            finish-status="success"
+            process-status="process"
+            align-center
+          >
+            <el-step
+              v-for="step in headerWorkflowSteps"
+              :key="step.title"
+              :title="step.title"
+              class="header-step"
+              :class="{ 'is-disabled': step.disabled }"
+              @click="handleHeaderStepClick(step)"
+            />
+          </el-steps>
         </div>
       </header>
 
@@ -1122,11 +1183,11 @@ async function openPreview(mode: PreviewMode) {
 }
 
 .page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 24px;
-  padding: 28px 32px 10px;
+  padding: 28px 32px 24px;
   border-radius: 24px;
 }
 
@@ -1156,6 +1217,92 @@ async function openPreview(mode: PreviewMode) {
   display: flex;
   gap: 10px;
   flex-shrink: 0;
+}
+
+.header-progress {
+  grid-column: 1 / -1;
+  padding-top: 4px;
+}
+
+.header-steps {
+  width: 100%;
+}
+
+.header-progress :deep(.el-step__head) {
+  --el-color-primary: #2563eb;
+  --el-text-color-placeholder: #cbd5e1;
+}
+
+.header-progress :deep(.el-step__icon) {
+  width: 34px;
+  height: 34px;
+  font-weight: 700;
+}
+
+.header-progress :deep(.el-step__title) {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.header-progress :deep(.el-step__description) {
+  margin-top: 6px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.header-progress :deep(.is-process .el-step__icon) {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.header-progress :deep(.is-process .el-step__title) {
+  color: #2563eb;
+}
+
+.header-progress :deep(.is-success .el-step__icon) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #3b82f6;
+}
+
+.header-progress :deep(.is-success .el-step__title) {
+  color: #334155;
+}
+
+.header-progress :deep(.el-step__line) {
+  top: 16px;
+}
+
+.header-step {
+  cursor: pointer;
+}
+
+.header-step:hover :deep(.el-step__title) {
+  color: #2563eb;
+}
+
+.header-step.is-disabled {
+  cursor: not-allowed;
+}
+
+.header-step.is-disabled:hover :deep(.el-step__title) {
+  color: #64748b;
+}
+
+.header-step.is-disabled :deep(.el-step__icon) {
+  background: #f8fafc;
+  border-color: #dbe3ef;
+  color: #cbd5e1;
+}
+
+.header-step.is-disabled :deep(.el-step__title) {
+  color: #94a3b8;
+}
+
+.header-step.is-disabled :deep(.el-step__line) {
+  background: #e2e8f0;
 }
 
 .upload-grid {
@@ -1440,6 +1587,7 @@ async function openPreview(mode: PreviewMode) {
 @media (max-width: 960px) {
   .page-header,
   .library-head {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
   }

@@ -2077,6 +2077,22 @@ function onClippingFaceChange() {
   applyClippingState()
 }
 
+function resetClippingState() {
+  clipAxis.value = 'z'
+  clipInvert.value = false
+  clipBoxState = null
+
+  if (contentGroup) {
+    updateClipRangeFromContent({ resetPosition: true })
+  } else {
+    clipRange.value = { min: 0, max: 1 }
+    clipPosition.value = 0
+  }
+
+  syncBoundsHelpers()
+  applyClippingState()
+}
+
 function ensureOrientationBase(obj: THREE.Object3D | null) {
   if (!obj?.quaternion) return null
   obj.userData = obj.userData ?? {}
@@ -3636,9 +3652,6 @@ onBeforeUnmount(() => {
         <h1 class="brand-title">
           BIM 与点云校准 - {{ bimDisplayName || 'BIM 模型' }}
         </h1>
-        <div class="topbar-center">
-          <el-tag round effect="light">步骤 1/2</el-tag>
-        </div>
       </div>
 
       <div class="topbar-right">
@@ -4056,7 +4069,20 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="panel-section">
-          <div class="section-title">剖切</div>
+          <div class="section-title section-title--with-action">
+            <span>剖切</span>
+            <el-tooltip content="恢复原始状态" placement="top">
+              <el-button
+                class="section-icon-btn"
+                circle
+                text
+                size="small"
+                :icon="RefreshLeft"
+                :disabled="!hasClippableContent"
+                @click="resetClippingState"
+              />
+            </el-tooltip>
+          </div>
           <div class="control-row">
             <span class="label">剖切</span>
             <el-switch v-model="enableClipping" :disabled="!hasClippableContent" />
