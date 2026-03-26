@@ -27,12 +27,12 @@ const bimControls = reactive({
   showGrid: true,
   wireframe: false,
   sectionEnabled: false,
-  sectionRatio: 52,
 })
 
 const pointcloudControls = reactive({
   showAxes: false,
   showGrid: true,
+  sectionEnabled: false,
   colorMode: 'original' as 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
 })
@@ -96,12 +96,13 @@ function applyPanelSettings() {
     panel.setShowAxes?.(bimControls.showAxes)
     panel.setShowGrid?.(bimControls.showGrid)
     panel.setWireframe?.(bimControls.wireframe)
-    panel.setSectionState?.(bimControls.sectionEnabled, bimControls.sectionRatio)
+    panel.setSectionState?.(bimControls.sectionEnabled)
     return
   }
 
   panel.setShowAxes?.(pointcloudControls.showAxes)
   panel.setShowGrid?.(pointcloudControls.showGrid)
+  panel.setSectionState?.(pointcloudControls.sectionEnabled)
   panel.setPointColor?.(
     pointcloudControls.colorMode === 'custom' ? pointcloudControls.pointColor : null,
   )
@@ -124,9 +125,9 @@ watch(
     bimControls.showGrid,
     bimControls.wireframe,
     bimControls.sectionEnabled,
-    bimControls.sectionRatio,
     pointcloudControls.showAxes,
     pointcloudControls.showGrid,
+    pointcloudControls.sectionEnabled,
     pointcloudControls.colorMode,
     pointcloudControls.pointColor,
     bimPanelRef.value,
@@ -298,7 +299,7 @@ onMounted(() => {
                 <label class="toggle-row">
                   <span class="toggle-copy">
                     <strong>剖切启用</strong>
-                    <small>按高度裁切模型，快速查看内部构造与楼层关系。</small>
+                    <small>开启后可直接拖拽场景中的 6 个方向箭头，按方向裁切模型。</small>
                   </span>
                   <span class="switch">
                     <input v-model="bimControls.sectionEnabled" type="checkbox" />
@@ -308,17 +309,12 @@ onMounted(() => {
 
                 <div class="range-row" :class="{ 'is-disabled': !bimControls.sectionEnabled }">
                   <div class="range-head">
-                    <span>剖切高度</span>
-                    <strong>{{ bimControls.sectionRatio }}%</strong>
+                    <span>交互说明</span>
+                    <strong>{{ bimControls.sectionEnabled ? '已启用' : '未启用' }}</strong>
                   </div>
-                  <input
-                    v-model.number="bimControls.sectionRatio"
-                    :disabled="!bimControls.sectionEnabled"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                  />
+                  <p class="section-desc section-desc--inline">
+                    与校准页一致，模型外侧会显示 6 个箭头和包围盒，可拖拽任一方向进行剖切。
+                  </p>
                 </div>
               </section>
 
@@ -326,7 +322,28 @@ onMounted(() => {
                 <div class="card-heading">
                   <p class="section-kicker">Point Cloud</p>
                   <h3>点云显示</h3>
-                  <p class="section-desc">默认保留后端原始颜色，需要时可切换为统一覆盖色。</p>
+                  <p class="section-desc">默认保留后端原始颜色，也支持与 BIM 一致的 6 向剖切交互。</p>
+                </div>
+
+                <label class="toggle-row">
+                  <span class="toggle-copy">
+                    <strong>剖切启用</strong>
+                    <small>开启后会显示 6 个方向箭头，可直接拖拽裁切点云范围。</small>
+                  </span>
+                  <span class="switch">
+                    <input v-model="pointcloudControls.sectionEnabled" type="checkbox" />
+                    <span class="switch-track"></span>
+                  </span>
+                </label>
+
+                <div class="range-row" :class="{ 'is-disabled': !pointcloudControls.sectionEnabled }">
+                  <div class="range-head">
+                    <span>交互说明</span>
+                    <strong>{{ pointcloudControls.sectionEnabled ? '已启用' : '未启用' }}</strong>
+                  </div>
+                  <p class="section-desc section-desc--inline">
+                    启用后，点云外侧会出现包围盒和 6 个方向箭头，可像校准页一样拖拽任一方向进行剖切。
+                  </p>
                 </div>
 
                 <div class="option-row">
@@ -684,6 +701,10 @@ onMounted(() => {
   line-height: 1.6;
   font-size: 13px;
   color: #8ea0b7;
+}
+
+.section-desc--inline {
+  margin-top: 0;
 }
 
 .asset-preview-page.theme-light .section-desc {

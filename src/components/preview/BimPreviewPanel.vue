@@ -13,6 +13,19 @@ type CameraPose = {
 }
 
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+type ClipAxis = 'x' | 'y' | 'z'
+type ClipBoxOffsets = {
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  zMin: number
+  zMax: number
+}
+type ClipBoxState = {
+  baseBox: THREE.Box3
+  offsets: ClipBoxOffsets
+}
 
 const props = withDefaults(
   defineProps<{
@@ -56,9 +69,25 @@ let showAxesEnabled = false
 let showGridEnabled = false
 let sectionEnabled = false
 let sectionRatio = 50
-let sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
-let sectionBounds: { minY: number; maxY: number } | null = null
 let backgroundTheme: PreviewBackgroundTheme = 'deep'
+let raycaster: THREE.Raycaster | null = null
+let boundsBoxHelper: THREE.Box3Helper | null = null
+let clipHandlesGroup: THREE.Group | null = null
+let clipHandlePickers: THREE.Object3D[] = []
+let clipPointerCaptureId: number | null = null
+let clipDragState: null | {
+  pointerId: number
+  axis: ClipAxis
+  invert: boolean
+  dragPlane: THREE.Plane
+  startPoint: THREE.Vector3
+  startPosition: number
+  min: number
+  max: number
+} = null
+let clipBoxState: ClipBoxState | null = null
+let clipAxis: ClipAxis = 'z'
+let clipInvert = false
 
 function getBackgroundColor(theme: PreviewBackgroundTheme) {
   switch (theme) {
@@ -180,22 +209,495 @@ function syncHelperVisibility() {
   }
 }
 
-function updateSectionPlane() {
-  if (!sectionBounds) {
+function cloneBox3(box: THREE.Box3) {
+  return new THREE.Box3(box.min.clone(), box.max.clone())
+}
+
+function createDefaultClipOffsets(): ClipBoxOffsets {
+  return {
+    xMin: 0,
+    xMax: 0,
+    yMin: 0,
+    yMax: 0,
+    zMin: 0,
+    zMax: 0,
+  }
+}
+
+function resetClipBoxToContent() {
+  clipAxis = 'z'
+  clipInvert = false
+  clipBoxState = null
+  const state = getOrCreateClipState()
+  if (!state) return
+  state.offsets = createDefaultClipOffsets()
+  clampClipOffsets(state)
+}
+
+function getContentWorldBox() {
+  if (!modelRoot) return null
+  modelRoot.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(modelRoot)
+  return box.isEmpty() ? null : box
+}
+
+function getClipOffsetKey(axis: ClipAxis, invert: boolean) {
+  return `${axis}${invert ? 'Max' : 'Min'}` as keyof ClipBoxOffsets
+}
+
+function clampClipOffsets(state: ClipBoxState) {
+  ;(['x', 'y', 'z'] as ClipAxis[]).forEach((axis) => {
+    const minKey = `${axis}Min` as keyof ClipBoxOffsets
+    const maxKey = `${axis}Max` as keyof ClipBoxOffsets
+    const span = Math.max(0, state.baseBox.max[axis] - state.baseBox.min[axis])
+    state.offsets[minKey] = THREE.MathUtils.clamp(state.offsets[minKey], 0, span)
+    state.offsets[maxKey] = THREE.MathUtils.clamp(state.offsets[maxKey], 0, span)
+    if (state.offsets[minKey] + state.offsets[maxKey] > span) {
+      state.offsets[maxKey] = Math.max(0, span - state.offsets[minKey])
+    }
+  })
+}
+
+function getOrCreateClipState() {
+  const baseBox = getContentWorldBox()
+  if (!baseBox) {
+    clipBoxState = null
+    return null
+  }
+
+  if (!clipBoxState) {
+    clipBoxState = {
+      baseBox: cloneBox3(baseBox),
+      offsets: createDefaultClipOffsets(),
+    }
+    return clipBoxState
+  }
+
+  clipBoxState.baseBox.copy(baseBox)
+  clampClipOffsets(clipBoxState)
+  return clipBoxState
+}
+
+function getCurrentClipBox() {
+  const state = getOrCreateClipState()
+  if (!state) return null
+
+  const box = cloneBox3(state.baseBox)
+  box.min.x += state.offsets.xMin
+  box.max.x -= state.offsets.xMax
+  box.min.y += state.offsets.yMin
+  box.max.y -= state.offsets.yMax
+  box.min.z += state.offsets.zMin
+  box.max.z -= state.offsets.zMax
+  return box
+}
+
+function getClipFacePosition(axis: ClipAxis, invert: boolean) {
+  const box = getCurrentClipBox()
+  if (!box) return 0
+  return invert ? box.max[axis] : box.min[axis]
+}
+
+function getClipFaceRange(axis: ClipAxis, invert: boolean) {
+  const state = getOrCreateClipState()
+  const box = getCurrentClipBox()
+  if (!state || !box) return { min: 0, max: 1 }
+
+  return invert
+    ? { min: box.min[axis], max: state.baseBox.max[axis] }
+    : { min: state.baseBox.min[axis], max: box.max[axis] }
+}
+
+function setClipFacePosition(axis: ClipAxis, invert: boolean, value: number) {
+  const state = getOrCreateClipState()
+  if (!state) return
+
+  const currentBox = getCurrentClipBox()
+  if (!currentBox) return
+
+  const baseMin = state.baseBox.min[axis]
+  const baseMax = state.baseBox.max[axis]
+  const minLimit = invert ? currentBox.min[axis] : baseMin
+  const maxLimit = invert ? baseMax : currentBox.max[axis]
+  const clamped = THREE.MathUtils.clamp(value, minLimit, maxLimit)
+  const key = getClipOffsetKey(axis, invert)
+
+  if (invert) state.offsets[key] = baseMax - clamped
+  else state.offsets[key] = clamped - baseMin
+
+  clampClipOffsets(state)
+}
+
+function clearClipHandles() {
+  clipHandlePickers = []
+  if (!scene || !clipHandlesGroup) {
+    clipHandlesGroup = null
     return
   }
 
-  const range = Math.max(0.001, sectionBounds.maxY - sectionBounds.minY)
-  const cutY = sectionBounds.minY + range * (sectionRatio / 100)
-  sectionPlane.set(new THREE.Vector3(0, -1, 0), cutY)
+  scene.remove(clipHandlesGroup)
+  clipHandlesGroup.traverse((child: any) => {
+    child.geometry?.dispose?.()
+    const material = child?.material
+    if (Array.isArray(material)) {
+      material.forEach((item: any) => item?.dispose?.())
+    } else {
+      material?.dispose?.()
+    }
+  })
+  clipHandlesGroup = null
 }
 
-function applyMaterialState(material: THREE.Material) {
+function styleBoundsBoxHelper(helper: THREE.Box3Helper) {
+  const material = helper.material as THREE.LineBasicMaterial
+  material.depthTest = false
+  material.depthWrite = false
+  material.transparent = true
+  material.opacity = 0.95
+  material.needsUpdate = true
+  helper.renderOrder = 9999
+}
+
+function ensureClipHandlesGroup() {
+  if (!scene) return null
+  if (clipHandlesGroup) return clipHandlesGroup
+
+  const activeColor = new THREE.Color('#ffd04b')
+  const idleColor = new THREE.Color('#409eff')
+  const baseAxis = new THREE.Vector3(0, 1, 0)
+  const group = new THREE.Group()
+  const faces: Array<{
+    axis: ClipAxis
+    invert: boolean
+    normal: THREE.Vector3
+    arrowDir: THREE.Vector3
+  }> = [
+    { axis: 'x', invert: false, normal: new THREE.Vector3(-1, 0, 0), arrowDir: new THREE.Vector3(-1, 0, 0) },
+    { axis: 'x', invert: true, normal: new THREE.Vector3(1, 0, 0), arrowDir: new THREE.Vector3(1, 0, 0) },
+    { axis: 'y', invert: false, normal: new THREE.Vector3(0, -1, 0), arrowDir: new THREE.Vector3(0, -1, 0) },
+    { axis: 'y', invert: true, normal: new THREE.Vector3(0, 1, 0), arrowDir: new THREE.Vector3(0, 1, 0) },
+    { axis: 'z', invert: false, normal: new THREE.Vector3(0, 0, -1), arrowDir: new THREE.Vector3(0, 0, -1) },
+    { axis: 'z', invert: true, normal: new THREE.Vector3(0, 0, 1), arrowDir: new THREE.Vector3(0, 0, 1) },
+  ]
+
+  clipHandlePickers = []
+  for (const face of faces) {
+    const handle = new THREE.Group()
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(1, 1, 1, 12),
+      new THREE.MeshBasicMaterial({
+        color: idleColor,
+        transparent: true,
+        opacity: 0.82,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    )
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(1, 1, 16),
+      new THREE.MeshBasicMaterial({
+        color: idleColor,
+        transparent: true,
+        opacity: 0.9,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    )
+    const hitArea = new THREE.Mesh(
+      new THREE.CylinderGeometry(1, 1, 1, 10),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    )
+
+    hitArea.userData = {
+      __viewerClipHandle: true,
+      axis: face.axis,
+      invert: face.invert,
+    }
+
+    handle.userData = {
+      axis: face.axis,
+      invert: face.invert,
+      normal: face.normal,
+      arrowDir: face.arrowDir,
+      shaft,
+      cone,
+      hitArea,
+      idleColor,
+      activeColor,
+    }
+
+    handle.add(shaft)
+    handle.add(cone)
+    handle.add(hitArea)
+    handle.quaternion.setFromUnitVectors(baseAxis, face.arrowDir)
+    handle.renderOrder = 10000
+    handle.traverse((obj: any) => {
+      obj.renderOrder = 10000
+    })
+    group.add(handle)
+    clipHandlePickers.push(hitArea)
+  }
+
+  clipHandlesGroup = group
+  scene.add(group)
+  return group
+}
+
+function updateClipHandles(box: THREE.Box3) {
+  const group = ensureClipHandlesGroup()
+  if (!group) return
+
+  const center = box.getCenter(new THREE.Vector3())
+  const size = box.getSize(new THREE.Vector3())
+  const maxDim = Math.max(size.x, size.y, size.z, 1)
+  const offset = Math.max(maxDim * 0.06, 0.12)
+  const handleLength = Math.max(maxDim * 0.12, 0.22)
+  const shaftLength = handleLength * 0.62
+  const coneHeight = handleLength - shaftLength
+  const shaftRadius = Math.max(maxDim * 0.006, 0.012)
+  const coneRadius = shaftRadius * 2.2
+  const hitRadius = Math.max(shaftRadius * 5, 0.06)
+
+  group.visible = true
+  group.children.forEach((child) => {
+    const handle = child as THREE.Group
+    const { axis, invert, normal, shaft, cone, hitArea, idleColor, activeColor } =
+      handle.userData as any
+    const isActiveFace = axis === clipAxis && invert === clipInvert
+    const color = isActiveFace ? activeColor : idleColor
+
+    const anchor =
+      axis === 'x'
+        ? new THREE.Vector3(invert ? box.max.x : box.min.x, center.y, center.z)
+        : axis === 'y'
+          ? new THREE.Vector3(center.x, invert ? box.max.y : box.min.y, center.z)
+          : new THREE.Vector3(center.x, center.y, invert ? box.max.z : box.min.z)
+
+    shaft.geometry.dispose?.()
+    shaft.geometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLength, 12)
+    shaft.position.y = shaftLength * 0.5
+    shaft.material.color.copy(color)
+    shaft.material.opacity = isActiveFace ? 0.95 : 0.82
+
+    cone.geometry.dispose?.()
+    cone.geometry = new THREE.ConeGeometry(coneRadius, coneHeight, 16)
+    cone.position.y = shaftLength + coneHeight * 0.5
+    cone.material.color.copy(color)
+    cone.material.opacity = isActiveFace ? 1 : 0.9
+
+    hitArea.geometry.dispose?.()
+    hitArea.geometry = new THREE.CylinderGeometry(hitRadius, hitRadius, handleLength, 10)
+    hitArea.position.y = handleLength * 0.5
+
+    handle.position.copy(anchor).add((normal as THREE.Vector3).clone().multiplyScalar(offset))
+  })
+}
+
+function syncBoundsHelpers() {
+  if (!scene) return
+
+  if (!sectionEnabled) {
+    if (boundsBoxHelper) boundsBoxHelper.visible = false
+    clearClipHandles()
+    return
+  }
+
+  const boundsBox = getCurrentClipBox()
+  if (boundsBox && !boundsBox.isEmpty()) {
+    if (!boundsBoxHelper) {
+      boundsBoxHelper = new THREE.Box3Helper(boundsBox.clone(), 0x67e8f9)
+      styleBoundsBoxHelper(boundsBoxHelper)
+      scene.add(boundsBoxHelper)
+    }
+    boundsBoxHelper.box.copy(boundsBox)
+    boundsBoxHelper.visible = true
+    boundsBoxHelper.updateMatrixWorld(true)
+    updateClipHandles(boundsBox)
+  } else if (boundsBoxHelper) {
+    boundsBoxHelper.visible = false
+    clearClipHandles()
+  }
+}
+
+function getPointerNdc(ev: PointerEvent) {
+  const rect = renderer?.domElement?.getBoundingClientRect?.()
+  if (!rect) return null
+  return new THREE.Vector2(
+    ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+    -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+  )
+}
+
+function buildClipDragPlane(axisKey: ClipAxis, anchor: THREE.Vector3) {
+  if (!camera) return null
+  const axis =
+    axisKey === 'x'
+      ? new THREE.Vector3(1, 0, 0)
+      : axisKey === 'y'
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(0, 0, 1)
+  const cameraDir = new THREE.Vector3()
+  camera.getWorldDirection(cameraDir)
+  let normal = cameraDir.sub(axis.clone().multiplyScalar(cameraDir.dot(axis)))
+  if (normal.lengthSq() < 1e-6) {
+    normal = new THREE.Vector3(0, 1, 0).cross(axis)
+  }
+  if (normal.lengthSq() < 1e-6) {
+    normal = new THREE.Vector3(0, 0, 1).cross(axis)
+  }
+  normal.normalize()
+  return new THREE.Plane().setFromNormalAndCoplanarPoint(normal, anchor)
+}
+
+function beginClipDrag(ev: PointerEvent, options: { axis: ClipAxis; invert: boolean }) {
+  if (!raycaster || !camera || !renderer) return
+
+  clipAxis = options.axis
+  clipInvert = options.invert
+  syncModelPresentation()
+  syncBoundsHelpers()
+
+  const ndc = getPointerNdc(ev)
+  if (!ndc) return
+  raycaster.setFromCamera(ndc, camera)
+
+  const box = getCurrentClipBox()
+  if (!box) return
+
+  const center = box.getCenter(new THREE.Vector3())
+  const anchor =
+    options.axis === 'x'
+      ? new THREE.Vector3(options.invert ? box.max.x : box.min.x, center.y, center.z)
+      : options.axis === 'y'
+        ? new THREE.Vector3(center.x, options.invert ? box.max.y : box.min.y, center.z)
+        : new THREE.Vector3(center.x, center.y, options.invert ? box.max.z : box.min.z)
+
+  const dragPlane = buildClipDragPlane(options.axis, anchor)
+  if (!dragPlane) return
+
+  const startPoint = new THREE.Vector3()
+  if (!raycaster.ray.intersectPlane(dragPlane, startPoint)) return
+
+  const range = getClipFaceRange(options.axis, options.invert)
+  clipDragState = {
+    pointerId: ev.pointerId,
+    axis: options.axis,
+    invert: options.invert,
+    dragPlane,
+    startPoint,
+    startPosition: getClipFacePosition(options.axis, options.invert),
+    min: range.min,
+    max: range.max,
+  }
+  renderer.domElement.setPointerCapture?.(ev.pointerId)
+  clipPointerCaptureId = ev.pointerId
+  if (controls) controls.enabled = false
+}
+
+function onClipDragMove(ev: PointerEvent) {
+  if (!clipDragState || !raycaster || !camera) return
+  const ndc = getPointerNdc(ev)
+  if (!ndc) return
+  raycaster.setFromCamera(ndc, camera)
+  const point = new THREE.Vector3()
+  if (!raycaster.ray.intersectPlane(clipDragState.dragPlane, point)) return
+
+  const axisVec =
+    clipDragState.axis === 'x'
+      ? new THREE.Vector3(1, 0, 0)
+      : clipDragState.axis === 'y'
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(0, 0, 1)
+  const delta = point.clone().sub(clipDragState.startPoint).dot(axisVec)
+  const nextPosition = THREE.MathUtils.clamp(
+    clipDragState.startPosition + delta,
+    clipDragState.min,
+    clipDragState.max,
+  )
+
+  setClipFacePosition(clipDragState.axis, clipDragState.invert, nextPosition)
+  syncModelPresentation()
+  syncBoundsHelpers()
+  requestRender()
+}
+
+function endClipDrag(ev?: PointerEvent) {
+  if ((clipDragState || clipPointerCaptureId !== null) && renderer?.domElement && ev) {
+    const captureId = clipPointerCaptureId ?? clipDragState?.pointerId
+    try {
+      if (captureId !== null && captureId !== undefined) {
+        renderer.domElement.releasePointerCapture?.(captureId)
+      }
+    } catch {
+      // ignore pointer capture release errors
+    }
+  }
+  clipDragState = null
+  clipPointerCaptureId = null
+  if (controls) controls.enabled = true
+  syncBoundsHelpers()
+  requestRender()
+}
+
+function handleViewportPointerDown(event: PointerEvent) {
+  if (!camera || !raycaster || !sectionEnabled || !clipHandlePickers.length) return
+
+  const pointer = getPointerNdc(event)
+  if (!pointer) return
+
+  raycaster.setFromCamera(pointer, camera)
+  const handleHits = raycaster.intersectObjects(clipHandlePickers, true)
+  const handleHit = handleHits[0] as any
+  if (!handleHit?.object?.userData?.__viewerClipHandle) return
+
+  beginClipDrag(event, {
+    axis: handleHit.object.userData.axis,
+    invert: !!handleHit.object.userData.invert,
+  })
+}
+
+function onViewportPointerMove(event: PointerEvent) {
+  if (!clipDragState) return
+  onClipDragMove(event)
+}
+
+function onViewportPointerUp(event: PointerEvent) {
+  if (!clipDragState && clipPointerCaptureId === null) return
+  endClipDrag(event)
+}
+
+function onViewportPointerCancel(event: PointerEvent) {
+  if (!clipDragState && clipPointerCaptureId === null) return
+  endClipDrag(event)
+}
+
+function buildClippingPlanes() {
+  const clipBox = sectionEnabled ? getCurrentClipBox() : null
+  if (!clipBox || clipBox.isEmpty()) {
+    return null
+  }
+
+  return [
+    new THREE.Plane(new THREE.Vector3(1, 0, 0), -clipBox.min.x),
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), clipBox.max.x),
+    new THREE.Plane(new THREE.Vector3(0, 1, 0), -clipBox.min.y),
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), clipBox.max.y),
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), -clipBox.min.z),
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), clipBox.max.z),
+  ]
+}
+
+function applyMaterialState(material: THREE.Material, clippingPlanes: THREE.Plane[] | null) {
   if ('wireframe' in material) {
     ;(material as THREE.Material & { wireframe: boolean }).wireframe = wireframeEnabled
   }
 
-  material.clippingPlanes = sectionEnabled ? [sectionPlane] : null
+  material.clippingPlanes = clippingPlanes
   material.needsUpdate = true
 }
 
@@ -204,6 +706,7 @@ function syncModelPresentation() {
     return
   }
 
+  const clippingPlanes = buildClippingPlanes()
   modelRoot.traverse((child: any) => {
     const material = child?.material
     if (!material) {
@@ -211,11 +714,11 @@ function syncModelPresentation() {
     }
 
     if (Array.isArray(material)) {
-      material.forEach((item) => item && applyMaterialState(item))
+      material.forEach((item) => item && applyMaterialState(item, clippingPlanes))
       return
     }
 
-    applyMaterialState(material)
+    applyMaterialState(material, clippingPlanes)
   })
 }
 
@@ -300,6 +803,11 @@ function initViewer() {
     renderer.outputColorSpace = THREE.SRGBColorSpace
   }
   viewportEl.value.appendChild(renderer.domElement)
+  renderer.domElement.addEventListener('pointerdown', handleViewportPointerDown)
+  renderer.domElement.addEventListener('pointermove', onViewportPointerMove)
+  renderer.domElement.addEventListener('pointerup', onViewportPointerUp)
+  renderer.domElement.addEventListener('pointercancel', onViewportPointerCancel)
+  raycaster = new THREE.Raycaster()
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = false
@@ -388,13 +896,12 @@ async function loadByAssetId(assetId: number, displayName: string) {
       modelRoot.updateMatrixWorld(true)
       fitCameraToObject(camera, controls, modelRoot)
       modelRoot.updateMatrixWorld(true)
-      const modelBox = new THREE.Box3().setFromObject(modelRoot)
-      sectionBounds = {
-        minY: modelBox.min.y,
-        maxY: modelBox.max.y,
+      resetClipBoxToContent()
+      if (sectionEnabled) {
+        resetClipBoxToContent()
       }
-      updateSectionPlane()
       syncModelPresentation()
+      syncBoundsHelpers()
       modelLoaded.value = true
       statusText.value = `已加载：${displayName}`
       emit('loaded-change', true)
@@ -490,10 +997,17 @@ function setWireframe(enabled: boolean) {
 }
 
 function setSectionState(enabled: boolean, ratio = sectionRatio) {
-  sectionEnabled = enabled
   sectionRatio = ratio
-  updateSectionPlane()
+  sectionEnabled = enabled
+  if (sectionEnabled) {
+    resetClipBoxToContent()
+  } else {
+    clipDragState = null
+    clipPointerCaptureId = null
+    if (controls) controls.enabled = true
+  }
   syncModelPresentation()
+  syncBoundsHelpers()
   requestRender()
 }
 
@@ -537,8 +1051,21 @@ function cleanup() {
     modelRoot = null
   }
 
+  if (boundsBoxHelper && scene) {
+    scene.remove(boundsBoxHelper)
+    boundsBoxHelper = null
+  }
+
+  clearClipHandles()
+  endClipDrag()
+
   controls?.dispose()
   renderer?.dispose()
+
+  renderer?.domElement?.removeEventListener?.('pointerdown', handleViewportPointerDown)
+  renderer?.domElement?.removeEventListener?.('pointermove', onViewportPointerMove)
+  renderer?.domElement?.removeEventListener?.('pointerup', onViewportPointerUp)
+  renderer?.domElement?.removeEventListener?.('pointercancel', onViewportPointerCancel)
 
   if (renderer?.domElement?.parentElement) {
     renderer.domElement.parentElement.removeChild(renderer.domElement)
@@ -550,7 +1077,8 @@ function cleanup() {
   controls = null
   axesHelper = null
   gridHelper = null
-  sectionBounds = null
+  raycaster = null
+  clipBoxState = null
 }
 
 defineExpose({
