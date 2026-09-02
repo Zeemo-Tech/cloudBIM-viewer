@@ -12,7 +12,9 @@ import {
 import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
+import C2MResultPreviewPanel from '@/components/preview/C2MResultPreviewPanel.vue'
 import { getBimAlignment, type BimAlignmentResult } from '@/api/backend-alignment'
+import * as THREE from 'three'
 
 type CameraPose = {
   camera: any
@@ -37,13 +39,20 @@ const bimLoaded = ref(false)
 const pointcloudLoaded = ref(false)
 const pointcloudPanelRef = ref<any>(null)
 const bimPanelRef = ref<any>(null)
+const consistencyPanelRef = ref<any>(null)
 const applyingViewSync = ref(false)
 const toolsExpanded = ref(true)
 const viewVisibility = reactive({
   bim: true,
   pointcloud: true,
+  consistency: true,
 })
 const calibration = ref<BimAlignmentResult | null>(null)
+const bimWorldPose = ref<{
+  position: THREE.Vector3
+  quaternion: THREE.Quaternion
+  scale: THREE.Vector3
+} | null>(null)
 // Do not mount either renderer before the saved alignment lookup completes.
 // This matches the reference page, which loads calibration before creating
 // its BIM/point-cloud viewers and avoids an uncalibrated first frame winning
@@ -78,31 +87,37 @@ async function loadCalibration() {
 }
 
 type Rotation = { lon: number; lat: number }
-type SyncSource = 'bim' | 'pointcloud'
+type SyncSource = 'bim' | 'pointcloud' | 'consistency'
 
 const rotationBases: Record<SyncSource, Rotation | null> = {
   bim: null,
   pointcloud: null,
+  consistency: null,
 }
 const lastBroadcastRotations: Record<SyncSource, Rotation | null> = {
   bim: null,
   pointcloud: null,
+  consistency: null,
 }
 const distanceBases: Record<SyncSource, number | null> = {
   bim: null,
   pointcloud: null,
+  consistency: null,
 }
 const lastBroadcastDistances: Record<SyncSource, number | null> = {
   bim: null,
   pointcloud: null,
+  consistency: null,
 }
 const poseBases: Record<SyncSource, CameraPose | null> = {
   bim: null,
   pointcloud: null,
+  consistency: null,
 }
 const lastBroadcastPoses: Record<SyncSource, CameraPose | null> = {
   bim: null,
   pointcloud: null,
+  consistency: null,
 }
 
 function clampLatitude(value: number) {
@@ -121,6 +136,12 @@ function normalizeRotation(rotation: Rotation): Rotation {
   }
 }
 
+function getPanel(source: SyncSource) {
+  if (source === 'bim') return bimPanelRef.value
+  if (source === 'pointcloud') return pointcloudPanelRef.value
+  return consistencyPanelRef.value
+}
+
 function isSameRotation(
   first: Rotation | null | undefined,
   second: Rotation | null | undefined,
@@ -134,7 +155,7 @@ function isSameRotation(
 }
 
 function getCurrentRotation(source: SyncSource): Rotation | null {
-  const panel = source === 'bim' ? bimPanelRef.value : pointcloudPanelRef.value
+  const panel = getPanel(source)
   const rotation = panel?.getCameraOrientation?.() as Rotation | null
   return rotation ? normalizeRotation(rotation) : null
 }
@@ -148,7 +169,7 @@ function clonePose(pose: CameraPose | null): CameraPose | null {
 }
 
 function getCurrentPose(source: SyncSource): CameraPose | null {
-  const panel = source === 'bim' ? bimPanelRef.value : pointcloudPanelRef.value
+  const panel = getPanel(source)
   return clonePose((panel?.getCameraPose?.() as CameraPose | null) ?? null)
 }
 
@@ -172,13 +193,13 @@ function isSameDistance(
 }
 
 function getCurrentDistance(source: SyncSource): number | null {
-  const panel = source === 'bim' ? bimPanelRef.value : pointcloudPanelRef.value
+  const panel = getPanel(source)
   const distance = panel?.getCameraDistance?.()
   return Number.isFinite(distance) && distance > 0 ? normalizeDistance(distance) : null
 }
 
 function captureSyncBases() {
-  ;(['bim', 'pointcloud'] as SyncSource[]).forEach((source) => {
+  ;(['bim', 'pointcloud', 'consistency'] as SyncSource[]).forEach((source) => {
     rotationBases[source] = getCurrentRotation(source)
     lastBroadcastRotations[source] = rotationBases[source]
     distanceBases[source] = getCurrentDistance(source)
@@ -189,7 +210,7 @@ function captureSyncBases() {
 }
 
 function clearRotationSyncState() {
-  ;(['bim', 'pointcloud'] as SyncSource[]).forEach((source) => {
+  ;(['bim', 'pointcloud', 'consistency'] as SyncSource[]).forEach((source) => {
     rotationBases[source] = null
     lastBroadcastRotations[source] = null
     distanceBases[source] = null
@@ -234,7 +255,7 @@ const canSync = computed(() => {
   return isReady.value && bimLoaded.value && pointcloudLoaded.value
 })
 const visibleViewCount = computed(
-  () => Number(viewVisibility.bim) + Number(viewVisibility.pointcloud),
+  () => Number(viewVisibility.bim) + Number(viewVisibility.pointcloud) + Number(viewVisibility.consistency),
 )
 
 function closePage() {
@@ -258,15 +279,15 @@ function syncRotation(source: SyncSource, rotation: Rotation | null) {
   }
   lastBroadcastRotations[source] = sourceRotation
 
-  const target: SyncSource = source === 'bim' ? 'pointcloud' : 'bim'
-  const targetPanel = target === 'bim' ? bimPanelRef.value : pointcloudPanelRef.value
-  if (!targetPanel) return
-
-  const targetRotation = buildTargetRotation(source, target, sourceRotation)
-  lastBroadcastRotations[target] = targetRotation
   applyingViewSync.value = true
   try {
-    targetPanel.syncFromRotation?.(targetRotation)
+    ;(['bim', 'pointcloud', 'consistency'] as SyncSource[]).filter((target) => target !== source).forEach((target) => {
+      const targetPanel = getPanel(target)
+      if (!targetPanel) return
+      const targetRotation = buildTargetRotation(source, target, sourceRotation)
+      lastBroadcastRotations[target] = targetRotation
+      targetPanel.syncFromRotation?.(targetRotation)
+    })
   } finally {
     applyingViewSync.value = false
   }
@@ -285,19 +306,21 @@ function syncZoom(source: SyncSource, distance: number | null) {
   lastBroadcastDistances[source] = sourceDistance
 
   const sourceBase = distanceBases[source]
-  const target: SyncSource = source === 'bim' ? 'pointcloud' : 'bim'
-  const targetBase = distanceBases[target]
-  const targetPanel = target === 'bim' ? bimPanelRef.value : pointcloudPanelRef.value
-  if (!sourceBase || !targetBase || !targetPanel) return
+  if (!sourceBase) return
 
   const zoomRatio = sourceDistance / sourceBase
   if (!Number.isFinite(zoomRatio) || zoomRatio <= 0) return
 
-  const targetDistance = normalizeDistance(targetBase * zoomRatio)
-  lastBroadcastDistances[target] = targetDistance
   applyingViewSync.value = true
   try {
-    targetPanel.syncFromCameraDistance?.(targetDistance)
+    ;(['bim', 'pointcloud', 'consistency'] as SyncSource[]).filter((target) => target !== source).forEach((target) => {
+      const targetBase = distanceBases[target]
+      const targetPanel = getPanel(target)
+      if (!targetBase || !targetPanel) return
+      const targetDistance = normalizeDistance(targetBase * zoomRatio)
+      lastBroadcastDistances[target] = targetDistance
+      targetPanel.syncFromCameraDistance?.(targetDistance)
+    })
   } finally {
     applyingViewSync.value = false
   }
@@ -310,15 +333,15 @@ function syncPose(source: SyncSource, pose: CameraPose | null) {
   if (!poseBases[source]) captureSyncBases()
   lastBroadcastPoses[source] = sourcePose
 
-  const target: SyncSource = source === 'bim' ? 'pointcloud' : 'bim'
-  const targetPanel = target === 'bim' ? bimPanelRef.value : pointcloudPanelRef.value
-  if (!targetPanel) return false
-  const targetPose = buildTargetPose(source, target, sourcePose)
-  if (!targetPose) return false
-  lastBroadcastPoses[target] = targetPose
   applyingViewSync.value = true
   try {
-    targetPanel.syncFromExternalPose?.(targetPose)
+    ;(['bim', 'pointcloud', 'consistency'] as SyncSource[]).filter((target) => target !== source).forEach((target) => {
+      const targetPanel = getPanel(target)
+      const targetPose = buildTargetPose(source, target, sourcePose)
+      if (!targetPanel || !targetPose) return
+      lastBroadcastPoses[target] = targetPose
+      targetPanel.syncFromExternalPose?.(targetPose)
+    })
   } finally {
     applyingViewSync.value = false
   }
@@ -339,9 +362,11 @@ function handleResetView() {
   try {
     bimPanelRef.value?.resetView?.()
     pointcloudPanelRef.value?.resetPointcloudView?.()
+    consistencyPanelRef.value?.resetView?.()
   } finally {
     applyingViewSync.value = false
   }
+  requestAnimationFrame(syncConsistencyInitialPose)
   if (syncActive.value) requestAnimationFrame(captureSyncBases)
 }
 
@@ -350,27 +375,63 @@ function handleReload() {
   clearRotationSyncState()
   bimLoaded.value = false
   pointcloudLoaded.value = false
+  bimWorldPose.value = null
   try {
     bimPanelRef.value?.reload?.()
     pointcloudPanelRef.value?.reload?.()
+    consistencyPanelRef.value?.reload?.()
   } finally {
     applyingViewSync.value = false
   }
 }
 
-function toggleViewVisibility(view: 'bim' | 'pointcloud') {
+function toggleViewVisibility(view: 'bim' | 'pointcloud' | 'consistency') {
   if (viewVisibility[view] && visibleViewCount.value === 1) return
   viewVisibility[view] = !viewVisibility[view]
 }
 
 function handleBimLoadedChange(value: boolean) {
   bimLoaded.value = value
+  if (value) {
+    bimWorldPose.value = bimPanelRef.value?.getModelWorldPose?.() ?? null
+    requestAnimationFrame(() => {
+      // C2M may have completed before BIM; propagate the pose once it exists.
+      consistencyPanelRef.value?.applyBimWorldPose?.()
+      // Re-apply the point-cloud camera after the companion mesh receives its
+      // final calibrated world position. This keeps the result centered even
+      // when the C2M download wins the loading race.
+      syncConsistencyInitialPose()
+    })
+  } else {
+    bimWorldPose.value = null
+  }
   if (value && syncActive.value && canSync.value) requestAnimationFrame(captureSyncBases)
 }
 
 function handlePointcloudLoadedChange(value: boolean) {
   pointcloudLoaded.value = value
+  if (value) requestAnimationFrame(syncConsistencyInitialPose)
   if (value && syncActive.value && canSync.value) requestAnimationFrame(captureSyncBases)
+}
+
+function handleConsistencyLoadedChange(value: boolean) {
+  if (value) requestAnimationFrame(syncConsistencyInitialPose)
+  if (value && syncActive.value) requestAnimationFrame(captureSyncBases)
+}
+
+function syncConsistencyInitialPose() {
+  const pose = pointcloudPanelRef.value?.getCameraPose?.() as CameraPose | null
+  const panel = consistencyPanelRef.value
+  if (!pose || !panel?.syncFromExternalPose) return
+  applyingViewSync.value = true
+  try {
+    panel.syncInitialViewFromExternalPose?.(clonePose(pose))
+    if (!panel.syncInitialViewFromExternalPose) {
+      panel.syncFromExternalPose(clonePose(pose))
+    }
+  } finally {
+    applyingViewSync.value = false
+  }
 }
 
 function handleBimCameraChange(_pose: CameraPose | null) {
@@ -385,6 +446,13 @@ function handlePointcloudCameraChange(_pose: CameraPose | null) {
   if (syncPose('pointcloud', _pose)) return
   syncRotation('pointcloud', getCurrentRotation('pointcloud'))
   syncZoom('pointcloud', getCurrentDistance('pointcloud'))
+}
+
+function handleConsistencyCameraChange(_pose: CameraPose | null) {
+  if (applyingViewSync.value) return
+  if (syncPose('consistency', _pose)) return
+  syncRotation('consistency', getCurrentRotation('consistency'))
+  syncZoom('consistency', getCurrentDistance('consistency'))
 }
 
 onMounted(() => {
@@ -419,12 +487,12 @@ watch(
           <span>返回</span>
         </button>
 
-        <button class="floating-btn" type="button" title="重置两个视图" @click="handleResetView">
+        <button class="floating-btn" type="button" title="重置三个视图" @click="handleResetView">
           <el-icon><RefreshRight /></el-icon>
           <span>重置</span>
         </button>
 
-        <button class="floating-btn" type="button" title="重新加载模型和点云" @click="handleReload">
+        <button class="floating-btn" type="button" title="重新加载三个视图" @click="handleReload">
           <el-icon><Refresh /></el-icon>
           <span>重新加载</span>
         </button>
@@ -467,12 +535,24 @@ watch(
           <el-icon><View /></el-icon>
           <span>点云</span>
         </button>
+
+        <button
+          class="floating-btn layer-btn"
+          :class="{ 'is-active': viewVisibility.consistency }"
+          type="button"
+          :aria-pressed="viewVisibility.consistency"
+          :title="viewVisibility.consistency ? '隐藏实模一致对比' : '显示实模一致对比'"
+          @click="toggleViewVisibility('consistency')"
+        >
+          <el-icon><View /></el-icon>
+          <span>一致结果</span>
+        </button>
       </div>
     </div>
 
     <div v-if="!isReady" class="empty-state">
       <h2>缺少预览参数</h2>
-      <p>请从上传页重新点击“二分屏预览”打开当前页面。</p>
+      <p>请从上传页重新点击“实模对比”打开当前页面。</p>
     </div>
 
     <div v-else-if="!calibrationReady" class="empty-state">
@@ -485,6 +565,7 @@ watch(
       class="viewer-shell"
       :class="{
         'viewer-shell--single': visibleViewCount === 1,
+        'viewer-shell--triple': visibleViewCount === 3,
         'viewer-shell--tools-expanded': toolsExpanded,
       }"
     >
@@ -517,6 +598,17 @@ watch(
           minimal
           @loaded-change="handlePointcloudLoadedChange"
           @camera-change="handlePointcloudCameraChange"
+        />
+      </div>
+      <div v-show="viewVisibility.consistency" class="viewer-slot">
+        <C2MResultPreviewPanel
+          ref="consistencyPanelRef"
+          :scan-asset-id="pointcloudAssetId"
+          :bim-asset-id="bimAssetId"
+          :calibration="calibration"
+          :bim-world-pose="bimWorldPose"
+          @loaded-change="handleConsistencyLoadedChange"
+          @camera-change="handleConsistencyCameraChange"
         />
       </div>
 
@@ -679,6 +771,10 @@ watch(
   grid-template-columns: minmax(0, 1fr);
 }
 
+.viewer-shell--triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .viewer-slot {
   position: relative;
   min-width: 0;
@@ -739,6 +835,7 @@ watch(
 
   .viewer-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: repeat(3, minmax(240px, 1fr));
     min-height: auto;
   }
 

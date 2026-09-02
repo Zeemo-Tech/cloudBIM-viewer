@@ -16,6 +16,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import {
@@ -31,9 +32,11 @@ import {
   getBimMetadata,
   getPointcloudTilesAsset,
   getPointcloudTilesetUrl,
+  updateAssetAppearance,
 } from '@/api/backend-file'
-import { getMeshAlgorithms, getRemeshStatus, remeshBimAsset, type MeshAlgorithm, type RemeshStats, type RemeshStatus } from '@/api/backend-mesh'
-import { normalizeBackendUrl } from '@/api/backend-http'
+import { downloadRemeshResult, getMeshAlgorithms, getRemeshStatus, remeshBimAsset, type MeshAlgorithm, type RemeshStats, type RemeshStatus } from '@/api/backend-mesh'
+import { backendRequest, normalizeBackendUrl } from '@/api/backend-http'
+import { computeC2M, getLatestC2M, getC2MColoredPlyUrl, type C2MResult } from '@/api/backend-c2m'
 import { createUploadHeaders } from '@/config/upload-backend'
 import wanggeIcon from '@/assets/images/wangge.png'
 import toushiIcon from '@/assets/images/toushi.png'
@@ -143,16 +146,186 @@ const meshRunning = ref(false)
 const meshStatus = ref<RemeshStatus | null>(null)
 const meshStats = ref<RemeshStats | null>(null)
 const meshError = ref('')
+const c2mRunning = ref(false)
+const c2mResult = ref<C2MResult | null>(null)
+const c2mVoxelSize = ref(0.05)
+const c2mError = ref('')
+const c2mSceneLoaded = ref(false)
+const c2mSceneLoading = ref(false)
+const c2mApplied = ref(false)
+let c2mSceneGroup: THREE.Group | null = null
+const remeshLoading = ref(false)
+const remeshMeshLoaded = ref(false)
+const remeshRestoreAvailable = ref(false)
+const remeshSolidHidden = ref(false)
+const remeshWireHidden = ref(false)
+const remeshWireAvailable = ref(true)
+let remeshSceneGroup: THREE.Group | null = null
+type RemeshSceneSnapshot = {
+  objects: Array<{
+    object: THREE.Object3D
+    visible: boolean
+    position: THREE.Vector3
+    quaternion: THREE.Quaternion
+    scale: THREE.Vector3
+  }>
+}
+let remeshSceneSnapshot: RemeshSceneSnapshot | null = null
+const REMESH_WIREFRAME_MAX_FACES = 2_700_000
+let meshStatusPollingTimer: number | null = null
 
 const meshReady = computed(() => meshStatus.value?.status === 'succeeded')
+const meshTaskActive = computed(() =>
+  meshStatus.value?.status === 'queued' || meshStatus.value?.status === 'processing',
+)
+const meshControlsDisabled = computed(() => meshRunning.value || meshTaskActive.value)
+const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && !!props.bimAssetId)
+const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && hasSavedAlignmentMatrix.value && meshReady.value && !c2mRunning.value))
 
-async function refreshMeshStatus() {
-  if (!props.bimAssetId) return
+async function runC2M() {
+  if (!canRunC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
+  c2mRunning.value = true
+  c2mError.value = ''
   try {
+    const response = await computeC2M({ modelScanFileId: props.pointcloudAssetId, modelBimFileId: props.bimAssetId, voxelSize: c2mVoxelSize.value })
+    c2mResult.value = response.data
+    ElMessage.success('Scan vs BIM 计算完成')
+  } catch (error) {
+    c2mError.value = error instanceof Error ? error.message : 'Scan vs BIM 计算失败'
+    ElMessage.error(c2mError.value)
+  } finally {
+    c2mRunning.value = false
+  }
+}
+
+async function loadLatestC2M() {
+  if (!props.pointcloudAssetId || !props.bimAssetId) return
+  try {
+    const response = await getLatestC2M(props.pointcloudAssetId, props.bimAssetId)
+    c2mResult.value = response.data
+  } catch {
+    c2mResult.value = null
+  }
+}
+
+async function loadC2MToScene() {
+  if (!c2mResult.value?.coloredPlyAvailable || !props.pointcloudAssetId || !props.bimAssetId || !scene) return
+  c2mSceneLoading.value = true
+  try {
+    const blob = await backendRequest<Blob>(getC2MColoredPlyUrl(props.pointcloudAssetId, props.bimAssetId), { method: 'GET', responseType: 'blob' })
+    const objectUrl = URL.createObjectURL(blob)
+    try {
+      const geometry = await new PLYLoader().loadAsync(objectUrl)
+      if (!geometry.attributes.position) throw new Error('C2M 着色 PLY 缺少顶点数据')
+      if (!geometry.attributes.normal) geometry.computeVertexNormals()
+      geometry.computeBoundingBox()
+      const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
+      geometry.translate(-center.x, -center.y, -center.z)
+      clearC2MScene()
+      const group = new THREE.Group()
+      group.name = 'c2m-colored-result'
+      if (bimPivot) {
+        bimPivot.updateMatrixWorld(true)
+        bimPivot.getWorldPosition(group.position)
+        bimPivot.getWorldQuaternion(group.quaternion)
+        bimPivot.getWorldScale(group.scale)
+      }
+      const material = new THREE.MeshBasicMaterial({ vertexColors: Boolean(geometry.attributes.color), side: THREE.DoubleSide })
+      group.add(new THREE.Mesh(geometry, material))
+      scene.add(group)
+      c2mSceneGroup = group
+      c2mSceneLoaded.value = true
+      requestRender()
+      ElMessage.success('C2M 着色结果已加载到场景')
+    } finally { URL.revokeObjectURL(objectUrl) }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载 C2M 结果失败')
+  } finally {
+    c2mSceneLoading.value = false
+  }
+}
+
+function clearC2MScene() {
+  if (c2mSceneGroup && scene) {
+    scene.remove(c2mSceneGroup)
+    disposeObject3D(c2mSceneGroup)
+  }
+  c2mSceneGroup = null
+  c2mSceneLoaded.value = false
+  c2mApplied.value = false
+  requestRender()
+}
+
+function confirmC2MApply() {
+  if (!c2mSceneLoaded.value) return
+  c2mApplied.value = true
+  ElMessage.success('C2M 结果已确认应用，当前着色结果将用于后续标注查看')
+}
+const meshStatusText = computed(() => {
+  if (meshRunning.value) return '正在提交均匀化任务...'
+  switch (meshStatus.value?.status) {
+    case 'queued':
+      return '均匀化任务已排队'
+    case 'processing':
+      return '均匀化任务正在处理中'
+    case 'succeeded':
+      return '已有可用的均匀化网格'
+    case 'failed':
+      return '上次均匀化失败，可重新发起'
+    default:
+      return '尚未生成均匀化网格'
+  }
+})
+const meshActionText = computed(() => {
+  if (meshRunning.value) return '正在提交...'
+  if (meshStatus.value?.status === 'queued') return '已排队'
+  if (meshStatus.value?.status === 'processing') return '处理中'
+  if (meshReady.value) return '重新均匀化'
+  if (meshStatus.value?.status === 'failed') return '重新均匀化'
+  return '开始均匀化'
+})
+
+function clearMeshStatusPolling() {
+  if (meshStatusPollingTimer !== null) {
+    window.clearTimeout(meshStatusPollingTimer)
+    meshStatusPollingTimer = null
+  }
+}
+
+function scheduleMeshStatusPolling() {
+  clearMeshStatusPolling()
+  if (meshTaskActive.value) {
+    meshStatusPollingTimer = window.setTimeout(() => {
+      void refreshMeshStatus()
+    }, 4000)
+  }
+}
+
+async function refreshMeshStatus(showError = false) {
+  if (!props.bimAssetId) {
+    clearMeshStatusPolling()
+    meshStatus.value = null
+    return
+  }
+  try {
+    const previousStatus = meshStatus.value?.status
     const response = await getRemeshStatus(props.bimAssetId)
     meshStatus.value = response.data
-  } catch {
-    meshStatus.value = null
+    meshStats.value = response.data.stats || null
+    meshError.value = response.data.status === 'failed' ? response.data.lastError || '网格均匀化失败' : ''
+    scheduleMeshStatusPolling()
+    if (
+      (previousStatus === 'queued' || previousStatus === 'processing') &&
+      response.data.status === 'succeeded'
+    ) {
+      ElMessage.success('网格均匀化完成')
+    }
+  } catch (error) {
+    clearMeshStatusPolling()
+    meshError.value = error instanceof Error ? error.message : '获取网格均匀化状态失败'
+    if (showError) {
+      ElMessage.error(meshError.value)
+    }
   }
 }
 
@@ -170,23 +343,164 @@ async function loadMeshAlgorithms() {
 
 async function runMeshRemesh() {
   if (!props.bimAssetId || meshRunning.value) return
+  await refreshMeshStatus(true)
+  if (meshTaskActive.value) {
+    ElMessage.info('网格均匀化任务正在排队或处理中')
+    return
+  }
   meshRunning.value = true
   meshError.value = ''
+  remeshSceneSnapshot = null
+  remeshRestoreAvailable.value = false
+  clearLoadedRemeshMesh()
   try {
     const response = await remeshBimAsset(props.bimAssetId, {
       algorithm: meshAlgorithm.value,
       params: { target_edge_length: meshTargetEdgeLength.value },
       force: meshReady.value,
     })
-    meshStats.value = response.data.stats
-    meshStatus.value = { supported: true, status: 'succeeded', resultFileId: response.data.resultFileId }
-    ElMessage.success('网格均匀化完成')
+    meshStats.value = null
+    meshStatus.value = { supported: true, status: response.data.status }
+    ElMessage.success('网格均匀化任务已进入后台队列')
+    scheduleMeshStatusPolling()
   } catch (error) {
     meshError.value = error instanceof Error ? error.message : '网格均匀化失败'
-    meshStatus.value = { supported: true, status: 'failed' }
+    await refreshMeshStatus()
   } finally {
     meshRunning.value = false
   }
+}
+
+function clearLoadedRemeshMesh() {
+  if (!remeshSceneGroup) {
+    remeshMeshLoaded.value = false
+    return
+  }
+  if (scene) scene.remove(remeshSceneGroup)
+  disposeObject3D(remeshSceneGroup)
+  remeshSceneGroup = null
+  remeshMeshLoaded.value = false
+  remeshSolidHidden.value = false
+  remeshWireHidden.value = false
+  remeshWireAvailable.value = true
+}
+
+function captureRemeshSceneSnapshot() {
+  if (remeshSceneSnapshot) return
+  const objects = [bimPivot, pointcloudWrapper, pointcloudGroup].filter(Boolean) as THREE.Object3D[]
+  if (!objects.length) return
+  remeshSceneSnapshot = {
+    objects: objects.map((object) => ({
+      object,
+      visible: object.visible,
+      position: object.position.clone(),
+      quaternion: object.quaternion.clone(),
+      scale: object.scale.clone(),
+    })),
+  }
+}
+
+function restoreRemeshScene() {
+  if (!remeshSceneSnapshot) return
+  clearLoadedRemeshMesh()
+  remeshSceneSnapshot.objects.forEach(({ object, visible, position, quaternion, scale }) => {
+    if (!object.parent) return
+    object.visible = visible
+    object.position.copy(position)
+    object.quaternion.copy(quaternion)
+    object.scale.copy(scale)
+    object.updateMatrixWorld(true)
+  })
+  remeshSceneSnapshot = null
+  remeshRestoreAvailable.value = false
+  requestRender()
+  ElMessage.success('已复原到加载均匀化结果之前的场景')
+}
+
+async function loadRemeshResult() {
+  if (!canLoadRemesh.value || !props.bimAssetId || !scene) return
+  remeshLoading.value = true
+  meshError.value = ''
+  captureRemeshSceneSnapshot()
+  clearLoadedRemeshMesh()
+  try {
+    ElMessage({ message: '正在加载均匀化结果…', type: 'info', duration: 0, grouping: true })
+    const blob = await downloadRemeshResult(props.bimAssetId)
+    const objectUrl = URL.createObjectURL(blob)
+    try {
+      const geometry = await new PLYLoader().loadAsync(objectUrl)
+      if (!geometry.attributes.position) throw new Error('PLY 缺少顶点数据')
+      if (!geometry.attributes.normal) geometry.computeVertexNormals()
+      geometry.computeBoundingBox()
+      const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
+      geometry.translate(-center.x, -center.y, -center.z)
+
+      const group = new THREE.Group()
+      group.name = 'remesh-result'
+      const position = new THREE.Vector3()
+      const quaternion = new THREE.Quaternion()
+      if (bimPivot) {
+        bimPivot.getWorldPosition(position)
+        bimPivot.getWorldQuaternion(quaternion)
+      }
+      group.position.copy(position)
+      group.quaternion.copy(quaternion)
+
+      const solidMaterial =
+        rendererMode === 'webgpu'
+          ? new MeshLambertNodeMaterial({ color: 0xff7a18, side: THREE.DoubleSide })
+          : new THREE.MeshLambertMaterial({ color: 0xff7a18, side: THREE.DoubleSide })
+      const solid = new THREE.Mesh(geometry, solidMaterial)
+      group.add(solid)
+
+      const faceCount = geometry.index
+        ? geometry.index.count / 3
+        : geometry.attributes.position.count / 3
+      let wire: THREE.LineSegments | null = null
+      if (faceCount <= REMESH_WIREFRAME_MAX_FACES) {
+        wire = new THREE.LineSegments(
+          new THREE.WireframeGeometry(geometry),
+          new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.9 }),
+        )
+        group.add(wire)
+      } else {
+        remeshWireAvailable.value = false
+      }
+      remeshSceneGroup = group
+      scene.add(group)
+      remeshMeshLoaded.value = true
+      remeshRestoreAvailable.value = Boolean(remeshSceneSnapshot)
+      remeshSolidHidden.value = false
+      remeshWireHidden.value = false
+      requestRender()
+      ElMessage.closeAll()
+      ElMessage.success(`均匀化结果已加载（${geometry.attributes.position.count.toLocaleString()} 顶点）`)
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+  } catch (error) {
+    ElMessage.closeAll()
+    meshError.value = error instanceof Error ? error.message : '加载均匀化结果失败'
+    ElMessage.error(meshError.value)
+  } finally {
+    remeshLoading.value = false
+  }
+}
+
+function toggleRemeshSolid() {
+  const solid = remeshSceneGroup?.children.find((child): child is THREE.Mesh => child instanceof THREE.Mesh)
+  if (!solid) return
+  remeshSolidHidden.value = !remeshSolidHidden.value
+  solid.visible = !remeshSolidHidden.value
+  requestRender()
+}
+
+function toggleRemeshWire() {
+  const wire = remeshSceneGroup?.children.find((child): child is THREE.LineSegments => child instanceof THREE.LineSegments)
+  if (!wire) return
+  remeshWireHidden.value = !remeshWireHidden.value
+  wire.visible = !remeshWireHidden.value
+  requestRender()
 }
 const projectionMode = ref<ProjectionMode>('perspective')
 const materialMode = ref<MaterialMode>('unlit')
@@ -194,6 +508,11 @@ const showGrid = ref(true)
 const showMeshWireframe = ref(false)
 const showBounds = ref(false)
 const backgroundColor = ref('#0b1020')
+const pointcloudColor = ref('#ffffff')
+const persistedPointcloudColor = ref('#ffffff')
+const pointcloudColorOverridden = ref(false)
+const pointcloudColorSaving = ref(false)
+let pointcloudColorSaveTimer: number | null = null
 const enableClipping = ref(false)
 const clipAxis = ref<ClipAxis>('z')
 const clipInvert = ref(false)
@@ -593,6 +912,114 @@ function updateRendererBackground() {
 function onBackgroundColorChange() {
   if (!scene || !renderer) return
   updateRendererBackground()
+}
+
+function normalizePointcloudColor(value: string, fallback = '#ffffff') {
+  const normalized = value.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : fallback
+}
+
+function applyPointcloudColor() {
+  if (!pointcloudGroup || !pointcloudColorOverridden.value) return
+  const color = new THREE.Color(normalizePointcloudColor(pointcloudColor.value))
+  pointcloudGroup.traverse((obj: any) => {
+    const material = obj?.material
+    if (!material) return
+    const apply = (item: any) => {
+      if (!item) return
+      if (item?.color?.isColor) {
+        item.color.copy(color)
+      }
+      if ('vertexColors' in item) {
+        item.vertexColors = false
+      }
+      if ('colorNode' in item) {
+        item.colorNode = tslColor(color)
+      }
+      item.needsUpdate = true
+    }
+    if (Array.isArray(material)) material.forEach(apply)
+    else apply(material)
+  })
+  requestRender()
+}
+
+function clearPointcloudColorSaveTimer() {
+  if (pointcloudColorSaveTimer !== null) {
+    window.clearTimeout(pointcloudColorSaveTimer)
+    pointcloudColorSaveTimer = null
+  }
+}
+
+async function persistPointcloudColor() {
+  if (!props.pointcloudAssetId || pointcloudColorSaving.value) return
+  const normalized = pointcloudColorOverridden.value
+    ? normalizePointcloudColor(pointcloudColor.value, '')
+    : ''
+  if (pointcloudColorOverridden.value && !normalized) return
+  pointcloudColorSaving.value = true
+  try {
+    const response = await updateAssetAppearance(props.pointcloudAssetId, {
+      pointcloudColor: normalized,
+    })
+    const saved = normalizePointcloudColor(response.data.pointcloudColor || '', '')
+    if (saved) {
+      pointcloudColor.value = saved
+      persistedPointcloudColor.value = saved
+      pointcloudColorOverridden.value = true
+    } else {
+      pointcloudColorOverridden.value = false
+      persistedPointcloudColor.value = '#ffffff'
+    }
+  } catch (error) {
+    pointcloudColorOverridden.value = true
+    pointcloudColor.value = persistedPointcloudColor.value
+    applyPointcloudColor()
+    ElMessage.error(error instanceof Error ? error.message : '保存点云颜色失败')
+  } finally {
+    pointcloudColorSaving.value = false
+    if (normalizePointcloudColor(pointcloudColor.value) !== persistedPointcloudColor.value) {
+      schedulePointcloudColorSave()
+    }
+  }
+}
+
+function schedulePointcloudColorSave() {
+  clearPointcloudColorSaveTimer()
+  pointcloudColorSaveTimer = window.setTimeout(() => {
+    pointcloudColorSaveTimer = null
+    void persistPointcloudColor()
+  }, 400)
+}
+
+function handlePointcloudColorInput() {
+  const normalized = normalizePointcloudColor(pointcloudColor.value, '')
+  if (!normalized) return
+  pointcloudColor.value = normalized
+  pointcloudColorOverridden.value = true
+  applyPointcloudColor()
+  schedulePointcloudColorSave()
+}
+
+function handlePointcloudColorChange() {
+  const normalized = normalizePointcloudColor(pointcloudColor.value, '')
+  if (!normalized) {
+    pointcloudColor.value = persistedPointcloudColor.value
+    ElMessage.warning('请输入有效的颜色值，例如 #ffffff')
+    return
+  }
+  pointcloudColor.value = normalized
+  pointcloudColorOverridden.value = true
+  applyPointcloudColor()
+  clearPointcloudColorSaveTimer()
+  void persistPointcloudColor()
+}
+
+function resetPointcloudColor() {
+  pointcloudColorOverridden.value = false
+  applyPointcloudMaterialMode(pointcloudGroup)
+  clearPointcloudColorSaveTimer()
+  void persistPointcloudColor()
 }
 
 function resetBackgroundColor() {
@@ -2062,6 +2489,7 @@ function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
         : getOrCreatePointcloudUnlitMaterial(original, opts)
     }
   })
+  applyPointcloudColor()
 }
 
 function updateClipRangeFromContent(
@@ -3549,7 +3977,7 @@ async function handleCalibrationComplete() {
 
   hasSavedAlignmentMatrix.value = true
   coarseAlignmentDirty.value = false
-  ElMessage.success('校准矩阵已保存，可通过步骤条进入二分屏预览')
+  ElMessage.success('校准矩阵已保存，可通过步骤条进入实模对比')
   // Reload the shell so the WebGL canvas is fully disposed and the upload
   // page recalculates its calibrated preview options from the backend.
   window.location.assign(`${window.location.origin}/upload`)
@@ -3755,6 +4183,11 @@ async function handleLoadPointCloudFromApi(silent = false) {
       throw new Error('点云资源尚未就绪，暂时无法加载')
     }
 
+    const savedPointcloudColor = normalizePointcloudColor(assetDetail.pointcloudColor || '', '')
+    pointcloudColorOverridden.value = Boolean(savedPointcloudColor)
+    pointcloudColor.value = savedPointcloudColor || '#ffffff'
+    persistedPointcloudColor.value = savedPointcloudColor || '#ffffff'
+
     const url = getPointcloudTilesetUrl(assetDetail.tilesetUrl)
     const resourceBasePath = getTileResourceBasePath(assetDetail)
     const resourceBaseUrl = normalizeBackendUrl(resourceBasePath)
@@ -3937,12 +4370,17 @@ onMounted(async () => {
   await Promise.all([loadMeshAlgorithms(), refreshMeshStatus()])
   await initScene()
   await preloadFromRoute()
+  void loadLatestC2M()
   // Tile loading and GLTF loading finish independently. Make one final
   // restore attempt after both route preload tasks have settled.
   void fetchAndLogSavedAlignmentIfExists()
 })
 
 onBeforeUnmount(() => {
+  clearMeshStatusPolling()
+  clearPointcloudColorSaveTimer()
+  clearLoadedRemeshMesh()
+  clearC2MScene()
   pointcloudRootReady = false
   loggedSavedAlignmentKey = ''
   endClipDrag()
@@ -4277,7 +4715,6 @@ onBeforeUnmount(() => {
                     @change="onRotationStepPresetChange"
                   >
                     <el-option
-                    popper-class="bpa-right-popper"
                       v-for="stepOption in rotationStepOptions"
                       :key="`rotate-${stepOption}`"
                       :label="formatRotationStepLabel(stepOption)"
@@ -4431,26 +4868,78 @@ onBeforeUnmount(() => {
         <div class="panel-section mesh-remesh-panel">
           <div class="section-title">网格均匀化</div>
           <div class="mesh-remesh-status" :class="`mesh-remesh-status--${meshStatus?.status || 'idle'}`">
-            {{ meshRunning ? '均匀化处理中...' : meshReady ? '已有可用的均匀化网格' : meshStatus?.status === 'failed' ? '上次均匀化失败' : '尚未生成均匀化网格' }}
+            {{ meshStatusText }}
           </div>
           <div class="control-row">
             <span class="label">算法</span>
-            <el-select v-model="meshAlgorithm" size="small" :disabled="meshRunning || !meshAlgorithms.length">
+            <el-select
+              v-model="meshAlgorithm"
+              size="small"
+              popper-class="bpa-right-popper"
+              :disabled="meshControlsDisabled || !meshAlgorithms.length"
+            >
               <el-option v-for="algorithm in meshAlgorithms" :key="algorithm.name" :label="algorithm.label" :value="algorithm.name" />
             </el-select>
           </div>
           <div class="control-row">
             <span class="label">目标边长 (m)</span>
-            <el-input-number v-model="meshTargetEdgeLength" :min="0.05" :max="5" :step="0.05" :precision="3" size="small" :disabled="meshRunning" />
+            <el-input-number v-model="meshTargetEdgeLength" :min="0.05" :max="5" :step="0.05" :precision="3" size="small" :disabled="meshControlsDisabled" />
           </div>
-          <el-button type="primary" size="small" style="width: 100%" :loading="meshRunning" :disabled="!bimAssetId || !meshAlgorithms.length" @click="runMeshRemesh">
-            {{ meshReady ? '重新均匀化' : '开始均匀化' }}
+          <el-button type="primary" size="small" style="width: 100%" :loading="meshRunning" :disabled="!bimAssetId || !meshAlgorithms.length || meshTaskActive" @click="runMeshRemesh">
+            {{ meshActionText }}
           </el-button>
+          <el-button
+            v-if="meshReady"
+            size="small"
+            style="width: 100%; margin-top: 8px"
+            :loading="remeshLoading"
+            :disabled="!canLoadRemesh"
+            @click="loadRemeshResult"
+          >
+            {{ remeshMeshLoaded ? '重新加载结果' : '加载结果到场景' }}
+          </el-button>
+          <div v-if="remeshMeshLoaded" class="mesh-remesh-visual-controls">
+            <el-button size="small" @click="toggleRemeshSolid">
+              {{ remeshSolidHidden ? '显示实体' : '隐藏实体' }}
+            </el-button>
+            <el-button v-if="remeshWireAvailable" size="small" @click="toggleRemeshWire">
+              {{ remeshWireHidden ? '显示线框' : '隐藏线框' }}
+            </el-button>
+            <el-button v-else size="small" disabled>面数过多，跳过线框</el-button>
+            <el-button
+              v-if="remeshRestoreAvailable"
+              size="small"
+              type="warning"
+              @click="restoreRemeshScene"
+            >
+              复原场景
+            </el-button>
+          </div>
           <div v-if="meshStats" class="mesh-remesh-stats">
             顶点 {{ meshStats.vertexBefore.toLocaleString() }} → {{ meshStats.vertexAfter.toLocaleString() }}<br />
             面数 {{ meshStats.faceBefore.toLocaleString() }} → {{ meshStats.faceAfter.toLocaleString() }}
           </div>
           <div v-if="meshError" class="mesh-remesh-error">{{ meshError }}</div>
+        </div>
+        <div class="panel-section c2m-panel">
+          <div class="section-title">Scan vs BIM 计算</div>
+          <div class="control-row">
+            <span class="label">降采样 (m)</span>
+            <el-input-number v-model="c2mVoxelSize" :min="0.01" :max="1" :step="0.01" :precision="3" size="small" :disabled="!canRunC2M" />
+          </div>
+          <el-button type="primary" size="small" style="width: 100%" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">开始计算</el-button>
+          <div class="c2m-actions">
+            <el-button size="small" :disabled="!c2mResult?.coloredPlyAvailable || c2mRunning || c2mSceneLoading" :loading="c2mSceneLoading" @click="loadC2MToScene">加载到场景</el-button>
+            <el-button size="small" :disabled="!c2mSceneLoaded" @click="clearC2MScene">清空场景</el-button>
+            <el-button size="small" type="success" :disabled="!c2mSceneLoaded" @click="confirmC2MApply">{{ c2mApplied ? '已确认应用' : '确认应用' }}</el-button>
+          </div>
+          <div v-if="c2mError" class="mesh-remesh-error">{{ c2mError }}</div>
+          <div v-if="c2mResult" class="c2m-result-summary">
+            <div>点云降采样：{{ c2mResult.pointsBefore.toLocaleString() }} → {{ c2mResult.pointsAfter.toLocaleString() }}</div>
+            <div>Min / Max：{{ c2mResult.stats.min.toFixed(4) }} m / {{ c2mResult.stats.max.toFixed(4) }} m</div>
+            <div>Mean / P95：{{ c2mResult.stats.mean.toFixed(4) }} m / {{ c2mResult.stats.p95.toFixed(4) }} m</div>
+            <div v-if="c2mResult.diagnostics?.bboxOverlapIoU !== undefined">BBox 重叠度：{{ (c2mResult.diagnostics.bboxOverlapIoU * 100).toFixed(1) }}%</div>
+          </div>
         </div>
        
 
@@ -4483,6 +4972,32 @@ onBeforeUnmount(() => {
               <el-button size="small" @click="resetBackgroundColor">重置</el-button>
             </div>
           </div>
+          <div class="control-row">
+            <span class="label">点云颜色</span>
+            <div class="color-row">
+              <input
+                v-model="pointcloudColor"
+                class="color-picker"
+                type="color"
+                :disabled="!hasTileset"
+                @input="handlePointcloudColorInput"
+              />
+              <input
+                v-model="pointcloudColor"
+                class="color-hex"
+                type="text"
+                :disabled="!hasTileset"
+                @change="handlePointcloudColorChange"
+              />
+              <el-button
+                size="small"
+                :disabled="!hasTileset || pointcloudColorSaving"
+                @click="resetPointcloudColor"
+              >
+                重置
+              </el-button>
+            </div>
+          </div>
         </div>
 
         <div class="panel-section">
@@ -4506,7 +5021,11 @@ onBeforeUnmount(() => {
           </div>
           <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasClippableContent }">
             <span class="label">剖切轴</span>
-            <el-select v-model="clipAxis" :disabled="!enableClipping || !showBounds || !hasClippableContent">
+            <el-select
+              v-model="clipAxis"
+              popper-class="bpa-right-popper"
+              :disabled="!enableClipping || !showBounds || !hasClippableContent"
+            >
               <el-option label="X" value="x" />
               <el-option label="Y" value="y" />
               <el-option label="Z" value="z" />

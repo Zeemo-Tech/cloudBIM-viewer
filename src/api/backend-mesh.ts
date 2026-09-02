@@ -30,6 +30,10 @@ export interface RemeshStatus {
   canManualRetry?: boolean
   resultFileId?: number | null
   lastError?: string | null
+  queuedAt?: string | null
+  startedAt?: string | null
+  finishedAt?: string | null
+  stats?: RemeshStats | null
 }
 
 export function getMeshAlgorithms() {
@@ -37,10 +41,9 @@ export function getMeshAlgorithms() {
 }
 
 export function remeshBimAsset(assetId: number, payload: { algorithm: string; params?: Record<string, unknown>; force?: boolean }) {
-  return backendRequest<BackendResult<{ status: string; resultFileId: number; stats: RemeshStats }>>(`/assets/${assetId}/mesh/remesh`, {
+  return backendRequest<BackendResult<{ status: 'queued'; message: string }>>(`/assets/${assetId}/mesh/remesh`, {
     method: 'POST',
     data: payload,
-    timeout: 2 * 60 * 60 * 1000,
   })
 }
 

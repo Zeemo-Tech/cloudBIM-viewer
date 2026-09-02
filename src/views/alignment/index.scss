@@ -303,6 +303,16 @@
   background: rgba(103, 194, 58, 0.12);
 }
 
+.mesh-remesh-status--queued {
+  color: #eebe77;
+  background: rgba(230, 162, 60, 0.12);
+}
+
+.mesh-remesh-status--processing {
+  color: #79bbff;
+  background: rgba(64, 158, 255, 0.12);
+}
+
 .mesh-remesh-status--failed {
   color: #f89898;
   background: rgba(245, 108, 108, 0.12);
@@ -320,6 +330,42 @@
   color: #f89898;
   font-size: 11px;
   line-height: 1.4;
+}
+
+.mesh-remesh-visual-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+
+  .el-button {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-left: 0;
+  }
+}
+
+.c2m-result-summary {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(64, 158, 255, 0.28);
+  background: rgba(10, 20, 45, 0.45);
+  color: rgba(231, 240, 255, 0.88);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.c2m-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+
+  .el-button {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-left: 0;
+  }
 }
 
 .section-divider {
@@ -820,17 +866,38 @@
   color: var(--bpa-neon-text) !important;
 }
 
-:deep(.bpa-right-popper) {
-  background: rgba(6, 12, 28, 0.55) !important; /* 更透明 */
-  backdrop-filter: blur(10px);                /* 毛玻璃科技感 */
-  -webkit-backdrop-filter: blur(10px);
-
-  border: 1px solid rgba(64, 158, 255, 0.35) !important;
-
+:global(.bpa-right-popper.el-popper) {
+  --el-bg-color-overlay: #111a35;
+  --el-fill-color-light: rgba(64, 158, 255, 0.16);
+  --el-text-color-regular: rgba(231, 240, 255, 0.92);
+  background: #111a35 !important;
+  border: 1px solid rgba(64, 158, 255, 0.45) !important;
   box-shadow:
-    0 0 0 1px rgba(64, 158, 255, 0.15),
-    0 12px 32px rgba(0, 0, 0, 0.6),
-    0 0 24px rgba(64, 158, 255, 0.25); /* 蓝色光晕 */
+    0 12px 32px rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(64, 158, 255, 0.2) !important;
+}
+
+:global(.bpa-right-popper .el-select-dropdown) {
+  background: #111a35 !important;
+}
+
+:global(.bpa-right-popper .el-select-dropdown__item) {
+  color: rgba(231, 240, 255, 0.92) !important;
+}
+
+:global(.bpa-right-popper .el-select-dropdown__item.is-hovering),
+:global(.bpa-right-popper .el-select-dropdown__item:hover) {
+  background: rgba(64, 158, 255, 0.16) !important;
+}
+
+:global(.bpa-right-popper .el-select-dropdown__item.is-selected) {
+  color: #63adff !important;
+  font-weight: 600;
+}
+
+:global(.bpa-right-popper.el-popper .el-popper__arrow::before) {
+  background: #111a35 !important;
+  border-color: rgba(64, 158, 255, 0.45) !important;
 }
 
 

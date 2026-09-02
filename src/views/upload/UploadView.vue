@@ -106,7 +106,7 @@ const headerWorkflowActive = computed(() => {
 const headerWorkflowSteps = computed(() => [
   { title: '上传文件', action: 'upload', disabled: false },
   { title: '校准页面', action: 'alignment', disabled: !canOpenAlignmentStep.value },
-  { title: '二分屏预览', action: 'split-preview', disabled: !canOpenSplitPreviewStep.value },
+  { title: '实模对比', action: 'split-preview', disabled: !canOpenSplitPreviewStep.value },
 ] as const)
 const bimUploadedFiles = computed(() => assetCollections.bim)
 const pointcloudUploadedFiles = computed(() => assetCollections.pointcloud)
@@ -194,7 +194,18 @@ function getStatusTagType(status?: AssetStatus) {
 }
 
 function getRemeshStatusText(asset: AssetSummary) {
-  return asset.meshRemesh?.status === 'succeeded' ? '网格已均匀化' : '均匀化中'
+  switch (asset.meshRemesh?.status) {
+    case 'queued':
+      return '均匀化排队中'
+    case 'processing':
+      return '均匀化处理中'
+    case 'succeeded':
+      return '网格已均匀化'
+    case 'failed':
+      return '均匀化失败'
+    default:
+      return '等待均匀化'
+  }
 }
 
 function buildAssetDetailFromSummary(asset: AssetSummary): AssetDetail {
@@ -820,7 +831,7 @@ async function openPreview(mode: PreviewMode) {
       return
     }
 
-    ElMessage.info('BIM 和点云都完成真实解析后才能打开双屏预览')
+    ElMessage.info('BIM 和点云都完成真实解析后才能打开实模对比')
     return
   }
 }
@@ -1007,7 +1018,10 @@ async function openPreview(mode: PreviewMode) {
                     <div
                       v-if="isAssetReady(asset.status)"
                       class="mesh-remesh-list-status"
-                      :class="{ 'is-complete': asset.meshRemesh?.status === 'succeeded' }"
+                      :class="{
+                        'is-complete': asset.meshRemesh?.status === 'succeeded',
+                        'is-failed': asset.meshRemesh?.status === 'failed',
+                      }"
                     >
                       {{ getRemeshStatusText(asset) }}
                     </div>
@@ -1093,7 +1107,7 @@ async function openPreview(mode: PreviewMode) {
 
           <div v-else-if="!calibratedSplitPreviewOptions.length" class="dialog-empty">
             <strong>暂无已校准的文件组</strong>
-            <p>请先完成 BIM 与点云校准，再返回这里进行二分屏预览。</p>
+            <p>请先完成 BIM 与点云校准，再返回这里进行实模对比。</p>
           </div>
 
           <el-radio-group
@@ -1654,6 +1668,12 @@ margin: 0;
   border-color: #b3e19d;
   color: #529b2e;
   background: #f0f9eb;
+}
+
+.mesh-remesh-list-status.is-failed {
+  border-color: #fab6b6;
+  color: #c45656;
+  background: #fef0f0;
 }
 
 @media (max-width: 960px) {

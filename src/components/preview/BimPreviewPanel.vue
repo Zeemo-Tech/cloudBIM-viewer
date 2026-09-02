@@ -65,6 +65,8 @@ let renderer: THREE.WebGLRenderer | null = null
 let controls: OrbitControls | null = null
 let modelRoot: THREE.Object3D | null = null
 let modelSourceMatrix = new THREE.Matrix4()
+let modelSourceCenter = new THREE.Vector3()
+let hasModelSourceCenter = false
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
 let isRendering = false
@@ -980,11 +982,26 @@ async function loadByAssetId(assetId: number, displayName: string) {
         scene.remove(modelRoot)
         disposeObject3D(modelRoot)
       }
+      hasModelSourceCenter = false
+      modelSourceCenter.set(0, 0, 0)
 
       modelRoot = gltf.scene
       scene.add(modelRoot)
       modelRoot.updateMatrixWorld(true)
       modelSourceMatrix.copy(modelRoot.matrix)
+      // The reference viewer applies calibration to a centered BIM pivot.
+      // Preserve the source bounding-box center in root-local coordinates so
+      // companion C2M geometry can use the equivalent world pivot without
+      // changing the BIM model's existing rendering transform.
+      const sourceBox = new THREE.Box3().setFromObject(modelRoot)
+      if (!sourceBox.isEmpty()) {
+        modelSourceCenter.copy(sourceBox.getCenter(new THREE.Vector3()))
+        modelRoot.worldToLocal(modelSourceCenter)
+        hasModelSourceCenter = true
+      } else {
+        modelSourceCenter.set(0, 0, 0)
+        hasModelSourceCenter = false
+      }
       const calibrationApplied = applyCalibrationToModel(false)
       if (props.fusionMode) {
         setTopViewToObject(camera, controls, modelRoot)
@@ -1029,6 +1046,20 @@ function getCameraPose(): CameraPose | null {
   return {
     camera: camera.position.clone(),
     target: controls.target.clone(),
+  }
+}
+
+/** Return the world-space pose of the calibrated BIM root for companion layers. */
+function getModelWorldPose() {
+  if (!modelRoot) return null
+  modelRoot.updateMatrixWorld(true)
+  const position = hasModelSourceCenter
+    ? modelSourceCenter.clone().applyMatrix4(modelRoot.matrixWorld)
+    : modelRoot.getWorldPosition(new THREE.Vector3())
+  return {
+    position,
+    quaternion: modelRoot.getWorldQuaternion(new THREE.Quaternion()),
+    scale: modelRoot.getWorldScale(new THREE.Vector3()),
   }
 }
 
@@ -1258,6 +1289,7 @@ function cleanup() {
 
 defineExpose({
   reload,
+  getModelWorldPose,
   getCameraPose,
   getCameraOrientation,
   getCameraDistance,
@@ -1310,10 +1342,6 @@ onBeforeUnmount(() => {
     <div v-if="!minimal" class="panel-header">
       <span class="panel-title">BIM 预览</span>
       <span class="panel-status">{{ statusText }}</span>
-    </div>
-
-    <div v-if="minimal" class="panel-chip" :class="{ 'is-loaded': modelLoaded }">
-      {{ statusText }}
     </div>
 
     <div

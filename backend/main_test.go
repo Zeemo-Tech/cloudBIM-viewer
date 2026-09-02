@@ -60,6 +60,70 @@ func TestValidExtension(t *testing.T) {
 	}
 }
 
+func TestPointcloudColorPattern(t *testing.T) {
+	for _, value := range []string{"#ffffff", "#12AbEF", "#000000"} {
+		if !pointcloudColorPattern.MatchString(value) {
+			t.Errorf("pointcloud color %q should be accepted", value)
+		}
+	}
+	for _, value := range []string{"red", "ffffff", "#fff", "#gggggg", "#1234567"} {
+		if pointcloudColorPattern.MatchString(value) {
+			t.Errorf("pointcloud color %q should be rejected", value)
+		}
+	}
+}
+
+func TestMeshRemeshSummaryPreservesTaskState(t *testing.T) {
+	dir := t.TempDir()
+	message := "mesh-service unavailable"
+	for _, status := range []string{"idle", "queued", "processing", "failed"} {
+		asset := Asset{ID: 7, Type: "bim", Status: "ready", Dir: dir, RemeshStatus: status}
+		if status == "failed" {
+			asset.RemeshError = &message
+		}
+		summary := meshRemeshSummary(asset)
+		if summary.Status != status {
+			t.Fatalf("status %q was exposed as %q", status, summary.Status)
+		}
+		if status == "failed" && (!summary.CanManualRetry || summary.LastError == nil || *summary.LastError != message) {
+			t.Fatalf("failed summary does not expose retry/error: %+v", summary)
+		}
+	}
+}
+
+func TestMeshRemeshSummaryPrefersReadyArtifact(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("ply"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	asset := Asset{
+		ID:                 9,
+		Type:               "bim",
+		Status:             "ready",
+		Dir:                dir,
+		RemeshVertexBefore: 20,
+		RemeshVertexAfter:  10,
+	}
+	summary := meshRemeshSummary(asset)
+	if summary.Status != "succeeded" || summary.ResultFileID == nil || *summary.ResultFileID != asset.ID {
+		t.Fatalf("artifact was not treated as succeeded: %+v", summary)
+	}
+	if summary.Stats == nil || summary.Stats.VertexBefore != 20 || summary.Stats.VertexAfter != 10 {
+		t.Fatalf("summary stats = %+v", summary.Stats)
+	}
+}
+
+func TestMeshRemeshSummaryDoesNotHideFailedRetryBehindOldArtifact(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("old ply"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	summary := meshRemeshSummary(Asset{ID: 9, Type: "bim", Status: "ready", Dir: dir, RemeshStatus: "failed"})
+	if summary.Status != "failed" || !summary.CanManualRetry {
+		t.Fatalf("old artifact hid failed retry state: %+v", summary)
+	}
+}
+
 func TestSafeJoin(t *testing.T) {
 	base := t.TempDir()
 	inside, err := safeJoin(base, "tiles/0/1.pnts")

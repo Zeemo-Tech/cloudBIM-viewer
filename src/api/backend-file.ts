@@ -16,7 +16,7 @@ export type AssetStatus =
   | 'failed'
   | 'terminated'
 
-export type MeshRemeshStatus = 'processing' | 'succeeded'
+export type MeshRemeshStatus = 'idle' | 'queued' | 'processing' | 'succeeded' | 'failed'
 
 export interface MeshRemeshSummary {
   supported: boolean
@@ -46,6 +46,7 @@ export interface AssetSummary {
   status: AssetStatus
   errorMessage: string | null
   createdAt: number
+  pointcloudColor?: string | null
   meshRemesh?: MeshRemeshSummary
 }
 
@@ -146,6 +147,23 @@ export function getAssetDetail(assetId: number) {
   return backendRequest<BackendResult<AssetDetail>>(`/assets/${assetId}`, {
     method: 'GET',
   })
+}
+
+export interface UpdateAssetAppearancePayload {
+  pointcloudColor: string
+}
+
+export function updateAssetAppearance(
+  assetId: number,
+  payload: UpdateAssetAppearancePayload,
+) {
+  return backendRequest<BackendResult<{ pointcloudColor: string }>>(
+    `/assets/${assetId}/appearance`,
+    {
+      method: 'PATCH',
+      data: payload,
+    },
+  )
 }
 
 export function deleteAsset(assetId: number) {
