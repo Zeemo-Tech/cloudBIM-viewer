@@ -38,6 +38,7 @@ export interface BimAlignmentResult {
   modelId: number
   modelScanFileId: number
   modelBimFileId: number
+  modelBimBuildingName?: string | null
   modelRotationQx: number
   modelRotationQy: number
   modelRotationQz: number
@@ -76,6 +77,7 @@ export interface FineAlignmentMetrics {
 export interface FineAlignmentResult {
   modelScanFileId: number
   modelBimFileId: number
+  modelBimBuildingName?: string | null
   modelMatrix: number[]
   regressed: boolean
   appliedFineResult: boolean

@@ -113,6 +113,7 @@ function handleLogout() {
 
   <UploadView
     v-else-if="session && currentView === 'upload'"
+    :key="routeKey"
     :session="session"
     @logout="handleLogout"
   />

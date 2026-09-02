@@ -26,6 +26,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mesh-service:
+        condition: service_started
     environment:
       APP_ENV: ${APP_ENV:-development}
       ADDR: :8090
@@ -40,7 +42,7 @@ services:
       CLOUDBIM_SEED_DEMO: ${CLOUDBIM_SEED_DEMO:-true}
       IFC_BUNDLE_BIN: /opt/tools/ifc_bundle/ifc_bundle
       GOCESIUMTILER_BIN: /opt/tools/gocesiumtiler/gocesiumtiler-lin-x64
-      MESH_SERVICE_URL: ${MESH_SERVICE_URL:-}
+      MESH_SERVICE_URL: ${MESH_SERVICE_URL:-http://mesh-service:8001}
       PATH: /opt/tools/ifc_bundle:/opt/tools/gocesiumtiler:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       LD_LIBRARY_PATH: /opt/tools/ifc_bundle
       PROJ_LIB: /opt/tools/gocesiumtiler/share
@@ -51,6 +53,16 @@ services:
       - cloudbim-data:/app/data
       - ${ZHONGJIAN_BACK_DIR:-../../zhongjian-back}/tools/ifc_bundle:/opt/tools/ifc_bundle:ro
       - ${ZHONGJIAN_BACK_DIR:-../../zhongjian-back}/tools/gocesiumtiler:/opt/tools/gocesiumtiler:ro
+
+  mesh-service:
+    platform: linux/amd64
+    build:
+      context: ${ZHONGJIAN_BACK_DIR:-../../zhongjian-back}/services/mesh-service
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8001
+    expose:
+      - "8001"
 
 volumes:
   cloudbim-db:

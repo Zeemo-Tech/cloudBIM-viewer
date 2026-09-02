@@ -1,13 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  ArrowLeft,
-  Box,
-  Delete,
-  Location,
-  RefreshLeft,
-} from '@element-plus/icons-vue'
+import { ArrowLeft, Box, Hide, RefreshLeft, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import {
   ClippingGroup,
@@ -28,7 +22,6 @@ import {
   createBimAlignment,
   computeFineAlignment,
   getBimAlignment,
-  getScanCalibration,
   type FineAlignmentResult,
   type BimAlignmentResult,
 } from '@/api/backend-alignment'
@@ -39,6 +32,7 @@ import {
   getPointcloudTilesAsset,
   getPointcloudTilesetUrl,
 } from '@/api/backend-file'
+import { getMeshAlgorithms, getRemeshStatus, remeshBimAsset, type MeshAlgorithm, type RemeshStats, type RemeshStatus } from '@/api/backend-mesh'
 import { normalizeBackendUrl } from '@/api/backend-http'
 import { createUploadHeaders } from '@/config/upload-backend'
 import wanggeIcon from '@/assets/images/wangge.png'
@@ -112,17 +106,92 @@ const canRunFineAlignment = computed(() =>
   registrationStage.value === 'fine' && !!props.bimAssetId && !!props.pointcloudAssetId &&
   hasSavedAlignmentMatrix.value && !coarseAlignmentDirty.value && !fineAlignLoading.value,
 )
+const fineRunBlockedReason = computed(() => {
+  if (registrationStage.value !== 'fine') return ''
+  if (!props.bimAssetId || !props.pointcloudAssetId) return '缺少 BIM 或点云资产'
+  if (!hasSavedAlignmentMatrix.value) return '请先保存粗配准矩阵'
+  if (coarseAlignmentDirty.value) return '粗配准存在未保存的变换修改'
+  if (fineAlignLoading.value) return '精细化配准计算中...'
+  return ''
+})
 const canSaveCalibration = computed(() => !!bimLoaded.value && !!pointcloudLoaded.value &&
   (registrationStage.value === 'coarse' || !!fineAlignResult.value))
+const canSaveFineAlignment = computed(() =>
+  registrationStage.value === 'fine' && !!fineAlignResult.value && !fineAlignLoading.value,
+)
+const canSaveCoarseAlignment = computed(() =>
+  !!bimLoaded.value && !!pointcloudLoaded.value && registrationStage.value === 'coarse' && !savingCalibration.value,
+)
+const coarseSaveHint = computed(() => {
+  if (!bimLoaded.value || !pointcloudLoaded.value) return '等待 BIM 与点云加载完成'
+  if (coarseAlignmentDirty.value) return '检测到未保存的变换修改'
+  if (hasSavedAlignmentMatrix.value) return '当前粗配准矩阵已保存'
+  return '调整模型位置后保存粗配准矩阵'
+})
 
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
 const showPanel = ref(true)
+const showAdvancedSettings = ref(false)
 const loadingBim = ref(false)
 const loadingPointcloud = ref(false)
+const savingCalibration = ref(false)
+const meshAlgorithms = ref<MeshAlgorithm[]>([])
+const meshAlgorithm = ref('bim_preprocessor')
+const meshTargetEdgeLength = ref(0.1)
+const meshRunning = ref(false)
+const meshStatus = ref<RemeshStatus | null>(null)
+const meshStats = ref<RemeshStats | null>(null)
+const meshError = ref('')
+
+const meshReady = computed(() => meshStatus.value?.status === 'succeeded')
+
+async function refreshMeshStatus() {
+  if (!props.bimAssetId) return
+  try {
+    const response = await getRemeshStatus(props.bimAssetId)
+    meshStatus.value = response.data
+  } catch {
+    meshStatus.value = null
+  }
+}
+
+async function loadMeshAlgorithms() {
+  try {
+    const response = await getMeshAlgorithms()
+    meshAlgorithms.value = response.data || []
+    if (meshAlgorithms.value.length && !meshAlgorithms.value.some((item) => item.name === meshAlgorithm.value)) {
+      meshAlgorithm.value = meshAlgorithms.value[0].name
+    }
+  } catch {
+    meshAlgorithms.value = []
+  }
+}
+
+async function runMeshRemesh() {
+  if (!props.bimAssetId || meshRunning.value) return
+  meshRunning.value = true
+  meshError.value = ''
+  try {
+    const response = await remeshBimAsset(props.bimAssetId, {
+      algorithm: meshAlgorithm.value,
+      params: { target_edge_length: meshTargetEdgeLength.value },
+      force: meshReady.value,
+    })
+    meshStats.value = response.data.stats
+    meshStatus.value = { supported: true, status: 'succeeded', resultFileId: response.data.resultFileId }
+    ElMessage.success('网格均匀化完成')
+  } catch (error) {
+    meshError.value = error instanceof Error ? error.message : '网格均匀化失败'
+    meshStatus.value = { supported: true, status: 'failed' }
+  } finally {
+    meshRunning.value = false
+  }
+}
 const projectionMode = ref<ProjectionMode>('perspective')
 const materialMode = ref<MaterialMode>('unlit')
 const showGrid = ref(true)
+const showMeshWireframe = ref(false)
 const showBounds = ref(false)
 const backgroundColor = ref('#0b1020')
 const enableClipping = ref(false)
@@ -168,9 +237,6 @@ const bimVisibilityLabel = computed(() => (bimVisible.value ? '隐藏模型' : '
 const pointcloudVisibilityLabel = computed(() =>
   pointcloudVisible.value ? '隐藏点云' : '显示点云',
 )
-const visibilityToggleAllLabel = computed(() =>
-  !bimVisible.value && !pointcloudVisible.value ? '显示全部' : '清全部',
-)
 const selectedItemIsPointcloud = computed(() => selectedItemId.value === 'pointcloud')
 const showOnlyVerticalAxis = computed(() => {
   return Boolean(selectedItemId.value) && transformMode.value === 'rotate'
@@ -196,6 +262,12 @@ const loadedItemOptions = computed(() => {
       value: 'bim',
     })
   }
+  if (hasTileset.value) {
+    list.push({
+      label: props.pointcloudDisplayName || `点云-${props.pointcloudAssetId ?? ''}`,
+      value: 'pointcloud',
+    })
+  }
   return list
 })
 
@@ -215,6 +287,7 @@ const clipStep = computed(() => {
   return Math.max(span / 1000, 1e-6)
 })
 const originalMaterialStore = new WeakMap<THREE.Object3D, THREE.Material | THREE.Material[]>()
+const originalWireframeStore = new WeakMap<THREE.Material, boolean>()
 const bimUnlitMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
 const bimLambertMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
 const pointcloudUnlitMaterialCache = new WeakMap<
@@ -2328,6 +2401,30 @@ function onRotationStepPresetChange(value: string) {
   syncRotationStepPreset()
 }
 
+function markFineAlignmentDirty() {
+  fineAlignResult.value = null
+}
+
+function normalizeFineThreshold(value: unknown, min: number, max: number, fallback: number) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.min(max, Math.max(min, Number(numeric.toFixed(2))))
+}
+
+function onFineRmseRegressRatioChange(value: number | undefined) {
+  fineRmseRegressRatio.value = normalizeFineThreshold(value, 1, 2, 1.05)
+}
+
+function onFineFitnessRegressRatioChange(value: number | undefined) {
+  fineFitnessRegressRatio.value = normalizeFineThreshold(value, 0.5, 1, 0.95)
+}
+
+function resetFineThresholdDefaults() {
+  fineRmseRegressRatio.value = 1.05
+  fineFitnessRegressRatio.value = 0.95
+  markFineAlignmentDirty()
+}
+
 function syncTransformModeForSelection() {
   if (selectedItemIsPointcloud.value && transformMode.value === 'translate') {
     transformMode.value = 'rotate'
@@ -2663,6 +2760,36 @@ function applyPositionFixRealtime() {
   requestRender()
 }
 
+function setPositionOffsetAxis(axis: 'x' | 'y' | 'z', value: unknown) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return
+  const range = positionSliderRange.value
+  const next = clamp(numeric, range.min, range.max)
+  if (axis === 'x') positionOffsetX.value = next
+  if (axis === 'y') positionOffsetY.value = next
+  if (axis === 'z') positionOffsetZ.value = next
+  applyPositionFixRealtime()
+}
+
+function onPositionNumberInput(axis: 'x' | 'y' | 'z', event: Event) {
+  setPositionOffsetAxis(axis, (event.target as HTMLInputElement).value)
+}
+
+function onPositionNumberBlur(axis: 'x' | 'y' | 'z', event: Event) {
+  const input = event.target as HTMLInputElement
+  setPositionOffsetAxis(axis, input.value)
+  input.value = String(
+    axis === 'x' ? positionOffsetX.value : axis === 'y' ? positionOffsetY.value : positionOffsetZ.value,
+  )
+}
+
+function onPositionNumberKeydown(event: KeyboardEvent, axis: 'x' | 'y' | 'z') {
+  if (event.key === 'Enter') {
+    onPositionNumberBlur(axis, event)
+    ;(event.target as HTMLInputElement).blur()
+  }
+}
+
 function applyOrientationFixRealtime() {
   const target = getSelectedObject()
   if (!target) return
@@ -2772,6 +2899,28 @@ function togglePointcloudVisibility() {
   if (!pointcloudWrapper) return
   pointcloudVisible.value = !pointcloudVisible.value
   applySceneVisibility()
+}
+
+function toggleMeshWireframe() {
+  showMeshWireframe.value = !showMeshWireframe.value
+  if (!bimRoot) return
+
+  bimRoot.traverse((obj: any) => {
+    const material = obj?.material as THREE.Material | THREE.Material[] | undefined
+    if (!material) return
+    const materials = Array.isArray(material) ? material : [material]
+    materials.forEach((item) => {
+      const wireframeMaterial = item as THREE.Material & { wireframe?: boolean }
+      if (!originalWireframeStore.has(item)) {
+        originalWireframeStore.set(item, Boolean(wireframeMaterial.wireframe))
+      }
+      if ('wireframe' in wireframeMaterial) {
+        wireframeMaterial.wireframe = showMeshWireframe.value
+        wireframeMaterial.needsUpdate = true
+      }
+    })
+  })
+  requestRender()
 }
 
 function toggleAllVisibility() {
@@ -3211,18 +3360,6 @@ async function fetchAndLogSavedAlignmentIfExists() {
   }
 
   try {
-    const calibration = await getScanCalibration(props.pointcloudAssetId)
-    const currentBimId = calibration?.data?.bimFileId ?? null
-
-    if (!calibration?.data?.hasBimAlignment || currentBimId !== props.bimAssetId) {
-      console.info('[BimPointcloudAlign] 当前组合暂无后端已保存校准矩阵', {
-        pointcloudAssetId: props.pointcloudAssetId,
-        bimAssetId: props.bimAssetId,
-      })
-      loggedSavedAlignmentKey = logKey
-      return
-    }
-
     const response = await getBimAlignment({
       modelScanFileId: props.pointcloudAssetId,
       modelBimFileId: props.bimAssetId,
@@ -3236,9 +3373,15 @@ async function fetchAndLogSavedAlignmentIfExists() {
     logSavedAlignmentMatrix(response.data)
     hasSavedAlignmentMatrix.value = true
     coarseAlignmentDirty.value = false
-    tryRestoreSavedAlignment(response.data)
+    const restored = tryRestoreSavedAlignment(response.data)
     logBimRelativeTransform()
-    loggedSavedAlignmentKey = logKey
+    if (restored) {
+      loggedSavedAlignmentKey = logKey
+    } else {
+      window.setTimeout(() => {
+        void fetchAndLogSavedAlignmentIfExists()
+      }, 250)
+    }
   } catch (error: any) {
     const status = error?.response?.status
     if (status === 400 || status === 404) {
@@ -3335,6 +3478,28 @@ async function handleSaveAndContinue() {
   ElMessage.success('校准已保存，当前保留页面用于排查')
 }
 
+async function saveCoarseAlignmentMatrix() {
+  if (registrationStage.value !== 'coarse') return
+  if (savingCalibration.value) return
+  savingCalibration.value = true
+  try {
+    await handleSaveAlignment()
+  } finally {
+    savingCalibration.value = false
+  }
+}
+
+async function saveFineAlignmentMatrix() {
+  if (savingCalibration.value || !canSaveFineAlignment.value) return
+  savingCalibration.value = true
+  try {
+    const saved = await handleSaveAlignment()
+    if (saved) fineAlignResult.value = null
+  } finally {
+    savingCalibration.value = false
+  }
+}
+
 function formatMatrixCell(value: number) {
   if (!Number.isFinite(value)) return '0.000000'
   const absoluteValue = Math.abs(value)
@@ -3380,11 +3545,14 @@ async function handleShowAlignmentMatrix() {
 async function handleCalibrationComplete() {
   if (fineAlignLoading.value) return
   const saved = await handleSaveAlignment()
-  if (saved) {
-    hasSavedAlignmentMatrix.value = true
-    coarseAlignmentDirty.value = false
-    ElMessage.success('校准矩阵已保存')
-  }
+  if (!saved || !props.bimAssetId || !props.pointcloudAssetId) return
+
+  hasSavedAlignmentMatrix.value = true
+  coarseAlignmentDirty.value = false
+  ElMessage.success('校准矩阵已保存，可通过步骤条进入二分屏预览')
+  // Reload the shell so the WebGL canvas is fully disposed and the upload
+  // page recalculates its calibrated preview options from the backend.
+  window.location.assign(`${window.location.origin}/upload`)
 }
 
 function activateCoarseRegistration() {
@@ -3766,8 +3934,12 @@ watch(transformMode, () => {
 onMounted(async () => {
   syncPositionStepPreset()
   syncRotationStepPreset()
+  await Promise.all([loadMeshAlgorithms(), refreshMeshStatus()])
   await initScene()
   await preloadFromRoute()
+  // Tile loading and GLTF loading finish independently. Make one final
+  // restore attempt after both route preload tasks have settled.
+  void fetchAndLogSavedAlignmentIfExists()
 })
 
 onBeforeUnmount(() => {
@@ -3805,12 +3977,13 @@ onBeforeUnmount(() => {
         <h1 class="brand-title">
           BIM 与点云校准 - {{ bimDisplayName || 'BIM 模型' }}
         </h1>
+        <div class="topbar-center">
+        </div>
       </div>
 
       <div class="topbar-right">
         <el-button :icon="ArrowLeft" @click="closePage">返回</el-button>
         <el-button :loading="loadingAlignmentMatrix" :disabled="!bimAssetId || !pointcloudAssetId" @click="handleShowAlignmentMatrix">校准矩阵</el-button>
-        <el-button type="success" @click="handleSaveAndContinue">保存并继续</el-button>
         <el-button type="primary" :disabled="!canSaveCalibration" @click="handleCalibrationComplete">
           校准完成
         </el-button>
@@ -3825,7 +3998,6 @@ onBeforeUnmount(() => {
         <el-tooltip content="重置视角" placement="right">
           <div class="tool-item">
             <el-button class="tool-btn" circle text :icon="RefreshLeft" :disabled="!hasModel" @click="resetView" />
-            <span class="tool-label">重置</span>
           </div>
         </el-tooltip>
 
@@ -3840,7 +4012,6 @@ onBeforeUnmount(() => {
             >
               <img class="tool-btn__img1" :src="toushiIcon" alt="透视" />
             </el-button>
-            <span class="tool-label">透视</span>
           </div>
         </el-tooltip>
 
@@ -3855,7 +4026,6 @@ onBeforeUnmount(() => {
             >
               <img class="tool-btn__img1" :src="zhengjiaoIcon" alt="正交" />
             </el-button>
-            <span class="tool-label">正交</span>
           </div>
         </el-tooltip>
 
@@ -3870,7 +4040,28 @@ onBeforeUnmount(() => {
             >
               <img class="tool-btn__img" :src="wanggeIcon" alt="网格" />
             </el-button>
-            <span class="tool-label">网格</span>
+          </div>
+        </el-tooltip>
+
+        <el-tooltip :content="showMeshWireframe ? '关闭线框' : '显示线框'" placement="right">
+          <div class="tool-item">
+            <el-button
+              class="tool-btn tool-btn--svg"
+              :class="{ 'is-on': showMeshWireframe }"
+              circle
+              text
+              :disabled="!hasModel"
+              @click="toggleMeshWireframe"
+            >
+              <svg class="tool-btn__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="9" width="12" height="12" />
+                <rect x="9" y="3" width="12" height="12" />
+                <line x1="3" y1="9" x2="9" y2="3" />
+                <line x1="15" y1="9" x2="21" y2="3" />
+                <line x1="15" y1="21" x2="21" y2="15" />
+                <line x1="3" y1="21" x2="9" y2="15" />
+              </svg>
+            </el-button>
           </div>
         </el-tooltip>
 
@@ -3885,7 +4076,6 @@ onBeforeUnmount(() => {
               :disabled="!hasClippableContent"
               @click="showBounds = !showBounds"
             />
-            <span class="tool-label">包围盒</span>
           </div>
         </el-tooltip>
 
@@ -3945,7 +4135,7 @@ onBeforeUnmount(() => {
               :class="{ 'is-on': hasModel && bimVisible }"
               circle
               text
-              :icon="Box"
+              :icon="bimVisible ? Hide : View"
               :disabled="!hasModel"
               @click="toggleBimVisibility"
             />
@@ -3956,77 +4146,100 @@ onBeforeUnmount(() => {
         <el-tooltip :content="pointcloudVisibilityLabel" placement="right">
           <div class="tool-item">
             <el-button
-              class="tool-btn"
+              class="tool-btn tool-btn--svg"
               :class="{ 'is-on': hasTileset && pointcloudVisible }"
               circle
               text
-              :icon="Location"
               :disabled="!hasTileset"
               @click="togglePointcloudVisibility"
-            />
-            <span class="tool-label">{{ pointcloudVisibilityLabel }}</span>
+            >
+              <svg class="tool-btn__svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="17" r="1.3" />
+                <circle cx="9" cy="8" r="1.5" />
+                <circle cx="14" cy="14" r="1.1" />
+                <circle cx="18" cy="6" r="1.4" />
+                <circle cx="7" cy="13" r="0.9" />
+                <circle cx="16" cy="10" r="1.1" />
+                <circle cx="12" cy="19" r="1.2" />
+                <circle cx="20" cy="15" r="1" />
+                <circle cx="4" cy="10" r="0.8" />
+                <circle cx="11" cy="5" r="0.9" />
+                <circle cx="19" cy="19" r="0.8" />
+                <circle cx="3" cy="5" r="1" />
+              </svg>
+            </el-button>
           </div>
         </el-tooltip>
 
-        <el-tooltip :content="visibilityToggleAllLabel" placement="right">
-          <div class="tool-item">
-            <el-button
-              class="tool-btn"
-              :class="{ 'is-on': (hasModel && bimVisible) || (hasTileset && pointcloudVisible) }"
-              circle
-              text
-              :icon="Delete"
-              :disabled="!hasModel && !hasTileset"
-              @click="toggleAllVisibility"
-            />
-            <span class="tool-label">{{ visibilityToggleAllLabel }}</span>
-          </div>
-        </el-tooltip>
       </aside>
 
       <div ref="viewportEl" class="viewport"></div>
 
       <aside v-if="showPanel" class="right-panel">
-        <div class="panel-section">
+         <div class="panel-section registration-edit-panel">
           <div class="section-title">配准</div>
+          <div class="control-row registration-mode-row">
+            <el-switch v-model="editMode" @change="onEditModeChange" />
+            <span class="label">粗配准（手动）</span>
+          </div>
           <div class="edit-target-row">
-            <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'coarse' }" @click="activateCoarseRegistration">粗配准</button>
+            <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'coarse' }" :disabled="!hasModel && !hasTileset" @click="activateCoarseRegistration">粗配准</button>
             <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'fine' }" :disabled="!hasSavedAlignmentMatrix" @click="activateFineRegistration">精细化配准</button>
           </div>
           <template v-if="registrationStage === 'fine'">
-            <div class="control-row"><span class="label">RMSE 阈值</span><el-input-number v-model="fineRmseRegressRatio" :min="1" :max="2" :step="0.01" :precision="2" size="small" /></div>
-            <div class="control-row"><span class="label">Fitness 阈值</span><el-input-number v-model="fineFitnessRegressRatio" :min="0.5" :max="1" :step="0.01" :precision="2" size="small" /></div>
-            <div class="control-row"><el-switch v-model="fineApplyWhenRegressed" /><span class="label">负优化时仍应用精调</span></div>
-            <el-button type="primary" style="width: 100%" :loading="fineAlignLoading" :disabled="!canRunFineAlignment" @click="runFineAlignment">开始精细化配准</el-button>
-            <div v-if="fineAlignResult" class="picked-element-empty">RMSE: {{ Number(fineAlignResult.metrics?.fineRmse ?? 0).toFixed(4) }} m，Fitness: {{ Number(fineAlignResult.metrics?.fineFitness ?? 0).toFixed(4) }}</div>
+            <div class="fine-params">
+              <div class="fine-param-row">
+                <span class="fine-param-label">负优化策略</span>
+                <el-switch v-model="fineApplyWhenRegressed" :disabled="fineAlignLoading" active-text="告警但应用精调" inactive-text="仅告警不应用" inline-prompt @change="markFineAlignmentDirty" />
+              </div>
+              <div class="fine-threshold-grid">
+                <div class="fine-threshold-item">
+                  <span class="fine-threshold-label">RMSE 阈值</span>
+                  <el-input-number v-model="fineRmseRegressRatio" :disabled="fineAlignLoading" :min="1" :max="2" :step="0.01" :precision="2" controls-position="right" @change="onFineRmseRegressRatioChange" />
+                </div>
+                <div class="fine-threshold-item">
+                  <span class="fine-threshold-label">Fitness 阈值</span>
+                  <el-input-number v-model="fineFitnessRegressRatio" :disabled="fineAlignLoading" :min="0.5" :max="1" :step="0.01" :precision="2" controls-position="right" @change="onFineFitnessRegressRatioChange" />
+                </div>
+              </div>
+              <button class="fine-reset-link" :disabled="fineAlignLoading" @click="resetFineThresholdDefaults">恢复默认阈值</button>
+            </div>
+            <div class="fine-actions">
+              <el-button type="primary" :loading="fineAlignLoading" :disabled="!canRunFineAlignment" style="width: 100%" @click="runFineAlignment">开始计算</el-button>
+              <el-button :loading="savingCalibration" :disabled="!canSaveFineAlignment" style="width: 100%; margin-left: 0" @click="saveFineAlignmentMatrix">保存配准结果</el-button>
+            </div>
+            <div v-if="fineRunBlockedReason" class="fine-actions__hint">{{ fineRunBlockedReason }}</div>
+            <div v-if="fineAlignResult" class="fine-result" :class="{ 'fine-result--warning': fineAlignResult.regressed }">
+              <div class="fine-result__title">{{ fineAlignResult.regressed ? '精调结果出现退化告警' : '精调结果' }}</div>
+              <div class="fine-result__grid">
+                <span>RMSE <strong>{{ Number(fineAlignResult.metrics?.fineRmse ?? 0).toFixed(4) }} m</strong></span>
+                <span>Fitness <strong>{{ Number(fineAlignResult.metrics?.fineFitness ?? 0).toFixed(4) }}</strong></span>
+                <span>位移变化 <strong>{{ Number(fineAlignResult.metrics?.deltaTranslationM ?? 0).toFixed(3) }} m</strong></span>
+                <span>旋转变化 <strong>{{ Number(fineAlignResult.metrics?.deltaRotationDeg ?? 0).toFixed(3) }} deg</strong></span>
+                <span>耗时 <strong>{{ Number(fineAlignResult.metrics?.elapsedS ?? 0).toFixed(1) }} s</strong></span>
+                <span>点数 <strong>{{ fineAlignResult.metrics?.sourceTotalPoints ?? 0 }} / {{ fineAlignResult.metrics?.targetPoints ?? 0 }}</strong></span>
+              </div>
+            </div>
           </template>
-          <div v-else class="picked-element-empty">调整模型位置和旋转后，点击“校准完成”保存粗配准矩阵。</div>
-        </div>
-        <div class="panel-section">
-          <div class="section-title">编辑</div>
-          <div class="control-row">
-            <el-switch v-model="editMode" @change="onEditModeChange" />
-            <span class="label">编辑模式</span>
-          </div>
-          <div class="control-row" :class="{ disabled: !editMode || !loadedItemOptions.length }">
-            <span class="label">对象</span>
-            <el-select
-              v-model="selectedItemId"
-              popper-class="bpa-right-popper"
-              filterable
-              :disabled="!editMode || !loadedItemOptions.length"
-              @change="onSelectedItemChange"
-            >
-              <el-option
-                v-for="option in loadedItemOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-            <el-button size="small" :disabled="!editMode || !selectedItemId" @click="focusSelected">
-              定位
-            </el-button>
+          <template v-else>
+            <div class="coarse-actions">
+              <el-button
+                type="primary"
+                size="small"
+                :loading="savingCalibration"
+                :disabled="!canSaveCoarseAlignment"
+                @click="saveCoarseAlignmentMatrix"
+              >
+                保存粗配准矩阵
+              </el-button>
+              <div class="coarse-actions__hint">{{ coarseSaveHint }}</div>
+            </div>
+          </template>
+          <div class="section-divider" aria-hidden="true"></div>
+          <div class="edit-target-row" :class="{ disabled: !editMode }">
+            <button class="edit-target-btn" :class="{ 'is-active': selectedItemId === 'bim' }" :disabled="!editMode || !hasModel" @click="selectSceneObject('bim')">模型调整</button>
+            <button class="edit-target-btn" :class="{ 'is-active': selectedItemId === 'pointcloud' }" :disabled="!editMode || !hasTileset" @click="selectSceneObject('pointcloud')">点云调整</button>
+            <el-button size="small" :disabled="!editMode || !selectedItemId" @click="focusSelected">定位</el-button>
           </div>
           <div class="control-row" :class="{ disabled: !editMode }">
             <span class="label">变换</span>
@@ -4064,6 +4277,7 @@ onBeforeUnmount(() => {
                     @change="onRotationStepPresetChange"
                   >
                     <el-option
+                    popper-class="bpa-right-popper"
                       v-for="stepOption in rotationStepOptions"
                       :key="`rotate-${stepOption}`"
                       :label="formatRotationStepLabel(stepOption)"
@@ -4165,7 +4379,10 @@ onBeforeUnmount(() => {
                   :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
                   @input="applyPositionFixRealtime"
                 />
-                <span class="val wide">{{ formatPositionOffset(positionOffsetX) }}</span>
+                <div class="slider__controls">
+                  <input class="axis-number-input" :value="positionOffsetX" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud" @input="onPositionNumberInput('x', $event)" @blur="onPositionNumberBlur('x', $event)" @keydown="onPositionNumberKeydown($event, 'x')" />
+                  <span class="slider__hint">m</span>
+                </div>
               </label>
               <label class="slider" :class="{ disabled: !editMode || !selectedItemId || selectedItemIsPointcloud }">
                 <span class="axis">Y</span>
@@ -4178,7 +4395,10 @@ onBeforeUnmount(() => {
                   :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
                   @input="applyPositionFixRealtime"
                 />
-                <span class="val wide">{{ formatPositionOffset(positionOffsetY) }}</span>
+                <div class="slider__controls">
+                  <input class="axis-number-input" :value="positionOffsetY" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud" @input="onPositionNumberInput('y', $event)" @blur="onPositionNumberBlur('y', $event)" @keydown="onPositionNumberKeydown($event, 'y')" />
+                  <span class="slider__hint">m</span>
+                </div>
               </label>
               <label class="slider" :class="{ disabled: !editMode || !selectedItemId || selectedItemIsPointcloud }">
                 <span class="axis">Z</span>
@@ -4191,7 +4411,10 @@ onBeforeUnmount(() => {
                   :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
                   @input="applyPositionFixRealtime"
                 />
-                <span class="val wide">{{ formatPositionOffset(positionOffsetZ) }}</span>
+                <div class="slider__controls">
+                  <input class="axis-number-input" :value="positionOffsetZ" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud" @input="onPositionNumberInput('z', $event)" @blur="onPositionNumberBlur('z', $event)" @keydown="onPositionNumberKeydown($event, 'z')" />
+                  <span class="slider__hint">m</span>
+                </div>
               </label>
             </div>
             <div class="orientation-actions">
@@ -4205,6 +4428,31 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+        <div class="panel-section mesh-remesh-panel">
+          <div class="section-title">网格均匀化</div>
+          <div class="mesh-remesh-status" :class="`mesh-remesh-status--${meshStatus?.status || 'idle'}`">
+            {{ meshRunning ? '均匀化处理中...' : meshReady ? '已有可用的均匀化网格' : meshStatus?.status === 'failed' ? '上次均匀化失败' : '尚未生成均匀化网格' }}
+          </div>
+          <div class="control-row">
+            <span class="label">算法</span>
+            <el-select v-model="meshAlgorithm" size="small" :disabled="meshRunning || !meshAlgorithms.length">
+              <el-option v-for="algorithm in meshAlgorithms" :key="algorithm.name" :label="algorithm.label" :value="algorithm.name" />
+            </el-select>
+          </div>
+          <div class="control-row">
+            <span class="label">目标边长 (m)</span>
+            <el-input-number v-model="meshTargetEdgeLength" :min="0.05" :max="5" :step="0.05" :precision="3" size="small" :disabled="meshRunning" />
+          </div>
+          <el-button type="primary" size="small" style="width: 100%" :loading="meshRunning" :disabled="!bimAssetId || !meshAlgorithms.length" @click="runMeshRemesh">
+            {{ meshReady ? '重新均匀化' : '开始均匀化' }}
+          </el-button>
+          <div v-if="meshStats" class="mesh-remesh-stats">
+            顶点 {{ meshStats.vertexBefore.toLocaleString() }} → {{ meshStats.vertexAfter.toLocaleString() }}<br />
+            面数 {{ meshStats.faceBefore.toLocaleString() }} → {{ meshStats.faceAfter.toLocaleString() }}
+          </div>
+          <div v-if="meshError" class="mesh-remesh-error">{{ meshError }}</div>
+        </div>
+       
 
         <div class="panel-section">
           <div class="section-title">渲染</div>

@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -57,15 +58,25 @@ type User struct {
 	CreatedAt    time.Time `json:"createdAt"`
 }
 type Asset struct {
-	ID           int64   `json:"id"`
-	Type         string  `json:"type"`
-	SourceName   string  `json:"sourceName"`
-	SourceSize   int64   `json:"sourceSize"`
-	Status       string  `json:"status"`
-	ErrorMessage *string `json:"errorMessage"`
-	CreatedAt    int64   `json:"createdAt"`
-	OwnerID      int64   `json:"-"`
-	Dir          string  `json:"-"`
+	ID           int64              `json:"id"`
+	Type         string             `json:"type"`
+	SourceName   string             `json:"sourceName"`
+	SourceSize   int64              `json:"sourceSize"`
+	Status       string             `json:"status"`
+	ErrorMessage *string            `json:"errorMessage"`
+	CreatedAt    int64              `json:"createdAt"`
+	OwnerID      int64              `json:"-"`
+	Dir          string             `json:"-"`
+	MeshRemesh   *MeshRemeshSummary `json:"meshRemesh,omitempty"`
+	RemeshStatus string             `json:"-"`
+	RemeshError  *string            `json:"-"`
+}
+type MeshRemeshSummary struct {
+	Supported      bool    `json:"supported"`
+	Status         string  `json:"status,omitempty"`
+	CanManualRetry bool    `json:"canManualRetry"`
+	ResultFileID   *int64  `json:"resultFileId,omitempty"`
+	LastError      *string `json:"lastError,omitempty"`
 }
 type Upload struct {
 	ID           string  `json:"uploadId"`
@@ -80,21 +91,22 @@ type Upload struct {
 	Dir          string  `json:"-"`
 }
 type Alignment struct {
-	ModelID     int64     `json:"modelId"`
-	ScanID      int64     `json:"modelScanFileId"`
-	BimID       int64     `json:"modelBimFileId"`
-	Qx          float64   `json:"modelRotationQx"`
-	Qy          float64   `json:"modelRotationQy"`
-	Qz          float64   `json:"modelRotationQz"`
-	Qw          float64   `json:"modelRotationQw"`
-	Tx          float64   `json:"modelTranslationX"`
-	Ty          float64   `json:"modelTranslationY"`
-	Tz          float64   `json:"modelTranslationZ"`
-	Matrix      []float64 `json:"modelMatrix"`
-	RMSE        float64   `json:"modelRmse"`
-	MaxError    float64   `json:"modelMaxError"`
-	PairCount   int       `json:"modelPairCount"`
-	InlierCount int       `json:"modelInlierCount"`
+	ModelID              int64     `json:"modelId"`
+	ScanID               int64     `json:"modelScanFileId"`
+	BimID                int64     `json:"modelBimFileId"`
+	ModelBIMBuildingName *string   `json:"modelBimBuildingName,omitempty"`
+	Qx                   float64   `json:"modelRotationQx"`
+	Qy                   float64   `json:"modelRotationQy"`
+	Qz                   float64   `json:"modelRotationQz"`
+	Qw                   float64   `json:"modelRotationQw"`
+	Tx                   float64   `json:"modelTranslationX"`
+	Ty                   float64   `json:"modelTranslationY"`
+	Tz                   float64   `json:"modelTranslationZ"`
+	Matrix               []float64 `json:"modelMatrix"`
+	RMSE                 float64   `json:"modelRmse"`
+	MaxError             float64   `json:"modelMaxError"`
+	PairCount            int       `json:"modelPairCount"`
+	InlierCount          int       `json:"modelInlierCount"`
 }
 type DBUser struct {
 	ID           int64  `gorm:"primaryKey"`
@@ -112,6 +124,8 @@ type DBAsset struct {
 	CreatedAt    int64   `gorm:"index;not null"`
 	OwnerID      int64   `gorm:"index;not null"`
 	Dir          string  `gorm:"size:1024;not null"`
+	RemeshStatus string  `gorm:"size:32;index"`
+	RemeshError  *string `gorm:"type:text"`
 }
 type DBUpload struct {
 	ID           string `gorm:"primaryKey;size:64"`
@@ -246,7 +260,7 @@ func loadConfig() (config, error) {
 	if shutdownSeconds < 1 || shutdownSeconds > 300 {
 		shutdownSeconds = 15
 	}
-	return config{Addr: env("ADDR", ":8090"), DataDir: root, JWTSecret: secret, JWTExpiresIn: jwtExpiresIn, MeshServiceURL: strings.TrimRight(env("MESH_SERVICE_URL", ""), "/"), RegisterCode: env("REGISTER_CODE", "laochen"), Environment: environment, DBDriver: dbDriver, DBDSN: dsn, CORSAllowOrigins: origins, SeedDemo: seedDemo, WorkerCount: workers, UploadChunkLimit: chunkLimit, UploadFileLimit: fileLimit, ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second}, nil
+	return config{Addr: env("ADDR", ":8090"), DataDir: root, JWTSecret: secret, JWTExpiresIn: jwtExpiresIn, MeshServiceURL: strings.TrimRight(env("MESH_SERVICE_URL", "http://127.0.0.1:8001"), "/"), RegisterCode: env("REGISTER_CODE", "laochen"), Environment: environment, DBDriver: dbDriver, DBDSN: dsn, CORSAllowOrigins: origins, SeedDemo: seedDemo, WorkerCount: workers, UploadChunkLimit: chunkLimit, UploadFileLimit: fileLimit, ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second}, nil
 }
 
 func parseJWTDuration(value string) (time.Duration, error) {
@@ -865,6 +879,17 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 			log.Printf("更新上传 %s 状态失败: %v", uploadID, updateErr)
 		}
 	} else {
+		if asset.Type == "bim" {
+			_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"remesh_status": "processing", "remesh_error": nil}).Error
+			if stats, remeshErr := a.autoRemeshBIM(ctx, asset); remeshErr != nil {
+				message := remeshErr.Error()
+				_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"remesh_status": "failed", "remesh_error": message}).Error
+				log.Printf("BIM 资产 %d 自动网格均匀化失败（可在校准页重试）: %v", asset.ID, remeshErr)
+			} else {
+				_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"remesh_status": "succeeded", "remesh_error": nil}).Error
+				log.Printf("BIM 资产 %d 自动网格均匀化完成: vertices %d -> %d, faces %d -> %d", asset.ID, stats.VertexBefore, stats.VertexAfter, stats.FaceBefore, stats.FaceAfter)
+			}
+		}
 		if updateErr := a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Update("status", "ready").Error; updateErr != nil {
 			log.Printf("更新资产 %d 就绪状态失败: %v", asset.ID, updateErr)
 		}
@@ -909,8 +934,35 @@ func (a *app) startWorkers(ctx context.Context) error {
 func (a *app) waitWorkers() {
 	a.workerWG.Wait()
 }
+func meshRemeshSummary(a Asset) *MeshRemeshSummary {
+	if a.Type != "bim" {
+		return &MeshRemeshSummary{Supported: false}
+	}
+	status := a.RemeshStatus
+	if status == "" {
+		if _, err := os.Stat(filepath.Join(a.Dir, "mesh_remesh.ply")); err == nil {
+			status = "succeeded"
+		} else if a.Status == "processing" || a.Status == "queued" {
+			status = "processing"
+		} else if a.Status == "ready" {
+			status = "idle"
+		}
+	}
+	// The public workflow intentionally exposes only two mesh states. Keep
+	// failure details private while allowing the same button to retry.
+	canRetry := status == "failed"
+	if status != "succeeded" {
+		status = "processing"
+	}
+	resultID := (*int64)(nil)
+	if status == "succeeded" {
+		resultID = &a.ID
+	}
+	return &MeshRemeshSummary{Supported: true, Status: status, CanManualRetry: canRetry, ResultFileID: resultID, LastError: a.RemeshError}
+}
+
 func assetSummary(a Asset) gin.H {
-	return gin.H{"id": a.ID, "type": a.Type, "sourceName": a.SourceName, "sourceSize": a.SourceSize, "status": a.Status, "errorMessage": a.ErrorMessage, "createdAt": a.CreatedAt}
+	return gin.H{"id": a.ID, "type": a.Type, "sourceName": a.SourceName, "sourceSize": a.SourceSize, "status": a.Status, "errorMessage": a.ErrorMessage, "createdAt": a.CreatedAt, "meshRemesh": meshRemeshSummary(a)}
 }
 func (a *app) listAssets(c *gin.Context) {
 	typ, status := c.Query("type"), c.Query("status")
@@ -948,7 +1000,7 @@ func (a *app) listAssets(c *gin.Context) {
 			total--
 			continue
 		}
-		list = append(list, assetSummary(Asset{ID: item.ID, Type: item.Type, SourceName: item.SourceName, SourceSize: item.SourceSize, Status: item.Status, ErrorMessage: item.ErrorMessage, CreatedAt: item.CreatedAt, OwnerID: item.OwnerID, Dir: item.Dir}))
+		list = append(list, assetSummary(Asset{ID: item.ID, Type: item.Type, SourceName: item.SourceName, SourceSize: item.SourceSize, Status: item.Status, ErrorMessage: item.ErrorMessage, CreatedAt: item.CreatedAt, OwnerID: item.OwnerID, Dir: item.Dir, RemeshStatus: item.RemeshStatus, RemeshError: item.RemeshError}))
 	}
 	ok(c, gin.H{"total": total, "page": page, "pageSize": size, "list": list})
 }
@@ -959,7 +1011,7 @@ func (a *app) getAsset(c *gin.Context) (*Asset, bool) {
 		return nil, false
 	}
 	a.ensureAssetArtifacts(&row)
-	item := Asset{ID: row.ID, Type: row.Type, SourceName: row.SourceName, SourceSize: row.SourceSize, Status: row.Status, ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, OwnerID: row.OwnerID, Dir: row.Dir}
+	item := Asset{ID: row.ID, Type: row.Type, SourceName: row.SourceName, SourceSize: row.SourceSize, Status: row.Status, ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, OwnerID: row.OwnerID, Dir: row.Dir, RemeshStatus: row.RemeshStatus, RemeshError: row.RemeshError}
 	return &item, true
 }
 func (a *app) assetDetail(c *gin.Context) {
@@ -1027,6 +1079,239 @@ func (a *app) tile(c *gin.Context) {
 		fail(c, 400, err.Error())
 		return
 	}
+	c.File(path)
+}
+
+func (a *app) meshAsset(c *gin.Context) (Asset, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, "资产 ID 非法")
+		return Asset{}, false
+	}
+	asset, ok := a.getAssetByID(c, id, "bim")
+	if !ok {
+		fail(c, http.StatusNotFound, "BIM 资产不存在或尚未就绪")
+		return Asset{}, false
+	}
+	return asset, true
+}
+
+func (a *app) meshAlgorithms(c *gin.Context) {
+	if a.cfg.MeshServiceURL == "" {
+		fail(c, http.StatusServiceUnavailable, "未配置网格处理服务，请设置 MESH_SERVICE_URL")
+		return
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Get(a.cfg.MeshServiceURL + "/algorithms")
+	if err != nil {
+		fail(c, http.StatusBadGateway, fmt.Sprintf("调用网格处理服务失败: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fail(c, http.StatusBadGateway, "网格处理服务返回错误")
+		return
+	}
+	var algorithms any
+	if err := json.NewDecoder(resp.Body).Decode(&algorithms); err != nil {
+		fail(c, http.StatusBadGateway, "解析网格算法列表失败")
+		return
+	}
+	ok(c, algorithms)
+}
+
+type meshRemeshStats struct {
+	VertexBefore int `json:"vertexBefore"`
+	FaceBefore   int `json:"faceBefore"`
+	VertexAfter  int `json:"vertexAfter"`
+	FaceAfter    int `json:"faceAfter"`
+}
+
+// autoRemeshBIM runs after IFC conversion. It is intentionally best-effort:
+// the BIM asset remains usable when the optional mesh service is unavailable,
+// while the alignment page can retry the operation explicitly.
+func (a *app) autoRemeshBIM(ctx context.Context, asset DBAsset) (meshRemeshStats, error) {
+	if strings.TrimSpace(a.cfg.MeshServiceURL) == "" {
+		return meshRemeshStats{}, errors.New("未配置 MESH_SERVICE_URL")
+	}
+	inputPath := filepath.Join(asset.Dir, "model.glb")
+	input, err := os.Open(inputPath)
+	if err != nil {
+		return meshRemeshStats{}, fmt.Errorf("打开 BIM GLB 失败: %w", err)
+	}
+	defer input.Close()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(inputPath))
+	if err != nil {
+		return meshRemeshStats{}, err
+	}
+	if _, err = io.Copy(part, input); err != nil {
+		return meshRemeshStats{}, err
+	}
+	_ = writer.WriteField("algorithm", "bim_preprocessor")
+	_ = writer.WriteField("params_json", `{"target_edge_length":0.1,"clean_tolerance":0.005,"use_decimation":true,"decimation_ratio":0.5,"subdivision_iterations":2,"subdivision_threshold_ratio":2.0,"adaptive":true,"crease_angle":60.0,"use_isotropic":true,"isotropic_iterations":5,"surface_dist_ratio":0.5,"isotropic_collapse":true,"sliver_merge_ratio":0.03,"sliver_relax_checksurfdist":true}`)
+	if err := writer.Close(); err != nil {
+		return meshRemeshStats{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/remesh", &body)
+	if err != nil {
+		return meshRemeshStats{}, err
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := (&http.Client{Timeout: 2 * time.Hour}).Do(request)
+	if err != nil {
+		return meshRemeshStats{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return meshRemeshStats{}, fmt.Errorf("网格服务返回 %d: %s", resp.StatusCode, toolLog(data))
+	}
+	outputPath := filepath.Join(asset.Dir, "mesh_remesh.ply")
+	output, err := os.Create(outputPath)
+	if err != nil {
+		return meshRemeshStats{}, err
+	}
+	_, copyErr := io.Copy(output, resp.Body)
+	closeErr := output.Close()
+	if copyErr != nil {
+		return meshRemeshStats{}, copyErr
+	}
+	if closeErr != nil {
+		return meshRemeshStats{}, closeErr
+	}
+	return meshRemeshStats{
+		VertexBefore: headerInt(resp.Header.Get("X-Vertex-Before")),
+		FaceBefore:   headerInt(resp.Header.Get("X-Face-Before")),
+		VertexAfter:  headerInt(resp.Header.Get("X-Vertex-After")),
+		FaceAfter:    headerInt(resp.Header.Get("X-Face-After")),
+	}, nil
+}
+
+func (a *app) remeshAsset(c *gin.Context) {
+	asset, found := a.meshAsset(c)
+	if !found {
+		return
+	}
+	if a.cfg.MeshServiceURL == "" {
+		fail(c, http.StatusServiceUnavailable, "未配置网格处理服务，请设置 MESH_SERVICE_URL")
+		return
+	}
+	var req struct {
+		Algorithm string         `json:"algorithm"`
+		Params    map[string]any `json:"params"`
+		Force     bool           `json:"force"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		fail(c, http.StatusBadRequest, "网格均匀化参数格式非法")
+		return
+	}
+	if req.Algorithm == "" {
+		req.Algorithm = "bim_preprocessor"
+	}
+	_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"remesh_status": "processing", "remesh_error": nil}).Error
+	remeshSucceeded := false
+	defer func() {
+		if remeshSucceeded {
+			return
+		}
+		message := "网格均匀化失败"
+		if c.IsAborted() {
+			message = "网格均匀化请求已取消"
+		}
+		_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"remesh_status": "failed", "remesh_error": message}).Error
+	}()
+	inputPath := filepath.Join(asset.Dir, "model.glb")
+	input, err := os.Open(inputPath)
+	if err != nil {
+		fail(c, http.StatusNotFound, "BIM 模型文件不存在")
+		return
+	}
+	defer input.Close()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(inputPath))
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "构建网格请求失败")
+		return
+	}
+	if _, err = io.Copy(part, input); err != nil {
+		fail(c, http.StatusInternalServerError, "读取 BIM 模型失败")
+		return
+	}
+	_ = writer.WriteField("algorithm", req.Algorithm)
+	paramsJSON, _ := json.Marshal(req.Params)
+	_ = writer.WriteField("params_json", string(paramsJSON))
+	if err := writer.Close(); err != nil {
+		fail(c, http.StatusInternalServerError, "构建网格请求失败")
+		return
+	}
+	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, a.cfg.MeshServiceURL+"/remesh", &body)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "构建网格请求失败")
+		return
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := (&http.Client{Timeout: 2 * time.Hour}).Do(request)
+	if err != nil {
+		fail(c, http.StatusBadGateway, fmt.Sprintf("调用网格处理服务失败: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		fail(c, http.StatusBadGateway, fmt.Sprintf("网格处理失败: %s", toolLog(data)))
+		return
+	}
+	outputPath := filepath.Join(asset.Dir, "mesh_remesh.ply")
+	output, err := os.Create(outputPath)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "保存均匀化结果失败")
+		return
+	}
+	_, copyErr := io.Copy(output, resp.Body)
+	closeErr := output.Close()
+	if copyErr != nil || closeErr != nil {
+		fail(c, http.StatusInternalServerError, "写入均匀化结果失败")
+		return
+	}
+	_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"remesh_status": "succeeded", "remesh_error": nil}).Error
+	remeshSucceeded = true
+	ok(c, gin.H{"status": "succeeded", "resultFileId": asset.ID, "stats": gin.H{
+		"vertexBefore": headerInt(resp.Header.Get("X-Vertex-Before")),
+		"faceBefore":   headerInt(resp.Header.Get("X-Face-Before")),
+		"vertexAfter":  headerInt(resp.Header.Get("X-Vertex-After")),
+		"faceAfter":    headerInt(resp.Header.Get("X-Face-After")),
+	}})
+}
+
+func headerInt(value string) int {
+	n, _ := strconv.Atoi(value)
+	return n
+}
+
+func (a *app) remeshStatus(c *gin.Context) {
+	asset, found := a.meshAsset(c)
+	if !found {
+		return
+	}
+	summary := meshRemeshSummary(asset)
+	respond := gin.H{"supported": summary.Supported, "status": summary.Status, "canManualRetry": summary.CanManualRetry, "resultFileId": summary.ResultFileID, "lastError": summary.LastError}
+	ok(c, respond)
+}
+
+func (a *app) remeshLatest(c *gin.Context) {
+	asset, found := a.meshAsset(c)
+	if !found {
+		return
+	}
+	path := filepath.Join(asset.Dir, "mesh_remesh.ply")
+	if _, err := os.Stat(path); err != nil {
+		fail(c, http.StatusNotFound, "尚无网格均匀化结果")
+		return
+	}
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Content-Disposition", `attachment; filename="remeshed.ply"`)
 	c.File(path)
 }
 
@@ -1290,11 +1575,16 @@ func (a *app) createAlignment(c *gin.Context) {
 		fail(c, 400, "至少需要 3 组校准点")
 		return
 	}
+	if len(req.ModelPairs) > 64 {
+		fail(c, 400, "校准点数量过多，最多支持 64 组")
+		return
+	}
 	if _, ok := a.getAssetByID(c, req.ModelScanFileID, "pointcloud"); !ok {
 		fail(c, 404, "点云资产不存在")
 		return
 	}
-	if _, ok := a.getAssetByID(c, req.ModelBimFileID, "bim"); !ok {
+	bimAsset, bimOK := a.getAssetByID(c, req.ModelBimFileID, "bim")
+	if !bimOK {
 		fail(c, 404, "BIM 资产不存在")
 		return
 	}
@@ -1320,7 +1610,7 @@ func (a *app) createAlignment(c *gin.Context) {
 		}
 	}
 	rmse = math.Sqrt(rmse / float64(len(distances)))
-	result := Alignment{ModelID: 0, ScanID: req.ModelScanFileID, BimID: req.ModelBimFileID, Qx: qx, Qy: qy, Qz: qz, Qw: qw, Tx: trX, Ty: trY, Tz: trZ, Matrix: matrix, RMSE: rmse, MaxError: max, PairCount: fit.pairCount, InlierCount: fit.inlierCount}
+	result := Alignment{ModelID: 0, ScanID: req.ModelScanFileID, BimID: req.ModelBimFileID, ModelBIMBuildingName: stringPtr(bimAsset.SourceName), Qx: qx, Qy: qy, Qz: qz, Qw: qw, Tx: trX, Ty: trY, Tz: trZ, Matrix: matrix, RMSE: rmse, MaxError: max, PairCount: fit.pairCount, InlierCount: fit.inlierCount}
 	matrixJSON, _ := json.Marshal(result.Matrix)
 	row := DBAlignment{ScanID: result.ScanID, BimID: result.BimID, Qx: result.Qx, Qy: result.Qy, Qz: result.Qz, Qw: result.Qw, Tx: result.Tx, Ty: result.Ty, Tz: result.Tz, MatrixJSON: string(matrixJSON), RMSE: result.RMSE, MaxError: result.MaxError, PairCount: result.PairCount, InlierCount: result.InlierCount, OwnerID: userID(c), CreatedAt: time.Now()}
 	var existing DBAlignment
@@ -1364,7 +1654,7 @@ func (a *app) getAssetByID(c *gin.Context, id int64, typ string) (Asset, bool) {
 	if err := a.db.Where("id = ? AND owner_id = ? AND type = ? AND status = ?", id, userID(c), typ, "ready").First(&row).Error; err != nil {
 		return Asset{}, false
 	}
-	return Asset{ID: row.ID, Type: row.Type, SourceName: row.SourceName, SourceSize: row.SourceSize, Status: row.Status, ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, OwnerID: row.OwnerID, Dir: row.Dir}, true
+	return Asset{ID: row.ID, Type: row.Type, SourceName: row.SourceName, SourceSize: row.SourceSize, Status: row.Status, ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, OwnerID: row.OwnerID, Dir: row.Dir, RemeshStatus: row.RemeshStatus, RemeshError: row.RemeshError}, true
 }
 func (a *app) getAlignment(c *gin.Context) {
 	scan, _ := strconv.ParseInt(c.Query("modelScanFileId"), 10, 64)
@@ -1376,7 +1666,15 @@ func (a *app) getAlignment(c *gin.Context) {
 	}
 	var matrix []float64
 	_ = json.Unmarshal([]byte(row.MatrixJSON), &matrix)
-	ok(c, Alignment{ModelID: row.ID, ScanID: row.ScanID, BimID: row.BimID, Qx: row.Qx, Qy: row.Qy, Qz: row.Qz, Qw: row.Qw, Tx: row.Tx, Ty: row.Ty, Tz: row.Tz, Matrix: matrix, RMSE: row.RMSE, MaxError: row.MaxError, PairCount: row.PairCount, InlierCount: row.InlierCount})
+	bimAsset, _ := a.getAssetByID(c, row.BimID, "bim")
+	ok(c, Alignment{ModelID: row.ID, ScanID: row.ScanID, BimID: row.BimID, ModelBIMBuildingName: stringPtr(bimAsset.SourceName), Qx: row.Qx, Qy: row.Qy, Qz: row.Qz, Qw: row.Qw, Tx: row.Tx, Ty: row.Ty, Tz: row.Tz, Matrix: matrix, RMSE: row.RMSE, MaxError: row.MaxError, PairCount: row.PairCount, InlierCount: row.InlierCount})
+}
+
+func stringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 type fineAlignmentMetrics struct {
@@ -1392,23 +1690,46 @@ type fineAlignmentMetrics struct {
 }
 
 type fineAlignmentResponse struct {
-	ModelScanFileID     int64                `json:"modelScanFileId"`
-	ModelBimFileID      int64                `json:"modelBimFileId"`
-	ModelMatrix         []float64            `json:"modelMatrix"`
-	Fallback            bool                 `json:"fallback"`
-	Regressed           bool                 `json:"regressed"`
-	AppliedFineResult   bool                 `json:"appliedFineResult"`
-	Metrics             fineAlignmentMetrics `json:"metrics"`
-	RMSERegressRatio    float64              `json:"rmseRegressRatio"`
-	FitnessRegressRatio float64              `json:"fitnessRegressRatio"`
-	ApplyWhenRegressed  bool                 `json:"applyWhenRegressed"`
-	ModelRotationQx     float64              `json:"modelRotationQx"`
-	ModelRotationQy     float64              `json:"modelRotationQy"`
-	ModelRotationQz     float64              `json:"modelRotationQz"`
-	ModelRotationQw     float64              `json:"modelRotationQw"`
-	ModelTranslationX   float64              `json:"modelTranslationX"`
-	ModelTranslationY   float64              `json:"modelTranslationY"`
-	ModelTranslationZ   float64              `json:"modelTranslationZ"`
+	ModelScanFileID      int64                `json:"modelScanFileId"`
+	ModelBimFileID       int64                `json:"modelBimFileId"`
+	ModelBIMBuildingName *string              `json:"modelBimBuildingName,omitempty"`
+	ModelMatrix          []float64            `json:"modelMatrix"`
+	Fallback             bool                 `json:"fallback"`
+	Regressed            bool                 `json:"regressed"`
+	AppliedFineResult    bool                 `json:"appliedFineResult"`
+	Metrics              fineAlignmentMetrics `json:"metrics"`
+	RMSERegressRatio     float64              `json:"rmseRegressRatio"`
+	FitnessRegressRatio  float64              `json:"fitnessRegressRatio"`
+	ApplyWhenRegressed   bool                 `json:"applyWhenRegressed"`
+	ModelRotationQx      float64              `json:"modelRotationQx"`
+	ModelRotationQy      float64              `json:"modelRotationQy"`
+	ModelRotationQz      float64              `json:"modelRotationQz"`
+	ModelRotationQw      float64              `json:"modelRotationQw"`
+	ModelTranslationX    float64              `json:"modelTranslationX"`
+	ModelTranslationY    float64              `json:"modelTranslationY"`
+	ModelTranslationZ    float64              `json:"modelTranslationZ"`
+}
+
+// fineAlignmentServiceResponse mirrors the mesh-service payload. Keeping this
+// separate from the public API response prevents the Python field names from
+// leaking into the browser contract.
+type fineAlignmentServiceResponse struct {
+	Transform  []float64 `json:"transform"`
+	Quaternion struct {
+		Qx float64 `json:"qx"`
+		Qy float64 `json:"qy"`
+		Qz float64 `json:"qz"`
+		Qw float64 `json:"qw"`
+	} `json:"quaternion"`
+	Translation struct {
+		Tx float64 `json:"tx"`
+		Ty float64 `json:"ty"`
+		Tz float64 `json:"tz"`
+	} `json:"translation"`
+	Fallback  bool                 `json:"fallback"`
+	Regressed bool                 `json:"regressed"`
+	Applied   bool                 `json:"appliedFineResult"`
+	Metrics   fineAlignmentMetrics `json:"metrics"`
 }
 
 // fineAlignment proxies an optional mesh service, matching the reference project's ICP endpoint.
@@ -1499,12 +1820,27 @@ func (a *app) fineAlignment(c *gin.Context) {
 		fail(c, 502, fmt.Sprintf("精细化配准服务返回错误(%d): %s", resp.StatusCode, toolLog(responseBody)))
 		return
 	}
-	var result fineAlignmentResponse
-	if err := json.Unmarshal(responseBody, &result); err != nil {
+	var serviceResult fineAlignmentServiceResponse
+	if err := json.Unmarshal(responseBody, &serviceResult); err != nil {
 		fail(c, 502, "解析精细化配准结果失败")
 		return
 	}
+	result := fineAlignmentResponse{
+		ModelMatrix:       serviceResult.Transform,
+		Fallback:          serviceResult.Fallback,
+		Regressed:         serviceResult.Regressed,
+		AppliedFineResult: serviceResult.Applied,
+		Metrics:           serviceResult.Metrics,
+		ModelRotationQx:   serviceResult.Quaternion.Qx,
+		ModelRotationQy:   serviceResult.Quaternion.Qy,
+		ModelRotationQz:   serviceResult.Quaternion.Qz,
+		ModelRotationQw:   serviceResult.Quaternion.Qw,
+		ModelTranslationX: serviceResult.Translation.Tx,
+		ModelTranslationY: serviceResult.Translation.Ty,
+		ModelTranslationZ: serviceResult.Translation.Tz,
+	}
 	result.ModelScanFileID, result.ModelBimFileID = scan.ID, bim.ID
+	result.ModelBIMBuildingName = stringPtr(bim.SourceName)
 	result.RMSERegressRatio, result.FitnessRegressRatio, result.ApplyWhenRegressed = req.RMSERegressRatio, req.FitnessRegressRatio, req.ApplyWhenRegressed
 	ok(c, result)
 }
@@ -1606,6 +1942,10 @@ func main() {
 	r.GET("/assets/:id", a.assetDetail)
 	r.DELETE("/assets/:id", a.deleteAsset)
 	r.GET("/assets/:id/:resource", a.resource)
+	r.GET("/mesh/algorithms", a.meshAlgorithms)
+	r.POST("/assets/:id/mesh/remesh", a.remeshAsset)
+	r.GET("/assets/:id/mesh/remesh/status", a.remeshStatus)
+	r.GET("/assets/:id/mesh/remesh/latest", a.remeshLatest)
 	r.GET("/assets/:id/tiles/*path", a.tile)
 	r.GET("/scans", a.scans)
 	r.GET("/scans/:id/calibration", a.calibration)

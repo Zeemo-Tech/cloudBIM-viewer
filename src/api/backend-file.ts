@@ -16,6 +16,16 @@ export type AssetStatus =
   | 'failed'
   | 'terminated'
 
+export type MeshRemeshStatus = 'processing' | 'succeeded'
+
+export interface MeshRemeshSummary {
+  supported: boolean
+  status?: MeshRemeshStatus
+  canManualRetry?: boolean
+  resultFileId?: number | null
+  lastError?: string | null
+}
+
 export interface PaginationParams {
   page?: number
   pageSize?: number
@@ -36,6 +46,7 @@ export interface AssetSummary {
   status: AssetStatus
   errorMessage: string | null
   createdAt: number
+  meshRemesh?: MeshRemeshSummary
 }
 
 export interface AssetDetail extends AssetSummary {

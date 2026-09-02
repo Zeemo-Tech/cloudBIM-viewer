@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { SwitchButton } from '@element-plus/icons-vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
-import { getScanCalibration } from '@/api/backend-alignment'
+import { getBimAlignment, getScanCalibration } from '@/api/backend-alignment'
 import {
   type AssetDetail,
   type AssetStatus,
@@ -63,6 +63,7 @@ const pointCloudFile = ref<File | null>(null)
 const activeUploadKind = ref<UploadKind | null>(null)
 const cancelRequested = ref(false)
 const loadingAssets = ref(false)
+const assetLibraryExpanded = ref(false)
 const alignmentDialogVisible = ref(false)
 const splitPreviewDialogVisible = ref(false)
 const loadingSplitPreviewOptions = ref(false)
@@ -162,11 +163,11 @@ function getStatusText(status?: AssetStatus) {
     case 'uploading':
       return '文件上传中'
     case 'queued':
-      return '已上传完成，等待解析'
+      return '解析中'
     case 'processing':
-      return '处理中，可刷新状态'
+      return '解析中'
     case 'ready':
-      return '文件已就绪，可预览'
+      return '已解析'
     case 'failed':
       return '处理失败，请重新上传'
     case 'terminated':
@@ -192,6 +193,10 @@ function getStatusTagType(status?: AssetStatus) {
   }
 }
 
+function getRemeshStatusText(asset: AssetSummary) {
+  return asset.meshRemesh?.status === 'succeeded' ? '网格已均匀化' : '均匀化中'
+}
+
 function buildAssetDetailFromSummary(asset: AssetSummary): AssetDetail {
   return {
     id: asset.id,
@@ -201,6 +206,7 @@ function buildAssetDetailFromSummary(asset: AssetSummary): AssetDetail {
     status: asset.status,
     errorMessage: asset.errorMessage,
     createdAt: asset.createdAt,
+    meshRemesh: asset.meshRemesh,
   }
 }
 
@@ -529,24 +535,47 @@ async function loadCalibratedSplitPreviewOptions(silent = false) {
         try {
           const calibration = await getScanCalibration(pointcloudAsset.id)
           const data = calibration?.data
-          if (!data?.hasBimAlignment || !data.bimFileId) {
-            return null
+          const calibratedBimId = Number(data?.bimFileId)
+          if (data?.hasBimAlignment && Number.isFinite(calibratedBimId) && calibratedBimId > 0) {
+            const bimAsset = readyBimMap.get(calibratedBimId)
+            if (bimAsset) {
+              return {
+                key: `${pointcloudAsset.id}:${bimAsset.id}`,
+                bimAssetId: bimAsset.id,
+                pointcloudAssetId: pointcloudAsset.id,
+                bimDisplayName: bimAsset.sourceName || `BIM-${bimAsset.id}`,
+                pointcloudDisplayName: pointcloudAsset.sourceName || `点云-${pointcloudAsset.id}`,
+                bimCreatedAt: bimAsset.createdAt,
+                pointcloudCreatedAt: pointcloudAsset.createdAt,
+              }
+            }
           }
 
-          const bimAsset = readyBimMap.get(data.bimFileId)
-          if (!bimAsset) {
-            return null
+          // Fallback for older backends whose scan summary predates the
+          // alignment row: probe the small set of ready BIM assets directly.
+          for (const bimAsset of readyBimMap.values()) {
+            try {
+              const alignment = await getBimAlignment({
+                modelScanFileId: pointcloudAsset.id,
+                modelBimFileId: bimAsset.id,
+              })
+              if (!alignment?.data) continue
+              return {
+                key: `${pointcloudAsset.id}:${bimAsset.id}`,
+                bimAssetId: bimAsset.id,
+                pointcloudAssetId: pointcloudAsset.id,
+                bimDisplayName: bimAsset.sourceName || `BIM-${bimAsset.id}`,
+                pointcloudDisplayName: pointcloudAsset.sourceName || `点云-${pointcloudAsset.id}`,
+                bimCreatedAt: bimAsset.createdAt,
+                pointcloudCreatedAt: pointcloudAsset.createdAt,
+              }
+            } catch (error: any) {
+              if (error?.response?.status !== 400 && error?.response?.status !== 404) {
+                throw error
+              }
+            }
           }
-
-          return {
-            key: `${pointcloudAsset.id}:${bimAsset.id}`,
-            bimAssetId: bimAsset.id,
-            pointcloudAssetId: pointcloudAsset.id,
-            bimDisplayName: bimAsset.sourceName || `BIM-${bimAsset.id}`,
-            pointcloudDisplayName: pointcloudAsset.sourceName || `点云-${pointcloudAsset.id}`,
-            bimCreatedAt: bimAsset.createdAt,
-            pointcloudCreatedAt: pointcloudAsset.createdAt,
-          }
+          return null
         } catch (error: any) {
           const status = error?.response?.status
           if (status === 400 || status === 404) {
@@ -923,13 +952,21 @@ async function openPreview(mode: PreviewMode) {
         <div class="library-head">
           <div>
             <h2>资产列表</h2>
+            <p class="library-summary">
+              BIM {{ bimUploadedFiles.length }} 个，点云 {{ pointcloudUploadedFiles.length }} 个
+            </p>
           </div>
-          <el-button plain :loading="loadingAssets" @click="loadAssets()">
-            刷新列表
-          </el-button>
+          <div class="library-head-actions">
+            <el-button plain :loading="loadingAssets" @click="loadAssets()">
+              刷新列表
+            </el-button>
+            <el-button text @click="assetLibraryExpanded = !assetLibraryExpanded">
+              {{ assetLibraryExpanded ? '收起' : '展开' }}
+            </el-button>
+          </div>
         </div>
 
-        <div class="library-grid">
+        <div v-if="assetLibraryExpanded" class="library-grid">
           <div class="library-panel">
             <div class="library-panel-head">
               <h3>BIM 模型</h3>
@@ -955,7 +992,7 @@ async function openPreview(mode: PreviewMode) {
                 </div>
 
                 <div class="library-item-side">
-                  <el-tag :type="getStatusTagType(asset.status)" effect="light">
+                  <el-tag v-if="asset.status !== 'ready'" :type="getStatusTagType(asset.status)" effect="light">
                     {{ getStatusText(asset.status) }}
                   </el-tag>
                   <div class="library-actions">
@@ -967,6 +1004,13 @@ async function openPreview(mode: PreviewMode) {
                     >
                       预览
                     </el-button>
+                    <div
+                      v-if="isAssetReady(asset.status)"
+                      class="mesh-remesh-list-status"
+                      :class="{ 'is-complete': asset.meshRemesh?.status === 'succeeded' }"
+                    >
+                      {{ getRemeshStatusText(asset) }}
+                    </div>
                     <el-button
                       plain
                       size="small"
@@ -1007,7 +1051,7 @@ async function openPreview(mode: PreviewMode) {
                 </div>
 
                 <div class="library-item-side">
-                  <el-tag :type="getStatusTagType(asset.status)" effect="light">
+                  <el-tag v-if="asset.status !== 'ready'" :type="getStatusTagType(asset.status)" effect="light">
                     {{ getStatusText(asset.status) }}
                   </el-tag>
                   <div class="library-actions">
@@ -1149,6 +1193,9 @@ async function openPreview(mode: PreviewMode) {
 </template>
 
 <style scoped>
+.header-copy h2{
+margin: 0;
+}
 .upload-view {
   min-height: 100vh;
   padding: 28px;
@@ -1170,8 +1217,8 @@ async function openPreview(mode: PreviewMode) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 24px;
-  padding: 28px 32px 24px;
+  /* gap: 24px; */
+  padding: 28px 32px 10px;
   border-radius: 24px;
 }
 
@@ -1466,7 +1513,20 @@ async function openPreview(mode: PreviewMode) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  /* margin-bottom: 20px; */
+}
+
+.library-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.library-summary {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 0.84rem;
 }
 
 .library-head h2 {
@@ -1561,11 +1621,39 @@ async function openPreview(mode: PreviewMode) {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+  min-width: 0;
+}
+
+.library-item-side .el-tag {
+  max-width: 260px;
+  white-space: normal;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .library-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mesh-remesh-list-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid #f3d19e;
+  border-radius: 4px;
+  color: #a15c00;
+  background: #fdf6ec;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.mesh-remesh-list-status.is-complete {
+  border-color: #b3e19d;
+  color: #529b2e;
+  background: #f0f9eb;
 }
 
 @media (max-width: 960px) {
