@@ -131,6 +131,7 @@ function handleLogout() {
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
     :bim-display-name="routeState.displayName"
+    :pointcloud-display-name="routeState.pointcloudDisplayName"
   />
 
   <BimPointcloudAlignView

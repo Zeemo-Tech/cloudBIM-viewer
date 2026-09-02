@@ -52,6 +52,47 @@ export interface BimAlignmentResult {
   modelInlierCount: number
 }
 
+export interface FineAlignmentParams {
+  modelScanFileId: number
+  modelBimFileId: number
+  maxCorrespondenceDistance?: number
+  rmseRegressRatio?: number
+  fitnessRegressRatio?: number
+  applyWhenRegressed?: boolean
+}
+
+export interface FineAlignmentMetrics {
+  initFitness: number
+  initRmse: number
+  fineFitness: number
+  fineRmse: number
+  deltaTranslationM: number
+  deltaRotationDeg: number
+  elapsedS: number
+  sourceTotalPoints: number
+  targetPoints: number
+}
+
+export interface FineAlignmentResult {
+  modelScanFileId: number
+  modelBimFileId: number
+  modelMatrix: number[]
+  regressed: boolean
+  appliedFineResult: boolean
+  fallback: boolean
+  rmseRegressRatio: number
+  fitnessRegressRatio: number
+  applyWhenRegressed: boolean
+  metrics: FineAlignmentMetrics
+  modelRotationQx: number
+  modelRotationQy: number
+  modelRotationQz: number
+  modelRotationQw: number
+  modelTranslationX: number
+  modelTranslationY: number
+  modelTranslationZ: number
+}
+
 interface PaginatedData<T> {
   total: number
   page: number
@@ -99,5 +140,12 @@ export function getBimAlignment(params: {
   return backendRequest<BackendResult<BimAlignmentResult>>('/alignments/bim', {
     method: 'GET',
     params,
+  })
+}
+
+export function computeFineAlignment(params: FineAlignmentParams) {
+  return backendRequest<BackendResult<FineAlignmentResult>>('/alignments/bim/fine', {
+    method: 'POST',
+    data: params,
   })
 }

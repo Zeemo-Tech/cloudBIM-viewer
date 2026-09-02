@@ -1,0 +1,57 @@
+services:
+  postgres:
+    platform: linux/amd64
+    image: hub.macb.cc/library/postgres:18-alpine
+    environment:
+      POSTGRES_DB: cloudbim
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: AuS4tpYfwNSu
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      # PostgreSQL 18 stores data under a major-version directory below this mount.
+      - cloudbim-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cloudbim"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ADDR: :8090
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: AuS4tpYfwNSu
+      DB_NAME: cloudbim
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET:-cloudbim-dev-secret}
+      REGISTER_CODE: ${REGISTER_CODE:-laochen}
+      CLOUDBIM_SEED_DEMO: ${CLOUDBIM_SEED_DEMO:-true}
+      IFC_BUNDLE_BIN: /opt/tools/ifc_bundle/ifc_bundle
+      GOCESIUMTILER_BIN: /opt/tools/gocesiumtiler/gocesiumtiler-lin-x64
+      MESH_SERVICE_URL: ${MESH_SERVICE_URL:-}
+      PATH: /opt/tools/ifc_bundle:/opt/tools/gocesiumtiler:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      LD_LIBRARY_PATH: /opt/tools/ifc_bundle
+      PROJ_LIB: /opt/tools/gocesiumtiler/share
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:5173}
+    ports:
+      - "8090:8090"
+    volumes:
+      - cloudbim-data:/app/data
+      - ${ZHONGJIAN_BACK_DIR:-../../zhongjian-back}/tools/ifc_bundle:/opt/tools/ifc_bundle:ro
+      - ${ZHONGJIAN_BACK_DIR:-../../zhongjian-back}/tools/gocesiumtiler:/opt/tools/gocesiumtiler:ro
+
+volumes:
+  cloudbim-db:
+  cloudbim-data:

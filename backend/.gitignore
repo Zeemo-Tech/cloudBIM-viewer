@@ -1,0 +1,5 @@
+# Runtime data is intentionally kept outside version control.
+data/*
+!data/.gitkeep
+.env
+bin/

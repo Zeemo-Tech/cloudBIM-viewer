@@ -12,6 +12,11 @@ type CameraPose = {
   target: THREE.Vector3
 }
 
+type CameraRotation = {
+  lon: number
+  lat: number
+}
+
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 type ClipAxis = 'x' | 'y' | 'z'
 type ClipBoxOffsets = {
@@ -32,10 +37,13 @@ const props = withDefaults(
     assetId: number | null
     displayName?: string
     minimal?: boolean
+    calibration?: { modelMatrix: number[] } | null
+    fusionMode?: boolean
   }>(),
   {
     displayName: undefined,
     minimal: false,
+    fusionMode: false,
   },
 )
 
@@ -56,6 +64,7 @@ let camera: THREE.PerspectiveCamera | null = null
 let renderer: THREE.WebGLRenderer | null = null
 let controls: OrbitControls | null = null
 let modelRoot: THREE.Object3D | null = null
+let modelSourceMatrix = new THREE.Matrix4()
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
 let isRendering = false
@@ -153,12 +162,15 @@ function fitCameraToObject(
   nextCamera: THREE.PerspectiveCamera,
   nextControls: OrbitControls,
   object: THREE.Object3D,
+  recenter = true,
 ) {
   const box = new THREE.Box3().setFromObject(object)
   const size = box.getSize(new THREE.Vector3())
   const center = box.getCenter(new THREE.Vector3())
 
-  object.position.sub(center)
+  if (recenter) {
+    object.position.sub(center)
+  }
 
   const maxDim = Math.max(size.x, size.y, size.z)
   if (maxDim <= 0) {
@@ -167,13 +179,91 @@ function fitCameraToObject(
 
   const fov = THREE.MathUtils.degToRad(nextCamera.fov)
   const distance = maxDim / 2 / Math.tan(fov / 2)
-  nextControls.target.set(0, 0, 0)
-  nextCamera.position.set(0, maxDim * 0.18, distance * 2.1)
+  const target = recenter ? new THREE.Vector3() : center
+  nextControls.target.copy(target)
+  nextCamera.position.set(target.x, target.y + maxDim * 0.15, target.z + distance * 2.2)
   nextCamera.near = Math.max(0.01, distance / 100)
   nextCamera.far = Math.max(5000, distance * 100)
   nextCamera.updateProjectionMatrix()
   nextCamera.updateMatrixWorld()
   nextControls.update()
+}
+
+function setTopViewToObject(
+  nextCamera: THREE.PerspectiveCamera,
+  nextControls: OrbitControls,
+  object: THREE.Object3D,
+) {
+  const box = new THREE.Box3().setFromObject(object)
+  if (box.isEmpty()) return
+
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const maxDim = Math.max(size.x, size.y, size.z)
+  if (!Number.isFinite(maxDim) || maxDim <= 0) return
+
+  const height = maxDim * 1.2
+  nextControls.target.copy(center)
+  // Match the point-cloud panel's top view so both panes share one screen orientation.
+  nextCamera.position.set(center.x, center.y + height, center.z + 0.1)
+  nextCamera.lookAt(center)
+  nextCamera.near = 0.01
+  nextCamera.far = Math.max(5000, height * 200)
+  nextCamera.updateProjectionMatrix()
+  nextCamera.updateMatrixWorld()
+  nextControls.update()
+}
+
+function getCalibrationWorldMatrix() {
+  const values = props.calibration?.modelMatrix
+  if (!Array.isArray(values) || values.length !== 16) return null
+  const modelMatrix = new THREE.Matrix4().fromArray(values)
+  if (!modelMatrix.elements.every(Number.isFinite)) return null
+  return new THREE.Matrix4()
+    .makeRotationX(-Math.PI / 2)
+    .multiply(modelMatrix.invert())
+}
+
+function restoreSourceModelMatrix() {
+  if (!modelRoot) return
+  modelRoot.matrixAutoUpdate = true
+  modelRoot.matrix.copy(modelSourceMatrix)
+  modelSourceMatrix.decompose(modelRoot.position, modelRoot.quaternion, modelRoot.scale)
+  modelRoot.updateMatrixWorld(true)
+}
+
+function applyCalibrationToModel(refitCamera = false) {
+  if (!modelRoot) return false
+  const desired = getCalibrationWorldMatrix()
+  if (!desired) {
+    restoreSourceModelMatrix()
+    if (refitCamera && camera && controls) {
+      if (props.fusionMode) {
+        setTopViewToObject(camera, controls, modelRoot)
+      } else {
+        fitCameraToObject(camera, controls, modelRoot, true)
+      }
+    }
+    return false
+  }
+
+  modelRoot.matrixAutoUpdate = false
+  // Match the reference fusion viewer: the saved transform is the complete
+  // BIM world transform. Generic previews still preserve a GLB source matrix.
+  modelRoot.matrix.copy(
+    props.fusionMode ? desired : desired.clone().multiply(modelSourceMatrix),
+  )
+  modelRoot.matrixWorldNeedsUpdate = true
+  modelRoot.updateMatrixWorld(true)
+  if (refitCamera && camera && controls) {
+    if (props.fusionMode) {
+      setTopViewToObject(camera, controls, modelRoot)
+    } else {
+      fitCameraToObject(camera, controls, modelRoot, false)
+    }
+  }
+  requestRender()
+  return true
 }
 
 function syncSceneBackground() {
@@ -873,7 +963,7 @@ async function loadByAssetId(assetId: number, displayName: string) {
   const objectUrl = URL.createObjectURL(blob)
   const loader = new GLTFLoader()
   const dracoLoader = new DRACOLoader()
-  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/')
+  dracoLoader.setDecoderPath('/draco/')
   loader.setDRACOLoader(dracoLoader)
 
   loader.load(
@@ -894,7 +984,13 @@ async function loadByAssetId(assetId: number, displayName: string) {
       modelRoot = gltf.scene
       scene.add(modelRoot)
       modelRoot.updateMatrixWorld(true)
-      fitCameraToObject(camera, controls, modelRoot)
+      modelSourceMatrix.copy(modelRoot.matrix)
+      const calibrationApplied = applyCalibrationToModel(false)
+      if (props.fusionMode) {
+        setTopViewToObject(camera, controls, modelRoot)
+      } else {
+        fitCameraToObject(camera, controls, modelRoot, !calibrationApplied)
+      }
       modelRoot.updateMatrixWorld(true)
       resetClipBoxToContent()
       if (sectionEnabled) {
@@ -936,6 +1032,75 @@ function getCameraPose(): CameraPose | null {
   }
 }
 
+function clampRotationLatitude(value: number) {
+  return Math.max(-85, Math.min(85, value))
+}
+
+function rotationToDirection(rotation: CameraRotation) {
+  const lon = THREE.MathUtils.degToRad(rotation.lon)
+  const lat = THREE.MathUtils.degToRad(clampRotationLatitude(rotation.lat))
+  const cosLat = Math.cos(lat)
+  return new THREE.Vector3(
+    cosLat * Math.cos(lon),
+    Math.sin(lat),
+    cosLat * Math.sin(lon),
+  ).normalize()
+}
+
+function directionToRotation(direction: THREE.Vector3): CameraRotation | null {
+  if (direction.lengthSq() <= 1e-12) return null
+  const normalized = direction.clone().normalize()
+  const horizontalLength = Math.hypot(normalized.x, normalized.z)
+  return {
+    lon: THREE.MathUtils.radToDeg(Math.atan2(normalized.z, normalized.x)),
+    lat: THREE.MathUtils.radToDeg(Math.atan2(normalized.y, horizontalLength)),
+  }
+}
+
+function getCameraOrientation(): CameraRotation | null {
+  if (!camera || !controls) return null
+  return directionToRotation(
+    new THREE.Vector3().subVectors(controls.target, camera.position),
+  )
+}
+
+function getCameraDistance(): number | null {
+  if (!camera || !controls) return null
+  const distance = camera.position.distanceTo(controls.target)
+  return Number.isFinite(distance) && distance > 0 ? distance : null
+}
+
+function syncFromRotation(rotation: CameraRotation | null) {
+  if (!camera || !controls || !rotation) return
+  if (!Number.isFinite(rotation.lon) || !Number.isFinite(rotation.lat)) return
+
+  const lookDistance = Math.max(camera.position.distanceTo(controls.target), 0.5)
+  const target = camera.position
+    .clone()
+    .addScaledVector(rotationToDirection(rotation), lookDistance)
+  camera.up.set(0, 1, 0)
+  controls.target.copy(target)
+  camera.lookAt(target)
+  camera.updateMatrixWorld()
+  controls.update()
+  requestRender()
+}
+
+function syncFromCameraDistance(distance: number | null) {
+  if (!camera || !controls || !distance) return
+  if (!Number.isFinite(distance) || distance <= 0) return
+
+  const offset = camera.position.clone().sub(controls.target)
+  if (offset.lengthSq() <= 1e-12) return
+  camera.position.copy(
+    controls.target.clone().add(offset.normalize().multiplyScalar(Math.max(distance, 0.01))),
+  )
+  camera.lookAt(controls.target)
+  camera.updateMatrixWorld()
+  controls.update()
+  requestRender()
+}
+
 function setCameraPose(pose: CameraPose | null) {
   if (!camera || !controls || !pose) {
     return
@@ -951,13 +1116,23 @@ function setCameraPose(pose: CameraPose | null) {
   requestRender()
 }
 
+// Keep the external-pose name shared with the point-cloud preview panel so
+// split-screen synchronization can apply a complete camera pose to either view.
+function syncFromExternalPose(pose: CameraPose | null) {
+  setCameraPose(pose)
+}
+
 function resetView() {
   if (!camera || !controls) {
     return
   }
 
   if (modelRoot) {
-    fitCameraToObject(camera, controls, modelRoot)
+    if (props.fusionMode) {
+      setTopViewToObject(camera, controls, modelRoot)
+    } else {
+      fitCameraToObject(camera, controls, modelRoot, true)
+    }
   } else {
     controls.target.set(0, 0, 0)
     camera.position.set(3, 2, 5)
@@ -1084,7 +1259,12 @@ function cleanup() {
 defineExpose({
   reload,
   getCameraPose,
+  getCameraOrientation,
+  getCameraDistance,
+  syncFromRotation,
+  syncFromCameraDistance,
   setCameraPose,
+  syncFromExternalPose,
   resetView,
   setBackgroundTheme,
   setShowAxes,
@@ -1102,6 +1282,15 @@ watch(
 
     reload()
   },
+)
+
+watch(
+  () => props.calibration?.modelMatrix,
+  () => {
+    if (!modelRoot || !camera || !controls) return
+    applyCalibrationToModel(true)
+  },
+  { deep: true },
 )
 
 onMounted(() => {

@@ -26,8 +26,10 @@ import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import {
   createBimAlignment,
+  computeFineAlignment,
   getBimAlignment,
   getScanCalibration,
+  type FineAlignmentResult,
   type BimAlignmentResult,
 } from '@/api/backend-alignment'
 import {
@@ -71,6 +73,47 @@ const props = defineProps<{
   bimDisplayName?: string
   pointcloudDisplayName?: string
 }>()
+
+type RegistrationStage = 'coarse' | 'fine'
+const registrationStage = ref<RegistrationStage>('coarse')
+const fineAlignLoading = ref(false)
+const fineAlignResult = ref<FineAlignmentResult | null>(null)
+const fineApplyWhenRegressed = ref(false)
+const fineRmseRegressRatio = ref(1.05)
+const fineFitnessRegressRatio = ref(0.95)
+const hasSavedAlignmentMatrix = ref(false)
+const coarseAlignmentDirty = ref(false)
+const latestAlignmentResult = ref<BimAlignmentResult | null>(null)
+const loadingAlignmentMatrix = ref(false)
+const showAlignmentMatrixDialog = ref(false)
+const alignmentMatrixRows = computed(() => {
+  const matrix = latestAlignmentResult.value?.modelMatrix
+  if (!Array.isArray(matrix) || matrix.length !== 16) {
+    return [] as string[][]
+  }
+
+  // three.js Matrix4 arrays are column-major; display them as conventional rows.
+  return [0, 1, 2, 3].map((row) =>
+    [matrix[row], matrix[row + 4], matrix[row + 8], matrix[row + 12]].map((value) =>
+      formatMatrixCell(Number(value)),
+    ),
+  )
+})
+const alignmentRtRows = computed(() =>
+  alignmentMatrixRows.value.slice(0, 3).map((row) => ({
+    rotation: row.slice(0, 3),
+    translation: row[3],
+  })),
+)
+const alignmentMatrixRawText = computed(() =>
+  JSON.stringify(latestAlignmentResult.value?.modelMatrix ?? [], null, 2),
+)
+const canRunFineAlignment = computed(() =>
+  registrationStage.value === 'fine' && !!props.bimAssetId && !!props.pointcloudAssetId &&
+  hasSavedAlignmentMatrix.value && !coarseAlignmentDirty.value && !fineAlignLoading.value,
+)
+const canSaveCalibration = computed(() => !!bimLoaded.value && !!pointcloudLoaded.value &&
+  (registrationStage.value === 'coarse' || !!fineAlignResult.value))
 
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
@@ -1338,6 +1381,7 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
       }
     })
     transformControls.addEventListener('change', () => {
+      if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
       syncTransformFixFromSelected()
       syncBoundsHelpers()
       requestRender()
@@ -2613,6 +2657,7 @@ function applyPositionFixRealtime() {
     ),
   )
   target.updateMatrixWorld(true)
+  if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
   transformHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   requestRender()
@@ -2630,6 +2675,7 @@ function applyOrientationFixRealtime() {
   )
   target.quaternion.copy(delta).multiply(base)
   target.updateMatrixWorld(true)
+  if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
   transformHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   requestRender()
@@ -3186,7 +3232,10 @@ async function fetchAndLogSavedAlignmentIfExists() {
       return
     }
 
+    latestAlignmentResult.value = response.data
     logSavedAlignmentMatrix(response.data)
+    hasSavedAlignmentMatrix.value = true
+    coarseAlignmentDirty.value = false
     tryRestoreSavedAlignment(response.data)
     logBimRelativeTransform()
     loggedSavedAlignmentKey = logKey
@@ -3264,7 +3313,10 @@ async function handleSaveAlignment() {
     logCalibrationDiagnostics()
     console.info('[BimPointcloudAlign] save alignment payload', payload)
     logBimRelativeTransform()
-    await createBimAlignment(payload)
+    const response = await createBimAlignment(payload)
+    latestAlignmentResult.value = response.data
+    hasSavedAlignmentMatrix.value = true
+    coarseAlignmentDirty.value = false
     ElMessage.success('校准结果已保存')
     console.info('[BimPointcloudAlign] save alignment success')
     return true
@@ -3283,11 +3335,112 @@ async function handleSaveAndContinue() {
   ElMessage.success('校准已保存，当前保留页面用于排查')
 }
 
-function handleCalibrationComplete() {
-  const snapshot = collectCalibrationSnapshot({ warnOnMissing: true })
-  if (!snapshot) return
-  logBimRelativeTransform()
-  ElMessage.success('已生成 3 组校准点对')
+function formatMatrixCell(value: number) {
+  if (!Number.isFinite(value)) return '0.000000'
+  const absoluteValue = Math.abs(value)
+  if (absoluteValue >= 1000 || (absoluteValue > 0 && absoluteValue < 0.0001)) {
+    return value.toExponential(6)
+  }
+  return value.toFixed(6)
+}
+
+async function handleShowAlignmentMatrix() {
+  if (!props.bimAssetId || !props.pointcloudAssetId) {
+    ElMessage.warning('缺少 BIM 或点云文件 ID，无法获取校准矩阵')
+    return
+  }
+  if (loadingAlignmentMatrix.value) return
+
+  loadingAlignmentMatrix.value = true
+  try {
+    let alignment = latestAlignmentResult.value
+    if (!alignment) {
+      const response = await getBimAlignment({
+        modelScanFileId: props.pointcloudAssetId,
+        modelBimFileId: props.bimAssetId,
+      })
+      alignment = response.data
+    }
+
+    if (!alignment) {
+      ElMessage.warning('未获取到校准矩阵')
+      return
+    }
+
+    latestAlignmentResult.value = alignment
+    showAlignmentMatrixDialog.value = true
+  } catch (error: any) {
+    console.error('[BimPointcloudAlign] 获取校准矩阵失败', error)
+    ElMessage.error(error?.message || '获取校准矩阵失败')
+  } finally {
+    loadingAlignmentMatrix.value = false
+  }
+}
+
+async function handleCalibrationComplete() {
+  if (fineAlignLoading.value) return
+  const saved = await handleSaveAlignment()
+  if (saved) {
+    hasSavedAlignmentMatrix.value = true
+    coarseAlignmentDirty.value = false
+    ElMessage.success('校准矩阵已保存')
+  }
+}
+
+function activateCoarseRegistration() {
+  registrationStage.value = 'coarse'
+  fineAlignResult.value = null
+}
+
+function activateFineRegistration() {
+  registrationStage.value = 'fine'
+  fineAlignResult.value = null
+  if (!hasSavedAlignmentMatrix.value || coarseAlignmentDirty.value) {
+    ElMessage.warning('请先保存当前粗配准矩阵，再进行精细化配准')
+  }
+}
+
+async function runFineAlignment() {
+  if (!canRunFineAlignment.value || !props.bimAssetId || !props.pointcloudAssetId) return
+  fineAlignLoading.value = true
+  try {
+    const response = await computeFineAlignment({
+      modelScanFileId: props.pointcloudAssetId,
+      modelBimFileId: props.bimAssetId,
+      rmseRegressRatio: fineRmseRegressRatio.value,
+      fitnessRegressRatio: fineFitnessRegressRatio.value,
+      applyWhenRegressed: fineApplyWhenRegressed.value,
+    })
+    fineAlignResult.value = response.data
+    const result = response.data
+    const current = latestAlignmentResult.value
+    const preview: BimAlignmentResult = {
+      modelId: current?.modelId ?? 0,
+      modelScanFileId: result.modelScanFileId,
+      modelBimFileId: result.modelBimFileId,
+      modelRotationQx: result.modelRotationQx,
+      modelRotationQy: result.modelRotationQy,
+      modelRotationQz: result.modelRotationQz,
+      modelRotationQw: result.modelRotationQw,
+      modelTranslationX: result.modelTranslationX,
+      modelTranslationY: result.modelTranslationY,
+      modelTranslationZ: result.modelTranslationZ,
+      modelMatrix: result.modelMatrix,
+      modelRmse: result.metrics?.fineRmse ?? 0,
+      modelMaxError: current?.modelMaxError ?? 0,
+      modelPairCount: current?.modelPairCount ?? 0,
+      modelInlierCount: current?.modelInlierCount ?? 0,
+    }
+    latestAlignmentResult.value = preview
+    restoredSavedAlignmentKey = ''
+    tryRestoreSavedAlignment(preview)
+    const metrics = result.metrics
+    ElMessage.success(`精细化配准完成：RMSE ${Number(metrics?.fineRmse ?? 0).toFixed(4)} m`)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '精细化配准失败')
+  } finally {
+    fineAlignLoading.value = false
+  }
 }
 
 async function handleLoadBimFromApi(silent = false) {
@@ -3335,7 +3488,7 @@ async function handleLoadBimFromApi(silent = false) {
     const objectUrl = URL.createObjectURL(blob)
     const loader = new GLTFLoader()
     const dracoLoader = new DRACOLoader()
-    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/')
+    dracoLoader.setDecoderPath('/draco/')
     loader.setDRACOLoader(dracoLoader)
 
     await new Promise<void>((resolve, reject) => {
@@ -3468,7 +3621,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
     } as any)
 
     const dracoLoader = new DRACOLoader(nextTileset.manager)
-    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/')
+    dracoLoader.setDecoderPath('/draco/')
     dracoLoader.preload()
     nextTileset.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }))
     nextTileset.setCamera(activeCamera)
@@ -3656,8 +3809,9 @@ onBeforeUnmount(() => {
 
       <div class="topbar-right">
         <el-button :icon="ArrowLeft" @click="closePage">返回</el-button>
+        <el-button :loading="loadingAlignmentMatrix" :disabled="!bimAssetId || !pointcloudAssetId" @click="handleShowAlignmentMatrix">校准矩阵</el-button>
         <el-button type="success" @click="handleSaveAndContinue">保存并继续</el-button>
-        <el-button type="primary" :disabled="!hasModel || !hasTileset" @click="handleCalibrationComplete">
+        <el-button type="primary" :disabled="!canSaveCalibration" @click="handleCalibrationComplete">
           校准完成
         </el-button>
         <el-button @click="showPanel = !showPanel">
@@ -3833,6 +3987,21 @@ onBeforeUnmount(() => {
       <div ref="viewportEl" class="viewport"></div>
 
       <aside v-if="showPanel" class="right-panel">
+        <div class="panel-section">
+          <div class="section-title">配准</div>
+          <div class="edit-target-row">
+            <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'coarse' }" @click="activateCoarseRegistration">粗配准</button>
+            <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'fine' }" :disabled="!hasSavedAlignmentMatrix" @click="activateFineRegistration">精细化配准</button>
+          </div>
+          <template v-if="registrationStage === 'fine'">
+            <div class="control-row"><span class="label">RMSE 阈值</span><el-input-number v-model="fineRmseRegressRatio" :min="1" :max="2" :step="0.01" :precision="2" size="small" /></div>
+            <div class="control-row"><span class="label">Fitness 阈值</span><el-input-number v-model="fineFitnessRegressRatio" :min="0.5" :max="1" :step="0.01" :precision="2" size="small" /></div>
+            <div class="control-row"><el-switch v-model="fineApplyWhenRegressed" /><span class="label">负优化时仍应用精调</span></div>
+            <el-button type="primary" style="width: 100%" :loading="fineAlignLoading" :disabled="!canRunFineAlignment" @click="runFineAlignment">开始精细化配准</el-button>
+            <div v-if="fineAlignResult" class="picked-element-empty">RMSE: {{ Number(fineAlignResult.metrics?.fineRmse ?? 0).toFixed(4) }} m，Fitness: {{ Number(fineAlignResult.metrics?.fineFitness ?? 0).toFixed(4) }}</div>
+          </template>
+          <div v-else class="picked-element-empty">调整模型位置和旋转后，点击“校准完成”保存粗配准矩阵。</div>
+        </div>
         <div class="panel-section">
           <div class="section-title">编辑</div>
           <div class="control-row">
@@ -4152,6 +4321,40 @@ onBeforeUnmount(() => {
       <el-tag v-if="!webgpuSupported" type="warning" size="small">WebGPU 不支持</el-tag>
       <span class="status-text">{{ statusText }}</span>
     </footer>
+
+    <el-dialog
+      v-model="showAlignmentMatrixDialog"
+      title="BIM 与点云校准矩阵"
+      width="min(720px, 92vw)"
+      append-to-body
+    >
+      <div class="matrix-dialog">
+        <div class="matrix-dialog__meta">
+          <span>点云文件 ID: {{ pointcloudAssetId }}</span>
+          <span>BIM 文件 ID: {{ bimAssetId }}</span>
+        </div>
+        <div v-if="alignmentMatrixRows.length === 4" class="matrix-dialog__matrix">
+          <div class="matrix-dialog__label">T = [ R | t ]</div>
+          <div class="matrix-dialog__lines">
+            <p
+              v-for="(row, rowIndex) in alignmentRtRows"
+              :key="`matrix-row-${rowIndex}`"
+              class="matrix-dialog__line"
+            >
+              [ {{ row.rotation.join('    ') }} | {{ row.translation }} ]
+            </p>
+            <p class="matrix-dialog__line matrix-dialog__line--bottom">
+              [ {{ alignmentMatrixRows[3].join('    ') }} ]
+            </p>
+          </div>
+        </div>
+        <el-empty v-else description="暂无有效矩阵数据" :image-size="64" />
+        <details class="matrix-dialog__raw">
+          <summary>查看原始矩阵数据（列主序）</summary>
+          <pre class="matrix-dialog__content">{{ alignmentMatrixRawText }}</pre>
+        </details>
+      </div>
+    </el-dialog>
   </section>
 </template>
 

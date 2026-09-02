@@ -26,6 +26,11 @@ type CameraPose = {
   target: THREE.Vector3
 }
 
+type CameraRotation = {
+  lon: number
+  lat: number
+}
+
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 type ClipAxis = 'x' | 'y' | 'z'
 type ClipBoxOffsets = {
@@ -1068,6 +1073,75 @@ function getCameraPose(): CameraPose | null {
   }
 }
 
+function clampRotationLatitude(value: number) {
+  return Math.max(-85, Math.min(85, value))
+}
+
+function rotationToDirection(rotation: CameraRotation) {
+  const lon = THREE.MathUtils.degToRad(rotation.lon)
+  const lat = THREE.MathUtils.degToRad(clampRotationLatitude(rotation.lat))
+  const cosLat = Math.cos(lat)
+  return new THREE.Vector3(
+    cosLat * Math.cos(lon),
+    Math.sin(lat),
+    cosLat * Math.sin(lon),
+  ).normalize()
+}
+
+function directionToRotation(direction: THREE.Vector3): CameraRotation | null {
+  if (direction.lengthSq() <= 1e-12) return null
+  const normalized = direction.clone().normalize()
+  const horizontalLength = Math.hypot(normalized.x, normalized.z)
+  return {
+    lon: THREE.MathUtils.radToDeg(Math.atan2(normalized.z, normalized.x)),
+    lat: THREE.MathUtils.radToDeg(Math.atan2(normalized.y, horizontalLength)),
+  }
+}
+
+function getCameraOrientation(): CameraRotation | null {
+  if (!camera || !controls) return null
+  return directionToRotation(
+    new THREE.Vector3().subVectors(controls.target, camera.position),
+  )
+}
+
+function getCameraDistance(): number | null {
+  if (!camera || !controls) return null
+  const distance = camera.position.distanceTo(controls.target)
+  return Number.isFinite(distance) && distance > 0 ? distance : null
+}
+
+function syncFromRotation(rotation: CameraRotation | null) {
+  if (!camera || !controls || !rotation) return
+  if (!Number.isFinite(rotation.lon) || !Number.isFinite(rotation.lat)) return
+
+  const lookDistance = Math.max(camera.position.distanceTo(controls.target), 0.5)
+  const target = camera.position
+    .clone()
+    .addScaledVector(rotationToDirection(rotation), lookDistance)
+  camera.up.set(0, 1, 0)
+  controls.target.copy(target)
+  camera.lookAt(target)
+  camera.updateMatrixWorld()
+  controls.update()
+  requestRender()
+}
+
+function syncFromCameraDistance(distance: number | null) {
+  if (!camera || !controls || !distance) return
+  if (!Number.isFinite(distance) || distance <= 0) return
+
+  const offset = camera.position.clone().sub(controls.target)
+  if (offset.lengthSq() <= 1e-12) return
+  camera.position.copy(
+    controls.target.clone().add(offset.normalize().multiplyScalar(Math.max(distance, 0.01))),
+  )
+  camera.lookAt(controls.target)
+  camera.updateMatrixWorld()
+  controls.update()
+  requestRender()
+}
+
 function emitCameraPose() {
   emit('camera-change', getCameraPose())
 }
@@ -1645,7 +1719,7 @@ async function loadTileset(assetId: number) {
   } as any)
 
   const dracoLoader = new DRACOLoader(nextTileset.manager)
-  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/')
+  dracoLoader.setDecoderPath('/draco/')
   dracoLoader.preload()
   nextTileset.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }))
 
@@ -1877,6 +1951,10 @@ defineExpose({
   reload,
   resetPointcloudView,
   getCameraPose,
+  getCameraOrientation,
+  getCameraDistance,
+  syncFromRotation,
+  syncFromCameraDistance,
   syncFromExternalPose,
   setBackgroundTheme,
   setShowAxes,

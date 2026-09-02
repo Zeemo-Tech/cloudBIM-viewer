@@ -469,27 +469,83 @@
 .matrix-dialog {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .matrix-dialog__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 20px;
+  gap: 8px 12px;
   color: #7fb3ff;
+  font-size: 12px;
+}
+
+.matrix-dialog__meta span {
+  padding: 4px 8px;
+  border: 1px solid rgba(127, 179, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(46, 108, 202, 0.12);
+}
+
+.matrix-dialog__matrix {
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid rgba(127, 179, 255, 0.2);
+  border-radius: 8px;
+  background: #0b1020;
+}
+
+.matrix-dialog__label {
+  margin-bottom: 8px;
+  color: #8dbdff;
+  font-size: 12px;
+}
+
+.matrix-dialog__lines {
+  display: flex;
+  min-width: max-content;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.matrix-dialog__line {
+  margin: 0;
+  color: #dbe8ff;
+  font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
+  line-height: 1.6;
+}
+
+.matrix-dialog__line--bottom {
+  padding-top: 6px;
+  border-top: 1px dashed rgba(127, 179, 255, 0.25);
+}
+
+.matrix-dialog__raw {
+  overflow: hidden;
+  border: 1px solid rgba(127, 179, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(11, 16, 32, 0.06);
+}
+
+.matrix-dialog__raw summary {
+  padding: 10px 12px;
+  color: #4779bd;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .matrix-dialog__content {
   margin: 0;
-  max-height: 420px;
+  max-height: 260px;
   overflow: auto;
-  padding: 16px;
-  border-radius: 8px;
+  padding: 12px;
+  border-top: 1px solid rgba(127, 179, 255, 0.2);
   background: #0b1020;
   color: #dbe8ff;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }

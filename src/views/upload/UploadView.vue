@@ -68,7 +68,7 @@ const splitPreviewDialogVisible = ref(false)
 const loadingSplitPreviewOptions = ref(false)
 const selectedAlignmentBimId = ref<number | null>(null)
 const selectedAlignmentPointcloudId = ref<number | null>(null)
-const selectedSplitPreviewKeys = ref<string[]>([])
+const selectedSplitPreviewKey = ref('')
 const calibratedSplitPreviewOptions = ref<CalibratedSplitPreviewOption[]>([])
 const refreshingState = reactive<Record<UploadKind, boolean>>({
   bim: false,
@@ -124,7 +124,7 @@ const alignmentPointcloudOptions = computed(() =>
   })),
 )
 const selectedSplitPreviewOption = computed(() =>
-  calibratedSplitPreviewOptions.value.find((item) => item.key === selectedSplitPreviewKeys.value[0]) ?? null,
+  calibratedSplitPreviewOptions.value.find((item) => item.key === selectedSplitPreviewKey.value) ?? null,
 )
 const userName = computed(() => props.session.username)
 
@@ -237,15 +237,6 @@ function ensurePreviewSelection(kind: UploadKind) {
   return target
 }
 
-function getLooseAssetSelection(kind: UploadKind): AssetDetail | null {
-  if (uploadTasks[kind].result) {
-    return uploadTasks[kind].result
-  }
-
-  const firstAsset = assetCollections[kind][0]
-  return firstAsset ? buildAssetDetailFromSummary(firstAsset) : null
-}
-
 function getDefaultAlignmentAssetId(kind: UploadKind) {
   const selectedAssetId = uploadTasks[kind].result?.id ?? null
   const selectedAsset = getAssetById(kind, selectedAssetId)
@@ -269,9 +260,8 @@ function syncTaskResultWithCollection(kind: UploadKind) {
     return
   }
 
-  const fallbackAsset = assetCollections[kind][0]
-    ? buildAssetDetailFromSummary(assetCollections[kind][0])
-    : null
+	const latestReady = getLatestPreviewableAsset(kind)
+	const fallbackAsset = latestReady ? buildAssetDetailFromSummary(latestReady) : null
   if (fallbackAsset) {
     uploadTasks[kind].result = fallbackAsset
     uploadTasks[kind].status = isPreviewReady(fallbackAsset) ? 'success' : 'idle'
@@ -585,12 +575,12 @@ async function loadCalibratedSplitPreviewOptions(silent = false) {
 async function openSplitPreviewSelector() {
   splitPreviewDialogVisible.value = true
   loadingSplitPreviewOptions.value = true
-  selectedSplitPreviewKeys.value = []
+  selectedSplitPreviewKey.value = ''
 
   try {
     await loadAssets(true)
     const options = await loadCalibratedSplitPreviewOptions(false)
-    selectedSplitPreviewKeys.value = options[0]?.key ? [options[0].key] : []
+    selectedSplitPreviewKey.value = options[0]?.key ?? ''
   } finally {
     loadingSplitPreviewOptions.value = false
   }
@@ -707,20 +697,7 @@ function buildSplitPreviewRoute(
       bimAssetId: String(bimAsset.id),
       pointcloudAssetId: String(pointcloudAsset.id),
       bimDisplayName: bimAsset.sourceName || 'BIM 模型',
-    },
-  }
-}
-
-function buildLooseSplitPreviewRoute(
-  bimAsset: AssetDetail | null,
-  pointcloudAsset: AssetDetail | null,
-): RouteLocationRaw {
-  return {
-    path: '/preview/split',
-    query: {
-      bimAssetId: bimAsset?.id ? String(bimAsset.id) : undefined,
-      pointcloudAssetId: pointcloudAsset?.id ? String(pointcloudAsset.id) : undefined,
-      bimDisplayName: bimAsset?.sourceName || undefined,
+      pointcloudDisplayName: pointcloudAsset.sourceName || '点云场景',
     },
   }
 }
@@ -794,8 +771,8 @@ async function openPreview(mode: PreviewMode) {
   }
 
   if (mode === 'split') {
-    const selectedPointcloud = ensurePreviewSelection('pointcloud') || getLooseAssetSelection('pointcloud')
-    const selectedBim = ensurePreviewSelection('bim') || getLooseAssetSelection('bim')
+    const selectedPointcloud = ensurePreviewSelection('pointcloud')
+    const selectedBim = ensurePreviewSelection('bim')
 
     const [nextPointcloud, nextBim] = await Promise.all([
       selectedPointcloud ? refreshUploadedFile('pointcloud', true) : Promise.resolve(null),
@@ -814,9 +791,7 @@ async function openPreview(mode: PreviewMode) {
       return
     }
 
-    openPreviewPage(
-      buildLooseSplitPreviewRoute(nextBim || selectedBim, nextPointcloud || selectedPointcloud),
-    )
+    ElMessage.info('BIM 和点云都完成真实解析后才能打开双屏预览')
     return
   }
 }
@@ -984,7 +959,12 @@ async function openPreview(mode: PreviewMode) {
                     {{ getStatusText(asset.status) }}
                   </el-tag>
                   <div class="library-actions">
-                    <el-button plain size="small" @click="handlePreviewFromList('bim', asset)">
+                    <el-button
+                      plain
+                      size="small"
+                      :disabled="!isAssetReady(asset.status)"
+                      @click="handlePreviewFromList('bim', asset)"
+                    >
                       预览
                     </el-button>
                     <el-button
@@ -1031,7 +1011,12 @@ async function openPreview(mode: PreviewMode) {
                     {{ getStatusText(asset.status) }}
                   </el-tag>
                   <div class="library-actions">
-                    <el-button plain size="small" @click="handlePreviewFromList('pointcloud', asset)">
+                    <el-button
+                      plain
+                      size="small"
+                      :disabled="!isAssetReady(asset.status)"
+                      @click="handlePreviewFromList('pointcloud', asset)"
+                    >
                       预览
                     </el-button>
                     <el-button
@@ -1067,13 +1052,12 @@ async function openPreview(mode: PreviewMode) {
             <p>请先完成 BIM 与点云校准，再返回这里进行二分屏预览。</p>
           </div>
 
-          <el-checkbox-group
+          <el-radio-group
             v-else
-            v-model="selectedSplitPreviewKeys"
-            :max="1"
+            v-model="selectedSplitPreviewKey"
             class="split-preview-options"
           >
-            <el-checkbox
+            <el-radio
               v-for="option in calibratedSplitPreviewOptions"
               :key="option.key"
               :label="option.key"
@@ -1090,8 +1074,8 @@ async function openPreview(mode: PreviewMode) {
                   <span class="split-preview-option__value">{{ option.pointcloudDisplayName }}</span>
                 </div>
               </div>
-            </el-checkbox>
-          </el-checkbox-group>
+            </el-radio>
+          </el-radio-group>
         </div>
 
         <template #footer>
@@ -1417,7 +1401,7 @@ async function openPreview(mode: PreviewMode) {
   transform: translateY(-1px);
 }
 
-.split-preview-option :deep(.el-checkbox__label) {
+.split-preview-option :deep(.el-radio__label) {
   display: flex;
   width: 100%;
   flex-direction: column;
@@ -1427,14 +1411,14 @@ async function openPreview(mode: PreviewMode) {
   line-height: 1.5;
 }
 
-.split-preview-option :deep(.el-checkbox__input) {
+.split-preview-option :deep(.el-radio__input) {
   display: flex;
   align-items: flex-start;
   justify-content: center;
   margin-top: 2px;
 }
 
-.split-preview-option :deep(.el-checkbox__inner) {
+.split-preview-option :deep(.el-radio__inner) {
   width: 16px;
   height: 16px;
 }
