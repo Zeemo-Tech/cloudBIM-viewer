@@ -43,6 +43,7 @@ services:
       IFC_BUNDLE_BIN: /opt/tools/ifc_bundle/ifc_bundle
       GOCESIUMTILER_BIN: /opt/tools/gocesiumtiler/gocesiumtiler-lin-x64
       MESH_SERVICE_URL: ${MESH_SERVICE_URL:-http://mesh-service:8001}
+      MESH_SERVICE_STORAGE_DIR: ${MESH_SERVICE_STORAGE_DIR:-/storage}
       PATH: /opt/tools/ifc_bundle:/opt/tools/gocesiumtiler:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       LD_LIBRARY_PATH: /opt/tools/ifc_bundle
       PROJ_LIB: /opt/tools/gocesiumtiler/share

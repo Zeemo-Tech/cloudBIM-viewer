@@ -231,7 +231,19 @@ async function pollUploadUntilReady(
         throw new Error('资产已就绪，但未返回 assetId')
       }
 
-      const detailResponse = await getAssetDetail(uploadStatus.assetId)
+      let detailResponse
+      try {
+        detailResponse = await getAssetDetail(uploadStatus.assetId)
+      } catch (error) {
+        // A stale upload session can outlive its asset (for example after a
+        // restore/deploy or manual cleanup). Do not keep resuming that session
+        // forever on the next attempt for the same local file fingerprint.
+        if ((error as any)?.response?.status === 404) {
+          UploadStateManager.removeUploadState(uploadId)
+          throw new Error('上传会话已完成，但资产记录不存在，请重新上传')
+        }
+        throw error
+      }
       UploadStateManager.removeUploadState(uploadId)
       onProgress?.(100)
       return detailResponse.data

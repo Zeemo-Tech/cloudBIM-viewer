@@ -42,6 +42,40 @@ func TestModelPairJSONMapping(t *testing.T) {
 	}
 }
 
+func TestMeshServiceErrorPrefersStructuredMessage(t *testing.T) {
+	got := meshServiceError([]byte(`{"code":400,"msg":"LAS 文件不存在: /storage/assets/scan/source"}`))
+	want := "LAS 文件不存在: /storage/assets/scan/source"
+	if got != want {
+		t.Fatalf("meshServiceError() = %q, want %q", got, want)
+	}
+}
+
+func TestMeshServiceErrorFallsBackToBoundedText(t *testing.T) {
+	got := meshServiceError([]byte(" upstream rejected request "))
+	if got != "upstream rejected request" {
+		t.Fatalf("meshServiceError() = %q, want trimmed upstream text", got)
+	}
+}
+
+func TestMeshServicePathUsesConfiguredStorageRoot(t *testing.T) {
+	dataDir := filepath.Join(string(filepath.Separator), "app", "data")
+	path := filepath.Join(dataDir, "assets", "scan", "source")
+	got := meshServicePath(dataDir, path, "/mnt/cloudbim")
+	want := "/mnt/cloudbim/assets/scan/source"
+	if got != want {
+		t.Fatalf("meshServicePath() = %q, want %q", got, want)
+	}
+}
+
+func TestBackendDataPathUsesConfiguredStorageRoot(t *testing.T) {
+	dataDir := filepath.Join(string(filepath.Separator), "app", "data")
+	got := backendDataPath(dataDir, "/mnt/cloudbim/c2m_results/result.ply", "/mnt/cloudbim")
+	want := filepath.Join(dataDir, "c2m_results", "result.ply")
+	if got != want {
+		t.Fatalf("backendDataPath() = %q, want %q", got, want)
+	}
+}
+
 func TestValidExtension(t *testing.T) {
 	tests := []struct {
 		typ, name string

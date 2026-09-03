@@ -41,6 +41,7 @@ go run .
 | `IFC_BUNDLE_BIN` | PATH/参考工具 | IFC -> GLB + metadata |
 | `GOCESIUMTILER_BIN` | PATH/参考工具 | LAS -> Cesium 3D Tiles |
 | `MESH_SERVICE_URL` | `http://127.0.0.1:8001` | 网格均匀化与精细化配准服务地址；BIM 上传转换完成后会自动调用 `/remesh` 生成均匀化 PLY，服务不可用时可在校准页稍后重试 |
+| `MESH_SERVICE_STORAGE_DIR` | `/storage` | C2M 网格服务容器内共享数据卷路径；必须与 mesh-service 的挂载点一致 |
 
 服务启动时执行 GORM schema migration，并在连接后 Ping 数据库；连接失败会直接退出，避免服务处于假健康状态。开发环境会自动读取当前目录的 `.env`；生产环境设置 `APP_ENV=production` 后只读取进程环境变量，不读取本地 `.env`。生产环境不应依赖自动演示账号，建议由部署流程创建正式账号。
 

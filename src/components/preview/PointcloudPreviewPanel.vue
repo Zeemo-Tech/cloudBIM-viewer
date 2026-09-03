@@ -89,13 +89,16 @@ function readEdlStrength() {
 }
 const edlStrength = ref(readEdlStrength())
 function readRendererPreference(): RendererPreference {
-  if (typeof window === 'undefined') return 'webgl'
+  // WebGPU is the default for new sessions; an explicit stored preference
+  // still wins so users can opt back into WebGL when needed.
+  if (typeof window === 'undefined') return 'webgpu'
   try {
-    return window.localStorage.getItem('cloudbim.pointcloud.renderer') === 'webgpu'
-      ? 'webgpu'
-      : 'webgl'
+    const storedPreference = window.localStorage.getItem('cloudbim.pointcloud.renderer')
+    return storedPreference === 'webgl' || storedPreference === 'webgpu'
+      ? storedPreference
+      : 'webgpu'
   } catch {
-    return 'webgl'
+    return 'webgpu'
   }
 }
 const preferredRenderer = ref<RendererPreference>(readRendererPreference())

@@ -202,21 +202,22 @@ type DBC2MResult struct {
 }
 
 type config struct {
-	Addr             string
-	DataDir          string
-	JWTSecret        string
-	JWTExpiresIn     time.Duration
-	MeshServiceURL   string
-	RegisterCode     string
-	Environment      string
-	DBDriver         string
-	DBDSN            string
-	CORSAllowOrigins []string
-	SeedDemo         bool
-	WorkerCount      int
-	UploadChunkLimit int64
-	UploadFileLimit  int64
-	ShutdownTimeout  time.Duration
+	Addr                  string
+	DataDir               string
+	JWTSecret             string
+	JWTExpiresIn          time.Duration
+	MeshServiceURL        string
+	MeshServiceStorageDir string
+	RegisterCode          string
+	Environment           string
+	DBDriver              string
+	DBDSN                 string
+	CORSAllowOrigins      []string
+	SeedDemo              bool
+	WorkerCount           int
+	UploadChunkLimit      int64
+	UploadFileLimit       int64
+	ShutdownTimeout       time.Duration
 }
 
 const developmentJWTSecret = "cloudbim-dev-secret"
@@ -308,7 +309,11 @@ func loadConfig() (config, error) {
 	if shutdownSeconds < 1 || shutdownSeconds > 300 {
 		shutdownSeconds = 15
 	}
-	return config{Addr: env("ADDR", ":8090"), DataDir: root, JWTSecret: secret, JWTExpiresIn: jwtExpiresIn, MeshServiceURL: strings.TrimRight(env("MESH_SERVICE_URL", "http://127.0.0.1:8001"), "/"), RegisterCode: env("REGISTER_CODE", "laochen"), Environment: environment, DBDriver: dbDriver, DBDSN: dsn, CORSAllowOrigins: origins, SeedDemo: seedDemo, WorkerCount: workers, UploadChunkLimit: chunkLimit, UploadFileLimit: fileLimit, ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second}, nil
+	meshServiceStorageDir := strings.TrimSpace(env("MESH_SERVICE_STORAGE_DIR", "/storage"))
+	if meshServiceStorageDir == "" || !filepath.IsAbs(meshServiceStorageDir) {
+		return config{}, errors.New("MESH_SERVICE_STORAGE_DIR 必须是绝对路径")
+	}
+	return config{Addr: env("ADDR", ":8090"), DataDir: root, JWTSecret: secret, JWTExpiresIn: jwtExpiresIn, MeshServiceURL: strings.TrimRight(env("MESH_SERVICE_URL", "http://127.0.0.1:8001"), "/"), MeshServiceStorageDir: filepath.Clean(meshServiceStorageDir), RegisterCode: env("REGISTER_CODE", "laochen"), Environment: environment, DBDriver: dbDriver, DBDSN: dsn, CORSAllowOrigins: origins, SeedDemo: seedDemo, WorkerCount: workers, UploadChunkLimit: chunkLimit, UploadFileLimit: fileLimit, ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second}, nil
 }
 
 func parseJWTDuration(value string) (time.Duration, error) {
@@ -875,10 +880,25 @@ func (a *app) uploadStatus(c *gin.Context) {
 		fail(c, 404, "上传会话不存在")
 		return
 	}
-	result := gin.H{"uploadId": up.ID, "assetId": nil, "assetType": up.AssetType, "fileName": up.FileName, "fileSize": up.FileSize, "uploadOffset": up.Offset, "uploadLength": up.FileSize, "status": up.Status, "errorMessage": up.ErrorMessage}
+	status := up.Status
+	var errorMessage = up.ErrorMessage
+	assetID := any(nil)
 	if up.AssetID > 0 {
-		result["assetId"] = up.AssetID
+		assetID = up.AssetID
+		if status == "ready" {
+			var asset DBAsset
+			if err := a.db.Where("id = ? AND owner_id = ?", up.AssetID, userID(c)).First(&asset).Error; err != nil {
+				// Do not advertise a ready upload whose asset can no longer be
+				// fetched by this user; this prevents a guaranteed /assets/:id 404.
+				status = "failed"
+				message := "上传已完成，但资产记录不存在，请重新上传"
+				errorMessage = &message
+				assetID = nil
+				log.Printf("上传 %s 引用的资产 %d 不存在或无权访问", up.ID, up.AssetID)
+			}
+		}
 	}
+	result := gin.H{"uploadId": up.ID, "assetId": assetID, "assetType": up.AssetType, "fileName": up.FileName, "fileSize": up.FileSize, "uploadOffset": up.Offset, "uploadLength": up.FileSize, "status": status, "errorMessage": errorMessage}
 	ok(c, result)
 }
 
@@ -1767,6 +1787,24 @@ func toolLog(output []byte) string {
 	return text
 }
 
+// meshServiceError extracts the useful message from a mesh-service JSON error
+// while keeping a bounded fallback for plain-text/proxy responses.
+func meshServiceError(output []byte) string {
+	var payload struct {
+		Msg     string `json:"msg"`
+		Message string `json:"message"`
+		Detail  string `json:"detail"`
+	}
+	if err := json.Unmarshal(output, &payload); err == nil {
+		for _, value := range []string{payload.Msg, payload.Message, payload.Detail} {
+			if value = strings.TrimSpace(value); value != "" {
+				return toolLog([]byte(value))
+			}
+		}
+	}
+	return toolLog(output)
+}
+
 type pair struct {
 	SX float64 `json:"modelScanX"`
 	SY float64 `json:"modelScanY"`
@@ -2249,18 +2287,27 @@ type c2mStats struct {
 	P99  float64 `json:"p99"`
 }
 
-func meshServicePath(dataDir, path string) string {
+func meshServicePath(dataDir, path, serviceStorageDir string) string {
 	cleanRoot := filepath.Clean(dataDir)
 	cleanPath := filepath.Clean(path)
 	if rel, err := filepath.Rel(cleanRoot, cleanPath); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return filepath.ToSlash(filepath.Join("/storage", rel))
+		root := strings.TrimSpace(serviceStorageDir)
+		if root == "" {
+			root = "/storage"
+		}
+		return filepath.ToSlash(filepath.Join(root, rel))
 	}
 	return path
 }
 
-func backendDataPath(dataDir, path string) string {
-	if strings.HasPrefix(path, "/storage/") {
-		return filepath.Join(dataDir, filepath.FromSlash(strings.TrimPrefix(path, "/storage/")))
+func backendDataPath(dataDir, path, serviceStorageDir string) string {
+	serviceRoot := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(serviceStorageDir)), "/")
+	if serviceRoot == "" {
+		serviceRoot = "/storage"
+	}
+	pathSlash := filepath.ToSlash(path)
+	if strings.HasPrefix(pathSlash, serviceRoot+"/") {
+		return filepath.Join(dataDir, filepath.FromSlash(strings.TrimPrefix(pathSlash, serviceRoot+"/")))
 	}
 	return path
 }
@@ -2344,7 +2391,7 @@ func (a *app) computeC2M(c *gin.Context) {
 	if req.NormalFallbackMode == "" {
 		req.NormalFallbackMode = "nearest"
 	}
-	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath), "alignment_matrix": matrix, "params": map[string]any{"voxel_size": req.VoxelSize, "max_colormap_distance": req.MaxColormapDistance, "max_histogram_distance": req.MaxHistogramDistance, "histogram_bins": req.HistogramBins, "tolerance_limit": req.ToleranceLimit, "knn_k": req.KnnK, "normal_constraint_enabled": req.NormalConstraintEnabled, "normal_half_space_only": req.NormalHalfSpaceOnly, "normal_max_angle_deg": req.NormalMaxAngleDeg, "normal_fallback_mode": req.NormalFallbackMode}})
+	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": map[string]any{"voxel_size": req.VoxelSize, "max_colormap_distance": req.MaxColormapDistance, "max_histogram_distance": req.MaxHistogramDistance, "histogram_bins": req.HistogramBins, "tolerance_limit": req.ToleranceLimit, "knn_k": req.KnnK, "normal_constraint_enabled": req.NormalConstraintEnabled, "normal_half_space_only": req.NormalHalfSpaceOnly, "normal_max_angle_deg": req.NormalMaxAngleDeg, "normal_fallback_mode": req.NormalFallbackMode}})
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/c2m/compute", bytes.NewReader(body))
 	if err != nil {
 		fail(c, 500, "构建 C2M 请求失败")
@@ -2359,7 +2406,13 @@ func (a *app) computeC2M(c *gin.Context) {
 	defer resp.Body.Close()
 	responseBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		fail(c, 502, fmt.Sprintf("C2M 计算服务返回错误(%d)", resp.StatusCode))
+		detail := meshServiceError(responseBody)
+		log.Printf("C2M 计算服务返回错误: status=%d detail=%s", resp.StatusCode, detail)
+		message := fmt.Sprintf("C2M 计算服务返回错误(%d)", resp.StatusCode)
+		if detail != "" {
+			message += ": " + detail
+		}
+		fail(c, http.StatusBadGateway, message)
 		return
 	}
 	var result struct {
@@ -2376,7 +2429,7 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, 502, "解析 C2M 结果失败")
 		return
 	}
-	coloredPath, distancesPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath), backendDataPath(a.cfg.DataDir, result.DistancesPath)
+	coloredPath, distancesPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath, a.cfg.MeshServiceStorageDir), backendDataPath(a.cfg.DataDir, result.DistancesPath, a.cfg.MeshServiceStorageDir)
 	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scan.ID, bim.ID, userID(c)).Assign(row).FirstOrCreate(&row).Error; err != nil {
 		fail(c, 500, "保存 C2M 结果失败")
