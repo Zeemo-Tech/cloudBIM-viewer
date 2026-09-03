@@ -217,6 +217,7 @@ type config struct {
 	WorkerCount           int
 	UploadChunkLimit      int64
 	UploadFileLimit       int64
+	PointcloudSubsample   float64
 	ShutdownTimeout       time.Duration
 }
 
@@ -305,6 +306,10 @@ func loadConfig() (config, error) {
 	if fileLimit < chunkLimit {
 		fileLimit = 100 * 1024 * 1024 * 1024
 	}
+	pointcloudSubsample, err := strconv.ParseFloat(env("POINTCLOUD_SUBSAMPLE", "0.25"), 64)
+	if err != nil || pointcloudSubsample < 0.01 || pointcloudSubsample > 1 {
+		return config{}, errors.New("POINTCLOUD_SUBSAMPLE 必须是 0.01 到 1 之间的小数")
+	}
 	shutdownSeconds, _ := strconv.Atoi(env("SHUTDOWN_TIMEOUT_SECONDS", "15"))
 	if shutdownSeconds < 1 || shutdownSeconds > 300 {
 		shutdownSeconds = 15
@@ -313,7 +318,7 @@ func loadConfig() (config, error) {
 	if meshServiceStorageDir == "" || !filepath.IsAbs(meshServiceStorageDir) {
 		return config{}, errors.New("MESH_SERVICE_STORAGE_DIR 必须是绝对路径")
 	}
-	return config{Addr: env("ADDR", ":8090"), DataDir: root, JWTSecret: secret, JWTExpiresIn: jwtExpiresIn, MeshServiceURL: strings.TrimRight(env("MESH_SERVICE_URL", "http://127.0.0.1:8001"), "/"), MeshServiceStorageDir: filepath.Clean(meshServiceStorageDir), RegisterCode: env("REGISTER_CODE", "laochen"), Environment: environment, DBDriver: dbDriver, DBDSN: dsn, CORSAllowOrigins: origins, SeedDemo: seedDemo, WorkerCount: workers, UploadChunkLimit: chunkLimit, UploadFileLimit: fileLimit, ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second}, nil
+	return config{Addr: env("ADDR", ":8090"), DataDir: root, JWTSecret: secret, JWTExpiresIn: jwtExpiresIn, MeshServiceURL: strings.TrimRight(env("MESH_SERVICE_URL", "http://127.0.0.1:8001"), "/"), MeshServiceStorageDir: filepath.Clean(meshServiceStorageDir), RegisterCode: env("REGISTER_CODE", "laochen"), Environment: environment, DBDriver: dbDriver, DBDSN: dsn, CORSAllowOrigins: origins, SeedDemo: seedDemo, WorkerCount: workers, UploadChunkLimit: chunkLimit, UploadFileLimit: fileLimit, PointcloudSubsample: pointcloudSubsample, ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second}, nil
 }
 
 func parseJWTDuration(value string) (time.Duration, error) {
@@ -941,7 +946,7 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 	if asset.Type == "bim" {
 		err = buildBIM(ctx, source, asset.Dir)
 	} else {
-		err = buildPointCloud(ctx, source, asset.Dir)
+		err = buildPointCloud(ctx, source, asset.Dir, a.cfg.PointcloudSubsample)
 	}
 	if err != nil {
 		msg := err.Error()
@@ -954,9 +959,7 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 	} else {
 		if asset.Type == "pointcloud" {
 			assetSource := filepath.Join(asset.Dir, "source.las")
-			if linkErr := os.Link(source, assetSource); linkErr != nil {
-				_ = os.Symlink(source, assetSource)
-			}
+			_ = linkOrSymlink(source, assetSource)
 		}
 		if updateErr := a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Update("status", "ready").Error; updateErr != nil {
 			log.Printf("更新资产 %d 就绪状态失败: %v", asset.ID, updateErr)
@@ -1731,6 +1734,7 @@ func buildBIM(parent context.Context, source, dir string) error {
 	tool, err := resolveTool("IFC_BUNDLE_BIN", "ifc_bundle",
 		filepath.Join("..", "tools", "ifc_bundle", "ifc_bundle"),
 		filepath.Join("tools", "ifc_bundle", "ifc_bundle"),
+		filepath.Join("..", "..", "zhongjian", "zhongjian-back", "tools", "ifc_bundle", "ifc_bundle"),
 		filepath.Join("..", "..", "zhongjian-back", "tools", "ifc_bundle", "ifc_bundle"),
 	)
 	if err != nil {
@@ -1751,6 +1755,7 @@ func buildBIM(parent context.Context, source, dir string) error {
 		filepath.Join(toolDir, "IfcConvert"),
 		filepath.Join("..", "tools", "ifc_bundle", "IfcConvert"),
 		filepath.Join("tools", "ifc_bundle", "IfcConvert"),
+		filepath.Join("..", "..", "zhongjian", "zhongjian-back", "tools", "ifc_bundle", "IfcConvert"),
 		filepath.Join("..", "..", "zhongjian-back", "tools", "ifc_bundle", "IfcConvert"),
 	)
 	if err == nil && ifcConvert != "" {
@@ -1774,20 +1779,27 @@ func buildBIM(parent context.Context, source, dir string) error {
 	}
 	return nil
 }
-func buildPointCloud(parent context.Context, source, dir string) error {
+func buildPointCloud(parent context.Context, source, dir string, subsample float64) error {
 	// See buildBIM: the normalized Tus source intentionally has no extension.
 	tool, err := resolveTool("GOCESIUMTILER_BIN", "gocesiumtiler",
 		filepath.Join("..", "tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
 		filepath.Join("tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
+		filepath.Join("..", "..", "zhongjian", "zhongjian-back", "tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
 		filepath.Join("..", "..", "zhongjian-back", "tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
 	)
 	if err != nil {
 		return err
 	}
+	// gocesiumtiler expects a LAS filename, while Tus persists all uploads as
+	// "source". A link avoids copying a potentially large point-cloud file.
+	input := filepath.Join(dir, "source.las")
+	if err := linkOrSymlink(source, input); err != nil {
+		return fmt.Errorf("准备 LAS 转换输入失败: %w", err)
+	}
 	tilesDir := filepath.Join(dir, "tiles")
 	ctx, cancel := context.WithTimeout(parent, 60*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, tool, "file", "--coord-mode", "source", "--sample-mode", "min-distance", "--sample-distance", "0.001", "-o", tilesDir, source)
+	cmd := exec.CommandContext(ctx, tool, "file", "--coord-mode", "source", "--resolution", "1", "--subsample", strconv.FormatFloat(subsample, 'f', -1, 64), "-o", tilesDir, input)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = os.RemoveAll(tilesDir)
@@ -1796,6 +1808,16 @@ func buildPointCloud(parent context.Context, source, dir string) error {
 	if _, err := os.Stat(filepath.Join(tilesDir, "tileset.json")); err != nil {
 		_ = os.RemoveAll(tilesDir)
 		return fmt.Errorf("点云转换完成但未生成 tileset.json")
+	}
+	return nil
+}
+
+func linkOrSymlink(source, target string) error {
+	if err := os.Link(source, target); err == nil || os.IsExist(err) {
+		return nil
+	}
+	if err := os.Symlink(source, target); err != nil && !os.IsExist(err) {
+		return err
 	}
 	return nil
 }

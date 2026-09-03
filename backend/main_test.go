@@ -94,6 +94,28 @@ func TestValidExtension(t *testing.T) {
 	}
 }
 
+func TestLinkOrSymlinkCreatesReusableLASInput(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	target := filepath.Join(dir, "source.las")
+	if err := os.WriteFile(source, []byte("LAS payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := linkOrSymlink(source, target); err != nil {
+		t.Fatalf("linkOrSymlink() error = %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "LAS payload" {
+		t.Fatalf("linked input = %q, want original content", content)
+	}
+	if err := linkOrSymlink(source, target); err != nil {
+		t.Fatalf("linkOrSymlink() should accept an existing target: %v", err)
+	}
+}
+
 func TestPointcloudColorPattern(t *testing.T) {
 	for _, value := range []string{"#ffffff", "#12AbEF", "#000000"} {
 		if !pointcloudColorPattern.MatchString(value) {
@@ -278,6 +300,22 @@ func TestLoadConfigMySQL(t *testing.T) {
 	want := "cloudbim:secret@tcp(db.example:3306)/cloudbim_test?checkConnLiveness=false&loc=Local&parseTime=true&maxAllowedPacket=0&charset=utf8mb4"
 	if cfg.DBDSN != want {
 		t.Fatalf("DBDSN = %q, want %q", cfg.DBDSN, want)
+	}
+}
+
+func TestLoadConfigPointcloudSubsample(t *testing.T) {
+	t.Setenv("POINTCLOUD_SUBSAMPLE", "0.25")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+	if cfg.PointcloudSubsample != 0.25 {
+		t.Fatalf("PointcloudSubsample = %v, want 0.25", cfg.PointcloudSubsample)
+	}
+
+	t.Setenv("POINTCLOUD_SUBSAMPLE", "1.1")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("loadConfig accepted POINTCLOUD_SUBSAMPLE above 1")
 	}
 }
 

@@ -548,7 +548,7 @@ const positionAdjustStep = ref(0.01)
 const rotationAdjustStep = ref(1)
 const positionStepPreset = ref('0.01')
 const rotationStepPreset = ref('1')
-const tilesErrorTarget = ref(16)
+const tilesErrorTarget = ref(32)
 const enableElementPicking = ref(true)
 const pickedElement = ref<null | {
   label: string
