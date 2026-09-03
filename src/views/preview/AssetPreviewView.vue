@@ -25,7 +25,7 @@ const router = useRouter()
 const bimPanelRef = ref<any>(null)
 const pointcloudPanelRef = ref<any>(null)
 
-const backgroundTheme = ref<PreviewBackgroundTheme>('black')
+const backgroundTheme = ref<PreviewBackgroundTheme>('deep')
 const sidebarCollapsed = ref(false)
 const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
@@ -43,7 +43,7 @@ const pointcloudControls = reactive({
   showAxes: false,
   showGrid: true,
   sectionEnabled: false,
-  colorMode: 'original' as 'original' | 'custom',
+  colorMode: 'custom' as 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
 })
 

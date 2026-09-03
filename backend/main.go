@@ -1738,7 +1738,30 @@ func buildBIM(parent context.Context, source, dir string) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, 45*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, tool, "--input", source, "--glb-out", filepath.Join(dir, "model.glb"), "--meta-out", filepath.Join(dir, "metadata.json"))
+
+	args := []string{
+		"--input", source,
+		"--glb-out", filepath.Join(dir, "model.glb"),
+		"--meta-out", filepath.Join(dir, "metadata.json"),
+	}
+
+	// 自动探测 IfcConvert 路径（优先同目录、环境变量及 fallback）
+	toolDir := filepath.Dir(tool)
+	ifcConvert, err := resolveTool("IFCCONVERT", "IfcConvert",
+		filepath.Join(toolDir, "IfcConvert"),
+		filepath.Join("..", "tools", "ifc_bundle", "IfcConvert"),
+		filepath.Join("tools", "ifc_bundle", "IfcConvert"),
+		filepath.Join("..", "..", "zhongjian-back", "tools", "ifc_bundle", "IfcConvert"),
+	)
+	if err == nil && ifcConvert != "" {
+		args = append(args, "--ifcconvert", ifcConvert)
+	}
+
+	cmd := exec.CommandContext(ctx, tool, args...)
+	cmd.Dir = toolDir
+	if err == nil && ifcConvert != "" {
+		cmd.Env = append(os.Environ(), "IFCCONVERT="+ifcConvert)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("IFC 转换失败: %s", toolLog(output))
@@ -1782,13 +1805,22 @@ func resolveTool(envName, command string, fallbacks ...string) (string, error) {
 		if _, err := os.Stat(value); err != nil {
 			return "", fmt.Errorf("工具不存在: %s", value)
 		}
+		if abs, err := filepath.Abs(value); err == nil {
+			return abs, nil
+		}
 		return value, nil
 	}
 	if value, err := exec.LookPath(command); err == nil {
+		if abs, err := filepath.Abs(value); err == nil {
+			return abs, nil
+		}
 		return value, nil
 	}
 	for _, fallback := range fallbacks {
 		if _, err := os.Stat(fallback); err == nil {
+			if abs, err := filepath.Abs(fallback); err == nil {
+				return abs, nil
+			}
 			return fallback, nil
 		}
 	}

@@ -51,7 +51,6 @@ const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
-type PointcloudRendererMode = 'webgpu' | 'webgl'
 const splitBackgrounds = reactive<Record<SyncSource, PreviewBackgroundTheme>>({
   bim: 'deep',
   pointcloud: 'deep',
@@ -62,11 +61,10 @@ const splitBackgroundColors = reactive<Record<SyncSource, string>>({
   pointcloud: '#08111d',
   consistency: '#08111d',
 })
-const pointcloudRendererMode = ref<PointcloudRendererMode>('webgpu')
-const pointcloudColorMode = ref<'original' | 'custom'>('original')
+const pointcloudColorMode = ref<'original' | 'custom'>('custom')
 const pointcloudColor = ref('#86898D')
 const edlEnabled = ref(true)
-const edlStrength = ref(0.45)
+const edlStrength = ref(1.0)
 const viewVisibility = reactive({
   bim: true,
   pointcloud: true,
@@ -503,7 +501,6 @@ function applySplitPresentation() {
   bimPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.bim)
   pointcloudPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.pointcloud)
   consistencyPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.consistency)
-  pointcloudPanelRef.value?.setRendererPreference?.(pointcloudRendererMode.value)
   pointcloudPanelRef.value?.setPointColor?.(
     pointcloudColorMode.value === 'custom' ? pointcloudColor.value : null,
   )
@@ -549,7 +546,6 @@ watch(
     () => splitBackgroundColors.bim,
     () => splitBackgroundColors.pointcloud,
     () => splitBackgroundColors.consistency,
-    pointcloudRendererMode,
     pointcloudColorMode,
     pointcloudColor,
     edlEnabled,
@@ -671,18 +667,12 @@ watch(
           <input v-model="splitBackgroundColors.consistency" type="color" />
         </label>
         <label class="tool-select-row">
-          <span>点云模式</span>
-          <select v-model="pointcloudRendererMode">
-            <option value="webgpu">WebGPU</option><option value="webgl">WebGL</option>
-          </select>
-        </label>
-        <label class="tool-select-row">
           <span>EDL</span>
-          <input v-model="edlEnabled" type="checkbox" :disabled="pointcloudRendererMode !== 'webgl'" />
+          <input v-model="edlEnabled" type="checkbox" />
         </label>
         <label class="tool-range-row">
-          <span>EDL 强度 {{ pointcloudRendererMode === 'webgpu' ? '（WebGPU 不支持）' : '' }}</span>
-          <input v-model.number="edlStrength" type="range" min="0" max="1" step="0.05" :disabled="!edlEnabled || pointcloudRendererMode !== 'webgl'" />
+          <span>EDL 强度</span>
+          <input v-model.number="edlStrength" type="range" min="0" max="1" step="0.05" :disabled="!edlEnabled" />
         </label>
         <label class="tool-select-row">
           <span>点云颜色</span>
