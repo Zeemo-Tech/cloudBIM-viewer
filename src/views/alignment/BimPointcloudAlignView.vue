@@ -194,6 +194,10 @@ const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAss
 
 async function runC2M() {
   if (!canRunC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
+  if (meshTaskActive.value) {
+    ElMessage.warning('网格均匀化任务正在排队或处理中，请稍候')
+    return
+  }
   c2mRunning.value = true
   c2mError.value = ''
   try {
@@ -3857,13 +3861,38 @@ function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
 }
 
 async function fetchAndLogSavedAlignmentIfExists() {
-  if (
-    !props.pointcloudAssetId ||
-    !props.bimAssetId ||
-    !bimPivot ||
-    !pointcloudGroup ||
-    !pointcloudRootReady
-  ) {
+  if (!props.pointcloudAssetId || !props.bimAssetId) {
+    return
+  }
+
+  // 1. 优先拉取后端保存的配准数据，解除对 3D 渲染完成时机的强依赖
+  if (!hasSavedAlignmentMatrix.value && !latestAlignmentResult.value) {
+    try {
+      const response = await getBimAlignment({
+        modelScanFileId: props.pointcloudAssetId,
+        modelBimFileId: props.bimAssetId,
+      })
+
+      if (response?.data) {
+        latestAlignmentResult.value = response.data
+        logSavedAlignmentMatrix(response.data)
+        hasSavedAlignmentMatrix.value = true
+        coarseAlignmentDirty.value = false
+      }
+    } catch (error: any) {
+      const status = error?.response?.status
+      if (status === 400 || status === 404) {
+        hasSavedAlignmentMatrix.value = false
+        loggedSavedAlignmentKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
+        return
+      }
+
+      console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
+    }
+  }
+
+  // 2. 检查 3D 视口渲染对象是否已完全就绪
+  if (!bimPivot || !pointcloudGroup || !pointcloudRootReady) {
     return
   }
 
@@ -3872,21 +3901,8 @@ async function fetchAndLogSavedAlignmentIfExists() {
     return
   }
 
-  try {
-    const response = await getBimAlignment({
-      modelScanFileId: props.pointcloudAssetId,
-      modelBimFileId: props.bimAssetId,
-    })
-
-    if (!response?.data) {
-      return
-    }
-
-    latestAlignmentResult.value = response.data
-    logSavedAlignmentMatrix(response.data)
-    hasSavedAlignmentMatrix.value = true
-    coarseAlignmentDirty.value = false
-    const restored = tryRestoreSavedAlignment(response.data)
+  if (latestAlignmentResult.value) {
+    const restored = tryRestoreSavedAlignment(latestAlignmentResult.value)
     logBimRelativeTransform()
     if (restored) {
       loggedSavedAlignmentKey = logKey
@@ -3895,18 +3911,6 @@ async function fetchAndLogSavedAlignmentIfExists() {
         void fetchAndLogSavedAlignmentIfExists()
       }, 250)
     }
-  } catch (error: any) {
-    const status = error?.response?.status
-    if (status === 400 || status === 404) {
-      console.info('[BimPointcloudAlign] 当前组合暂无后端已保存校准矩阵', {
-        pointcloudAssetId: props.pointcloudAssetId,
-        bimAssetId: props.bimAssetId,
-      })
-      loggedSavedAlignmentKey = logKey
-      return
-    }
-
-    console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
   }
 }
 

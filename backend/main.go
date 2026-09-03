@@ -952,6 +952,12 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 			log.Printf("更新上传 %s 状态失败: %v", uploadID, updateErr)
 		}
 	} else {
+		if asset.Type == "pointcloud" {
+			assetSource := filepath.Join(asset.Dir, "source.las")
+			if linkErr := os.Link(source, assetSource); linkErr != nil {
+				_ = os.Symlink(source, assetSource)
+			}
+		}
 		if updateErr := a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Update("status", "ready").Error; updateErr != nil {
 			log.Printf("更新资产 %d 就绪状态失败: %v", asset.ID, updateErr)
 		}
@@ -2204,13 +2210,8 @@ func (a *app) fineAlignment(c *gin.Context) {
 		fail(c, http.StatusServiceUnavailable, "BIM 尚未生成精调所需的均匀化网格")
 		return
 	}
-	var upload DBUpload
-	if err := a.db.Where("asset_id = ? AND owner_id = ?", scan.ID, userID(c)).Order("created_at DESC").First(&upload).Error; err != nil {
-		fail(c, 404, "点云源文件不存在")
-		return
-	}
-	sourcePath := filepath.Join(upload.Dir, "source")
-	if _, err := os.Stat(sourcePath); err != nil {
+	sourcePath, err := a.resolveScanSourcePath(scan, userID(c))
+	if err != nil {
 		fail(c, 404, "点云源文件不存在")
 		return
 	}
@@ -2283,6 +2284,22 @@ func (a *app) fineAlignment(c *gin.Context) {
 	result.ModelScanFileID, result.ModelBimFileID = scan.ID, bim.ID
 	result.ModelBIMBuildingName = stringPtr(bim.SourceName)
 	result.RMSERegressRatio, result.FitnessRegressRatio, result.ApplyWhenRegressed = req.RMSERegressRatio, req.FitnessRegressRatio, req.ApplyWhenRegressed
+	if serviceResult.Applied && len(serviceResult.Transform) == 16 {
+		matrixJSON, _ := json.Marshal(serviceResult.Transform)
+		_ = a.db.Model(&DBAlignment{}).
+			Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scan.ID, bim.ID, userID(c)).
+			Updates(map[string]any{
+				"qx":          serviceResult.Quaternion.Qx,
+				"qy":          serviceResult.Quaternion.Qy,
+				"qz":          serviceResult.Quaternion.Qz,
+				"qw":          serviceResult.Quaternion.Qw,
+				"tx":          serviceResult.Translation.Tx,
+				"ty":          serviceResult.Translation.Ty,
+				"tz":          serviceResult.Translation.Tz,
+				"matrix_json": string(matrixJSON),
+				"rmse":        serviceResult.Metrics.FineRMSE,
+			}).Error
+	}
 	ok(c, result)
 }
 
@@ -2295,6 +2312,40 @@ type c2mStats struct {
 	P90  float64 `json:"p90"`
 	P95  float64 `json:"p95"`
 	P99  float64 `json:"p99"`
+}
+
+func (a *app) resolveScanSourcePath(scan Asset, ownerID int64) (string, error) {
+	// 1. 优先检查资产目录内部是否已有归档的源点云文件 (source.las 或 source)
+	for _, name := range []string{"source.las", "source"} {
+		p := filepath.Join(scan.Dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+
+	// 2. 查询该资产关联的上传记录，优先选择已就绪（status = 'ready'）且最新的记录
+	var uploads []DBUpload
+	query := a.db.Where("asset_id = ?", scan.ID)
+	if ownerID > 0 {
+		query = query.Where("owner_id = ?", ownerID)
+	}
+	if err := query.Order("CASE WHEN status = 'ready' THEN 0 ELSE 1 END, created_at DESC").Find(&uploads).Error; err != nil || len(uploads) == 0 {
+		return "", errors.New("点云源文件记录不存在")
+	}
+
+	// 3. 逐个候选检查物理文件是否存在（兼容不同挂载或历史路径）
+	for _, u := range uploads {
+		candidate := filepath.Join(u.Dir, "source")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+		candidate = filepath.Join(a.cfg.DataDir, "uploads", u.ID, "source")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", errors.New("点云源文件物理文件不存在")
 }
 
 func meshServicePath(dataDir, path, serviceStorageDir string) string {
@@ -2357,13 +2408,8 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusConflict, "均匀化结果文件不存在，请重新执行")
 		return
 	}
-	var upload DBUpload
-	if err := a.db.Where("asset_id = ? AND owner_id = ?", scan.ID, userID(c)).Order("created_at DESC").First(&upload).Error; err != nil {
-		fail(c, http.StatusNotFound, "点云源文件不存在")
-		return
-	}
-	scanPath := filepath.Join(upload.Dir, "source")
-	if _, err := os.Stat(scanPath); err != nil {
+	scanPath, err := a.resolveScanSourcePath(scan, userID(c))
+	if err != nil {
 		fail(c, http.StatusNotFound, "点云源文件不存在")
 		return
 	}
