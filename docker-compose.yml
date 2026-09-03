@@ -1,4 +1,5 @@
 services:
+  # 1. 核心关系型数据库 (PostgreSQL)
   postgres:
     image: postgres:16-alpine
     container_name: cloudbim-postgres
@@ -18,9 +19,10 @@ services:
       timeout: 3s
       retries: 10
 
+  # 2. 网格均匀化与精细配准算法微服务 (Python / FastAPI / PyMeshLab / Open3D)
   mesh-service:
     build:
-      context: ../services/mesh-service
+      context: ./services/mesh-service
       dockerfile: Dockerfile
     image: cloudbim-mesh-service:latest
     container_name: cloudbim-mesh-service
@@ -31,7 +33,7 @@ services:
     ports:
       - "${MESH_SERVICE_PORT:-8001}:8001"
     volumes:
-      - ./data:/storage
+      - ./backend/data:/storage
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/algorithms\")'"]
       interval: 5s

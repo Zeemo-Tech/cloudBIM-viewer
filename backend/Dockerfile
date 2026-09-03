@@ -19,12 +19,17 @@ RUN apt-get update \
         libstdc++6 \
         libgcc-s1 \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /out/cloudbim-backend /app/cloudbim-backend
-COPY --chown=65532:65532 --from=build /out/data /app/data
 RUN groupadd -g 65532 appgroup \
     && useradd -u 65532 -g appgroup -M -s /usr/sbin/nologin appuser \
-    && mkdir -p /opt/tools /app/data \
+    && mkdir -p /opt/tools /app/data
+
+# 内置封装模型转换工具 (ifc_bundle, gocesiumtiler)
+COPY tools/ /opt/tools/
+RUN chmod -R 755 /opt/tools \
     && chown -R appuser:appgroup /app /opt/tools
+
+COPY --from=build /out/cloudbim-backend /app/cloudbim-backend
+COPY --chown=65532:65532 --from=build /out/data /app/data
 ENV APP_ENV=production \
     ADDR=:8090 \
     CLOUDBIM_DATA_DIR=/app/data \
@@ -33,5 +38,4 @@ ENV APP_ENV=production \
     PROJ_LIB=/opt/tools/gocesiumtiler/share
 VOLUME ["/app/data"]
 EXPOSE 8090
-USER appuser
 ENTRYPOINT ["/app/cloudbim-backend"]

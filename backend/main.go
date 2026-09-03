@@ -1722,7 +1722,11 @@ func buildBIM(parent context.Context, source, dir string) error {
 	// Tus stores the uploaded payload as a normalized `source` path without an
 	// extension. The asset type and original extension are validated at upload
 	// creation, so checking filepath.Ext(source) here would reject valid files.
-	tool, err := resolveTool("IFC_BUNDLE_BIN", "ifc_bundle", filepath.Join("..", "..", "zhongjian-back", "tools", "ifc_bundle", "ifc_bundle"))
+	tool, err := resolveTool("IFC_BUNDLE_BIN", "ifc_bundle",
+		filepath.Join("..", "tools", "ifc_bundle", "ifc_bundle"),
+		filepath.Join("tools", "ifc_bundle", "ifc_bundle"),
+		filepath.Join("..", "..", "zhongjian-back", "tools", "ifc_bundle", "ifc_bundle"),
+	)
 	if err != nil {
 		return err
 	}
@@ -1743,7 +1747,11 @@ func buildBIM(parent context.Context, source, dir string) error {
 }
 func buildPointCloud(parent context.Context, source, dir string) error {
 	// See buildBIM: the normalized Tus source intentionally has no extension.
-	tool, err := resolveTool("GOCESIUMTILER_BIN", "gocesiumtiler", filepath.Join("..", "..", "zhongjian-back", "tools", "gocesiumtiler", "gocesiumtiler-lin-x64"))
+	tool, err := resolveTool("GOCESIUMTILER_BIN", "gocesiumtiler",
+		filepath.Join("..", "tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
+		filepath.Join("tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
+		filepath.Join("..", "..", "zhongjian-back", "tools", "gocesiumtiler", "gocesiumtiler-lin-x64"),
+	)
 	if err != nil {
 		return err
 	}
@@ -1763,7 +1771,7 @@ func buildPointCloud(parent context.Context, source, dir string) error {
 	return nil
 }
 
-func resolveTool(envName, command, fallback string) (string, error) {
+func resolveTool(envName, command string, fallbacks ...string) (string, error) {
 	if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
 		if _, err := os.Stat(value); err != nil {
 			return "", fmt.Errorf("工具不存在: %s", value)
@@ -1773,8 +1781,10 @@ func resolveTool(envName, command, fallback string) (string, error) {
 	if value, err := exec.LookPath(command); err == nil {
 		return value, nil
 	}
-	if _, err := os.Stat(fallback); err == nil {
-		return fallback, nil
+	for _, fallback := range fallbacks {
+		if _, err := os.Stat(fallback); err == nil {
+			return fallback, nil
+		}
 	}
 	return "", fmt.Errorf("未找到 %s，请设置 %s", command, envName)
 }
