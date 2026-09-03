@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { getAssetDetail, getBimGlbFile } from '@/api/backend-file'
+import type { AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 
 type CameraPose = {
   camera: THREE.Vector3
@@ -39,17 +40,21 @@ const props = withDefaults(
     minimal?: boolean
     calibration?: { modelMatrix: number[] } | null
     fusionMode?: boolean
+    analysisMode?: AnalysisMode
   }>(),
   {
     displayName: undefined,
     minimal: false,
     fusionMode: false,
+    analysisMode: 'none',
   },
 )
 
 const emit = defineEmits<{
   (event: 'loaded-change', value: boolean): void
   (event: 'camera-change', pose: CameraPose | null): void
+  (event: 'analysis-point', point: AnalysisPoint): void
+  (event: 'analysis-distance', distance: AnalysisDistance): void
 }>()
 
 const viewportEl = ref<HTMLDivElement | null>(null)
@@ -99,6 +104,11 @@ let clipDragState: null | {
 let clipBoxState: ClipBoxState | null = null
 let clipAxis: ClipAxis = 'z'
 let clipInvert = false
+let analysisStartPoint: THREE.Vector3 | null = null
+let analysisGroup: THREE.Group | null = null
+let analysisLine: THREE.Line | null = null
+let analysisMarkers: THREE.Mesh[] = []
+let analysisPointerDown: { x: number; y: number } | null = null
 
 function getBackgroundColor(theme: PreviewBackgroundTheme) {
   switch (theme) {
@@ -625,6 +635,72 @@ function getPointerNdc(ev: PointerEvent) {
   )
 }
 
+function toAnalysisPoint(point: THREE.Vector3): AnalysisPoint {
+  return { x: point.x, y: point.y, z: point.z }
+}
+
+function clearAnalysisVisuals() {
+  analysisStartPoint = null
+  if (analysisGroup && scene) scene.remove(analysisGroup)
+  analysisGroup?.traverse((child: any) => {
+    child.geometry?.dispose?.()
+    child.material?.dispose?.()
+  })
+  analysisGroup = null
+  analysisLine = null
+  analysisMarkers = []
+}
+
+function ensureAnalysisGroup() {
+  if (analysisGroup || !scene) return analysisGroup
+  analysisGroup = new THREE.Group()
+  analysisGroup.renderOrder = 10001
+  scene.add(analysisGroup)
+  return analysisGroup
+}
+
+function updateAnalysisVisuals(start: THREE.Vector3, end?: THREE.Vector3) {
+  const group = ensureAnalysisGroup()
+  if (!group) return
+  if (!analysisLine) {
+    analysisLine = new THREE.Line(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }),
+    )
+    group.add(analysisLine)
+  }
+  const points = end ? [start, end] : [start]
+  analysisLine.geometry.setFromPoints(points)
+  analysisLine.visible = Boolean(end)
+  while (analysisMarkers.length < points.length) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.06, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }),
+    )
+    marker.renderOrder = 10002
+    analysisMarkers.push(marker)
+    group.add(marker)
+  }
+  analysisMarkers.forEach((marker, index) => {
+    marker.visible = index < points.length
+    if (marker.visible) {
+      marker.position.copy(points[index])
+      const markerSize = Math.max(0.06, camera ? camera.position.distanceTo(points[index]) * 0.012 : 0.06)
+      marker.scale.setScalar(markerSize / 0.06)
+    }
+  })
+  requestRender()
+}
+
+function pickAnalysisPoint(event: PointerEvent) {
+  if (!raycaster || !camera || !modelRoot) return null
+  const pointer = getPointerNdc(event)
+  if (!pointer) return null
+  raycaster.setFromCamera(pointer, camera)
+  const hit = raycaster.intersectObject(modelRoot, true)[0]
+  return hit?.point?.clone() ?? null
+}
+
 function buildClipDragPlane(axisKey: ClipAxis, anchor: THREE.Vector3) {
   if (!camera) return null
   const axis =
@@ -737,6 +813,11 @@ function endClipDrag(ev?: PointerEvent) {
 }
 
 function handleViewportPointerDown(event: PointerEvent) {
+  if (props.analysisMode !== 'none') {
+    analysisPointerDown = { x: event.clientX, y: event.clientY }
+    if (controls) controls.enabled = false
+    return
+  }
   if (!camera || !raycaster || !sectionEnabled || !clipHandlePickers.length) return
 
   const pointer = getPointerNdc(event)
@@ -759,11 +840,42 @@ function onViewportPointerMove(event: PointerEvent) {
 }
 
 function onViewportPointerUp(event: PointerEvent) {
+  if (props.analysisMode !== 'none' && analysisPointerDown) {
+    const down = analysisPointerDown
+    analysisPointerDown = null
+    if (controls) controls.enabled = true
+    if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 6) return
+    const point = pickAnalysisPoint(event)
+    if (!point) return
+    if (props.analysisMode === 'locate') {
+      clearAnalysisVisuals()
+      updateAnalysisVisuals(point)
+      emit('analysis-point', toAnalysisPoint(point))
+    } else if (!analysisStartPoint) {
+      analysisStartPoint = point
+      updateAnalysisVisuals(point)
+    } else {
+      const start = analysisStartPoint
+      updateAnalysisVisuals(start, point)
+      emit('analysis-distance', {
+        start: toAnalysisPoint(start),
+        end: toAnalysisPoint(point),
+        distance: start.distanceTo(point),
+        heightDifference: Math.abs(start.y - point.y),
+      })
+    }
+    return
+  }
   if (!clipDragState && clipPointerCaptureId === null) return
   endClipDrag(event)
 }
 
 function onViewportPointerCancel(event: PointerEvent) {
+  if (props.analysisMode !== 'none' && analysisPointerDown) {
+    analysisPointerDown = null
+    if (controls) controls.enabled = true
+    return
+  }
   if (!clipDragState && clipPointerCaptureId === null) return
   endClipDrag(event)
 }
@@ -1184,6 +1296,14 @@ function setBackgroundTheme(theme: PreviewBackgroundTheme) {
   requestRender()
 }
 
+function setBackgroundColor(color: string) {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return
+  backgroundTheme = 'black'
+  if (scene) scene.background = new THREE.Color(color)
+  renderer?.setClearColor(new THREE.Color(color), 1)
+  requestRender()
+}
+
 function setShowAxes(visible: boolean) {
   showAxesEnabled = visible
   syncHelperVisibility()
@@ -1240,6 +1360,7 @@ function reload() {
 
 function cleanup() {
   loadToken += 1
+  clearAnalysisVisuals()
 
   if (animationId) {
     cancelAnimationFrame(animationId)
@@ -1299,10 +1420,12 @@ defineExpose({
   syncFromExternalPose,
   resetView,
   setBackgroundTheme,
+  setBackgroundColor,
   setShowAxes,
   setShowGrid,
   setWireframe,
   setSectionState,
+  clearAnalysis: clearAnalysisVisuals,
 })
 
 watch(

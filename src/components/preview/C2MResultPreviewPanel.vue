@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
@@ -29,6 +28,8 @@ const statusText = ref('等待实模一致对比结果')
 const loaded = ref(false)
 const loading = ref(false)
 const localResult = ref<C2MResult | null>(props.result ?? null)
+type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+let backgroundTheme: PreviewBackgroundTheme = 'deep'
 
 let scene: THREE.Scene | null = null
 let camera: THREE.PerspectiveCamera | null = null
@@ -47,6 +48,27 @@ function disposeObject(object: THREE.Object3D) {
 
 function render() {
   if (renderer && scene && camera) renderer.render(scene, camera)
+}
+
+function setBackgroundTheme(theme: PreviewBackgroundTheme) {
+  backgroundTheme = theme
+  const colors: Record<PreviewBackgroundTheme, string> = {
+    deep: '#08111d',
+    light: '#f7fbff',
+    black: '#000000',
+    gradient: '#17365f',
+  }
+  if (scene) scene.background = new THREE.Color(colors[theme])
+  if (renderer) renderer.setClearColor(new THREE.Color(colors[theme]), 1)
+  render()
+}
+
+function setBackgroundColor(color: string) {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return
+  const next = new THREE.Color(color)
+  if (scene) scene.background = next
+  renderer?.setClearColor(next, 1)
+  render()
 }
 
 function getCameraPose() {
@@ -237,7 +259,7 @@ function clearResult() {
   render()
 }
 
-defineExpose({ reload, loadResult, clearResult, resetView, getCameraPose, syncFromExternalPose, syncInitialViewFromExternalPose, getCameraDistance, getCameraOrientation, syncFromRotation, syncFromCameraDistance, applyBimWorldPose })
+defineExpose({ reload, loadResult, clearResult, resetView, setBackgroundTheme, setBackgroundColor, getCameraPose, syncFromExternalPose, syncInitialViewFromExternalPose, getCameraDistance, getCameraOrientation, syncFromRotation, syncFromCameraDistance, applyBimWorldPose })
 
 onMounted(async () => {
   scene = new THREE.Scene()
@@ -291,11 +313,6 @@ onBeforeUnmount(() => {
       <span v-if="localResult?.stats">Mean {{ localResult.stats.mean.toFixed(4) }} m · P95 {{ localResult.stats.p95.toFixed(4) }} m</span>
       <el-button v-if="localResult?.coloredPlyAvailable" size="small" type="primary" :loading="loading" @click="loadResult">加载结果</el-button>
     </div>
-    <el-tooltip v-else content="清空实模一致对比结果" placement="left">
-      <button class="c2m-result-preview-panel__clear" type="button" aria-label="清空实模一致对比结果" @click="clearResult">
-        <el-icon><Delete /></el-icon>
-      </button>
-    </el-tooltip>
   </div>
 </template>
 

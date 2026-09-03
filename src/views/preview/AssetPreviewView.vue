@@ -4,6 +4,12 @@ import { ArrowLeft, ArrowRightBold, DArrowRight } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
+import ViewerAnalysisOverlay, {
+  type AnalysisDistance,
+  type AnalysisMode,
+  type AnalysisPoint,
+} from '@/components/preview/ViewerAnalysisOverlay.vue'
+import GlobalAnalysisToolbar from '@/components/preview/GlobalAnalysisToolbar.vue'
 
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 
@@ -21,6 +27,10 @@ const pointcloudPanelRef = ref<any>(null)
 
 const backgroundTheme = ref<PreviewBackgroundTheme>('black')
 const sidebarCollapsed = ref(false)
+const analysisMode = ref<AnalysisMode>('none')
+const analysisPoint = ref<AnalysisPoint | null>(null)
+const analysisDistance = ref<AnalysisDistance | null>(null)
+const analysisToolbarCollapsed = ref(true)
 
 const bimControls = reactive({
   showAxes: true,
@@ -117,6 +127,28 @@ function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
+function selectAnalysisMode(mode: AnalysisMode) {
+  analysisMode.value = analysisMode.value === mode ? 'none' : mode
+  analysisPoint.value = null
+  analysisDistance.value = null
+  currentPanelRef.value?.clearAnalysis?.()
+}
+
+function clearAnalysis() {
+  analysisMode.value = 'none'
+  analysisPoint.value = null
+  analysisDistance.value = null
+  currentPanelRef.value?.clearAnalysis?.()
+}
+
+function handleAnalysisPoint(point: AnalysisPoint) {
+  analysisPoint.value = point
+}
+
+function handleAnalysisDistance(distance: AnalysisDistance) {
+  analysisDistance.value = distance
+}
+
 watch(
   () => [
     props.previewType,
@@ -152,6 +184,13 @@ onMounted(() => {
         <span>关闭</span>
       </button>
     </div>
+    <GlobalAnalysisToolbar
+      v-if="assetId"
+      v-model:collapsed="analysisToolbarCollapsed"
+      :mode="analysisMode"
+      @update:mode="selectAnalysisMode"
+      @clear="clearAnalysis"
+    />
 
     <div v-if="!assetId" class="empty-state">
       <h2>{{ pageTitle }}</h2>
@@ -166,6 +205,9 @@ onMounted(() => {
           class="viewer-panel"
           :asset-id="assetId"
           :display-name="displayName"
+          :analysis-mode="analysisMode"
+          @analysis-point="handleAnalysisPoint"
+          @analysis-distance="handleAnalysisDistance"
           minimal
         />
 
@@ -174,7 +216,16 @@ onMounted(() => {
           ref="pointcloudPanelRef"
           class="viewer-panel"
           :asset-id="assetId"
+          :analysis-mode="analysisMode"
+          @analysis-point="handleAnalysisPoint"
+          @analysis-distance="handleAnalysisDistance"
           minimal
+        />
+        <ViewerAnalysisOverlay
+          :mode="analysisMode"
+          :point="analysisPoint"
+          :distance="analysisDistance"
+          @clear="clearAnalysis"
         />
       </div>
 
@@ -725,6 +776,12 @@ onMounted(() => {
     0 10px 24px rgba(8, 47, 73, 0.18);
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+
+.analysis-action.is-active {
+  border-color: rgba(248, 113, 113, 0.72);
+  background: rgba(220, 38, 38, 0.24);
+  color: #fecaca;
 }
 
 .asset-preview-page.theme-light .ghost-btn {

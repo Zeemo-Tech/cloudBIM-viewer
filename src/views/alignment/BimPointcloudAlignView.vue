@@ -41,6 +41,12 @@ import { createUploadHeaders } from '@/config/upload-backend'
 import wanggeIcon from '@/assets/images/wangge.png'
 import toushiIcon from '@/assets/images/toushi.png'
 import zhengjiaoIcon from '@/assets/images/zhengjiao.png'
+import GlobalAnalysisToolbar from '@/components/preview/GlobalAnalysisToolbar.vue'
+import ViewerAnalysisOverlay, {
+  type AnalysisDistance,
+  type AnalysisMode,
+  type AnalysisPoint,
+} from '@/components/preview/ViewerAnalysisOverlay.vue'
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
@@ -78,6 +84,10 @@ const fineAlignResult = ref<FineAlignmentResult | null>(null)
 const fineApplyWhenRegressed = ref(false)
 const fineRmseRegressRatio = ref(1.05)
 const fineFitnessRegressRatio = ref(0.95)
+const analysisMode = ref<AnalysisMode>('none')
+const analysisPoint = ref<AnalysisPoint | null>(null)
+const analysisDistance = ref<AnalysisDistance | null>(null)
+const analysisToolbarCollapsed = ref(true)
 const hasSavedAlignmentMatrix = ref(false)
 const coarseAlignmentDirty = ref(false)
 const latestAlignmentResult = ref<BimAlignmentResult | null>(null)
@@ -671,6 +681,11 @@ let highlightedElement:
       material: THREE.Material
     }
   | null = null
+let analysisStartPoint: THREE.Vector3 | null = null
+let analysisGroup: THREE.Group | null = null
+let analysisLine: THREE.Line | null = null
+let analysisMarkers: THREE.Mesh[] = []
+let analysisPointerDown: { x: number; y: number } | null = null
 
 function isPerspectiveCamera(
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
@@ -1584,6 +1599,48 @@ function getPointerNdc(ev: PointerEvent) {
     ((ev.clientX - rect.left) / rect.width) * 2 - 1,
     -((ev.clientY - rect.top) / rect.height) * 2 + 1,
   )
+}
+
+function clearAnalysis() {
+  analysisStartPoint = null
+  analysisPoint.value = null
+  analysisDistance.value = null
+  if (analysisGroup && scene) scene.remove(analysisGroup)
+  analysisGroup?.traverse((child: any) => { child.geometry?.dispose?.(); child.material?.dispose?.() })
+  analysisGroup = null
+  analysisLine = null
+  analysisMarkers = []
+}
+
+function pickAnalysisPoint(event: PointerEvent) {
+  if (!raycaster || !activeCamera || !contentGroup) return null
+  const pointer = getPointerNdc(event)
+  if (!pointer) return null
+  raycaster.setFromCamera(pointer, activeCamera)
+  return raycaster.intersectObjects(contentGroup.children, true)[0]?.point?.clone() ?? null
+}
+
+function renderAnalysisPoint(start: THREE.Vector3, end?: THREE.Vector3) {
+  if (!scene) return
+  if (!analysisGroup) { analysisGroup = new THREE.Group(); analysisGroup.renderOrder = 10001; scene.add(analysisGroup) }
+  const points = end ? [start, end] : [start]
+  if (!analysisLine) {
+    analysisLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }))
+    analysisGroup.add(analysisLine)
+  }
+  analysisLine.geometry.setFromPoints(points)
+  analysisLine.visible = Boolean(end)
+  while (analysisMarkers.length < points.length) {
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }))
+    analysisMarkers.push(marker); analysisGroup.add(marker)
+  }
+  analysisMarkers.forEach((marker, index) => { marker.visible = index < points.length; if (marker.visible) marker.position.copy(points[index]) })
+  requestRender()
+}
+
+function selectAnalysisMode(mode: AnalysisMode) {
+  clearAnalysis()
+  analysisMode.value = mode
 }
 
 function buildClipDragPlane(axisKey: ClipAxis, anchor: THREE.Vector3) {
@@ -3083,6 +3140,11 @@ function getTopLevelSceneObjectFromIntersection(object: THREE.Object3D | null) {
 
 function handleViewportPointerDown(event: PointerEvent) {
   if (!viewportEl.value || !activeCamera || !raycaster || !contentGroup) return
+  if (analysisMode.value !== 'none') {
+    analysisPointerDown = { x: event.clientX, y: event.clientY }
+    if (controls) controls.enabled = false
+    return
+  }
   if (transformControls && !controls?.enabled) return
 
   const pointer = getPointerNdc(event)
@@ -3154,11 +3216,34 @@ function onViewportPointerMove(event: PointerEvent) {
 }
 
 function onViewportPointerUp(event: PointerEvent) {
+  if (analysisMode.value !== 'none' && analysisPointerDown) {
+    const down = analysisPointerDown
+    analysisPointerDown = null
+    if (controls) controls.enabled = true
+    if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 6) return
+    const point = pickAnalysisPoint(event)
+    if (!point) return
+    const toPoint = (value: THREE.Vector3): AnalysisPoint => ({ x: value.x, y: value.y, z: value.z })
+    if (analysisMode.value === 'locate') {
+      clearAnalysis(); analysisMode.value = 'locate'; renderAnalysisPoint(point); analysisPoint.value = toPoint(point)
+    } else if (!analysisStartPoint) {
+      analysisStartPoint = point; renderAnalysisPoint(point)
+    } else {
+      const start = analysisStartPoint; renderAnalysisPoint(start, point)
+      analysisDistance.value = { start: toPoint(start), end: toPoint(point), distance: start.distanceTo(point), heightDifference: Math.abs(start.y - point.y) }
+    }
+    return
+  }
   if (!clipDragState && clipPointerCaptureId === null) return
   endClipDrag(event)
 }
 
 function onViewportPointerCancel(event: PointerEvent) {
+  if (analysisMode.value !== 'none' && analysisPointerDown) {
+    analysisPointerDown = null
+    if (controls) controls.enabled = true
+    return
+  }
   if (!clipDragState && clipPointerCaptureId === null) return
   endClipDrag(event)
 }
@@ -4192,6 +4277,9 @@ async function handleLoadPointCloudFromApi(silent = false) {
     const resourceBasePath = getTileResourceBasePath(assetDetail)
     const resourceBaseUrl = normalizeBackendUrl(resourceBasePath)
     const nextTileset = new TilesRenderer(url)
+    // Keep the parent tile visible while finer children load so zooming never
+    // causes a temporary drop in point density.
+    nextTileset.displayActiveTiles = true
     nextTileset.errorTarget = tilesErrorTarget.value
     nextTileset.fetchOptions = {
       headers: createUploadHeaders({ Accept: '*/*' }),
@@ -4377,6 +4465,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearAnalysis()
   clearMeshStatusPolling()
   clearPointcloudColorSaveTimer()
   clearLoadedRemeshMesh()
@@ -4410,6 +4499,19 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="BimPointcloudAlign-container">
+    <GlobalAnalysisToolbar
+      v-model:collapsed="analysisToolbarCollapsed"
+      :mode="analysisMode"
+      :disabled="!hasModel"
+      @update:mode="selectAnalysisMode"
+      @clear="clearAnalysis"
+    />
+    <ViewerAnalysisOverlay
+      :mode="analysisMode"
+      :point="analysisPoint"
+      :distance="analysisDistance"
+      @clear="clearAnalysis"
+    />
     <header class="topbar">
       <div class="topbar-left">
         <h1 class="brand-title">

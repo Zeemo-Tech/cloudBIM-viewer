@@ -1750,7 +1750,7 @@ func buildPointCloud(parent context.Context, source, dir string) error {
 	tilesDir := filepath.Join(dir, "tiles")
 	ctx, cancel := context.WithTimeout(parent, 60*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, tool, "file", "--coord-mode", "source", "--sample-mode", "min-distance", "--sample-distance", "0.03", "-o", tilesDir, source)
+	cmd := exec.CommandContext(ctx, tool, "file", "--coord-mode", "source", "--sample-mode", "min-distance", "--sample-distance", "0.001", "-o", tilesDir, source)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = os.RemoveAll(tilesDir)

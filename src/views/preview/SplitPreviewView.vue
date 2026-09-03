@@ -13,6 +13,11 @@ import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import C2MResultPreviewPanel from '@/components/preview/C2MResultPreviewPanel.vue'
+import ViewerAnalysisOverlay, {
+  type AnalysisDistance,
+  type AnalysisMode,
+  type AnalysisPoint,
+} from '@/components/preview/ViewerAnalysisOverlay.vue'
 import { getBimAlignment, type BimAlignmentResult } from '@/api/backend-alignment'
 import * as THREE from 'three'
 
@@ -42,6 +47,26 @@ const bimPanelRef = ref<any>(null)
 const consistencyPanelRef = ref<any>(null)
 const applyingViewSync = ref(false)
 const toolsExpanded = ref(true)
+const analysisMode = ref<AnalysisMode>('none')
+const analysisPoint = ref<AnalysisPoint | null>(null)
+const analysisDistance = ref<AnalysisDistance | null>(null)
+type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+type PointcloudRendererMode = 'webgpu' | 'webgl'
+const splitBackgrounds = reactive<Record<SyncSource, PreviewBackgroundTheme>>({
+  bim: 'deep',
+  pointcloud: 'deep',
+  consistency: 'deep',
+})
+const splitBackgroundColors = reactive<Record<SyncSource, string>>({
+  bim: '#08111d',
+  pointcloud: '#08111d',
+  consistency: '#08111d',
+})
+const pointcloudRendererMode = ref<PointcloudRendererMode>('webgpu')
+const pointcloudColorMode = ref<'original' | 'custom'>('original')
+const pointcloudColor = ref('#86898D')
+const edlEnabled = ref(true)
+const edlStrength = ref(0.45)
 const viewVisibility = reactive({
   bim: true,
   pointcloud: true,
@@ -455,8 +480,56 @@ function handleConsistencyCameraChange(_pose: CameraPose | null) {
   syncZoom('consistency', getCurrentDistance('consistency'))
 }
 
+function selectAnalysisMode(mode: AnalysisMode) {
+  analysisMode.value = analysisMode.value === mode ? 'none' : mode
+  analysisPoint.value = null
+  analysisDistance.value = null
+  bimPanelRef.value?.clearAnalysis?.()
+  pointcloudPanelRef.value?.clearAnalysis?.()
+}
+
+function clearAnalysis() {
+  analysisMode.value = 'none'
+  analysisPoint.value = null
+  analysisDistance.value = null
+  bimPanelRef.value?.clearAnalysis?.()
+  pointcloudPanelRef.value?.clearAnalysis?.()
+}
+
+function applySplitPresentation() {
+  bimPanelRef.value?.setBackgroundTheme?.(splitBackgrounds.bim)
+  pointcloudPanelRef.value?.setBackgroundTheme?.(splitBackgrounds.pointcloud)
+  consistencyPanelRef.value?.setBackgroundTheme?.(splitBackgrounds.consistency)
+  bimPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.bim)
+  pointcloudPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.pointcloud)
+  consistencyPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.consistency)
+  pointcloudPanelRef.value?.setRendererPreference?.(pointcloudRendererMode.value)
+  pointcloudPanelRef.value?.setPointColor?.(
+    pointcloudColorMode.value === 'custom' ? pointcloudColor.value : null,
+  )
+  pointcloudPanelRef.value?.setEdlEnabled?.(edlEnabled.value)
+  pointcloudPanelRef.value?.setEdlStrength?.(edlStrength.value)
+}
+
+function syncBackgroundColorFromTheme(source: SyncSource) {
+  const colors: Record<PreviewBackgroundTheme, string> = {
+    deep: '#08111d',
+    light: '#f7fbff',
+    black: '#000000',
+    gradient: '#17365f',
+  }
+  splitBackgroundColors[source] = colors[splitBackgrounds[source]]
+}
+
+function clearScreen(source: SyncSource) {
+  if (source === 'bim') bimPanelRef.value?.clearAnalysis?.()
+  if (source === 'pointcloud') pointcloudPanelRef.value?.clearAnalysis?.()
+  if (source === 'consistency') consistencyPanelRef.value?.clearResult?.()
+}
+
 onMounted(() => {
   void loadCalibration()
+  requestAnimationFrame(applySplitPresentation)
 })
 
 watch(
@@ -464,13 +537,34 @@ watch(
   () => {
     clearRotationSyncState()
     void loadCalibration()
+    requestAnimationFrame(applySplitPresentation)
   },
+)
+
+watch(
+  [
+    () => splitBackgrounds.bim,
+    () => splitBackgrounds.pointcloud,
+    () => splitBackgrounds.consistency,
+    () => splitBackgroundColors.bim,
+    () => splitBackgroundColors.pointcloud,
+    () => splitBackgroundColors.consistency,
+    pointcloudRendererMode,
+    pointcloudColorMode,
+    pointcloudColor,
+    edlEnabled,
+    edlStrength,
+    bimPanelRef,
+    pointcloudPanelRef,
+    consistencyPanelRef,
+  ],
+  applySplitPresentation,
 )
 </script>
 
 <template>
   <section class="split-preview-page">
-    <div class="floating-controls" :class="{ 'is-collapsed': !toolsExpanded }">
+    <div v-if="isReady" class="floating-controls" :class="{ 'is-collapsed': !toolsExpanded }">
       <button
         class="tools-toggle"
         type="button"
@@ -510,6 +604,21 @@ watch(
           <span>同步</span>
         </button>
 
+        <button
+          class="floating-btn layer-btn"
+          :class="{ 'is-active': analysisMode === 'distance' }"
+          type="button"
+          title="全局测距"
+          @click="selectAnalysisMode('distance')"
+        >测距</button>
+        <button
+          class="floating-btn layer-btn"
+          :class="{ 'is-active': analysisMode === 'locate' }"
+          type="button"
+          title="全局定位"
+          @click="selectAnalysisMode('locate')"
+        >定位</button>
+
         <span class="tools-divider" aria-hidden="true" />
 
         <button
@@ -547,6 +656,46 @@ watch(
           <el-icon><View /></el-icon>
           <span>一致结果</span>
         </button>
+
+        <span class="tools-divider" aria-hidden="true" />
+        <label class="tool-select-row">
+          <span>BIM 自定义</span>
+          <input v-model="splitBackgroundColors.bim" type="color" />
+        </label>
+        <label class="tool-select-row">
+          <span>点云自定义</span>
+          <input v-model="splitBackgroundColors.pointcloud" type="color" />
+        </label>
+        <label class="tool-select-row">
+          <span>一致自定义</span>
+          <input v-model="splitBackgroundColors.consistency" type="color" />
+        </label>
+        <label class="tool-select-row">
+          <span>点云模式</span>
+          <select v-model="pointcloudRendererMode">
+            <option value="webgpu">WebGPU</option><option value="webgl">WebGL</option>
+          </select>
+        </label>
+        <label class="tool-select-row">
+          <span>EDL</span>
+          <input v-model="edlEnabled" type="checkbox" :disabled="pointcloudRendererMode !== 'webgl'" />
+        </label>
+        <label class="tool-range-row">
+          <span>EDL 强度 {{ pointcloudRendererMode === 'webgpu' ? '（WebGPU 不支持）' : '' }}</span>
+          <input v-model.number="edlStrength" type="range" min="0" max="1" step="0.05" :disabled="!edlEnabled || pointcloudRendererMode !== 'webgl'" />
+        </label>
+        <label class="tool-select-row">
+          <span>点云颜色</span>
+          <select v-model="pointcloudColorMode">
+            <option value="original">原始颜色</option><option value="custom">自定义</option>
+          </select>
+        </label>
+        <label v-if="pointcloudColorMode === 'custom'" class="tool-select-row">
+          <span>颜色</span>
+          <input v-model="pointcloudColor" type="color" />
+        </label>
+
+
       </div>
     </div>
 
@@ -580,10 +729,13 @@ watch(
           :asset-id="bimAssetId"
           :display-name="bimDisplayName"
           :calibration="calibration"
+          :analysis-mode="analysisMode"
           fusion-mode
           minimal
           @loaded-change="handleBimLoadedChange"
           @camera-change="handleBimCameraChange"
+          @analysis-point="analysisPoint = $event"
+          @analysis-distance="analysisDistance = $event"
         />
       </div>
       <div v-show="viewVisibility.pointcloud" class="viewer-slot">
@@ -595,11 +747,20 @@ watch(
         <PointcloudPreviewPanel
           ref="pointcloudPanelRef"
           :asset-id="pointcloudAssetId"
+          :analysis-mode="analysisMode"
           minimal
           @loaded-change="handlePointcloudLoadedChange"
           @camera-change="handlePointcloudCameraChange"
+          @analysis-point="analysisPoint = $event"
+          @analysis-distance="analysisDistance = $event"
         />
       </div>
+      <ViewerAnalysisOverlay
+        :mode="analysisMode"
+        :point="analysisPoint"
+        :distance="analysisDistance"
+        @clear="clearAnalysis"
+      />
       <div v-show="viewVisibility.consistency" class="viewer-slot">
         <C2MResultPreviewPanel
           ref="consistencyPanelRef"
@@ -632,20 +793,29 @@ watch(
 
 .floating-controls {
   position: fixed;
-  top: 18px;
-  left: 18px;
+  top: 50%;
+  left: 14px;
   z-index: 20;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
+  transform: translateY(-50%);
 }
 
 .tools-panel {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: min(calc(100vw - 86px), 720px);
-  padding: 5px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 190px;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: rgba(8, 17, 29, 0.82);
+  box-shadow: 0 20px 50px rgba(1, 8, 13, 0.34);
+  backdrop-filter: blur(18px) saturate(135%);
 }
 
 .tools-toggle {
@@ -669,8 +839,8 @@ watch(
 }
 
 .tools-divider {
-  width: 1px;
-  height: 24px;
+  width: 100%;
+  height: 1px;
   flex: 0 0 auto;
   background: rgba(148, 163, 184, 0.24);
 }
@@ -724,7 +894,60 @@ watch(
 }
 
 .layer-btn {
-  min-width: 74px;
+  width: 100%;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.tool-select-row,
+.tool-clear-row,
+.tool-range-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.tool-range-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tool-range-row input[type='range'] {
+  width: 100%;
+  accent-color: #38bdf8;
+}
+
+.tool-select-row select {
+  width: 92px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 6px;
+  padding: 5px 6px;
+  background: rgba(15, 23, 42, 0.86);
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.tool-clear-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.tool-clear-row > span {
+  width: 100%;
+}
+
+.tool-clear-row button {
+  flex: 1;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  border-radius: 6px;
+  padding: 5px 6px;
+  background: rgba(127, 29, 29, 0.3);
+  color: #fecaca;
+  cursor: pointer;
+  font-size: 11px;
 }
 
 .layer-btn:not(.is-active) {
@@ -844,12 +1067,24 @@ watch(
   }
 
   .tools-panel {
-    flex-wrap: wrap;
-    max-width: min(calc(100vw - 86px), 420px);
+    width: 176px;
   }
 
   .viewer-shell--tools-expanded .viewer-label {
     top: 142px;
+  }
+}
+
+@media (max-width: 640px) {
+  .floating-controls {
+    top: 12px;
+    left: 12px;
+    transform: none;
+  }
+
+  .tools-panel {
+    width: min(176px, calc(100vw - 72px));
+    max-height: calc(100vh - 72px);
   }
 }
 </style>
