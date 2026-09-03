@@ -6,10 +6,13 @@ import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
+  type AnalysisArea,
   type AnalysisMode,
   type AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
 import GlobalAnalysisToolbar from '@/components/preview/GlobalAnalysisToolbar.vue'
+import { createMeasurement, listMeasurements, type MeasurementKind } from '@/api/backend-measurement'
+import MeasurementResultsPanel from '@/components/preview/MeasurementResultsPanel.vue'
 
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 
@@ -30,7 +33,10 @@ const sidebarCollapsed = ref(false)
 const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
-const analysisToolbarCollapsed = ref(true)
+const analysisAreas = ref<AnalysisArea[]>([])
+const analysisPoints = ref<AnalysisPoint[]>([])
+const analysisDistances = ref<AnalysisDistance[]>([])
+const analysisToolbarCollapsed = ref(false)
 
 const bimControls = reactive({
   showAxes: true,
@@ -131,6 +137,9 @@ function selectAnalysisMode(mode: AnalysisMode) {
   analysisMode.value = analysisMode.value === mode ? 'none' : mode
   analysisPoint.value = null
   analysisDistance.value = null
+  analysisAreas.value = []
+  analysisPoints.value = []
+  analysisDistances.value = []
   currentPanelRef.value?.clearAnalysis?.()
 }
 
@@ -138,15 +147,40 @@ function clearAnalysis() {
   analysisMode.value = 'none'
   analysisPoint.value = null
   analysisDistance.value = null
+  analysisAreas.value = []
+  analysisPoints.value = []
+  analysisDistances.value = []
   currentPanelRef.value?.clearAnalysis?.()
+}
+
+function removeAnalysis(kind: 'point' | 'distance' | 'area', index: number) {
+  if (kind === 'point') analysisPoints.value = analysisPoints.value.filter((_, i) => i !== index)
+  if (kind === 'distance') analysisDistances.value = analysisDistances.value.filter((_, i) => i !== index)
+  if (kind === 'area') analysisAreas.value = analysisAreas.value.filter((_, i) => i !== index)
 }
 
 function handleAnalysisPoint(point: AnalysisPoint) {
   analysisPoint.value = point
+  analysisPoints.value = [...analysisPoints.value, point]
+  persistMeasurement('locate', point)
 }
 
 function handleAnalysisDistance(distance: AnalysisDistance) {
   analysisDistance.value = distance
+  analysisDistances.value = [...analysisDistances.value, distance]
+  persistMeasurement('distance', distance)
+}
+
+function handleAnalysisArea(area: AnalysisArea) {
+  analysisAreas.value = [...analysisAreas.value, area]
+  persistMeasurement('area', area)
+}
+
+function persistMeasurement(kind: MeasurementKind, payload: unknown) {
+  if (!props.assetId) return
+  void createMeasurement(props.assetId, kind, payload).catch((error) => {
+    console.warn('[AssetPreview] 保存测量记录失败', error)
+  })
 }
 
 watch(
@@ -173,6 +207,15 @@ watch(
 
 onMounted(() => {
   applyPanelSettings()
+  if (props.assetId) {
+    void listMeasurements(props.assetId).then((response) => {
+      response.data.forEach((record) => {
+        if (record.kind === 'locate') analysisPoints.value.push(record.payload as AnalysisPoint)
+        if (record.kind === 'distance') analysisDistances.value.push(record.payload as AnalysisDistance)
+        if (record.kind === 'area') analysisAreas.value.push(record.payload as AnalysisArea)
+      })
+    }).catch(() => undefined)
+  }
 })
 </script>
 
@@ -208,6 +251,7 @@ onMounted(() => {
           :analysis-mode="analysisMode"
           @analysis-point="handleAnalysisPoint"
           @analysis-distance="handleAnalysisDistance"
+          @analysis-area="handleAnalysisArea"
           minimal
         />
 
@@ -219,13 +263,24 @@ onMounted(() => {
           :analysis-mode="analysisMode"
           @analysis-point="handleAnalysisPoint"
           @analysis-distance="handleAnalysisDistance"
+          @analysis-area="handleAnalysisArea"
           minimal
         />
         <ViewerAnalysisOverlay
           :mode="analysisMode"
           :point="analysisPoint"
           :distance="analysisDistance"
+          :points="analysisPoints"
+          :distances="analysisDistances"
+          :areas="analysisAreas"
           @clear="clearAnalysis"
+        />
+        <MeasurementResultsPanel
+          :points="analysisPoints"
+          :distances="analysisDistances"
+          :areas="analysisAreas"
+          @clear="clearAnalysis"
+          @remove="removeAnalysis"
         />
       </div>
 

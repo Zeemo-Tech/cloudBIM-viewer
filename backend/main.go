@@ -176,6 +176,15 @@ type DBAlignment struct {
 	CreatedAt              time.Time
 }
 
+type DBMeasurement struct {
+	ID        int64     `gorm:"primaryKey" json:"id"`
+	AssetID   int64     `gorm:"index;not null" json:"assetId"`
+	OwnerID   int64     `gorm:"index;not null" json:"-"`
+	Kind      string    `gorm:"size:32;not null" json:"kind"`
+	Payload   string    `gorm:"type:text;not null" json:"payload"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 type DBC2MResult struct {
 	ID              int64 `gorm:"primaryKey"`
 	ScanID          int64 `gorm:"uniqueIndex:idx_c2m_scan_bim;not null"`
@@ -377,7 +386,7 @@ func (a *app) connectDB() error {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("%s 数据库不可用: %w", a.cfg.DBDriver, err)
 	}
-	if err := db.AutoMigrate(&DBUser{}, &DBAsset{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}); err != nil {
+	if err := db.AutoMigrate(&DBUser{}, &DBAsset{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBMeasurement{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	a.db = db
@@ -2460,6 +2469,79 @@ func (a *app) c2mColoredPly(c *gin.Context) {
 	}
 	c.File(row.ColoredPlyPath)
 }
+
+func (a *app) listMeasurements(c *gin.Context) {
+	assetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "资产 ID 无效")
+		return
+	}
+	var asset DBAsset
+	if err := a.db.Where("id = ? AND owner_id = ?", assetID, userID(c)).First(&asset).Error; err != nil {
+		fail(c, http.StatusNotFound, "资产不存在")
+		return
+	}
+	var rows []DBMeasurement
+	if err := a.db.Where("asset_id = ? AND owner_id = ?", assetID, userID(c)).Order("created_at asc").Find(&rows).Error; err != nil {
+		fail(c, 500, "查询测量记录失败")
+		return
+	}
+	result := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		var payload any
+		if json.Unmarshal([]byte(row.Payload), &payload) != nil {
+			continue
+		}
+		result = append(result, gin.H{"id": row.ID, "kind": row.Kind, "payload": payload, "createdAt": row.CreatedAt})
+	}
+	ok(c, result)
+}
+
+func (a *app) createMeasurement(c *gin.Context) {
+	assetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, 400, "资产 ID 无效")
+		return
+	}
+	var asset DBAsset
+	if err := a.db.Where("id = ? AND owner_id = ?", assetID, userID(c)).First(&asset).Error; err != nil {
+		fail(c, 404, "资产不存在")
+		return
+	}
+	var req struct {
+		Kind    string          `json:"kind"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Kind) == "" || len(req.Payload) == 0 || !json.Valid(req.Payload) {
+		fail(c, 400, "测量数据格式无效")
+		return
+	}
+	row := DBMeasurement{AssetID: assetID, OwnerID: userID(c), Kind: strings.TrimSpace(req.Kind), Payload: string(req.Payload), CreatedAt: time.Now().UTC()}
+	if err := a.db.Create(&row).Error; err != nil {
+		fail(c, 500, "保存测量记录失败")
+		return
+	}
+	ok(c, gin.H{"id": row.ID, "kind": row.Kind, "payload": json.RawMessage(row.Payload), "createdAt": row.CreatedAt})
+}
+
+func (a *app) deleteMeasurement(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("measurementId"), 10, 64)
+	if err != nil {
+		fail(c, 400, "测量记录 ID 无效")
+		return
+	}
+	result := a.db.Where("id = ? AND owner_id = ?", id, userID(c)).Delete(&DBMeasurement{})
+	if result.Error != nil {
+		fail(c, 500, "删除测量记录失败")
+		return
+	}
+	if result.RowsAffected == 0 {
+		fail(c, 404, "测量记录不存在")
+		return
+	}
+	ok(c, nil)
+}
+
 func (a *app) scans(c *gin.Context) {
 	var rows []DBAsset
 	if err := a.db.Where("owner_id = ? AND type = ?", userID(c), "pointcloud").Order("created_at DESC").Find(&rows).Error; err != nil {
@@ -2558,7 +2640,10 @@ func main() {
 	r.GET("/assets/:id", a.assetDetail)
 	r.PATCH("/assets/:id/appearance", a.updateAssetAppearance)
 	r.DELETE("/assets/:id", a.deleteAsset)
+	r.GET("/assets/:id/measurements", a.listMeasurements)
+	r.POST("/assets/:id/measurements", a.createMeasurement)
 	r.GET("/assets/:id/:resource", a.resource)
+	r.DELETE("/measurements/:measurementId", a.deleteMeasurement)
 	r.GET("/mesh/algorithms", a.meshAlgorithms)
 	r.POST("/assets/:id/mesh/remesh", a.remeshAsset)
 	r.GET("/assets/:id/mesh/remesh/status", a.remeshStatus)

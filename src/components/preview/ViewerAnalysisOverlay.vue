@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-export type AnalysisMode = 'none' | 'distance' | 'locate'
+export type AnalysisMode = 'none' | 'distance' | 'locate' | 'area'
 export type AnalysisPoint = { x: number; y: number; z: number }
 export type AnalysisDistance = {
   start: AnalysisPoint
@@ -9,11 +9,19 @@ export type AnalysisDistance = {
   distance: number
   heightDifference: number
 }
+export type AnalysisArea = {
+  points: AnalysisPoint[]
+  area: number
+  perimeter: number
+}
 
 const props = defineProps<{
   mode: AnalysisMode
   point: AnalysisPoint | null
   distance: AnalysisDistance | null
+  points?: AnalysisPoint[]
+  distances?: AnalysisDistance[]
+  areas?: AnalysisArea[]
 }>()
 
 const emit = defineEmits<{
@@ -29,19 +37,25 @@ const distanceText = computed(() => {
   if (!props.distance) return ''
   return `${props.distance.distance.toFixed(3)} m`
 })
+
+const pointRecords = computed(() => props.points ?? (props.point ? [props.point] : []))
+const distanceRecords = computed(() => props.distances ?? (props.distance ? [props.distance] : []))
+const areaRecords = computed(() => props.areas ?? [])
 </script>
 
 <template>
   <div v-if="props.mode !== 'none'" class="analysis-overlay">
     <div class="analysis-toolbar">
-      <strong>{{ props.mode === 'distance' ? '全局测距' : '全局定位' }}</strong>
-      <span v-if="props.mode === 'distance' && !props.distance">依次点击两个 BIM 或点云位置</span>
-      <span v-else-if="props.mode === 'locate' && !props.point">点击 BIM 或点云中的任意位置</span>
+      <strong>{{ props.mode === 'distance' ? '全局测距' : props.mode === 'area' ? '面积测量' : '全局定位' }}</strong>
+      <span v-if="props.mode === 'distance' && distanceRecords.length === 0">依次点击两点完成一段测距</span>
+      <span v-else-if="props.mode === 'locate' && pointRecords.length === 0">点击 BIM 或点云中的任意位置拾取坐标</span>
+      <span v-else-if="props.mode === 'area' && areaRecords.length === 0">连续点击至少三个点，双击首点闭合区域</span>
       <span v-else-if="props.mode === 'distance'" class="analysis-value">
-        {{ distanceText }}
+        {{ distanceRecords.length }} 段，最近 {{ distanceText }}
         <small>高差 {{ props.distance?.heightDifference.toFixed(3) }} m</small>
       </span>
-      <span v-else class="analysis-value">{{ pointText }}</span>
+      <span v-else-if="props.mode === 'area'" class="analysis-value">{{ areaRecords.length }} 个区域</span>
+      <span v-else class="analysis-value">{{ pointRecords.length }} 个点，最近 {{ pointText }}</span>
       <button type="button" class="analysis-clear" title="清除当前分析" @click="emit('clear')">清除</button>
     </div>
   </div>

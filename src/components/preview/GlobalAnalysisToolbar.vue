@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Aim, Delete, Fold, Tools } from '@element-plus/icons-vue'
+import { Aim, Delete, Fold, Tools, LocationInformation, FullScreen } from '@element-plus/icons-vue'
 import type { AnalysisMode } from './ViewerAnalysisOverlay.vue'
 
 const props = withDefaults(
@@ -54,7 +54,17 @@ function select(mode: Exclude<AnalysisMode, 'none'>) {
         title="全局定位"
         @click="select('locate')"
       >
-        <el-icon><Aim /></el-icon><span>定位</span>
+        <el-icon><LocationInformation /></el-icon><span>定位</span>
+      </button>
+      <button
+        class="analysis-action"
+        :class="{ 'is-active': props.mode === 'area' }"
+        type="button"
+        :disabled="props.disabled"
+        title="面积测量"
+        @click="select('area')"
+      >
+        <el-icon><FullScreen /></el-icon><span>面积</span>
       </button>
       <button class="analysis-action analysis-action--clear" type="button" title="清除分析结果" @click="emit('clear')">
         <el-icon><Delete /></el-icon><span>清除</span>

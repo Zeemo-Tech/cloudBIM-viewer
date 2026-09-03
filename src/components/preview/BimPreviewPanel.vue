@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { getAssetDetail, getBimGlbFile } from '@/api/backend-file'
-import type { AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
+import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 
 type CameraPose = {
   camera: THREE.Vector3
@@ -55,6 +55,7 @@ const emit = defineEmits<{
   (event: 'camera-change', pose: CameraPose | null): void
   (event: 'analysis-point', point: AnalysisPoint): void
   (event: 'analysis-distance', distance: AnalysisDistance): void
+  (event: 'analysis-area', area: AnalysisArea): void
 }>()
 
 const viewportEl = ref<HTMLDivElement | null>(null)
@@ -105,9 +106,11 @@ let clipBoxState: ClipBoxState | null = null
 let clipAxis: ClipAxis = 'z'
 let clipInvert = false
 let analysisStartPoint: THREE.Vector3 | null = null
+let analysisAreaPoints: THREE.Vector3[] = []
 let analysisGroup: THREE.Group | null = null
 let analysisLine: THREE.Line | null = null
-let analysisMarkers: THREE.Mesh[] = []
+let analysisFill: THREE.Mesh | null = null
+let analysisMarkers: THREE.Sprite[] = []
 let analysisPointerDown: { x: number; y: number } | null = null
 
 function getBackgroundColor(theme: PreviewBackgroundTheme) {
@@ -641,6 +644,7 @@ function toAnalysisPoint(point: THREE.Vector3): AnalysisPoint {
 
 function clearAnalysisVisuals() {
   analysisStartPoint = null
+  analysisAreaPoints = []
   if (analysisGroup && scene) scene.remove(analysisGroup)
   analysisGroup?.traverse((child: any) => {
     child.geometry?.dispose?.()
@@ -648,6 +652,7 @@ function clearAnalysisVisuals() {
   })
   analysisGroup = null
   analysisLine = null
+  analysisFill = null
   analysisMarkers = []
 }
 
@@ -659,25 +664,52 @@ function ensureAnalysisGroup() {
   return analysisGroup
 }
 
+function createMeasurementPinSprite(fillColor = '#ff4040', innerColor = '#fff4f4') {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 128
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Failed to create measurement marker canvas.')
+  context.shadowColor = 'rgba(255, 86, 86, 0.35)'
+  context.shadowBlur = 18
+  context.fillStyle = fillColor
+  context.beginPath()
+  context.moveTo(64, 10)
+  context.bezierCurveTo(33, 10, 18, 32, 18, 55)
+  context.bezierCurveTo(18, 82, 39, 96, 64, 118)
+  context.bezierCurveTo(89, 96, 110, 82, 110, 55)
+  context.bezierCurveTo(110, 32, 95, 10, 64, 10)
+  context.closePath()
+  context.fill()
+  context.shadowBlur = 0
+  context.fillStyle = innerColor
+  context.beginPath()
+  context.arc(64, 52, 18, 0, Math.PI * 2)
+  context.fill()
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }))
+  sprite.center.set(0.5, 0.1)
+  sprite.renderOrder = 10002
+  return sprite
+}
+
 function updateAnalysisVisuals(start: THREE.Vector3, end?: THREE.Vector3) {
   const group = ensureAnalysisGroup()
   if (!group) return
   if (!analysisLine) {
     analysisLine = new THREE.Line(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }),
+      new THREE.LineDashedMaterial({ color: 0xff5252, dashSize: 0.9, gapSize: 0.48, linewidth: 2, depthTest: false, depthWrite: false }),
     )
     group.add(analysisLine)
   }
   const points = end ? [start, end] : [start]
   analysisLine.geometry.setFromPoints(points)
+  analysisLine.computeLineDistances()
   analysisLine.visible = Boolean(end)
   while (analysisMarkers.length < points.length) {
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.06, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }),
-    )
-    marker.renderOrder = 10002
+    const marker = createMeasurementPinSprite()
     analysisMarkers.push(marker)
     group.add(marker)
   }
@@ -685,11 +717,89 @@ function updateAnalysisVisuals(start: THREE.Vector3, end?: THREE.Vector3) {
     marker.visible = index < points.length
     if (marker.visible) {
       marker.position.copy(points[index])
-      const markerSize = Math.max(0.06, camera ? camera.position.distanceTo(points[index]) * 0.012 : 0.06)
-      marker.scale.setScalar(markerSize / 0.06)
+      scaleAnalysisMarker(marker, points[index])
     }
   })
   requestRender()
+}
+
+function updateAreaVisuals(points: THREE.Vector3[]) {
+  const group = ensureAnalysisGroup()
+  if (!group) return
+  if (!analysisLine) {
+    analysisLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xff5252, dashSize: 0.9, gapSize: 0.48, linewidth: 2, depthTest: false, depthWrite: false }))
+    group.add(analysisLine)
+  }
+  const displayPoints = points.length > 2 ? [...points, points[0]] : points
+  analysisLine.geometry.setFromPoints(displayPoints)
+  analysisLine.computeLineDistances()
+  analysisLine.visible = displayPoints.length > 1
+  if (points.length >= 3) {
+    if (!analysisFill) {
+      analysisFill = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xff5252, transparent: true, opacity: 0.14, depthTest: false, depthWrite: false, side: THREE.DoubleSide }))
+      analysisFill.renderOrder = 10000
+      group.add(analysisFill)
+    }
+    const triangles = THREE.ShapeUtils.triangulateShape(points.map((point) => new THREE.Vector2(point.x, point.z)), [])
+    const geometry = analysisFill.geometry as THREE.BufferGeometry
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(points.flatMap((point) => [point.x, point.y, point.z]), 3))
+    geometry.setIndex(triangles.flat())
+    geometry.computeVertexNormals()
+    analysisFill.visible = triangles.length > 0
+  } else if (analysisFill) {
+    analysisFill.visible = false
+  }
+  while (analysisMarkers.length < points.length) {
+    const marker = createMeasurementPinSprite()
+    analysisMarkers.push(marker)
+    group.add(marker)
+  }
+  analysisMarkers.forEach((marker, index) => {
+    marker.visible = index < points.length
+    if (marker.visible) {
+      marker.position.copy(points[index])
+      scaleAnalysisMarker(marker, points[index])
+    }
+  })
+  requestRender()
+}
+
+// Keep measurement markers at a readable screen size, matching qingxie.
+function scaleAnalysisMarker(marker: THREE.Object3D, point: THREE.Vector3) {
+  if (!camera || !renderer || !viewportEl.value) return
+  const distance = camera.position.distanceTo(point)
+  const viewportHeight = renderer.domElement.clientHeight || viewportEl.value.clientHeight || 1
+  const fov = THREE.MathUtils.degToRad(camera.fov * 0.5)
+  const worldUnitsPerPixel = (2 * distance * Math.tan(fov)) / viewportHeight
+  const normalized = THREE.MathUtils.clamp((distance - 3) / 39, 0, 1)
+  const targetPixels = THREE.MathUtils.lerp(14, 32, THREE.MathUtils.smoothstep(normalized, 0, 1))
+  const targetWorldSize = targetPixels * worldUnitsPerPixel
+  // Sprites are unit-sized by default; do not apply the mesh-sphere 0.06
+  // radius factor here or the pin grows roughly 16x too large when zooming.
+  marker.scale.set(targetWorldSize, targetWorldSize, 1)
+}
+
+function calculateArea(points: THREE.Vector3[]) {
+  let area = 0
+  let perimeter = 0
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length]
+    area += point.x * next.z - next.x * point.z
+    perimeter += point.distanceTo(next)
+  })
+  return { area: Math.abs(area) * 0.5, perimeter }
+}
+
+function completeAreaSelection() {
+  if (analysisAreaPoints.length < 3) return
+  const result = calculateArea(analysisAreaPoints)
+  emit('analysis-area', { points: analysisAreaPoints.map(toAnalysisPoint), ...result })
+  updateAreaVisuals(analysisAreaPoints)
+  analysisAreaPoints = []
+}
+
+function handleAnalysisKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && props.analysisMode === 'area') completeAreaSelection()
 }
 
 function pickAnalysisPoint(event: PointerEvent) {
@@ -851,6 +961,14 @@ function onViewportPointerUp(event: PointerEvent) {
       clearAnalysisVisuals()
       updateAnalysisVisuals(point)
       emit('analysis-point', toAnalysisPoint(point))
+    } else if (props.analysisMode === 'area') {
+      const closeThreshold = camera ? Math.max(0.15, camera.position.distanceTo(point) * 0.025) : 0.15
+      if (analysisAreaPoints.length >= 3 && point.distanceTo(analysisAreaPoints[0]) < closeThreshold) {
+        completeAreaSelection()
+      } else {
+        analysisAreaPoints = [...analysisAreaPoints, point]
+        updateAreaVisuals(analysisAreaPoints)
+      }
     } else if (!analysisStartPoint) {
       analysisStartPoint = point
       updateAnalysisVisuals(point)
@@ -863,6 +981,7 @@ function onViewportPointerUp(event: PointerEvent) {
         distance: start.distanceTo(point),
         heightDifference: Math.abs(start.y - point.y),
       })
+      analysisStartPoint = null
     }
     return
   }
@@ -973,6 +1092,9 @@ function renderFrame() {
     return
   }
 
+  analysisMarkers.forEach((marker, index) => {
+    if (marker.visible) scaleAnalysisMarker(marker, marker.position)
+  })
   renderer.render(scene, camera)
   needsRender = false
   animationId = 0
@@ -1012,6 +1134,7 @@ function initViewer() {
   renderer.domElement.addEventListener('pointerup', onViewportPointerUp)
   renderer.domElement.addEventListener('pointercancel', onViewportPointerCancel)
   raycaster = new THREE.Raycaster()
+  window.addEventListener('keydown', handleAnalysisKeydown)
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = false
@@ -1360,6 +1483,7 @@ function reload() {
 
 function cleanup() {
   loadToken += 1
+  window.removeEventListener('keydown', handleAnalysisKeydown)
   clearAnalysisVisuals()
 
   if (animationId) {

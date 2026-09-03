@@ -15,11 +15,14 @@ import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.
 import C2MResultPreviewPanel from '@/components/preview/C2MResultPreviewPanel.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
+  type AnalysisArea,
   type AnalysisMode,
   type AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
 import { getBimAlignment, type BimAlignmentResult } from '@/api/backend-alignment'
 import * as THREE from 'three'
+import { createMeasurement, listMeasurements, type MeasurementKind } from '@/api/backend-measurement'
+import MeasurementResultsPanel from '@/components/preview/MeasurementResultsPanel.vue'
 
 type CameraPose = {
   camera: any
@@ -50,6 +53,9 @@ const toolsExpanded = ref(true)
 const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
+const analysisAreas = ref<AnalysisArea[]>([])
+const analysisPoints = ref<AnalysisPoint[]>([])
+const analysisDistances = ref<AnalysisDistance[]>([])
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 type PointcloudRendererMode = 'webgpu' | 'webgl'
 const splitBackgrounds = reactive<Record<SyncSource, PreviewBackgroundTheme>>({
@@ -484,6 +490,9 @@ function selectAnalysisMode(mode: AnalysisMode) {
   analysisMode.value = analysisMode.value === mode ? 'none' : mode
   analysisPoint.value = null
   analysisDistance.value = null
+  analysisAreas.value = []
+  analysisPoints.value = []
+  analysisDistances.value = []
   bimPanelRef.value?.clearAnalysis?.()
   pointcloudPanelRef.value?.clearAnalysis?.()
 }
@@ -492,8 +501,41 @@ function clearAnalysis() {
   analysisMode.value = 'none'
   analysisPoint.value = null
   analysisDistance.value = null
+  analysisAreas.value = []
+  analysisPoints.value = []
+  analysisDistances.value = []
   bimPanelRef.value?.clearAnalysis?.()
   pointcloudPanelRef.value?.clearAnalysis?.()
+}
+
+function removeAnalysis(kind: 'point' | 'distance' | 'area', index: number) {
+  if (kind === 'point') analysisPoints.value = analysisPoints.value.filter((_, i) => i !== index)
+  if (kind === 'distance') analysisDistances.value = analysisDistances.value.filter((_, i) => i !== index)
+  if (kind === 'area') analysisAreas.value = analysisAreas.value.filter((_, i) => i !== index)
+}
+
+function handleAnalysisPoint(point: AnalysisPoint) {
+  analysisPoint.value = point
+  analysisPoints.value = [...analysisPoints.value, point]
+  persistMeasurement('locate', point)
+}
+
+function handleAnalysisDistance(distance: AnalysisDistance) {
+  analysisDistance.value = distance
+  analysisDistances.value = [...analysisDistances.value, distance]
+  persistMeasurement('distance', distance)
+}
+
+function handleAnalysisArea(area: AnalysisArea) {
+  analysisAreas.value = [...analysisAreas.value, area]
+  persistMeasurement('area', area)
+}
+
+function persistMeasurement(kind: MeasurementKind, payload: unknown) {
+  if (!props.bimAssetId) return
+  void createMeasurement(props.bimAssetId, kind, payload).catch((error) => {
+    console.warn('[SplitPreview] 保存测量记录失败', error)
+  })
 }
 
 function applySplitPresentation() {
@@ -528,6 +570,15 @@ function clearScreen(source: SyncSource) {
 }
 
 onMounted(() => {
+  if (props.bimAssetId) {
+    void listMeasurements(props.bimAssetId).then((response) => {
+      response.data.forEach((record) => {
+        if (record.kind === 'locate') analysisPoints.value.push(record.payload as AnalysisPoint)
+        if (record.kind === 'distance') analysisDistances.value.push(record.payload as AnalysisDistance)
+        if (record.kind === 'area') analysisAreas.value.push(record.payload as AnalysisArea)
+      })
+    }).catch(() => undefined)
+  }
   void loadCalibration()
   requestAnimationFrame(applySplitPresentation)
 })
@@ -618,6 +669,13 @@ watch(
           title="全局定位"
           @click="selectAnalysisMode('locate')"
         >定位</button>
+        <button
+          class="floating-btn layer-btn"
+          :class="{ 'is-active': analysisMode === 'area' }"
+          type="button"
+          title="面积测量"
+          @click="selectAnalysisMode('area')"
+        >面积</button>
 
         <span class="tools-divider" aria-hidden="true" />
 
@@ -673,7 +731,7 @@ watch(
         <label class="tool-select-row">
           <span>点云模式</span>
           <select v-model="pointcloudRendererMode">
-            <option value="webgpu">WebGPU</option><option value="webgl">WebGL</option>
+            <option value="webgpu">WebGPU</option>
           </select>
         </label>
         <label class="tool-select-row">
@@ -734,8 +792,9 @@ watch(
           minimal
           @loaded-change="handleBimLoadedChange"
           @camera-change="handleBimCameraChange"
-          @analysis-point="analysisPoint = $event"
-          @analysis-distance="analysisDistance = $event"
+          @analysis-point="handleAnalysisPoint"
+          @analysis-area="handleAnalysisArea"
+          @analysis-distance="handleAnalysisDistance"
         />
       </div>
       <div v-show="viewVisibility.pointcloud" class="viewer-slot">
@@ -751,15 +810,26 @@ watch(
           minimal
           @loaded-change="handlePointcloudLoadedChange"
           @camera-change="handlePointcloudCameraChange"
-          @analysis-point="analysisPoint = $event"
-          @analysis-distance="analysisDistance = $event"
+          @analysis-point="handleAnalysisPoint"
+          @analysis-area="handleAnalysisArea"
+          @analysis-distance="handleAnalysisDistance"
         />
       </div>
       <ViewerAnalysisOverlay
         :mode="analysisMode"
         :point="analysisPoint"
         :distance="analysisDistance"
+        :points="analysisPoints"
+        :distances="analysisDistances"
+        :areas="analysisAreas"
         @clear="clearAnalysis"
+      />
+      <MeasurementResultsPanel
+        :points="analysisPoints"
+        :distances="analysisDistances"
+        :areas="analysisAreas"
+        @clear="clearAnalysis"
+        @remove="removeAnalysis"
       />
       <div v-show="viewVisibility.consistency" class="viewer-slot">
         <C2MResultPreviewPanel
