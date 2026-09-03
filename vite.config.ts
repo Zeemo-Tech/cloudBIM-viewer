@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
         '/auth': createProxyConfig(apiProxyTarget),
         '/uploads': createProxyConfig(apiProxyTarget),
         '/assets': createProxyConfig(apiProxyTarget),
+        '/mesh': createProxyConfig(apiProxyTarget),
         '/scans': createProxyConfig(apiProxyTarget),
         '/alignments': createProxyConfig(apiProxyTarget),
       },

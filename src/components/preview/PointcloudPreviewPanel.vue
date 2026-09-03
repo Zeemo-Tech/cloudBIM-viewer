@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RefreshRight, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import {
@@ -13,11 +13,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
+import { PointCloudEdlPipeline } from './edlPipeline'
 import { createUploadHeaders } from '@/config/upload-backend'
-import { normalizeBackendUrl } from '@/api/backend-http'
 import {
   getAssetDetail,
-  getPointcloudTilesAsset,
   getPointcloudTilesetUrl,
 } from '@/api/backend-file'
 
@@ -30,6 +29,8 @@ type CameraRotation = {
   lon: number
   lat: number
 }
+
+type RendererPreference = 'webgl' | 'webgpu'
 
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 type ClipAxis = 'x' | 'y' | 'z'
@@ -65,6 +66,43 @@ const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('等待加载点云')
 const loaded = ref(false)
 const pointColorOverride = ref<string | null>(null)
+const EDL_STORAGE_KEY = 'cloudbim.pointcloud.edlEnabled'
+const EDL_STRENGTH_STORAGE_KEY = 'cloudbim.pointcloud.edlStrength'
+function readEdlPreference() {
+  if (typeof window === 'undefined') return true
+  try {
+    const value = window.localStorage.getItem(EDL_STORAGE_KEY)
+    return value === null ? true : value === '1'
+  } catch {
+    return true
+  }
+}
+const edlEnabled = ref(readEdlPreference())
+function readEdlStrength() {
+  if (typeof window === 'undefined') return 0.45
+  try {
+    const value = Number(window.localStorage.getItem(EDL_STRENGTH_STORAGE_KEY))
+    return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.45
+  } catch {
+    return 0.45
+  }
+}
+const edlStrength = ref(readEdlStrength())
+function readRendererPreference(): RendererPreference {
+  if (typeof window === 'undefined') return 'webgl'
+  try {
+    return window.localStorage.getItem('cloudbim.pointcloud.renderer') === 'webgpu'
+      ? 'webgpu'
+      : 'webgl'
+  } catch {
+    return 'webgl'
+  }
+}
+const preferredRenderer = ref<RendererPreference>(readRendererPreference())
+const webgpuSupported = computed(
+  () => typeof navigator !== 'undefined' && 'gpu' in navigator,
+)
+const edlAvailable = computed(() => preferredRenderer.value === 'webgl')
 
 const defaultBgColor = '#0b1020'
 const baseGridSize = 10000
@@ -86,6 +124,8 @@ let isRendering = false
 let needsRender = false
 let tilesLoadingCount = 0
 let isPointcloudLoading = false
+// Load the root tileset first so the initial camera fit happens before child traversal.
+let tilesTraversalEnabled = false
 let resizeObserver: ResizeObserver | null = null
 let pointcloudMaxDim = 1
 let fixedViewSize: number | null = null
@@ -93,6 +133,7 @@ let lastTilesErrorTarget = -1
 let rendererReady = false
 let initPromise: Promise<void> | null = null
 let rendererMode: 'webgpu' | 'webgl' | null = null
+let edlPipeline: PointCloudEdlPipeline | null = null
 let isMountedReady = false
 let loadToken = 0
 let axesHelper: THREE.AxesHelper | null = null
@@ -726,43 +767,6 @@ function syncGridToPointcloud(object: THREE.Object3D | null) {
   gridHelper.position.set(bounds.center.x, bounds.box.min.y - offset, bounds.center.z)
 }
 
-function ensureTrailingSlash(value: string) {
-  return value.endsWith('/') ? value : `${value}/`
-}
-
-function resolveTileResourceUrl(uri: string, baseUrl: string) {
-  if (/^(?:https?:)?\/\//i.test(uri) || uri.startsWith('blob:') || uri.startsWith('data:')) {
-    return uri
-  }
-
-  return new URL(uri, baseUrl).toString()
-}
-
-function getTileResourceBasePath(assetDetail: {
-  tilesBaseUrl?: string
-  tilesetUrl?: string
-}) {
-  if (assetDetail.tilesBaseUrl) {
-    return ensureTrailingSlash(assetDetail.tilesBaseUrl)
-  }
-
-  if (!assetDetail.tilesetUrl) {
-    return '/'
-  }
-
-  return ensureTrailingSlash(assetDetail.tilesetUrl.replace(/\/[^/]*$/, ''))
-}
-
-function extractTileAssetPath(resourceUrl: string, baseUrl: string) {
-  const normalizedBaseUrl = ensureTrailingSlash(baseUrl)
-
-  if (!resourceUrl.startsWith(normalizedBaseUrl)) {
-    return null
-  }
-
-  return resourceUrl.slice(normalizedBaseUrl.length)
-}
-
 function runWithSuppressedConsoleAssert<T>(task: () => T) {
   const originalAssert = console.assert
   console.assert = () => {}
@@ -1368,7 +1372,11 @@ async function initViewer() {
   initPromise = (async () => {
     if (!viewportEl.value) return
 
-    const supportsWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator
+    if (preferredRenderer.value === 'webgpu' && !webgpuSupported.value) {
+      preferredRenderer.value = 'webgl'
+    }
+    const supportsWebGPU =
+      preferredRenderer.value === 'webgpu' && webgpuSupported.value
     const width = viewportEl.value.clientWidth || 1
     const height = viewportEl.value.clientHeight || 1
 
@@ -1450,6 +1458,7 @@ async function initViewer() {
       }
       viewportEl.value?.appendChild(nextRenderer.domElement)
       renderer = nextRenderer
+      edlPipeline = new PointCloudEdlPipeline(nextRenderer, { enabled: edlEnabled.value, strength: edlStrength.value, radius: 1 })
       rendererReady = true
       setupRendererCommon()
     }
@@ -1476,6 +1485,7 @@ async function initViewer() {
       } catch (error) {
         console.error('[PointcloudPreview] WebGPU 初始化失败:', error)
         rendererReady = false
+        preferredRenderer.value = 'webgl'
       }
     }
 
@@ -1594,7 +1604,7 @@ function renderPointcloud() {
     const didUpdate = controls?.update() ?? false
     currentCamera.updateMatrixWorld()
 
-    if (tileset) {
+    if (tileset && tilesTraversalEnabled) {
       const currentTileset = tileset
       applyTilesErrorTarget()
       updateTilesetResolution()
@@ -1612,7 +1622,11 @@ function renderPointcloud() {
     const hasActiveTileset = Boolean(tileset)
     if (needsRender || didUpdate || isActiveLoading) {
       runWithSuppressedConsoleAssert(() => {
-        currentRenderer.render(currentScene, currentCamera)
+        if (edlPipeline && currentRenderer instanceof THREE.WebGLRenderer) {
+          edlPipeline.render(currentScene, currentCamera)
+        } else {
+          currentRenderer.render(currentScene, currentCamera)
+        }
       })
       needsRender = false
     }
@@ -1631,6 +1645,7 @@ function renderPointcloud() {
 
 async function loadTileset(assetId: number) {
   const activeToken = ++loadToken
+  tilesTraversalEnabled = false
   await initViewer()
   if (!scene || !camera || !renderer || !controls || !rendererReady) {
     return
@@ -1678,45 +1693,14 @@ async function loadTileset(assetId: number) {
   const url = getPointcloudTilesetUrl(assetDetail.tilesetUrl)
   const nextTileset = new TilesRenderer(url)
   nextTileset.errorTarget = getTilesErrorTarget()
-  const resourceBasePath = getTileResourceBasePath(assetDetail)
-  const resourceBaseUrl = normalizeBackendUrl(
-    resourceBasePath,
-  )
-
+  // Let 3D Tiles resolve child resources relative to tileset.json. The
+  // reference viewer uses the renderer's native fetch path; this preserves
+  // response headers and avoids handing parsed Axios objects to the loader.
   nextTileset.fetchOptions = {
     headers: createUploadHeaders({
       Accept: '*/*',
     }),
   }
-
-  nextTileset.registerPlugin({
-    fetchData: async (uri: any, options: any) => {
-      const raw = typeof uri === 'string' ? uri : uri?.toString?.() || ''
-      if (!raw) {
-        return null
-      }
-
-      let resolvedUrl = ''
-      try {
-        resolvedUrl = resolveTileResourceUrl(raw, resourceBaseUrl)
-      } catch {
-        resolvedUrl = raw
-      }
-
-      const assetPath = extractTileAssetPath(resolvedUrl, resourceBaseUrl)
-
-      if (!assetPath) {
-        return fetch(resolvedUrl, options)
-      }
-
-      const extension = assetPath.split('.').pop()?.toLowerCase()
-      if (extension === 'json') {
-        return getPointcloudTilesAsset(`${resourceBasePath}${assetPath}`, 'json')
-      }
-
-      return getPointcloudTilesAsset(`${resourceBasePath}${assetPath}`, 'arraybuffer')
-    },
-  } as any)
 
   const dracoLoader = new DRACOLoader(nextTileset.manager)
   dracoLoader.setDecoderPath('/draco/')
@@ -1805,12 +1789,17 @@ async function loadTileset(assetId: number) {
 
     const sphere = new THREE.Sphere()
     if (nextTileset.getBoundingSphere?.(sphere)) {
-      nextTileset.group.position.copy(sphere.center).multiplyScalar(-1)
       nextTileset.group.updateMatrixWorld(true)
       syncGridToPointcloud(tilesetWrapper ?? nextTileset.group)
       syncBoundsHelpers()
-      fitCameraToRadius(camera, controls, sphere.radius)
-      setTopView(camera, controls, sphere.radius * 2.2)
+      // Keep the tileset's native transform intact. Only move the camera to
+      // the world-space sphere; mutating tileset.group breaks child tile
+      // transforms for georeferenced point clouds.
+      const worldSphere = sphere.clone()
+      worldSphere.center.applyMatrix4(nextTileset.group.matrixWorld)
+      fitCameraToRadius(camera, controls, worldSphere.radius, worldSphere.center)
+      setTopView(camera, controls, worldSphere.radius * 2.2, worldSphere.center)
+      tilesTraversalEnabled = true
       emitCameraPose()
       requestRender()
       return
@@ -1820,11 +1809,16 @@ async function loadTileset(assetId: number) {
     syncGridToPointcloud(placementTarget)
     syncBoundsHelpers()
     fitCameraToObject(camera, controls, placementTarget)
+    tilesTraversalEnabled = true
     emitCameraPose()
     requestRender()
   })
 
   tileset = nextTileset
+  // Kick off the root request; subsequent traversal is enabled by load-root-tileset.
+  runWithSuppressedConsoleAssert(() => {
+    nextTileset.update()
+  })
   requestRender()
 }
 
@@ -1839,6 +1833,7 @@ function cleanup() {
   needsRender = false
   tilesLoadingCount = 0
   isPointcloudLoading = false
+  tilesTraversalEnabled = false
 
   resizeObserver?.disconnect()
   resizeObserver = null
@@ -1871,6 +1866,8 @@ function cleanup() {
   renderer?.domElement?.removeEventListener?.('pointerup', onViewportPointerUp)
   renderer?.domElement?.removeEventListener?.('pointercancel', onViewportPointerCancel)
   renderer?.dispose()
+  edlPipeline?.dispose()
+  edlPipeline = null
   if (renderer?.domElement?.parentElement) {
     renderer.domElement.parentElement.removeChild(renderer.domElement)
   }
@@ -1947,6 +1944,63 @@ function setPointColor(color: string | null) {
   pointColorOverride.value = color
 }
 
+function setEdlEnabled(enabled: boolean) {
+  if (!edlAvailable.value) return
+  edlEnabled.value = enabled
+  try {
+    window.localStorage.setItem(EDL_STORAGE_KEY, enabled ? '1' : '0')
+  } catch {
+    // Ignore restricted storage environments.
+  }
+  edlPipeline?.setEnabled(enabled)
+  requestRender()
+}
+
+function setEdlStrength(strength: number) {
+  if (!edlAvailable.value || !Number.isFinite(strength)) return
+  edlStrength.value = Math.min(1, Math.max(0, strength))
+  try {
+    window.localStorage.setItem(EDL_STRENGTH_STORAGE_KEY, String(edlStrength.value))
+  } catch {
+    // Ignore restricted storage environments.
+  }
+  edlPipeline?.setStrength(edlStrength.value)
+  requestRender()
+}
+
+async function setRendererPreference(mode: RendererPreference) {
+  if (mode === 'webgpu' && !webgpuSupported.value) {
+    return
+  }
+
+  preferredRenderer.value = mode
+  try {
+    window.localStorage.setItem('cloudbim.pointcloud.renderer', mode)
+  } catch {
+    // Ignore restricted storage environments.
+  }
+
+  if (!isMountedReady || rendererMode === mode) {
+    return
+  }
+
+  const activeAssetId = props.assetId
+  cleanup()
+  try {
+    if (activeAssetId) {
+      await loadTileset(activeAssetId)
+    } else {
+      await initViewer()
+    }
+  } catch (error) {
+    console.error('[PointcloudPreview] 切换渲染模式失败:', error)
+    statusText.value = error instanceof Error ? error.message : '渲染器初始化失败'
+    loaded.value = false
+    emit('loaded-change', false)
+    requestRender()
+  }
+}
+
 defineExpose({
   reload,
   resetPointcloudView,
@@ -1961,6 +2015,9 @@ defineExpose({
   setShowGrid,
   setSectionState,
   setPointColor,
+  setEdlEnabled,
+  setEdlStrength,
+  setRendererPreference,
 })
 
 watch(
@@ -2005,7 +2062,100 @@ onBeforeUnmount(() => {
         >
           <el-icon><RefreshRight /></el-icon>
         </button>
+        <button
+          class="panel-refresh-btn"
+          :class="{ 'is-active': edlEnabled }"
+          type="button"
+          :aria-pressed="edlEnabled"
+          :disabled="!edlAvailable"
+          aria-label="切换 EDL 显示增强"
+          title="切换 EDL 显示增强"
+          @click="setEdlEnabled(!edlEnabled)"
+        >
+          EDL
+        </button>
+        <div class="renderer-mode-control" role="group" aria-label="点云渲染模式">
+          <button
+            type="button"
+            :class="{ 'is-active': preferredRenderer === 'webgl' }"
+            @click="setRendererPreference('webgl')"
+          >
+            WebGL
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': preferredRenderer === 'webgpu' }"
+            :disabled="!webgpuSupported"
+            :title="webgpuSupported ? '使用 WebGPU 渲染' : '当前浏览器不支持 WebGPU'"
+            @click="setRendererPreference('webgpu')"
+          >
+            WebGPU
+          </button>
+        </div>
+        <span class="renderer-mode-note">
+          {{ edlAvailable ? 'WebGL 含 EDL' : 'WebGPU 不使用 EDL' }}
+        </span>
+        <label class="edl-strength-control" :class="{ 'is-disabled': !edlAvailable }" title="EDL 强度">
+          <span>强度</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            :value="edlStrength"
+            :disabled="!edlAvailable"
+            @input="setEdlStrength(Number(($event.target as HTMLInputElement).value))"
+          />
+        </label>
       </div>
+    </div>
+    <div v-if="minimal" class="panel-edl-control">
+      <div class="renderer-mode-control" role="group" aria-label="点云渲染模式">
+        <button
+          type="button"
+          :class="{ 'is-active': preferredRenderer === 'webgl' }"
+          @click="setRendererPreference('webgl')"
+        >
+          WebGL
+        </button>
+        <button
+          type="button"
+          :class="{ 'is-active': preferredRenderer === 'webgpu' }"
+          :disabled="!webgpuSupported"
+          :title="webgpuSupported ? '使用 WebGPU 渲染' : '当前浏览器不支持 WebGPU'"
+          @click="setRendererPreference('webgpu')"
+        >
+          WebGPU
+        </button>
+      </div>
+      <span class="renderer-mode-note">
+        {{ edlAvailable ? 'WebGL 含 EDL' : 'WebGPU 不使用 EDL' }}
+      </span>
+      <el-tooltip :content="edlEnabled ? '关闭 EDL 显示增强' : '开启 EDL 显示增强'" placement="left">
+        <button
+          class="panel-edl-btn"
+          :class="{ 'is-active': edlEnabled }"
+          type="button"
+          :aria-pressed="edlEnabled"
+          :disabled="!edlAvailable"
+          aria-label="切换 EDL 显示增强"
+          @click="setEdlEnabled(!edlEnabled)"
+        >
+          EDL
+        </button>
+      </el-tooltip>
+      <label class="edl-strength-control" title="EDL 强度">
+        <span>强度</span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          :value="edlStrength"
+          :disabled="!edlAvailable"
+          @input="setEdlStrength(Number(($event.target as HTMLInputElement).value))"
+        />
+      </label>
     </div>
 
 
@@ -2144,6 +2294,105 @@ onBeforeUnmount(() => {
 
 .panel-refresh-btn:hover {
   background: rgba(51, 65, 85, 0.95);
+}
+
+.panel-refresh-btn.is-active,
+.panel-edl-btn.is-active {
+  color: #67e8f9;
+  background: rgba(8, 145, 178, 0.35);
+}
+
+.renderer-mode-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.renderer-mode-control button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #94a3b8;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.renderer-mode-control button:hover:not(:disabled),
+.renderer-mode-control button:focus-visible,
+.renderer-mode-control button.is-active {
+  color: #ecfeff;
+  background: rgba(14, 165, 233, 0.34);
+}
+
+.renderer-mode-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.renderer-mode-note {
+  color: #94a3b8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.panel-edl-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  min-width: 42px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.9);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.panel-edl-control {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+}
+
+.panel-edl-control .panel-edl-btn {
+  position: static;
+}
+
+.edl-strength-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.edl-strength-control.is-disabled {
+  opacity: 0.45;
+}
+
+.edl-strength-control input[type='range'] {
+  width: 76px;
+  accent-color: #22d3ee;
 }
 
 .panel-refresh-btn:active {
