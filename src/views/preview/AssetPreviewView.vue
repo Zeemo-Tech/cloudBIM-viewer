@@ -11,8 +11,12 @@ import ViewerAnalysisOverlay, {
   type AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
 import GlobalAnalysisToolbar from '@/components/preview/GlobalAnalysisToolbar.vue'
-import { createMeasurement, listMeasurements, type MeasurementKind } from '@/api/backend-measurement'
-import MeasurementResultsPanel from '@/components/preview/MeasurementResultsPanel.vue'
+import {
+  createMeasurement,
+  deleteMeasurement,
+  listMeasurements,
+  type MeasurementKind,
+} from '@/api/backend-measurement'
 
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 
@@ -37,6 +41,8 @@ const analysisAreas = ref<AnalysisArea[]>([])
 const analysisPoints = ref<AnalysisPoint[]>([])
 const analysisDistances = ref<AnalysisDistance[]>([])
 const analysisToolbarCollapsed = ref(false)
+const measurementBackendIds = new Map<string, number>()
+let measurementLoadToken = 0
 
 const bimControls = reactive({
   showAxes: true,
@@ -134,13 +140,12 @@ function toggleSidebar() {
 }
 
 function selectAnalysisMode(mode: AnalysisMode) {
+  currentPanelRef.value?.cancelAnalysis?.()
   analysisMode.value = analysisMode.value === mode ? 'none' : mode
-  analysisPoint.value = null
-  analysisDistance.value = null
-  analysisAreas.value = []
-  analysisPoints.value = []
-  analysisDistances.value = []
-  currentPanelRef.value?.clearAnalysis?.()
+}
+
+function handleAnalysisModeExit() {
+  analysisMode.value = 'none'
 }
 
 function clearAnalysis() {
@@ -151,12 +156,43 @@ function clearAnalysis() {
   analysisPoints.value = []
   analysisDistances.value = []
   currentPanelRef.value?.clearAnalysis?.()
+  const backendIds = [...new Set(measurementBackendIds.values())]
+  measurementBackendIds.clear()
+  backendIds.forEach((id) => {
+    void deleteMeasurement(id).catch((error) => {
+      console.warn('[AssetPreview] 删除测量记录失败', error)
+    })
+  })
 }
 
-function removeAnalysis(kind: 'point' | 'distance' | 'area', index: number) {
-  if (kind === 'point') analysisPoints.value = analysisPoints.value.filter((_, i) => i !== index)
-  if (kind === 'distance') analysisDistances.value = analysisDistances.value.filter((_, i) => i !== index)
-  if (kind === 'area') analysisAreas.value = analysisAreas.value.filter((_, i) => i !== index)
+function removeAnalysisById(kind: 'point' | 'distance' | 'area', id: string) {
+  currentPanelRef.value?.removeAnalysisVisual?.(kind, id)
+
+  if (kind === 'point') {
+    analysisPoints.value = analysisPoints.value.filter(
+      (record, index) => (record.id || `point-${index}`) !== id,
+    )
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+  }
+  if (kind === 'distance') {
+    analysisDistances.value = analysisDistances.value.filter(
+      (record, index) => (record.id || `distance-${index}`) !== id,
+    )
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+  }
+  if (kind === 'area') {
+    analysisAreas.value = analysisAreas.value.filter(
+      (record, index) => (record.id || `area-${index}`) !== id,
+    )
+  }
+
+  const backendId = measurementBackendIds.get(id)
+  measurementBackendIds.delete(id)
+  if (backendId !== undefined) {
+    void deleteMeasurement(backendId).catch((error) => {
+      console.warn('[AssetPreview] 删除测量记录失败', error)
+    })
+  }
 }
 
 function handleAnalysisPoint(point: AnalysisPoint) {
@@ -176,11 +212,61 @@ function handleAnalysisArea(area: AnalysisArea) {
   persistMeasurement('area', area)
 }
 
-function persistMeasurement(kind: MeasurementKind, payload: unknown) {
+function hasMeasurement(kind: MeasurementKind, id: string) {
+  if (kind === 'locate') return analysisPoints.value.some((record) => record.id === id)
+  if (kind === 'distance') return analysisDistances.value.some((record) => record.id === id)
+  return analysisAreas.value.some((record) => record.id === id)
+}
+
+async function persistMeasurement(kind: MeasurementKind, payload: unknown) {
   if (!props.assetId) return
-  void createMeasurement(props.assetId, kind, payload).catch((error) => {
+  const localId = typeof payload === 'object' && payload && 'id' in payload
+    ? String(payload.id)
+    : ''
+  try {
+    const response = await createMeasurement(props.assetId, kind, payload)
+    if (!localId) return
+    if (hasMeasurement(kind, localId)) {
+      measurementBackendIds.set(localId, response.data.id)
+    } else {
+      void deleteMeasurement(response.data.id).catch(() => undefined)
+    }
+  } catch (error) {
     console.warn('[AssetPreview] 保存测量记录失败', error)
-  })
+  }
+}
+
+async function loadMeasurements() {
+  const assetId = props.assetId
+  const token = ++measurementLoadToken
+  analysisPoint.value = null
+  analysisDistance.value = null
+  analysisAreas.value = []
+  analysisPoints.value = []
+  analysisDistances.value = []
+  measurementBackendIds.clear()
+  if (!assetId) return
+
+  try {
+    const response = await listMeasurements(assetId)
+    if (token !== measurementLoadToken) return
+    response.data.forEach((record) => {
+      const payload = record.payload && typeof record.payload === 'object'
+        ? { ...(record.payload as Record<string, unknown>) }
+        : {}
+      const id = typeof payload.id === 'string' && payload.id
+        ? payload.id
+        : `${record.kind}-${record.id}`
+      measurementBackendIds.set(id, record.id)
+      if (record.kind === 'locate') analysisPoints.value.push({ ...payload, id } as AnalysisPoint)
+      if (record.kind === 'distance') analysisDistances.value.push({ ...payload, id } as AnalysisDistance)
+      if (record.kind === 'area') analysisAreas.value.push({ ...payload, id } as AnalysisArea)
+    })
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+  } catch (error) {
+    console.warn('[AssetPreview] 读取测量记录失败', error)
+  }
 }
 
 watch(
@@ -207,16 +293,16 @@ watch(
 
 onMounted(() => {
   applyPanelSettings()
-  if (props.assetId) {
-    void listMeasurements(props.assetId).then((response) => {
-      response.data.forEach((record) => {
-        if (record.kind === 'locate') analysisPoints.value.push(record.payload as AnalysisPoint)
-        if (record.kind === 'distance') analysisDistances.value.push(record.payload as AnalysisDistance)
-        if (record.kind === 'area') analysisAreas.value.push(record.payload as AnalysisArea)
-      })
-    }).catch(() => undefined)
-  }
+  void loadMeasurements()
 })
+
+watch(
+  () => [props.assetId, props.previewType] as const,
+  () => {
+    analysisMode.value = 'none'
+    void loadMeasurements()
+  },
+)
 </script>
 
 <template>
@@ -249,9 +335,14 @@ onMounted(() => {
           :asset-id="assetId"
           :display-name="displayName"
           :analysis-mode="analysisMode"
+          :analysis-points="analysisPoints"
+          :analysis-distances="analysisDistances"
+          :analysis-areas="analysisAreas"
           @analysis-point="handleAnalysisPoint"
           @analysis-distance="handleAnalysisDistance"
           @analysis-area="handleAnalysisArea"
+          @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+          @analysis-mode-exit="handleAnalysisModeExit"
           minimal
         />
 
@@ -261,9 +352,14 @@ onMounted(() => {
           class="viewer-panel"
           :asset-id="assetId"
           :analysis-mode="analysisMode"
+          :analysis-points="analysisPoints"
+          :analysis-distances="analysisDistances"
+          :analysis-areas="analysisAreas"
           @analysis-point="handleAnalysisPoint"
           @analysis-distance="handleAnalysisDistance"
           @analysis-area="handleAnalysisArea"
+          @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+          @analysis-mode-exit="handleAnalysisModeExit"
           minimal
         />
         <ViewerAnalysisOverlay
@@ -274,13 +370,6 @@ onMounted(() => {
           :distances="analysisDistances"
           :areas="analysisAreas"
           @clear="clearAnalysis"
-        />
-        <MeasurementResultsPanel
-          :points="analysisPoints"
-          :distances="analysisDistances"
-          :areas="analysisAreas"
-          @clear="clearAnalysis"
-          @remove="removeAnalysis"
         />
       </div>
 

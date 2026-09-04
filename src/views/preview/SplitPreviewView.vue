@@ -21,8 +21,12 @@ import ViewerAnalysisOverlay, {
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
 import { getBimAlignment, type BimAlignmentResult } from '@/api/backend-alignment'
 import * as THREE from 'three'
-import { createMeasurement, listMeasurements, type MeasurementKind } from '@/api/backend-measurement'
-import MeasurementResultsPanel from '@/components/preview/MeasurementResultsPanel.vue'
+import {
+  createMeasurement,
+  deleteMeasurement,
+  listMeasurements,
+  type MeasurementKind,
+} from '@/api/backend-measurement'
 
 type CameraPose = {
   camera: any
@@ -56,6 +60,8 @@ const analysisDistance = ref<AnalysisDistance | null>(null)
 const analysisAreas = ref<AnalysisArea[]>([])
 const analysisPoints = ref<AnalysisPoint[]>([])
 const analysisDistances = ref<AnalysisDistance[]>([])
+const measurementBackendIds = new Map<string, number>()
+let measurementLoadToken = 0
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 const splitBackgrounds = reactive<Record<SyncSource, PreviewBackgroundTheme>>({
   bim: 'deep',
@@ -485,14 +491,15 @@ function handleConsistencyCameraChange(_pose: CameraPose | null) {
 }
 
 function selectAnalysisMode(mode: AnalysisMode) {
+  bimPanelRef.value?.cancelAnalysis?.()
+  pointcloudPanelRef.value?.cancelAnalysis?.()
   analysisMode.value = analysisMode.value === mode ? 'none' : mode
+}
+
+function handleAnalysisModeExit() {
+  analysisMode.value = 'none'
   analysisPoint.value = null
   analysisDistance.value = null
-  analysisAreas.value = []
-  analysisPoints.value = []
-  analysisDistances.value = []
-  bimPanelRef.value?.clearAnalysis?.()
-  pointcloudPanelRef.value?.clearAnalysis?.()
 }
 
 function clearAnalysis() {
@@ -504,12 +511,37 @@ function clearAnalysis() {
   analysisDistances.value = []
   bimPanelRef.value?.clearAnalysis?.()
   pointcloudPanelRef.value?.clearAnalysis?.()
+  const backendIds = [...new Set(measurementBackendIds.values())]
+  measurementBackendIds.clear()
+  backendIds.forEach((id) => {
+    void deleteMeasurement(id).catch((error) => {
+      console.warn('[SplitPreview] 删除测量记录失败', error)
+    })
+  })
 }
 
-function removeAnalysis(kind: 'point' | 'distance' | 'area', index: number) {
-  if (kind === 'point') analysisPoints.value = analysisPoints.value.filter((_, i) => i !== index)
-  if (kind === 'distance') analysisDistances.value = analysisDistances.value.filter((_, i) => i !== index)
-  if (kind === 'area') analysisAreas.value = analysisAreas.value.filter((_, i) => i !== index)
+function removeAnalysisById(kind: 'point' | 'distance' | 'area', id: string) {
+  if (kind === 'point') {
+    analysisPoints.value = analysisPoints.value.filter((record, index) => (record.id || `point-${index}`) !== id)
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+  }
+  if (kind === 'distance') {
+    analysisDistances.value = analysisDistances.value.filter((record, index) => (record.id || `distance-${index}`) !== id)
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+  }
+  if (kind === 'area') {
+    analysisAreas.value = analysisAreas.value.filter((record, index) => (record.id || `area-${index}`) !== id)
+  }
+
+  const backendId = measurementBackendIds.get(id)
+  measurementBackendIds.delete(id)
+  bimPanelRef.value?.removeAnalysisVisual?.(kind, id)
+  pointcloudPanelRef.value?.removeAnalysisVisual?.(kind, id)
+  if (backendId !== undefined) {
+    void deleteMeasurement(backendId).catch((error) => {
+      console.warn('[SplitPreview] 删除测量记录失败', error)
+    })
+  }
 }
 
 function handleAnalysisPoint(point: AnalysisPoint) {
@@ -529,11 +561,61 @@ function handleAnalysisArea(area: AnalysisArea) {
   persistMeasurement('area', area)
 }
 
-function persistMeasurement(kind: MeasurementKind, payload: unknown) {
+function hasMeasurement(kind: MeasurementKind, id: string) {
+  if (kind === 'locate') return analysisPoints.value.some((record) => record.id === id)
+  if (kind === 'distance') return analysisDistances.value.some((record) => record.id === id)
+  return analysisAreas.value.some((record) => record.id === id)
+}
+
+async function persistMeasurement(kind: MeasurementKind, payload: unknown) {
   if (!props.bimAssetId) return
-  void createMeasurement(props.bimAssetId, kind, payload).catch((error) => {
+  const localId = typeof payload === 'object' && payload && 'id' in payload
+    ? String(payload.id)
+    : ''
+  try {
+    const response = await createMeasurement(props.bimAssetId, kind, payload)
+    if (!localId) return
+    if (hasMeasurement(kind, localId)) {
+      measurementBackendIds.set(localId, response.data.id)
+    } else {
+      void deleteMeasurement(response.data.id).catch(() => undefined)
+    }
+  } catch (error) {
     console.warn('[SplitPreview] 保存测量记录失败', error)
-  })
+  }
+}
+
+async function loadMeasurements() {
+  const assetId = props.bimAssetId
+  const token = ++measurementLoadToken
+  analysisPoint.value = null
+  analysisDistance.value = null
+  analysisPoints.value = []
+  analysisDistances.value = []
+  analysisAreas.value = []
+  measurementBackendIds.clear()
+  if (!assetId) return
+
+  try {
+    const response = await listMeasurements(assetId)
+    if (token !== measurementLoadToken) return
+    response.data.forEach((record) => {
+      const payload = record.payload && typeof record.payload === 'object'
+        ? { ...(record.payload as Record<string, unknown>) }
+        : {}
+      const id = typeof payload.id === 'string' && payload.id
+        ? payload.id
+        : `${record.kind}-${record.id}`
+      measurementBackendIds.set(id, record.id)
+      if (record.kind === 'locate') analysisPoints.value.push({ ...payload, id } as AnalysisPoint)
+      if (record.kind === 'distance') analysisDistances.value.push({ ...payload, id } as AnalysisDistance)
+      if (record.kind === 'area') analysisAreas.value.push({ ...payload, id } as AnalysisArea)
+    })
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+  } catch (error) {
+    console.warn('[SplitPreview] 读取测量记录失败', error)
+  }
 }
 
 function applySplitPresentation() {
@@ -567,15 +649,7 @@ function clearScreen(source: SyncSource) {
 }
 
 onMounted(() => {
-  if (props.bimAssetId) {
-    void listMeasurements(props.bimAssetId).then((response) => {
-      response.data.forEach((record) => {
-        if (record.kind === 'locate') analysisPoints.value.push(record.payload as AnalysisPoint)
-        if (record.kind === 'distance') analysisDistances.value.push(record.payload as AnalysisDistance)
-        if (record.kind === 'area') analysisAreas.value.push(record.payload as AnalysisArea)
-      })
-    }).catch(() => undefined)
-  }
+  void loadMeasurements()
   void loadCalibration()
   requestAnimationFrame(applySplitPresentation)
 })
@@ -584,6 +658,7 @@ watch(
   () => [props.bimAssetId, props.pointcloudAssetId] as const,
   () => {
     clearRotationSyncState()
+    void loadMeasurements()
     void loadCalibration()
     requestAnimationFrame(applySplitPresentation)
   },
@@ -778,6 +853,9 @@ watch(
           :display-name="bimDisplayName"
           :calibration="calibration"
           :analysis-mode="analysisMode"
+          :analysis-points="analysisPoints"
+          :analysis-distances="analysisDistances"
+          :analysis-areas="analysisAreas"
           fusion-mode
           minimal
           @loaded-change="handleBimLoadedChange"
@@ -785,6 +863,8 @@ watch(
           @analysis-point="handleAnalysisPoint"
           @analysis-area="handleAnalysisArea"
           @analysis-distance="handleAnalysisDistance"
+          @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+          @analysis-mode-exit="handleAnalysisModeExit"
         />
       </div>
       <div v-show="viewVisibility.pointcloud" class="viewer-slot">
@@ -797,12 +877,17 @@ watch(
           ref="pointcloudPanelRef"
           :asset-id="pointcloudAssetId"
           :analysis-mode="analysisMode"
+          :analysis-points="analysisPoints"
+          :analysis-distances="analysisDistances"
+          :analysis-areas="analysisAreas"
           minimal
           @loaded-change="handlePointcloudLoadedChange"
           @camera-change="handlePointcloudCameraChange"
           @analysis-point="handleAnalysisPoint"
           @analysis-area="handleAnalysisArea"
           @analysis-distance="handleAnalysisDistance"
+          @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+          @analysis-mode-exit="handleAnalysisModeExit"
         />
       </div>
       <ViewerAnalysisOverlay
@@ -813,13 +898,6 @@ watch(
         :distances="analysisDistances"
         :areas="analysisAreas"
         @clear="clearAnalysis"
-      />
-      <MeasurementResultsPanel
-        :points="analysisPoints"
-        :distances="analysisDistances"
-        :areas="analysisAreas"
-        @clear="clearAnalysis"
-        @remove="removeAnalysis"
       />
       <div v-show="viewVisibility.consistency" class="viewer-slot">
         <C2MResultPreviewPanel

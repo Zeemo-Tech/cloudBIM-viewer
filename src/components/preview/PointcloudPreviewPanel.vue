@@ -9,10 +9,16 @@ const props = withDefaults(
     assetId: number | null
     minimal?: boolean
     analysisMode?: AnalysisMode
+    analysisPoints?: AnalysisPoint[]
+    analysisDistances?: AnalysisDistance[]
+    analysisAreas?: AnalysisArea[]
   }>(),
   {
     minimal: false,
     analysisMode: 'none',
+    analysisPoints: () => [],
+    analysisDistances: () => [],
+    analysisAreas: () => [],
   },
 )
 
@@ -22,6 +28,8 @@ const emit = defineEmits<{
   (event: 'analysis-point', point: AnalysisPoint): void
   (event: 'analysis-distance', distance: AnalysisDistance): void
   (event: 'analysis-area', area: AnalysisArea): void
+  (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
+  (event: 'analysis-mode-exit', mode: AnalysisMode): void
 }>()
 
 const viewerRef = ref<InstanceType<typeof UnifiedViewer3D> | null>(null)
@@ -46,6 +54,8 @@ defineExpose({
   setEdlEnabled: (enabled: boolean) => viewerRef.value?.setEdlEnabled(enabled),
   setEdlStrength: (strength: number) => viewerRef.value?.setEdlStrength(strength),
   setRendererPreference: (_pref: string) => {},
+  cancelAnalysis: () => viewerRef.value?.cancelAnalysis(),
+  removeAnalysisVisual: (kind: 'point' | 'distance' | 'area', id: string) => viewerRef.value?.removeAnalysisVisual(kind, id),
   clearAnalysis: () => viewerRef.value?.clearAnalysis(),
 })
 </script>
@@ -57,10 +67,15 @@ defineExpose({
     :asset-id="assetId"
     :minimal="minimal"
     :analysis-mode="analysisMode"
+    :analysis-points="analysisPoints"
+    :analysis-distances="analysisDistances"
+    :analysis-areas="analysisAreas"
     @loaded-change="emit('loaded-change', $event)"
     @camera-change="emit('camera-change', $event)"
     @analysis-point="emit('analysis-point', $event)"
     @analysis-distance="emit('analysis-distance', $event)"
     @analysis-area="emit('analysis-area', $event)"
+    @analysis-delete="emit('analysis-delete', $event)"
+    @analysis-mode-exit="emit('analysis-mode-exit', $event)"
   />
 </template>
