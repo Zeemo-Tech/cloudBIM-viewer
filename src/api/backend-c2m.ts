@@ -1,5 +1,16 @@
 import { backendRequest, normalizeBackendUrl, type BackendResult } from '@/api/backend-http'
 
+export type C2MProfile = 'quick' | 'reference'
+
+export type C2MMetricDirection =
+  | 'mesh-vertices-to-scan-points'
+  | 'scan-points-to-mesh-triangles'
+
+export interface C2MApproximation {
+  voxelSize?: number
+  [key: string]: number | string | boolean | null | undefined
+}
+
 export interface C2MStats {
   min: number
   max: number
@@ -9,6 +20,10 @@ export interface C2MStats {
   p90: number
   p95: number
   p99: number
+  meanAbs: number
+  rmse: number
+  p95Abs: number
+  withinToleranceRatio: number
 }
 
 export interface C2MResult {
@@ -18,6 +33,10 @@ export interface C2MResult {
   pointsBefore: number
   pointsAfter: number
   meshVertexCount: number
+  profile: C2MProfile
+  algorithmVersion: string
+  metricDirection: C2MMetricDirection
+  approximation: C2MApproximation | null
   stats: C2MStats
   histogram?: { binEdges: number[]; counts: number[]; overflowCount?: number }
   diagnostics?: { scanBboxRaw?: { min: number[]; max: number[] }; scanBboxAfterTransform?: { min: number[]; max: number[] }; meshBbox?: { min: number[]; max: number[] }; bboxOverlapIoU?: number }
@@ -27,6 +46,7 @@ export interface C2MResult {
 export interface C2MParams {
   modelScanFileId: number
   modelBimFileId: number
+  profile: C2MProfile
   voxelSize?: number
   maxColormapDistance?: number
   maxHistogramDistance?: number

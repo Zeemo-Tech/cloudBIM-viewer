@@ -16,10 +16,12 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager
+from functools import wraps
 from typing import Any
 
 import numpy as np
@@ -59,6 +61,44 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mesh Remesh Service", version="0.1.0", lifespan=lifespan)
+
+
+_HEAVY_TASK_GATE = threading.BoundedSemaphore(value=1)
+_HEAVY_TASK_STATE_LOCK = threading.Lock()
+_ACTIVE_HEAVY_TASK: str | None = None
+
+
+def _single_heavy_task(task_name: str):
+    """Allow only one CPU/memory intensive mesh operation per process."""
+    def decorator(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            global _ACTIVE_HEAVY_TASK
+
+            if not _HEAVY_TASK_GATE.acquire(blocking=False):
+                with _HEAVY_TASK_STATE_LOCK:
+                    active_task = _ACTIVE_HEAVY_TASK
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "code": 429,
+                        "msg": "计算服务正忙，请稍后重试",
+                        "activeTask": active_task,
+                    },
+                    headers={"Retry-After": "5"},
+                )
+
+            with _HEAVY_TASK_STATE_LOCK:
+                _ACTIVE_HEAVY_TASK = task_name
+            try:
+                return func(*args, **kwargs)
+            finally:
+                with _HEAVY_TASK_STATE_LOCK:
+                    _ACTIVE_HEAVY_TASK = None
+                _HEAVY_TASK_GATE.release()
+
+        return wrapped
+    return decorator
 
 
 def _normalize_ply_to_float32(ply_path: str) -> None:
@@ -122,6 +162,7 @@ def list_algorithms():
 
 
 @app.post("/remesh")
+@_single_heavy_task("remesh")
 def remesh(
     file: UploadFile = File(...),
     algorithm: str = Form("bim_preprocessor"),
@@ -202,6 +243,7 @@ def _cleanup_task(work_dir: str):
 # ── C2M (Cloud-to-Mesh Distance) ───────────────────────────────────────
 
 class C2MParams(BaseModel):
+    profile: str = "quick"
     voxel_size: float = 0.05
     max_colormap_distance: float = 0.10
     max_histogram_distance: float = 1.0
@@ -232,6 +274,33 @@ C2M_OUTPUT_DIR = "/storage/c2m_results"
 
 @app.post("/c2m/compute")
 def c2m_compute(req: C2MRequest):
+    """Dispatch a declared computation profile without silently degrading accuracy."""
+    profile = (req.params.profile or "quick").strip().lower()
+    if profile == "reference":
+        return JSONResponse(
+            status_code=501,
+            content={
+                "code": 501,
+                "msg": "reference 高精度计算尚未实现，当前仅支持 quick 预估模式",
+                "profile": "reference",
+                "implementedProfiles": ["quick"],
+            },
+        )
+    if profile != "quick":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "code": 400,
+                "msg": f"不支持的 C2M profile: {profile}",
+                "implementedProfiles": ["quick"],
+            },
+        )
+    req.params.profile = profile
+    return _c2m_compute_quick(req)
+
+
+@_single_heavy_task("c2m")
+def _c2m_compute_quick(req: C2MRequest):
     """计算 Cloud-to-Mesh Distance。
 
     接收 LAS 和 PLY 的磁盘路径（共享存储卷），以及列主序配准矩阵，
@@ -304,7 +373,12 @@ def c2m_compute(req: C2MRequest):
         )
 
         # 6. 统计 + 对称直方图
-        stat_result = compute_statistics(distances, p.max_histogram_distance, p.histogram_bins)
+        stat_result = compute_statistics(
+            distances,
+            p.max_histogram_distance,
+            p.histogram_bins,
+            tolerance=p.tolerance_limit,
+        )
         print(
             f"[C2M] 有符号距离: min={stat_result['stats']['min']:.4f} max={stat_result['stats']['max']:.4f} "
             f"mean={stat_result['stats']['mean']:.4f} std={stat_result['stats']['std']:.4f}",
@@ -336,6 +410,10 @@ def c2m_compute(req: C2MRequest):
         colored_size = os.path.getsize(colored_path)
 
         return {
+            "profile": "quick",
+            "algorithmVersion": "c2m-quick-v1",
+            "approximation": {"voxelSize": p.voxel_size},
+            "metricDirection": "mesh-vertices-to-scan-points",
             "pointsBefore": points_before,
             "pointsAfter": points_after,
             "meshVertices": len(mesh_pts),
@@ -367,6 +445,7 @@ class C2MRecolorRequest(BaseModel):
 
 
 @app.post("/c2m/recolor")
+@_single_heavy_task("c2m-recolor")
 def c2m_recolor(req: C2MRecolorRequest):
     """用新色彩参数重新生成 colored PLY，不重新计算点云距离。
 
@@ -444,6 +523,7 @@ class FineAlignRequest(BaseModel):
 
 
 @app.post("/align/fine")
+@_single_heavy_task("fine-align")
 def align_fine(req: FineAlignRequest):
     """执行精细化配准（Point-to-Plane ICP）。
 

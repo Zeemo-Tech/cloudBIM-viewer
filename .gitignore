@@ -33,3 +33,4 @@ tools/
 *.pyc
 __pycache__/
 .env
+.cloudbim/

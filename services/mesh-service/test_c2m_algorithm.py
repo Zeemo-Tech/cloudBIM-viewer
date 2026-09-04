@@ -2,9 +2,9 @@
 
 测试逻辑：
 1. 构造一个简单的合成场景（立方体 mesh + 对应点云）
-2. 测试对齐情况：预期 mean 距离应接近 0
+2. 测试对齐情况：预期 meanAbs 距离应接近 0
 3. 测试完全分离情况（mesh 沿 X 轴平移 100m 到点云 bbox 外侧）：
-   预期 mean 距离应接近平移距离（~100m）
+   预期 meanAbs 距离应接近平移距离（~100m）
 4. 如果分离情况下仍然返回小距离，说明 C2M 计算存在 bug
 """
 
@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "algorithms"))
 from c2m_distance import (
     column_major_to_matrix4,
     apply_transform,
-    compute_mesh_to_cloud_distances,
+    compute_signed_mesh_to_cloud_distances,
     compute_statistics,
     compute_bbox_overlap,
 )
@@ -88,7 +88,7 @@ def run_c2m(mesh: o3d.geometry.TriangleMesh,
         mesh_bbox["min"], mesh_bbox["max"],
     )
 
-    distances = compute_mesh_to_cloud_distances(mesh, pcd_copy)
+    distances = compute_signed_mesh_to_cloud_distances(mesh, pcd_copy)
     stats_result = compute_statistics(distances, max_hist_dist=200.0, n_bins=50)
 
     return {
@@ -121,12 +121,13 @@ def test_aligned(verbose: bool = True) -> bool:
     overlap = result["bboxOverlap"]
 
     print(f"  BBox Overlap IoU : {overlap:.4f}")
-    print(f"  Mean  : {stats['mean']:.6f} m")
+    print(f"  MeanAbs: {stats['meanAbs']:.6f} m")
+    print(f"  Signed mean: {stats['mean']:.6f} m")
     print(f"  P50   : {stats['p50']:.6f} m")
     print(f"  Max   : {stats['max']:.6f} m")
 
-    passed = stats["mean"] < 0.1 and overlap > 0.5
-    print(f"\n  结论: {'✓ PASS' if passed else '✗ FAIL'} - 均值距离 {stats['mean']:.4f}m，{'符合预期（< 0.1m）' if stats['mean'] < 0.1 else '不符合预期（应 < 0.1m）'}")
+    passed = stats["meanAbs"] < 0.1 and overlap > 0.5
+    print(f"\n  结论: {'✓ PASS' if passed else '✗ FAIL'} - 绝对均值距离 {stats['meanAbs']:.4f}m，{'符合预期（< 0.1m）' if stats['meanAbs'] < 0.1 else '不符合预期（应 < 0.1m）'}")
     return passed
 
 
@@ -135,7 +136,7 @@ def test_completely_separated(offset_x: float = 100.0, verbose: bool = True) -> 
 
     实现方式：alignment matrix 将点云沿 X 轴平移 offset_x，
     使变换后的点云与 mesh（仍在原点）完全分离。
-    期望 mean ≈ offset_x - 0.5（点云边缘到 mesh 的距离）。
+    期望 meanAbs ≈ offset_x - 0.5（点云边缘到 mesh 的距离）。
     """
     print(SEPARATOR)
     print(f"测试 2：完全分离场景（点云 X 轴平移 {offset_x}m 到 mesh 外侧）")
@@ -162,20 +163,22 @@ def test_completely_separated(offset_x: float = 100.0, verbose: bool = True) -> 
     print(f"  Mesh  X 范围    : [{mesh_bbox['min'][0]:.2f}, {mesh_bbox['max'][0]:.2f}]")
     print(f"  Scan  X 范围    : [{scan_bbox['min'][0]:.2f}, {scan_bbox['max'][0]:.2f}]")
     print(f"  BBox Overlap IoU : {overlap:.6f}  (期望 ≈ 0)")
-    print(f"  Mean  : {stats['mean']:.4f} m")
+    print(f"  MeanAbs: {stats['meanAbs']:.4f} m")
+    print(f"  RMSE   : {stats['rmse']:.4f} m")
+    print(f"  Signed mean: {stats['mean']:.4f} m")
     print(f"  P50   : {stats['p50']:.4f} m")
     print(f"  Min expected ≈  : {offset_x - 5.0 - 0.5:.2f} m  （点云近边 - mesh 远边）")
     print(f"  Max expected ≈  : {offset_x + 5.0:.2f} m  （点云远边到 mesh 的距离）")
 
     # 期望：mean 应远大于 offset_x - 10（点云近边到 mesh 的距离）
     expected_min_mean = offset_x - 5.0 - 0.5  # 约 94.5m
-    passed = overlap < 1e-6 and stats["mean"] > expected_min_mean
+    passed = overlap < 1e-6 and stats["meanAbs"] > expected_min_mean
     print(f"\n  结论: {'✓ PASS' if passed else '✗ FAIL'}")
     if not passed:
         if overlap >= 1e-6:
             print(f"    BBox 仍有 overlap（{overlap:.6f}），说明分离未完全——平移量需更大")
-        if stats["mean"] <= expected_min_mean:
-            print(f"    均值距离 {stats['mean']:.4f}m 远小于预期 {expected_min_mean:.2f}m")
+        if stats["meanAbs"] <= expected_min_mean:
+            print(f"    绝对均值距离 {stats['meanAbs']:.4f}m 远小于预期 {expected_min_mean:.2f}m")
             print(f"    ⚠️  BUG DETECTED: 完全分离时 C2M 仍返回了极小距离！")
     return passed
 
@@ -194,22 +197,22 @@ def test_separation_sensitivity():
     )
 
     offsets = [0.0, 5.5, 10.0, 50.0, 100.0, 500.0]
-    prev_mean = -1.0
+    prev_mean_abs = -1.0
     all_monotone = True
 
-    print(f"  {'Offset X':>12} | {'BBox IoU':>12} | {'Mean Dist':>12} | {'Monotone':>10}")
+    print(f"  {'Offset X':>12} | {'BBox IoU':>12} | {'MeanAbs':>12} | {'Monotone':>10}")
     print("  " + "-" * 56)
 
     for offset in offsets:
         m16 = make_translation_matrix16(offset, 0.0, 0.0)
         result = run_c2m(mesh, scan_pcd, m16)
-        mean = result["stats"]["mean"]
+        mean_abs = result["stats"]["meanAbs"]
         iou = result["bboxOverlap"]
-        monotone = mean >= prev_mean - 0.01  # 允许极小浮动
+        monotone = mean_abs >= prev_mean_abs - 0.01  # 允许极小浮动
         if not monotone:
             all_monotone = False
-        print(f"  {offset:>12.1f} | {iou:>12.6f} | {mean:>12.4f} | {'✓' if monotone else '✗ NON-MONOTONE':>10}")
-        prev_mean = mean
+        print(f"  {offset:>12.1f} | {iou:>12.6f} | {mean_abs:>12.4f} | {'✓' if monotone else '✗ NON-MONOTONE':>10}")
+        prev_mean_abs = mean_abs
 
     print(f"\n  结论: {'✓ PASS - 距离单调递增，算法正确' if all_monotone else '✗ FAIL - 距离非单调，算法存在 bug'}")
     return all_monotone

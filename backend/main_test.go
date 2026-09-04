@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,6 +62,79 @@ func TestMeshServiceErrorFallsBackToBoundedText(t *testing.T) {
 	}
 }
 
+func TestRetryAfterHelpers(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	if got := retryAfterDuration("5", now, 3*time.Second); got != 5*time.Second {
+		t.Fatalf("delta Retry-After = %s", got)
+	}
+	if got := retryAfterDuration("", now, 3*time.Second); got != 3*time.Second {
+		t.Fatalf("fallback Retry-After = %s", got)
+	}
+	if got := retryAfterDuration(now.Add(7*time.Second).UTC().Format(http.TimeFormat), now, 3*time.Second); got != 7*time.Second {
+		t.Fatalf("date Retry-After = %s", got)
+	}
+	upstream := &http.Response{Header: http.Header{"Retry-After": []string{"5"}}}
+	destination := make(http.Header)
+	copyRetryAfter(destination, upstream)
+	if destination.Get("Retry-After") != "5" {
+		t.Fatalf("forwarded Retry-After = %q", destination.Get("Retry-After"))
+	}
+}
+
+func TestCallRemeshServiceRetriesBusyResponses(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.glb"), []byte("glb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts < remeshRetryAttempts {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"code":429,"msg":"busy"}`))
+			return
+		}
+		_, _ = w.Write([]byte("ply"))
+	}))
+	defer server.Close()
+
+	a := app{cfg: config{MeshServiceURL: server.URL}}
+	resp, err := a.callRemeshService(context.Background(), DBAsset{Dir: dir})
+	if err != nil {
+		t.Fatalf("callRemeshService() error = %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if attempts != remeshRetryAttempts || string(body) != "ply" {
+		t.Fatalf("attempts/body = %d/%q", attempts, body)
+	}
+}
+
+func TestCallRemeshServiceReportsRepeatedBusyResponses(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.glb"), []byte("glb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"code":429,"msg":"still busy"}`))
+	}))
+	defer server.Close()
+
+	a := app{cfg: config{MeshServiceURL: server.URL}}
+	_, err := a.callRemeshService(context.Background(), DBAsset{Dir: dir})
+	if err == nil || !strings.Contains(err.Error(), "连续 3 次返回 429") {
+		t.Fatalf("busy error = %v", err)
+	}
+	if attempts != remeshRetryAttempts {
+		t.Fatalf("attempts = %d", attempts)
+	}
+}
+
 func TestMeshServicePathUsesConfiguredStorageRoot(t *testing.T) {
 	dataDir := filepath.Join(string(filepath.Separator), "app", "data")
 	path := filepath.Join(dataDir, "assets", "scan", "source")
@@ -64,6 +142,131 @@ func TestMeshServicePathUsesConfiguredStorageRoot(t *testing.T) {
 	want := "/mnt/cloudbim/assets/scan/source"
 	if got != want {
 		t.Fatalf("meshServicePath() = %q, want %q", got, want)
+	}
+}
+
+func TestMeshServiceInputPathsMapsScanAndMesh(t *testing.T) {
+	dataDir := filepath.Join(string(filepath.Separator), "app", "data")
+	scanPath := filepath.Join(dataDir, "assets", "scan", "source.las")
+	meshPath := filepath.Join(dataDir, "assets", "bim", "mesh_remesh.ply")
+	scan, mesh := meshServiceInputPaths(dataDir, "/mnt/cloudbim", scanPath, meshPath)
+	if scan != "/mnt/cloudbim/assets/scan/source.las" {
+		t.Fatalf("scan service path = %q", scan)
+	}
+	if mesh != "/mnt/cloudbim/assets/bim/mesh_remesh.ply" {
+		t.Fatalf("mesh service path = %q", mesh)
+	}
+}
+
+func TestC2MProfileAndServiceParams(t *testing.T) {
+	if got := normalizeC2MProfile(""); got != "quick" {
+		t.Fatalf("empty profile = %q, want quick", got)
+	}
+	if got := normalizeC2MProfile(" Reference "); got != "reference" {
+		t.Fatalf("reference profile = %q", got)
+	}
+	params := c2mServiceParams(c2mRequest{Profile: "reference", VoxelSize: 0.01, ToleranceLimit: 0.02})
+	if params["profile"] != "reference" {
+		t.Fatalf("service profile = %#v", params["profile"])
+	}
+	if params["voxel_size"] != 0.01 || params["tolerance_limit"] != 0.02 {
+		t.Fatalf("service params = %#v", params)
+	}
+	if got, err := resolveC2MResultProfile("", ""); err != nil || got != "quick" {
+		t.Fatalf("legacy quick result profile = %q, %v", got, err)
+	}
+	if _, err := resolveC2MResultProfile("reference", ""); err == nil {
+		t.Fatal("reference result without a declared profile was accepted")
+	}
+	if _, err := resolveC2MResultProfile("reference", "quick"); err == nil {
+		t.Fatal("silently downgraded reference result was accepted")
+	}
+}
+
+func TestC2MServiceResultJSONMapping(t *testing.T) {
+	payload := []byte(`{
+		"profile":"quick",
+		"algorithmVersion":"c2m-quick-v1",
+		"metricDirection":"mesh-vertices-to-scan-points",
+		"approximation":{"voxelSize":0.05},
+		"pointsBefore":100,
+		"pointsAfter":25,
+		"meshVertices":10,
+		"stats":{"min":-0.1,"max":0.2,"mean":0.01,"std":0.02,"p50":0,"p90":0.1,"p95":0.15,"p99":0.19,"meanAbs":0.03,"rmse":0.04,"p95Abs":0.16,"withinToleranceRatio":0.8},
+		"histogram":{"counts":[1]},
+		"diagnostics":{"bboxOverlapIoU":0.5},
+		"coloredPlyPath":"/storage/c2m_results/colored.ply",
+		"distancesPath":"/storage/c2m_results/dist.bin"
+	}`)
+	var result c2mServiceResult
+	if err := json.Unmarshal(payload, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Profile != "quick" || result.AlgorithmVersion != "c2m-quick-v1" || result.MetricDirection != "mesh-vertices-to-scan-points" {
+		t.Fatalf("service metadata = %+v", result)
+	}
+	if result.Stats.MeanAbs != 0.03 || result.Stats.RMSE != 0.04 || result.Stats.P95Abs != 0.16 || result.Stats.WithinToleranceRatio != 0.8 {
+		t.Fatalf("absolute stats = %+v", result.Stats)
+	}
+	var approximation map[string]float64
+	if err := json.Unmarshal(result.Approximation, &approximation); err != nil || approximation["voxelSize"] != 0.05 {
+		t.Fatalf("approximation = %s, %v", result.Approximation, err)
+	}
+}
+
+func TestC2MResultDataPreservesMetadataAndDefaultsLegacyProfile(t *testing.T) {
+	row := DBC2MResult{
+		ScanID: 1, BimID: 2, VoxelSize: 0.05, PointsBefore: 100, PointsAfter: 25, MeshVertexCount: 10,
+		MeanAbs: 0.03, RMSE: 0.04, P95Abs: 0.16, WithinToleranceRatio: 0.8,
+		AlgorithmVersion: "c2m-quick-v1", MetricDirection: "mesh-vertices-to-scan-points",
+		HistogramJSON: `{"counts":[1]}`, DiagnosticsJSON: `{"bboxOverlapIoU":0.5}`,
+	}
+	data := c2mResultData(row)
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Profile          string         `json:"profile"`
+		AlgorithmVersion string         `json:"algorithmVersion"`
+		MetricDirection  string         `json:"metricDirection"`
+		Approximation    map[string]any `json:"approximation"`
+		Stats            c2mStats       `json:"stats"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Profile != "quick" || decoded.AlgorithmVersion != row.AlgorithmVersion || decoded.MetricDirection != row.MetricDirection {
+		t.Fatalf("result metadata = %+v", decoded)
+	}
+	if decoded.Approximation["voxelSize"] != 0.05 {
+		t.Fatalf("legacy approximation = %+v", decoded.Approximation)
+	}
+	if decoded.Stats.MeanAbs != 0.03 || decoded.Stats.RMSE != 0.04 || decoded.Stats.P95Abs != 0.16 || decoded.Stats.WithinToleranceRatio != 0.8 {
+		t.Fatalf("result stats = %+v", decoded.Stats)
+	}
+}
+
+func TestC2MResultDataOmitsUnknownAbsoluteStatsForHistoricalRows(t *testing.T) {
+	data := c2mResultData(DBC2MResult{MeanAbs: 9, RMSE: 9, P95Abs: 9, WithinToleranceRatio: 9})
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Profile string         `json:"profile"`
+		Stats   map[string]any `json:"stats"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Profile != "quick" {
+		t.Fatalf("historical profile = %q", decoded.Profile)
+	}
+	for _, key := range []string{"meanAbs", "rmse", "p95Abs", "withinToleranceRatio"} {
+		if _, exists := decoded.Stats[key]; exists {
+			t.Errorf("historical stats unexpectedly contain %s: %+v", key, decoded.Stats)
+		}
 	}
 }
 
@@ -194,6 +397,160 @@ func TestSafeJoin(t *testing.T) {
 		if _, err := safeJoin(base, escape); err == nil {
 			t.Errorf("safeJoin(%q) unexpectedly allowed path escape", escape)
 		}
+	}
+}
+
+func TestServeAssetFileHTTPValidatorsAndRange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "model.glb")
+	payload := []byte("0123456789abcdef")
+	if err := os.WriteFile(path, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	mtime := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+
+	get := httptest.NewRecorder()
+	serveAssetFile(get, httptest.NewRequest(http.MethodGet, "/assets/1/glb", nil), path)
+	if get.Code != http.StatusOK || get.Body.String() != string(payload) {
+		t.Fatalf("GET = %d %q", get.Code, get.Body.String())
+	}
+	if got := get.Header().Get("Cache-Control"); got != legacyAssetCacheControl {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+	if got := get.Header().Get("Vary"); got != "Authorization" {
+		t.Fatalf("Vary = %q", got)
+	}
+	if got := get.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("Accept-Ranges = %q", got)
+	}
+	etag := get.Header().Get("ETag")
+	if !strings.HasPrefix(etag, `W/"`) {
+		t.Fatalf("ETag = %q", etag)
+	}
+	lastModified := get.Header().Get("Last-Modified")
+	if lastModified == "" {
+		t.Fatal("Last-Modified was not set")
+	}
+
+	head := httptest.NewRecorder()
+	serveAssetFile(head, httptest.NewRequest(http.MethodHead, "/assets/1/glb", nil), path)
+	if head.Code != http.StatusOK || head.Body.Len() != 0 {
+		t.Fatalf("HEAD = %d with %d body bytes", head.Code, head.Body.Len())
+	}
+	if head.Header().Get("ETag") != etag || head.Header().Get("Content-Length") != "16" {
+		t.Fatalf("HEAD headers = %#v", head.Header())
+	}
+
+	rangeRequest := httptest.NewRequest(http.MethodGet, "/assets/1/glb", nil)
+	rangeRequest.Header.Set("Range", "bytes=0-3")
+	ranged := httptest.NewRecorder()
+	serveAssetFile(ranged, rangeRequest, path)
+	if ranged.Code != http.StatusPartialContent || ranged.Body.String() != "0123" {
+		t.Fatalf("Range = %d %q", ranged.Code, ranged.Body.String())
+	}
+	if got := ranged.Header().Get("Content-Range"); got != "bytes 0-3/16" {
+		t.Fatalf("Content-Range = %q", got)
+	}
+
+	notModifiedRequest := httptest.NewRequest(http.MethodGet, "/assets/1/glb", nil)
+	notModifiedRequest.Header.Set("If-None-Match", etag)
+	notModified := httptest.NewRecorder()
+	serveAssetFile(notModified, notModifiedRequest, path)
+	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
+		t.Fatalf("If-None-Match = %d with %d body bytes", notModified.Code, notModified.Body.Len())
+	}
+
+	modifiedSinceRequest := httptest.NewRequest(http.MethodGet, "/assets/1/glb", nil)
+	modifiedSinceRequest.Header.Set("If-Modified-Since", lastModified)
+	modifiedSince := httptest.NewRecorder()
+	serveAssetFile(modifiedSince, modifiedSinceRequest, path)
+	if modifiedSince.Code != http.StatusNotModified {
+		t.Fatalf("If-Modified-Since = %d", modifiedSince.Code)
+	}
+}
+
+func TestLegacyAssetRepresentations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("ply"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	bim := legacyAssetRepresentations(Asset{ID: 4, Type: "bim", Status: "ready", SourceSize: 42, Dir: dir, RemeshStatus: "succeeded"})
+	if len(bim) != 3 {
+		t.Fatalf("BIM representations = %+v", bim)
+	}
+	if bim[0].Kind != "browse-detail" || bim[0].URL != "/assets/4/glb" || bim[0].MetadataURL != "/assets/4/metadata" || !bim[0].Legacy {
+		t.Fatalf("BIM browse representation = %+v", bim[0])
+	}
+	if bim[1].Kind != "source" || bim[1].ByteSize != 42 {
+		t.Fatalf("BIM source representation = %+v", bim[1])
+	}
+	if bim[2].Kind != "compute-mesh" || bim[2].Status != "succeeded" || bim[2].URL != "/assets/4/mesh/remesh/latest" {
+		t.Fatalf("BIM compute representation = %+v", bim[2])
+	}
+
+	pointcloud := legacyAssetRepresentations(Asset{ID: 5, Type: "pointcloud", Status: "ready", SourceSize: 84})
+	if len(pointcloud) != 2 {
+		t.Fatalf("point-cloud representations = %+v", pointcloud)
+	}
+	if pointcloud[0].URL != "/assets/5/tiles/tileset.json" || pointcloud[0].BaseURL != "/assets/5/tiles/" {
+		t.Fatalf("point-cloud browse representation = %+v", pointcloud[0])
+	}
+	if pointcloud[1].Kind != "source" || pointcloud[1].Format != "las" || pointcloud[1].ByteSize != 84 {
+		t.Fatalf("point-cloud source representation = %+v", pointcloud[1])
+	}
+}
+
+func TestRepresentationFromDerivative(t *testing.T) {
+	message := "conversion failed"
+	got := representationFromDerivative(Asset{ID: 7, Dir: t.TempDir()}, DBAssetDerivative{
+		Kind: "browse-preview", Format: "3d-tiles", Status: "failed", Version: "v1", ByteSize: 10, ContentHash: "abc", ErrorMessage: &message,
+	})
+	if got.Kind != "browse-preview" || got.Status != "failed" || got.Version != "v1" || got.ByteSize != 10 || got.ContentHash != "abc" || got.ErrorMessage == nil || *got.ErrorMessage != message || got.Legacy {
+		t.Fatalf("derivative representation = %+v", got)
+	}
+}
+
+func TestMergeAssetRepresentationsReplacesByKindAndKeepsLegacyEntries(t *testing.T) {
+	asset := Asset{ID: 5, Type: "pointcloud", Status: "ready", SourceSize: 84, Dir: t.TempDir()}
+	rows := []DBAssetDerivative{
+		{Kind: "source", Format: "las", Status: "processing"},
+		{Kind: "browse-preview", Format: "3d-tiles", Status: "ready", RelativePath: "derivatives/preview", EntryPath: "tiles/tileset.json", Version: "v1"},
+	}
+	got := mergeAssetRepresentations(asset, rows)
+	if len(got) != 3 {
+		t.Fatalf("merged representations = %+v", got)
+	}
+	if got[0].Kind != "browse-detail" || !got[0].Legacy {
+		t.Fatalf("legacy browse-detail was lost: %+v", got)
+	}
+	if got[1].Kind != "source" || got[1].Status != "processing" || got[1].Legacy {
+		t.Fatalf("persisted source did not replace legacy source: %+v", got[1])
+	}
+	if got[2].Kind != "browse-preview" || got[2].URL != "/assets/5/representations/browse-preview/v1/tiles/tileset.json" || got[2].BaseURL != "/assets/5/representations/browse-preview/v1/" {
+		t.Fatalf("versioned preview representation = %+v", got[2])
+	}
+}
+
+func TestDerivativeResourcePathIsContained(t *testing.T) {
+	asset := Asset{Dir: t.TempDir()}
+	row := DBAssetDerivative{Kind: "browse-preview", Version: "v1", RelativePath: "derivatives/preview", EntryPath: "tileset.json"}
+	got, err := derivativeResourcePath(asset, row, "/tiles/0/content.pnts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(asset.Dir, "derivatives", "preview", "tiles", "0", "content.pnts")
+	if got != want {
+		t.Fatalf("derivative path = %q, want %q", got, want)
+	}
+	if _, err := derivativeResourcePath(asset, row, "../../outside"); err == nil {
+		t.Fatal("derivative request path escaped its representation root")
+	}
+	row.EntryPath = "../outside"
+	if _, err := derivativeResourcePath(asset, row, "file"); err == nil {
+		t.Fatal("invalid derivative entry path was accepted")
 	}
 }
 

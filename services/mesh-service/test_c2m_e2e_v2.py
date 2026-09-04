@@ -1,14 +1,14 @@
 """C2M 端到端集成测试 v2
 
 修正测试策略（基于 v1 运行结果）：
-- 当前 DB 中保存的对齐矩阵已经是用户"故意偏移到角落"的状态（IoU=0, Mean=19m）
+- 当前 DB 中保存的对齐矩阵已经是用户"故意偏移到角落"的状态（IoU=0, MeanAbs=19m）
 - 需要手动构造一个"理论上对齐"的矩阵（将 scan 中心对准 mesh 中心）来完整测试算法
 
 测试场景：
-A. 理论对齐矩阵（scan 中心 = mesh 中心）→ 预期: IoU 高, Mean < 5m
-B. 当前 DB 矩阵（故意偏移）→ 预期: IoU=0, Mean≈19m (确认算法对不重合有正确响应)
-C. 完全分离（再额外 +200m）→ 预期: IoU=0, Mean≈200+m
-D. 部分重合（当前偏移的一半）→ 预期: IoU 中等, Mean < 场景B
+A. 理论对齐矩阵（scan 中心 = mesh 中心）→ 预期: IoU 高, MeanAbs < 5m
+B. 当前 DB 矩阵（故意偏移）→ 预期: IoU=0, MeanAbs≈19m (确认算法对不重合有正确响应)
+C. 完全分离（再额外 +200m）→ 预期: IoU=0, MeanAbs≈200+m
+D. 部分重合（当前偏移的一半）→ 预期: IoU 中等, MeanAbs < 场景B
 """
 
 import json
@@ -80,7 +80,7 @@ def call_c2m(alignment_matrix: list, label: str, voxel_size: float = 0.1) -> dic
         load_and_downsample_las,
         column_major_to_matrix4,
         apply_transform,
-        compute_mesh_to_cloud_distances,
+        compute_signed_mesh_to_cloud_distances,
         compute_statistics,
         compute_bbox_overlap,
     )
@@ -109,13 +109,13 @@ def call_c2m(alignment_matrix: list, label: str, voxel_size: float = 0.1) -> dic
         mesh_bbox["min"], mesh_bbox["max"],
     )
 
-    distances = compute_mesh_to_cloud_distances(mesh, pcd)
+    distances = compute_signed_mesh_to_cloud_distances(mesh, pcd)
     stats_result = compute_statistics(distances, max_hist_dist=500.0, n_bins=50)
     stats = stats_result["stats"]
 
     elapsed = time.time() - t_start
-    print(f"  [4] BBoxIoU={overlap:.4f}  Mean={stats['mean']:.3f}m  P50={stats['p50']:.3f}m  "
-          f"P90={stats['p90']:.3f}m  Max={stats['max']:.3f}m  ({elapsed:.1f}s)")
+    print(f"  [4] BBoxIoU={overlap:.4f}  MeanAbs={stats['meanAbs']:.3f}m  RMSE={stats['rmse']:.3f}m  "
+          f"P95Abs={stats['p95Abs']:.3f}m  SignedMean={stats['mean']:.3f}m  ({elapsed:.1f}s)")
 
     return {"label": label, "bboxOverlap": overlap, "stats": stats,
             "scanBbox": scan_bbox, "meshBbox": mesh_bbox}
@@ -133,39 +133,39 @@ def main():
 
     # ── 场景 A：理论对齐（scan 中心 ≈ mesh 中心）────────────────────────
     m16_aligned = add_translation_offset(m16_base, dx=DX_ALIGN)
-    r_a = call_c2m(m16_aligned, f"场景A：理论对齐（X偏移{DX_ALIGN:.1f}m）→预期 IoU高 Mean小")
+    r_a = call_c2m(m16_aligned, f"场景A：理论对齐（X偏移{DX_ALIGN:.1f}m）→预期 IoU高 MeanAbs小")
     results.append(r_a)
 
     # ── 场景 B：当前 DB 矩阵（故意偏移状态，scan 刚好在 mesh 外侧）──────
-    r_b = call_c2m(m16_base, "场景B：当前DB矩阵（故意偏到角落）→预期 IoU≈0 Mean≈19m")
+    r_b = call_c2m(m16_base, "场景B：当前DB矩阵（故意偏到角落）→预期 IoU≈0 MeanAbs≈19m")
     results.append(r_b)
 
     # ── 场景 C：完全分离（再额外 +200m）────────────────────────────────
     m16_far = add_translation_offset(m16_base, dx=200.0)
-    r_c = call_c2m(m16_far, "场景C：完全分离（+200m）→预期 IoU=0 Mean≈200+m")
+    r_c = call_c2m(m16_far, "场景C：完全分离（+200m）→预期 IoU=0 MeanAbs≈200+m")
     results.append(r_c)
 
     # ── 场景 D：一半偏移（部分重合）──────────────────────────────────────
     # 在 A（完全对齐）和 B（完全错开）之间取中间，看是否部分重合
     half_dx = DX_ALIGN / 2.0
     m16_half = add_translation_offset(m16_base, dx=half_dx)
-    r_d = call_c2m(m16_half, f"场景D：半偏移（X偏移{half_dx:.1f}m）→预期 IoU中等 Mean介于A/B之间")
+    r_d = call_c2m(m16_half, f"场景D：半偏移（X偏移{half_dx:.1f}m）→预期 IoU中等 MeanAbs介于A/B之间")
     results.append(r_d)
 
     # ── 汇总 ────────────────────────────────────────────────────────────
     print(f"\n{SEPARATOR}")
     print("  汇总")
     print(SEPARATOR)
-    print(f"  {'场景':<45} {'IoU':>8} {'Mean':>8} {'P50':>8} {'Max':>8}")
+    print(f"  {'场景':<45} {'IoU':>8} {'MeanAbs':>8} {'RMSE':>8} {'P95Abs':>8}")
     print(f"  {'─'*80}")
     for r in results:
         print(f"  {r['label'][:45]:<45} {r['bboxOverlap']:>8.4f} "
-              f"{r['stats']['mean']:>8.3f} {r['stats']['p50']:>8.3f} {r['stats']['max']:>8.3f}")
+              f"{r['stats']['meanAbs']:>8.3f} {r['stats']['rmse']:>8.3f} {r['stats']['p95Abs']:>8.3f}")
 
     print(f"\n{'─'*70}")
 
     # 验证核心性质：距离单调性
-    means = [r["stats"]["mean"] for r in results]
+    mean_abs_values = [r["stats"]["meanAbs"] for r in results]
     ious  = [r["bboxOverlap"] for r in results]
 
     checks = []
@@ -174,20 +174,20 @@ def main():
     check1 = ious[0] > 0
     checks.append(("场景A IoU > 0（对齐时有重叠）", check1, f"IoU={ious[0]:.4f}"))
 
-    # 2. 理论对齐时 Mean 应小于场景B（偏移状态）
-    check2 = means[0] < means[1]
-    checks.append(("场景A Mean < 场景B Mean（对齐时距离更小）", check2,
-                   f"A={means[0]:.3f}m, B={means[1]:.3f}m"))
+    # 2. 理论对齐时 MeanAbs 应小于场景B（偏移状态）
+    check2 = mean_abs_values[0] < mean_abs_values[1]
+    checks.append(("场景A MeanAbs < 场景B MeanAbs（对齐时距离更小）", check2,
+                   f"A={mean_abs_values[0]:.3f}m, B={mean_abs_values[1]:.3f}m"))
 
-    # 3. 完全分离时 Mean 应远大于场景 B
-    check3 = means[2] > means[1] + 50.0
-    checks.append(("场景C Mean >> 场景B Mean（更远时距离显著更大）", check3,
-                   f"C={means[2]:.3f}m, B={means[1]:.3f}m"))
+    # 3. 完全分离时 MeanAbs 应远大于场景 B
+    check3 = mean_abs_values[2] > mean_abs_values[1] + 50.0
+    checks.append(("场景C MeanAbs >> 场景B MeanAbs（更远时距离显著更大）", check3,
+                   f"C={mean_abs_values[2]:.3f}m, B={mean_abs_values[1]:.3f}m"))
 
-    # 4. 场景D（半偏移）的 Mean 应介于 A 和 B 之间
-    check4 = means[0] <= means[3] <= means[1] + 5.0
-    checks.append(("场景D Mean 在 A 和 B 之间（单调性）", check4,
-                   f"A={means[0]:.3f}m, D={means[3]:.3f}m, B={means[1]:.3f}m"))
+    # 4. 场景D（半偏移）的 MeanAbs 应介于 A 和 B 之间
+    check4 = mean_abs_values[0] <= mean_abs_values[3] <= mean_abs_values[1] + 5.0
+    checks.append(("场景D MeanAbs 在 A 和 B 之间（单调性）", check4,
+                   f"A={mean_abs_values[0]:.3f}m, D={mean_abs_values[3]:.3f}m, B={mean_abs_values[1]:.3f}m"))
 
     print()
     all_pass = True

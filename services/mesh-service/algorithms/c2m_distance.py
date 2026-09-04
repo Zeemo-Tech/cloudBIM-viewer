@@ -276,6 +276,76 @@ def compute_signed_mesh_to_cloud_distances(
     return signed_distances
 
 
+def compute_signed_scan_to_mesh_distances(
+    mesh: o3d.geometry.TriangleMesh,
+    scan_points: np.ndarray,
+    chunk_size: int = 250_000,
+) -> np.ndarray:
+    """Compute signed scan-point-to-triangle distances in bounded chunks.
+
+    This is the geometry core intended for a future ``reference`` profile. It
+    deliberately has no file I/O or downsampling. Inputs and returned
+    distances stay float64. RaycastingScene uses float32 tensors internally,
+    so coordinates are rebased around the mesh before each query to preserve
+    precision for large projected-coordinate values.
+
+    The sign comes from the closest triangle primitive normal: points in the
+    normal-facing half-space are positive and points behind it are negative.
+    """
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    triangles = np.asarray(mesh.triangles, dtype=np.int64)
+    points = np.asarray(scan_points, dtype=np.float64)
+
+    if vertices.ndim != 2 or vertices.shape[1:] != (3,):
+        raise ValueError("mesh must contain Nx3 vertices")
+    if triangles.ndim != 2 or triangles.shape[1:] != (3,) or len(triangles) == 0:
+        raise ValueError("mesh must contain triangle faces")
+    if points.ndim != 2 or points.shape[1:] != (3,):
+        raise ValueError("scan_points must have shape (N, 3)")
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero")
+    if len(points) == 0:
+        return np.empty(0, dtype=np.float64)
+
+    local_origin = (vertices.min(axis=0) + vertices.max(axis=0)) * 0.5
+    local_vertices = vertices - local_origin
+    triangle_vertices = local_vertices[triangles]
+    primitive_normals = np.cross(
+        triangle_vertices[:, 1] - triangle_vertices[:, 0],
+        triangle_vertices[:, 2] - triangle_vertices[:, 0],
+    )
+    normal_lengths = np.linalg.norm(primitive_normals, axis=1)
+    if np.any(normal_lengths <= 1e-15):
+        raise ValueError("mesh contains degenerate triangle faces")
+    primitive_normals /= normal_lengths[:, np.newaxis]
+
+    tensor_mesh = o3d.t.geometry.TriangleMesh(
+        o3d.core.Tensor(local_vertices.astype(np.float32), dtype=o3d.core.Dtype.Float32),
+        o3d.core.Tensor(triangles.astype(np.int32), dtype=o3d.core.Dtype.Int32),
+    )
+    scene = o3d.t.geometry.RaycastingScene()
+    scene.add_triangles(tensor_mesh)
+
+    signed_distances = np.empty(len(points), dtype=np.float64)
+    for start in range(0, len(points), chunk_size):
+        end = min(start + chunk_size, len(points))
+        local_points = points[start:end] - local_origin
+        query = o3d.core.Tensor(
+            local_points.astype(np.float32),
+            dtype=o3d.core.Dtype.Float32,
+        )
+        closest = scene.compute_closest_points(query)
+        closest_points = np.asarray(closest["points"].numpy(), dtype=np.float64)
+        primitive_ids = np.asarray(closest["primitive_ids"].numpy(), dtype=np.int64).reshape(-1)
+        offsets = local_points - closest_points
+        unsigned = np.linalg.norm(offsets, axis=1)
+        dots = np.einsum("ij,ij->i", primitive_normals[primitive_ids], offsets)
+        signs = np.where(dots >= 0.0, 1.0, -1.0)
+        signed_distances[start:end] = signs * unsigned
+
+    return signed_distances
+
+
 def colorize_mesh_by_signed_distance(
     mesh: o3d.geometry.TriangleMesh,
     signed_distances: np.ndarray,
@@ -324,13 +394,21 @@ def colorize_mesh_by_signed_distance(
 
 
 def compute_statistics(
-    distances: np.ndarray, max_hist_dist: float, n_bins: int
+    distances: np.ndarray,
+    max_hist_dist: float,
+    n_bins: int,
+    tolerance: float = 0.05,
 ) -> dict[str, Any]:
     """计算有符号距离的统计量和对称直方图。
 
     参数 max_hist_dist 表示直方图半宽，区间为
     [-max_hist_dist, +max_hist_dist]（n_bins 个桶）。
     """
+    distances = np.asarray(distances, dtype=np.float64)
+    if distances.size == 0:
+        raise ValueError("distances must not be empty")
+    absolute_distances = np.abs(distances)
+    tolerance = max(float(tolerance), 0.0)
     stats = {
         "min":  float(np.min(distances)),
         "max":  float(np.max(distances)),
@@ -340,6 +418,10 @@ def compute_statistics(
         "p90":  float(np.percentile(distances, 90)),
         "p95":  float(np.percentile(distances, 95)),
         "p99":  float(np.percentile(distances, 99)),
+        "meanAbs": float(np.mean(absolute_distances)),
+        "rmse": float(np.sqrt(np.mean(np.square(distances)))),
+        "p95Abs": float(np.percentile(absolute_distances, 95)),
+        "withinToleranceRatio": float(np.mean(absolute_distances <= tolerance)),
     }
     # 对称区间直方图：负值在左半段，正值在右半段
     r = max(max_hist_dist, 1e-6)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   clearStoredSession,
@@ -8,10 +8,13 @@ import {
   validateStoredSession,
 } from '@/features/auth/auth.service'
 import LoginView from '@/views/login/LoginView.vue'
-import BimPointcloudAlignView from '@/views/alignment/BimPointcloudAlignView.vue'
-import AssetPreviewView from '@/views/preview/AssetPreviewView.vue'
-import SplitPreviewView from '@/views/preview/SplitPreviewView.vue'
-import UploadView from '@/views/upload/UploadView.vue'
+
+const UploadView = defineAsyncComponent(() => import('@/views/upload/UploadView.vue'))
+const AssetPreviewView = defineAsyncComponent(() => import('@/views/preview/AssetPreviewView.vue'))
+const SplitPreviewView = defineAsyncComponent(() => import('@/views/preview/SplitPreviewView.vue'))
+const BimPointcloudAlignView = defineAsyncComponent(
+  () => import('@/views/alignment/BimPointcloudAlignView.vue'),
+)
 
 const session = ref<AuthSession | null>(getStoredSession())
 const route = useRoute()

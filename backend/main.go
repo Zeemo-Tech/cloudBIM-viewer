@@ -15,6 +15,7 @@ import (
 	"math"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -150,6 +151,22 @@ type DBAsset struct {
 	RemeshVertexAfter  int
 	RemeshFaceAfter    int
 }
+type DBAssetDerivative struct {
+	ID           int64   `gorm:"primaryKey"`
+	AssetID      int64   `gorm:"uniqueIndex:idx_asset_derivative_kind;index;not null"`
+	Kind         string  `gorm:"size:64;uniqueIndex:idx_asset_derivative_kind;not null"`
+	Format       string  `gorm:"size:32;not null"`
+	Status       string  `gorm:"size:32;index;not null"`
+	RelativePath string  `gorm:"size:1024"`
+	EntryPath    string  `gorm:"size:1024"`
+	Version      string  `gorm:"size:128"`
+	ContentHash  string  `gorm:"size:128"`
+	ByteSize     int64   `gorm:"not null;default:0"`
+	ParamsJSON   string  `gorm:"type:text"`
+	ErrorMessage *string `gorm:"type:text"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
 type DBUpload struct {
 	ID           string `gorm:"primaryKey;size:64"`
 	AssetID      int64
@@ -177,28 +194,50 @@ type DBAlignment struct {
 }
 
 type DBC2MResult struct {
-	ID              int64 `gorm:"primaryKey"`
-	ScanID          int64 `gorm:"uniqueIndex:idx_c2m_scan_bim;not null"`
-	BimID           int64 `gorm:"uniqueIndex:idx_c2m_scan_bim;not null"`
-	OwnerID         int64 `gorm:"index;not null"`
-	PointsBefore    int
-	PointsAfter     int
-	MeshVertexCount int
-	VoxelSize       float64
-	MinDist         float64
-	MeanDist        float64
-	StdDist         float64
-	P50             float64
-	P90             float64
-	P95             float64
-	P99             float64
-	MaxDist         float64
-	HistogramJSON   string `gorm:"type:text"`
-	DiagnosticsJSON string `gorm:"type:text"`
-	ColoredPlyPath  string `gorm:"size:2048"`
-	DistancesPath   string `gorm:"size:2048"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                   int64 `gorm:"primaryKey"`
+	ScanID               int64 `gorm:"uniqueIndex:idx_c2m_scan_bim;not null"`
+	BimID                int64 `gorm:"uniqueIndex:idx_c2m_scan_bim;not null"`
+	OwnerID              int64 `gorm:"index;not null"`
+	PointsBefore         int
+	PointsAfter          int
+	MeshVertexCount      int
+	VoxelSize            float64
+	MinDist              float64
+	MeanDist             float64
+	StdDist              float64
+	P50                  float64
+	P90                  float64
+	P95                  float64
+	P99                  float64
+	MaxDist              float64
+	MeanAbs              float64
+	RMSE                 float64
+	P95Abs               float64
+	WithinToleranceRatio float64
+	Profile              string `gorm:"size:32"`
+	AlgorithmVersion     string `gorm:"size:128"`
+	MetricDirection      string `gorm:"size:128"`
+	ApproximationJSON    string `gorm:"type:text"`
+	HistogramJSON        string `gorm:"type:text"`
+	DiagnosticsJSON      string `gorm:"type:text"`
+	ColoredPlyPath       string `gorm:"size:2048"`
+	DistancesPath        string `gorm:"size:2048"`
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type AssetRepresentation struct {
+	Kind         string  `json:"kind"`
+	Format       string  `json:"format"`
+	Status       string  `json:"status"`
+	Version      string  `json:"version,omitempty"`
+	ByteSize     int64   `json:"byteSize,omitempty"`
+	ContentHash  string  `json:"contentHash,omitempty"`
+	URL          string  `json:"url,omitempty"`
+	MetadataURL  string  `json:"metadataUrl,omitempty"`
+	BaseURL      string  `json:"baseUrl,omitempty"`
+	ErrorMessage *string `json:"errorMessage,omitempty"`
+	Legacy       bool    `json:"legacy,omitempty"`
 }
 
 type config struct {
@@ -382,7 +421,7 @@ func (a *app) connectDB() error {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("%s 数据库不可用: %w", a.cfg.DBDriver, err)
 	}
-	if err := db.AutoMigrate(&DBUser{}, &DBAsset{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}); err != nil {
+	if err := db.AutoMigrate(&DBUser{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	a.db = db
@@ -450,16 +489,6 @@ func validAssetArtifacts(asset DBAsset) bool {
 		return hasTileContent(asset.Dir, tileset)
 	}
 	return false
-}
-
-func (a *app) ensureAssetArtifacts(asset *DBAsset) {
-	if asset.Status != "ready" || validAssetArtifacts(*asset) {
-		return
-	}
-	asset.Status = "failed"
-	message := "转换产物缺失或无效，请重新上传原始文件"
-	asset.ErrorMessage = &message
-	_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"status": asset.Status, "error_message": message}).Error
 }
 
 func hasTileContent(assetDir string, tileset map[string]any) bool {
@@ -948,6 +977,9 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 	} else {
 		err = buildPointCloud(ctx, source, asset.Dir, a.cfg.PointcloudSubsample)
 	}
+	if err == nil && !validAssetArtifacts(asset) {
+		err = errors.New("转换完成但产物缺失或无效")
+	}
 	if err != nil {
 		msg := err.Error()
 		if updateErr := a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{"status": "failed", "error_message": msg}).Error; updateErr != nil {
@@ -1175,12 +1207,6 @@ func (a *app) listAssets(c *gin.Context) {
 	}
 	list := []gin.H{}
 	for _, item := range rows {
-		wasReady := item.Status == "ready"
-		a.ensureAssetArtifacts(&item)
-		if wasReady && item.Status != "ready" && status == "ready" {
-			total--
-			continue
-		}
 		list = append(list, assetSummary(assetFromDB(item)))
 	}
 	ok(c, gin.H{"total": total, "page": page, "pageSize": size, "list": list})
@@ -1191,7 +1217,6 @@ func (a *app) getAsset(c *gin.Context) (*Asset, bool) {
 	if err := a.db.Where("id = ? AND owner_id = ?", id, userID(c)).First(&row).Error; err != nil {
 		return nil, false
 	}
-	a.ensureAssetArtifacts(&row)
 	item := assetFromDB(row)
 	return &item, true
 }
@@ -1219,39 +1244,216 @@ func (a *app) deleteAsset(c *gin.Context) {
 		fail(c, 404, "资产不存在")
 		return
 	}
-	if err := a.db.Delete(&DBAsset{}, "id = ? AND owner_id = ?", item.ID, userID(c)).Error; err != nil {
+	if err := a.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&DBAssetDerivative{}, "asset_id = ?", item.ID).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&DBAsset{}, "id = ? AND owner_id = ?", item.ID, userID(c)).Error
+	}); err != nil {
 		fail(c, 500, "删除资产失败")
 		return
 	}
 	_ = os.RemoveAll(item.Dir)
 	ok(c, nil)
 }
-func (a *app) resource(c *gin.Context) {
+
+func escapedRelativeURLPath(path string) string {
+	parts := strings.Split(filepath.ToSlash(filepath.Clean(path)), "/")
+	for index, part := range parts {
+		parts[index] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+func derivativeResourcePath(asset Asset, row DBAssetDerivative, relative string) (string, error) {
+	if strings.TrimSpace(row.Kind) == "" || strings.TrimSpace(row.Version) == "" || strings.TrimSpace(row.RelativePath) == "" || strings.TrimSpace(row.EntryPath) == "" {
+		return "", errors.New("派生物资源信息不完整")
+	}
+	if filepath.IsAbs(row.RelativePath) || filepath.IsAbs(row.EntryPath) || filepath.Clean(row.EntryPath) == "." {
+		return "", errors.New("派生物资源路径非法")
+	}
+	root, err := safeJoin(asset.Dir, row.RelativePath)
+	if err != nil {
+		return "", err
+	}
+	if _, err := safeJoin(root, row.EntryPath); err != nil {
+		return "", err
+	}
+	return safeJoin(root, relative)
+}
+
+func representationFromDerivative(asset Asset, row DBAssetDerivative) AssetRepresentation {
+	representation := AssetRepresentation{
+		Kind:         row.Kind,
+		Format:       row.Format,
+		Status:       row.Status,
+		Version:      row.Version,
+		ByteSize:     row.ByteSize,
+		ContentHash:  row.ContentHash,
+		ErrorMessage: row.ErrorMessage,
+	}
+	if row.Status == "ready" {
+		if _, err := derivativeResourcePath(asset, row, row.EntryPath); err == nil {
+			baseURL := fmt.Sprintf("/assets/%d/representations/%s/%s/", asset.ID, url.PathEscape(row.Kind), url.PathEscape(row.Version))
+			representation.BaseURL = baseURL
+			representation.URL = baseURL + escapedRelativeURLPath(row.EntryPath)
+		}
+	}
+	return representation
+}
+
+func legacyAssetRepresentations(asset Asset) []AssetRepresentation {
+	if asset.Type == "bim" {
+		browse := AssetRepresentation{
+			Kind:        "browse-detail",
+			Format:      "glb",
+			Status:      asset.Status,
+			URL:         fmt.Sprintf("/assets/%d/glb", asset.ID),
+			MetadataURL: fmt.Sprintf("/assets/%d/metadata", asset.ID),
+			Legacy:      true,
+		}
+		source := AssetRepresentation{Kind: "source", Format: "ifc", Status: asset.Status, ByteSize: asset.SourceSize, Legacy: true}
+		remesh := meshRemeshSummary(asset)
+		compute := AssetRepresentation{Kind: "compute-mesh", Format: "ply", Status: remesh.Status, ErrorMessage: remesh.LastError, Legacy: true}
+		if remesh.Status == "succeeded" {
+			compute.URL = fmt.Sprintf("/assets/%d/mesh/remesh/latest", asset.ID)
+		}
+		return []AssetRepresentation{browse, source, compute}
+	}
+	if asset.Type == "pointcloud" {
+		return []AssetRepresentation{
+			{
+				Kind:    "browse-detail",
+				Format:  "3d-tiles",
+				Status:  asset.Status,
+				URL:     fmt.Sprintf("/assets/%d/tiles/tileset.json", asset.ID),
+				BaseURL: fmt.Sprintf("/assets/%d/tiles/", asset.ID),
+				Legacy:  true,
+			},
+			{Kind: "source", Format: "las", Status: asset.Status, ByteSize: asset.SourceSize, Legacy: true},
+		}
+	}
+	return nil
+}
+
+func mergeAssetRepresentations(asset Asset, rows []DBAssetDerivative) []AssetRepresentation {
+	representations := legacyAssetRepresentations(asset)
+	indices := make(map[string]int, len(representations))
+	for index, representation := range representations {
+		indices[representation.Kind] = index
+	}
+	for _, row := range rows {
+		representation := representationFromDerivative(asset, row)
+		if index, exists := indices[representation.Kind]; exists {
+			representations[index] = representation
+			continue
+		}
+		indices[representation.Kind] = len(representations)
+		representations = append(representations, representation)
+	}
+	return representations
+}
+
+func (a *app) assetRepresentations(c *gin.Context) {
 	item, found := a.getAsset(c)
-	if !found || item.Status != "ready" {
-		fail(c, 404, "资源不存在或尚未就绪")
+	if !found {
+		fail(c, http.StatusNotFound, "资产不存在")
+		return
+	}
+	var rows []DBAssetDerivative
+	if err := a.db.Where("asset_id = ?", item.ID).Order("kind ASC").Find(&rows).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "查询资产派生物失败")
+		return
+	}
+	representations := mergeAssetRepresentations(*item, rows)
+	ok(c, gin.H{"list": representations})
+}
+
+func (a *app) derivativeResource(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusNotFound, "派生物资源不存在")
+		return
+	}
+	var assetRow DBAsset
+	if err := a.db.Where("id = ? AND owner_id = ? AND status = ?", id, userID(c), "ready").First(&assetRow).Error; err != nil {
+		fail(c, http.StatusNotFound, "派生物资源不存在")
+		return
+	}
+	var row DBAssetDerivative
+	if err := a.db.Where("asset_id = ? AND kind = ? AND version = ? AND status = ?", id, c.Param("kind"), c.Param("version"), "ready").First(&row).Error; err != nil {
+		fail(c, http.StatusNotFound, "派生物资源不存在")
+		return
+	}
+	path, err := derivativeResourcePath(assetFromDB(assetRow), row, c.Param("path"))
+	if err != nil {
+		fail(c, http.StatusNotFound, "派生物资源不存在")
+		return
+	}
+	serveAssetFile(c.Writer, c.Request, path)
+}
+
+const legacyAssetCacheControl = "private, max-age=3600, must-revalidate"
+
+func weakFileETag(info os.FileInfo) string {
+	return fmt.Sprintf(`W/"%x-%x"`, info.Size(), info.ModTime().UnixNano())
+}
+
+func serveAssetFile(w http.ResponseWriter, request *http.Request, path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, request)
+			return
+		}
+		http.Error(w, "resource unavailable", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, request)
+		return
+	}
+	w.Header().Set("Cache-Control", legacyAssetCacheControl)
+	w.Header().Set("ETag", weakFileETag(info))
+	w.Header().Add("Vary", "Authorization")
+	http.ServeContent(w, request, filepath.Base(path), info.ModTime(), file)
+}
+
+func (a *app) resource(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusNotFound, "资源不存在或尚未就绪")
 		return
 	}
 	switch c.Param("resource") {
 	case "glb":
-		if item.Type != "bim" {
+		item, found := a.getAssetByID(c, id, "bim")
+		if !found {
 			fail(c, 404, "资源不存在")
 			return
 		}
-		c.File(filepath.Join(item.Dir, "model.glb"))
+		serveAssetFile(c.Writer, c.Request, filepath.Join(item.Dir, "model.glb"))
 	case "metadata":
-		if item.Type != "bim" {
+		item, found := a.getAssetByID(c, id, "bim")
+		if !found {
 			fail(c, 404, "资源不存在")
 			return
 		}
-		c.File(filepath.Join(item.Dir, "metadata.json"))
+		serveAssetFile(c.Writer, c.Request, filepath.Join(item.Dir, "metadata.json"))
 	default:
 		fail(c, 404, "资源不存在")
 	}
 }
 func (a *app) tile(c *gin.Context) {
-	item, found := a.getAsset(c)
-	if !found || item.Type != "pointcloud" || item.Status != "ready" {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, 404, "资源不存在")
+		return
+	}
+	item, found := a.getAssetByID(c, id, "pointcloud")
+	if !found {
 		fail(c, 404, "资源不存在")
 		return
 	}
@@ -1260,7 +1462,7 @@ func (a *app) tile(c *gin.Context) {
 		fail(c, 400, err.Error())
 		return
 	}
-	c.File(path)
+	serveAssetFile(c.Writer, c.Request, path)
 }
 
 func (a *app) meshAsset(c *gin.Context) (Asset, bool) {
@@ -1309,6 +1511,8 @@ type meshRemeshStats struct {
 
 const (
 	remeshTaskTimeout       = 30 * time.Minute
+	remeshRetryAttempts     = 3
+	defaultRemeshRetryDelay = 3 * time.Second
 	defaultRemeshParamsJSON = `{"target_edge_length":0.1,"clean_tolerance":0.005,"use_decimation":true,"decimation_ratio":0.5,"subdivision_iterations":2,"subdivision_threshold_ratio":2.0,"adaptive":true,"crease_angle":60.0,"use_isotropic":true,"isotropic_iterations":5,"surface_dist_ratio":0.5,"isotropic_collapse":true,"sliver_merge_ratio":0.03,"sliver_relax_checksurfdist":true}`
 )
 
@@ -1492,6 +1696,40 @@ func buildRemeshMultipart(inputPath, algorithm, paramsJSON string) (*bytes.Buffe
 	return body, writer.FormDataContentType(), nil
 }
 
+func retryAfterDuration(value string, now time.Time, fallback time.Duration) time.Duration {
+	value = strings.TrimSpace(value)
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if retryAt, err := http.ParseTime(value); err == nil {
+		if delay := retryAt.Sub(now); delay > 0 {
+			return delay
+		}
+		return 0
+	}
+	return fallback
+}
+
+func copyRetryAfter(destination http.Header, resp *http.Response) {
+	if value := strings.TrimSpace(resp.Header.Get("Retry-After")); value != "" {
+		destination.Set("Retry-After", value)
+	}
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func (a *app) callRemeshService(ctx context.Context, asset DBAsset) (*http.Response, error) {
 	if strings.TrimSpace(a.cfg.MeshServiceURL) == "" {
 		return nil, errors.New("未配置 MESH_SERVICE_URL")
@@ -1507,12 +1745,11 @@ func (a *app) callRemeshService(ctx context.Context, asset DBAsset) (*http.Respo
 	}
 	client := &http.Client{Timeout: remeshTaskTimeout}
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	retryDelay := time.Duration(0)
+	for attempt := 0; attempt < remeshRetryAttempts; attempt++ {
 		if attempt > 0 {
-			select {
-			case <-ctx.Done():
+			if err := waitForRetry(ctx, retryDelay); err != nil {
 				return nil, fmt.Errorf("网格均匀化请求已取消: %w", ctx.Err())
-			case <-time.After(3 * time.Second):
 			}
 		}
 		body, contentType, err := buildRemeshMultipart(inputPath, algorithm, paramsJSON)
@@ -1527,14 +1764,27 @@ func (a *app) callRemeshService(ctx context.Context, asset DBAsset) (*http.Respo
 		resp, err := client.Do(request)
 		if err != nil {
 			lastErr = err
+			retryDelay = defaultRemeshRetryDelay
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
 			data, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusTooManyRequests {
+				detail := meshServiceError(data)
+				lastErr = fmt.Errorf("网格服务正忙: %s", detail)
+				if attempt == remeshRetryAttempts-1 {
+					return nil, fmt.Errorf("网格服务连续 %d 次返回 429，计算资源仍忙: %s", remeshRetryAttempts, detail)
+				}
+				retryDelay = retryAfterDuration(resp.Header.Get("Retry-After"), time.Now(), defaultRemeshRetryDelay)
+				continue
+			}
 			return nil, fmt.Errorf("网格服务返回 %d: %s", resp.StatusCode, toolLog(data))
 		}
 		return resp, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("未知网格服务错误")
 	}
 	return nil, fmt.Errorf("调用网格处理服务失败: %w", lastErr)
 }
@@ -2294,7 +2544,16 @@ func (a *app) fineAlignment(c *gin.Context) {
 	if req.FitnessRegressRatio <= 0 {
 		req.FitnessRegressRatio = 0.95
 	}
-	body, err := json.Marshal(map[string]any{"scan_path": sourcePath, "mesh_path": meshPath, "init_transform": initialMatrix, "max_correspondence_distance": req.MaxCorrespondenceDistance, "rmse_regress_ratio": req.RMSERegressRatio, "fitness_regress_ratio": req.FitnessRegressRatio, "apply_when_regressed": req.ApplyWhenRegressed})
+	serviceScanPath, serviceMeshPath := meshServiceInputPaths(a.cfg.DataDir, a.cfg.MeshServiceStorageDir, sourcePath, meshPath)
+	body, err := json.Marshal(map[string]any{
+		"scan_path":                   serviceScanPath,
+		"mesh_path":                   serviceMeshPath,
+		"init_transform":              initialMatrix,
+		"max_correspondence_distance": req.MaxCorrespondenceDistance,
+		"rmse_regress_ratio":          req.RMSERegressRatio,
+		"fitness_regress_ratio":       req.FitnessRegressRatio,
+		"apply_when_regressed":        req.ApplyWhenRegressed,
+	})
 	if err != nil {
 		fail(c, 500, "构建精调请求失败")
 		return
@@ -2313,6 +2572,16 @@ func (a *app) fineAlignment(c *gin.Context) {
 	defer resp.Body.Close()
 	responseBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			copyRetryAfter(c.Writer.Header(), resp)
+			detail := meshServiceError(responseBody)
+			message := "精细化配准服务正忙，请稍后重试"
+			if detail != "" {
+				message += ": " + detail
+			}
+			fail(c, http.StatusTooManyRequests, message)
+			return
+		}
 		fail(c, 502, fmt.Sprintf("精细化配准服务返回错误(%d): %s", resp.StatusCode, toolLog(responseBody)))
 		return
 	}
@@ -2358,14 +2627,49 @@ func (a *app) fineAlignment(c *gin.Context) {
 }
 
 type c2mStats struct {
-	Min  float64 `json:"min"`
-	Max  float64 `json:"max"`
-	Mean float64 `json:"mean"`
-	Std  float64 `json:"std"`
-	P50  float64 `json:"p50"`
-	P90  float64 `json:"p90"`
-	P95  float64 `json:"p95"`
-	P99  float64 `json:"p99"`
+	Min                  float64 `json:"min"`
+	Max                  float64 `json:"max"`
+	Mean                 float64 `json:"mean"`
+	Std                  float64 `json:"std"`
+	P50                  float64 `json:"p50"`
+	P90                  float64 `json:"p90"`
+	P95                  float64 `json:"p95"`
+	P99                  float64 `json:"p99"`
+	MeanAbs              float64 `json:"meanAbs"`
+	RMSE                 float64 `json:"rmse"`
+	P95Abs               float64 `json:"p95Abs"`
+	WithinToleranceRatio float64 `json:"withinToleranceRatio"`
+}
+
+type c2mRequest struct {
+	ModelScanFileID         int64   `json:"modelScanFileId"`
+	ModelBimFileID          int64   `json:"modelBimFileId"`
+	Profile                 string  `json:"profile"`
+	VoxelSize               float64 `json:"voxelSize"`
+	MaxColormapDistance     float64 `json:"maxColormapDistance"`
+	MaxHistogramDistance    float64 `json:"maxHistogramDistance"`
+	HistogramBins           int     `json:"histogramBins"`
+	ToleranceLimit          float64 `json:"toleranceLimit"`
+	KnnK                    int     `json:"knnK"`
+	NormalConstraintEnabled bool    `json:"normalConstraintEnabled"`
+	NormalHalfSpaceOnly     bool    `json:"normalHalfSpaceOnly"`
+	NormalMaxAngleDeg       float64 `json:"normalMaxAngleDeg"`
+	NormalFallbackMode      string  `json:"normalFallbackMode"`
+}
+
+type c2mServiceResult struct {
+	Profile          string          `json:"profile"`
+	AlgorithmVersion string          `json:"algorithmVersion"`
+	MetricDirection  string          `json:"metricDirection"`
+	Approximation    json.RawMessage `json:"approximation"`
+	PointsBefore     int             `json:"pointsBefore"`
+	PointsAfter      int             `json:"pointsAfter"`
+	MeshVertices     int             `json:"meshVertices"`
+	Stats            c2mStats        `json:"stats"`
+	Histogram        json.RawMessage `json:"histogram"`
+	Diagnostics      json.RawMessage `json:"diagnostics"`
+	ColoredPlyPath   string          `json:"coloredPlyPath"`
+	DistancesPath    string          `json:"distancesPath"`
 }
 
 func (a *app) resolveScanSourcePath(scan Asset, ownerID int64) (string, error) {
@@ -2415,6 +2719,10 @@ func meshServicePath(dataDir, path, serviceStorageDir string) string {
 	return path
 }
 
+func meshServiceInputPaths(dataDir, serviceStorageDir, scanPath, meshPath string) (string, string) {
+	return meshServicePath(dataDir, scanPath, serviceStorageDir), meshServicePath(dataDir, meshPath, serviceStorageDir)
+}
+
 func backendDataPath(dataDir, path, serviceStorageDir string) string {
 	serviceRoot := strings.TrimRight(filepath.ToSlash(strings.TrimSpace(serviceStorageDir)), "/")
 	if serviceRoot == "" {
@@ -2427,21 +2735,99 @@ func backendDataPath(dataDir, path, serviceStorageDir string) string {
 	return path
 }
 
-func (a *app) computeC2M(c *gin.Context) {
-	var req struct {
-		ModelScanFileID         int64   `json:"modelScanFileId"`
-		ModelBimFileID          int64   `json:"modelBimFileId"`
-		VoxelSize               float64 `json:"voxelSize"`
-		MaxColormapDistance     float64 `json:"maxColormapDistance"`
-		MaxHistogramDistance    float64 `json:"maxHistogramDistance"`
-		HistogramBins           int     `json:"histogramBins"`
-		ToleranceLimit          float64 `json:"toleranceLimit"`
-		KnnK                    int     `json:"knnK"`
-		NormalConstraintEnabled bool    `json:"normalConstraintEnabled"`
-		NormalHalfSpaceOnly     bool    `json:"normalHalfSpaceOnly"`
-		NormalMaxAngleDeg       float64 `json:"normalMaxAngleDeg"`
-		NormalFallbackMode      string  `json:"normalFallbackMode"`
+func normalizeC2MProfile(profile string) string {
+	profile = strings.ToLower(strings.TrimSpace(profile))
+	if profile == "" {
+		return "quick"
 	}
+	return profile
+}
+
+func resolveC2MResultProfile(requested, returned string) (string, error) {
+	requested = normalizeC2MProfile(requested)
+	if strings.TrimSpace(returned) == "" {
+		if requested != "quick" {
+			return "", fmt.Errorf("C2M 服务未声明 %s 计算结果的 profile", requested)
+		}
+		return "quick", nil
+	}
+	returned = normalizeC2MProfile(returned)
+	if returned != requested {
+		return "", fmt.Errorf("C2M 服务返回 profile %s，与请求的 %s 不一致", returned, requested)
+	}
+	return returned, nil
+}
+
+func c2mServiceParams(req c2mRequest) map[string]any {
+	return map[string]any{
+		"profile":                   normalizeC2MProfile(req.Profile),
+		"voxel_size":                req.VoxelSize,
+		"max_colormap_distance":     req.MaxColormapDistance,
+		"max_histogram_distance":    req.MaxHistogramDistance,
+		"histogram_bins":            req.HistogramBins,
+		"tolerance_limit":           req.ToleranceLimit,
+		"knn_k":                     req.KnnK,
+		"normal_constraint_enabled": req.NormalConstraintEnabled,
+		"normal_half_space_only":    req.NormalHalfSpaceOnly,
+		"normal_max_angle_deg":      req.NormalMaxAngleDeg,
+		"normal_fallback_mode":      req.NormalFallbackMode,
+	}
+}
+
+func isHistoricalC2MResult(row DBC2MResult) bool {
+	return strings.TrimSpace(row.Profile) == "" && strings.TrimSpace(row.AlgorithmVersion) == "" && strings.TrimSpace(row.MetricDirection) == ""
+}
+
+func c2mStatsFromRow(row DBC2MResult) gin.H {
+	stats := gin.H{
+		"min":  row.MinDist,
+		"max":  row.MaxDist,
+		"mean": row.MeanDist,
+		"std":  row.StdDist,
+		"p50":  row.P50,
+		"p90":  row.P90,
+		"p95":  row.P95,
+		"p99":  row.P99,
+	}
+	if !isHistoricalC2MResult(row) {
+		stats["meanAbs"] = row.MeanAbs
+		stats["rmse"] = row.RMSE
+		stats["p95Abs"] = row.P95Abs
+		stats["withinToleranceRatio"] = row.WithinToleranceRatio
+	}
+	return stats
+}
+
+func validRawJSON(value string, fallback json.RawMessage) json.RawMessage {
+	value = strings.TrimSpace(value)
+	if value != "" && json.Valid([]byte(value)) {
+		return json.RawMessage(value)
+	}
+	return fallback
+}
+
+func c2mResultData(row DBC2MResult) gin.H {
+	approximationFallback, _ := json.Marshal(map[string]any{"voxelSize": row.VoxelSize})
+	return gin.H{
+		"modelScanFileId":     row.ScanID,
+		"modelBimFileId":      row.BimID,
+		"profile":             normalizeC2MProfile(row.Profile),
+		"algorithmVersion":    row.AlgorithmVersion,
+		"metricDirection":     row.MetricDirection,
+		"approximation":       validRawJSON(row.ApproximationJSON, approximationFallback),
+		"voxelSize":           row.VoxelSize,
+		"pointsBefore":        row.PointsBefore,
+		"pointsAfter":         row.PointsAfter,
+		"meshVertexCount":     row.MeshVertexCount,
+		"stats":               c2mStatsFromRow(row),
+		"histogram":           validRawJSON(row.HistogramJSON, json.RawMessage("[]")),
+		"diagnostics":         validRawJSON(row.DiagnosticsJSON, json.RawMessage("{}")),
+		"coloredPlyAvailable": row.ColoredPlyPath != "",
+	}
+}
+
+func (a *app) computeC2M(c *gin.Context) {
+	var req c2mRequest
 	if c.ShouldBindJSON(&req) != nil || req.ModelScanFileID <= 0 || req.ModelBimFileID <= 0 {
 		fail(c, http.StatusBadRequest, "Scan 与 BIM 资产 ID 非法")
 		return
@@ -2501,7 +2887,8 @@ func (a *app) computeC2M(c *gin.Context) {
 	if req.NormalFallbackMode == "" {
 		req.NormalFallbackMode = "nearest"
 	}
-	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": map[string]any{"voxel_size": req.VoxelSize, "max_colormap_distance": req.MaxColormapDistance, "max_histogram_distance": req.MaxHistogramDistance, "histogram_bins": req.HistogramBins, "tolerance_limit": req.ToleranceLimit, "knn_k": req.KnnK, "normal_constraint_enabled": req.NormalConstraintEnabled, "normal_half_space_only": req.NormalHalfSpaceOnly, "normal_max_angle_deg": req.NormalMaxAngleDeg, "normal_fallback_mode": req.NormalFallbackMode}})
+	req.Profile = normalizeC2MProfile(req.Profile)
+	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": c2mServiceParams(req)})
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/c2m/compute", bytes.NewReader(body))
 	if err != nil {
 		fail(c, 500, "构建 C2M 请求失败")
@@ -2522,30 +2909,33 @@ func (a *app) computeC2M(c *gin.Context) {
 		if detail != "" {
 			message += ": " + detail
 		}
-		fail(c, http.StatusBadGateway, message)
+		status := http.StatusBadGateway
+		if resp.StatusCode == http.StatusTooManyRequests {
+			copyRetryAfter(c.Writer.Header(), resp)
+			status = http.StatusTooManyRequests
+		} else if resp.StatusCode == http.StatusNotImplemented {
+			status = http.StatusNotImplemented
+		}
+		fail(c, status, message)
 		return
 	}
-	var result struct {
-		PointsBefore   int             `json:"pointsBefore"`
-		PointsAfter    int             `json:"pointsAfter"`
-		MeshVertices   int             `json:"meshVertices"`
-		Stats          c2mStats        `json:"stats"`
-		Histogram      json.RawMessage `json:"histogram"`
-		Diagnostics    json.RawMessage `json:"diagnostics"`
-		ColoredPlyPath string          `json:"coloredPlyPath"`
-		DistancesPath  string          `json:"distancesPath"`
-	}
+	var result c2mServiceResult
 	if json.Unmarshal(responseBody, &result) != nil {
 		fail(c, 502, "解析 C2M 结果失败")
 		return
 	}
 	coloredPath, distancesPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath, a.cfg.MeshServiceStorageDir), backendDataPath(a.cfg.DataDir, result.DistancesPath, a.cfg.MeshServiceStorageDir)
-	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
+	profile, err := resolveC2MResultProfile(req.Profile, result.Profile)
+	if err != nil {
+		fail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scan.ID, bim.ID, userID(c)).Assign(row).FirstOrCreate(&row).Error; err != nil {
 		fail(c, 500, "保存 C2M 结果失败")
 		return
 	}
-	ok(c, gin.H{"modelScanFileId": scan.ID, "modelBimFileId": bim.ID, "voxelSize": row.VoxelSize, "pointsBefore": row.PointsBefore, "pointsAfter": row.PointsAfter, "meshVertexCount": row.MeshVertexCount, "stats": result.Stats, "histogram": json.RawMessage(row.HistogramJSON), "diagnostics": json.RawMessage(row.DiagnosticsJSON), "coloredPlyAvailable": row.ColoredPlyPath != ""})
+	ok(c, c2mResultData(row))
 }
 
 func (a *app) getC2MLatest(c *gin.Context) {
@@ -2556,8 +2946,7 @@ func (a *app) getC2MLatest(c *gin.Context) {
 		fail(c, 404, "暂无 C2M 计算结果")
 		return
 	}
-	var stats = c2mStats{Min: row.MinDist, Max: row.MaxDist, Mean: row.MeanDist, Std: row.StdDist, P50: row.P50, P90: row.P90, P95: row.P95, P99: row.P99}
-	ok(c, gin.H{"modelScanFileId": row.ScanID, "modelBimFileId": row.BimID, "voxelSize": row.VoxelSize, "pointsBefore": row.PointsBefore, "pointsAfter": row.PointsAfter, "meshVertexCount": row.MeshVertexCount, "stats": stats, "histogram": json.RawMessage(row.HistogramJSON), "diagnostics": json.RawMessage(row.DiagnosticsJSON), "coloredPlyAvailable": row.ColoredPlyPath != ""})
+	ok(c, c2mResultData(row))
 }
 
 func (a *app) c2mColoredPly(c *gin.Context) {
@@ -2645,7 +3034,7 @@ func main() {
 		log.Fatal(err)
 	}
 	r := gin.New()
-	corsConfig := cors.Config{AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "Tus-Resumable", "Upload-Length", "Upload-Metadata", "Upload-Offset", "X-Request-ID"}, ExposeHeaders: []string{"Location", "Upload-Length", "Upload-Offset", "Tus-Resumable", "X-Request-ID"}, AllowCredentials: true, MaxAge: 12 * time.Hour}
+	corsConfig := cors.Config{AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "Tus-Resumable", "Upload-Length", "Upload-Metadata", "Upload-Offset", "X-Request-ID"}, ExposeHeaders: []string{"Location", "Upload-Length", "Upload-Offset", "Tus-Resumable", "X-Request-ID", "ETag", "Last-Modified", "Accept-Ranges", "Content-Range", "Retry-After"}, AllowCredentials: true, MaxAge: 12 * time.Hour}
 	if len(cfg.CORSAllowOrigins) == 1 && cfg.CORSAllowOrigins[0] == "*" {
 		corsConfig.AllowAllOrigins = true
 		corsConfig.AllowCredentials = false
@@ -2666,14 +3055,19 @@ func main() {
 	r.DELETE("/uploads/:id", a.upload)
 	r.GET("/assets", a.listAssets)
 	r.GET("/assets/:id", a.assetDetail)
+	r.GET("/assets/:id/representations", a.assetRepresentations)
+	r.GET("/assets/:id/representations/:kind/:version/*path", a.derivativeResource)
+	r.HEAD("/assets/:id/representations/:kind/:version/*path", a.derivativeResource)
 	r.PATCH("/assets/:id/appearance", a.updateAssetAppearance)
 	r.DELETE("/assets/:id", a.deleteAsset)
 	r.GET("/assets/:id/:resource", a.resource)
+	r.HEAD("/assets/:id/:resource", a.resource)
 	r.GET("/mesh/algorithms", a.meshAlgorithms)
 	r.POST("/assets/:id/mesh/remesh", a.remeshAsset)
 	r.GET("/assets/:id/mesh/remesh/status", a.remeshStatus)
 	r.GET("/assets/:id/mesh/remesh/latest", a.remeshLatest)
 	r.GET("/assets/:id/tiles/*path", a.tile)
+	r.HEAD("/assets/:id/tiles/*path", a.tile)
 	r.GET("/scans", a.scans)
 	r.GET("/scans/:id/calibration", a.calibration)
 	r.POST("/alignments/bim", a.createAlignment)

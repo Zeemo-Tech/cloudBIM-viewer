@@ -84,8 +84,14 @@ Compose 默认按本地开发运行，使用固定的本地 JWT 密钥和 `720h`
 
 - 认证：`POST /auth/register`、`POST /auth/login`、`GET /auth/me`
 - Tus：`POST /uploads`、`HEAD/PATCH/GET/DELETE /uploads/:id`
-- 资产：`GET /assets`、`GET /assets/:id`、`DELETE /assets/:id`
-- 资源：`/assets/:id/glb`、`/assets/:id/metadata`、`/assets/:id/tiles/*`
-- 对齐：`GET /scans`、`GET /scans/:id/calibration`、`POST/GET /alignments/bim`、`POST /alignments/bim/fine`（需配置 `MESH_SERVICE_URL`）
+- 资产：`GET /assets`、`GET /assets/:id`、`GET /assets/:id/representations`、`DELETE /assets/:id`
+- 资源：`GET/HEAD /assets/:id/glb`、`GET/HEAD /assets/:id/metadata`、`GET/HEAD /assets/:id/tiles/*`、`GET/HEAD /assets/:id/representations/:kind/:version/*`
+- 对齐与计算：`GET /scans`、`GET /scans/:id/calibration`、`POST/GET /alignments/bim`、`POST /alignments/bim/fine`、`POST /alignments/bim/c2m`、`GET /alignments/bim/c2m/latest`（需配置 `MESH_SERVICE_URL`）
 - 网格均匀化：`GET /mesh/algorithms`、`POST /assets/:id/mesh/remesh`、`GET /assets/:id/mesh/remesh/status`、`GET /assets/:id/mesh/remesh/latest`
 - 健康：`GET /health`（同时检查 PostgreSQL）
+
+`GET /assets/:id/representations` 返回浏览、源数据和计算派生物的独立状态。接口以现有 GLB、3D Tiles、源文件和均匀化网格对应的 legacy 清单为基础，再用数据库中的派生物按 `kind` 替换或追加，避免部分迁移时隐藏其它可用表示。状态为 `ready` 且相对路径、入口路径和版本完整的派生物会返回版本化 URL；下载接口同时校验资产所有者、状态、kind、version 和路径 containment。
+
+鉴权资源支持标准 HTTP Range、`Last-Modified`、弱 ETag 和条件请求。旧资源 URL 使用 `Cache-Control: private, max-age=3600, must-revalidate`，避免用户资源进入共享缓存；后续带内容版本的不可变派生物 URL 可以使用更长缓存时间。
+
+C2M 请求的 `profile` 缺省为 `quick`，并会原样透传给 mesh-service。`reference` 高精度模式未实现时返回 HTTP 501，不会静默降级为 quick。计算结果和 latest 接口都会返回 `profile`、`algorithmVersion`、`metricDirection`、`approximation`，以及 `meanAbs`、`rmse`、`p95Abs`、`withinToleranceRatio` 绝对误差统计；历史结果未记录 profile 时按 `quick` 展示，并省略当时没有计算的四项绝对误差统计。

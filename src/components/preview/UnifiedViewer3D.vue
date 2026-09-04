@@ -9,7 +9,7 @@ import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import { PointCloudEdlPipeline } from './edlPipeline'
 import { createUploadHeaders } from '@/config/upload-backend'
-import { getAssetDetail, getBimGlbFile, getPointcloudTilesetUrl } from '@/api/backend-file'
+import { getAssetDetail, getBimGlbUrl, getPointcloudTilesetUrl } from '@/api/backend-file'
 import { getC2MColoredPlyUrl, type C2MResult } from '@/api/backend-c2m'
 import { backendRequest } from '@/api/backend-http'
 import type { AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
@@ -501,19 +501,17 @@ async function loadBimModel(assetId: number) {
   const assetDetail = res.data
   if (!assetDetail?.glbUrl) throw new Error('BIM 模型资源尚未就绪')
 
-  const glbBlob = await getBimGlbFile(assetDetail.glbUrl)
-  const objectUrl = URL.createObjectURL(glbBlob)
-
   const loader = new GLTFLoader()
   const dracoLoader = new DRACOLoader()
   dracoLoader.setDecoderPath('/draco/')
   dracoLoader.preload()
   loader.setDRACOLoader(dracoLoader)
+  loader.setRequestHeader(
+    createUploadHeaders({ Accept: 'model/gltf-binary,application/octet-stream,*/*' }),
+  )
 
   try {
-    const gltf = await loader.loadAsync(objectUrl)
-    URL.revokeObjectURL(objectUrl)
-    dracoLoader.dispose()
+    const gltf = await loader.loadAsync(getBimGlbUrl(assetDetail.glbUrl))
 
     const root = gltf.scene || gltf.scenes[0]
     root.name = 'bim-model-root'
@@ -568,6 +566,8 @@ async function loadBimModel(assetId: number) {
     loadError.value = `BIM 加载失败: ${err.message || err}`
     loaded.value = false
     emit('loaded-change', false)
+  } finally {
+    dracoLoader.dispose()
   }
 }
 
@@ -582,8 +582,9 @@ async function loadPointcloudModel(assetId: number) {
   const url = getPointcloudTilesetUrl(detail.tilesetUrl)
   const nextTileset = new TilesRenderer(url)
   nextTileset.displayActiveTiles = true
-  // 完全对齐校准页的最佳画质与性能均衡阈值 16.0
-  nextTileset.errorTarget = 16.0
+  nextTileset.errorTarget = 32.0
+  nextTileset.downloadQueue.maxJobs = 8
+  nextTileset.parseQueue.maxJobs = 2
   nextTileset.fetchOptions = {
     headers: createUploadHeaders({ Accept: '*/*' }),
   }

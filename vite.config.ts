@@ -1,5 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
@@ -32,12 +32,18 @@ export default defineConfig(({ mode }) => {
   }
 })
 
-function createProxyConfig(target: string) {
+function createProxyConfig(target: string): ProxyOptions {
   return {
     target,
     changeOrigin: true,
     ws: true,
     timeout: 0,
     proxyTimeout: 0,
+    configure(proxy) {
+      proxy.on('proxyReq', (proxyRequest) => {
+        // Browser requests may arrive through an SSH-forwarded local port.
+        proxyRequest.setHeader('origin', 'http://127.0.0.1:5173')
+      })
+    },
   }
 }

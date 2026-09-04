@@ -248,11 +248,8 @@ export function terminateTusUpload(uploadId: string) {
   })
 }
 
-export function getBimGlbFile(resourcePath: string) {
-  return backendRequest<Blob>(normalizeAssetPath(resourcePath), {
-    method: 'GET',
-    responseType: 'blob',
-  })
+export function getBimGlbUrl(resourcePath: string) {
+  return normalizeBackendUrl(normalizeAssetPath(resourcePath))
 }
 
 export function getBimMetadata(resourcePath: string) {
@@ -263,14 +260,4 @@ export function getBimMetadata(resourcePath: string) {
 
 export function getPointcloudTilesetUrl(resourcePath: string) {
   return normalizeBackendUrl(normalizeAssetPath(resourcePath))
-}
-
-export function getPointcloudTilesAsset(
-  resourcePath: string,
-  responseType: 'json' | 'arraybuffer' = 'arraybuffer',
-) {
-  return backendRequest<unknown | ArrayBuffer>(normalizeAssetPath(resourcePath), {
-    method: 'GET',
-    responseType: responseType === 'arraybuffer' ? 'arraybuffer' : 'json',
-  })
 }

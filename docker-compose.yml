@@ -31,7 +31,7 @@ services:
       PORT: 8001
       TZ: Asia/Shanghai
     ports:
-      - "${MESH_SERVICE_PORT:-8001}:8001"
+      - "127.0.0.1:${MESH_SERVICE_PORT:-8001}:8001"
     volumes:
       - ./backend/data:/storage
     healthcheck:

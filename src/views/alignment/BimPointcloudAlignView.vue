@@ -28,14 +28,13 @@ import {
 } from '@/api/backend-alignment'
 import {
   getAssetDetail,
-  getBimGlbFile,
+  getBimGlbUrl,
   getBimMetadata,
-  getPointcloudTilesAsset,
   getPointcloudTilesetUrl,
   updateAssetAppearance,
 } from '@/api/backend-file'
 import { downloadRemeshResult, getMeshAlgorithms, getRemeshStatus, remeshBimAsset, type MeshAlgorithm, type RemeshStats, type RemeshStatus } from '@/api/backend-mesh'
-import { backendRequest, normalizeBackendUrl } from '@/api/backend-http'
+import { backendRequest } from '@/api/backend-http'
 import { computeC2M, getLatestC2M, getC2MColoredPlyUrl, type C2MResult } from '@/api/backend-c2m'
 import { createUploadHeaders } from '@/config/upload-backend'
 import wanggeIcon from '@/assets/images/wangge.png'
@@ -193,6 +192,14 @@ const meshControlsDisabled = computed(() => meshRunning.value || meshTaskActive.
 const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && !!props.bimAssetId)
 const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && hasSavedAlignmentMatrix.value && meshReady.value && !c2mRunning.value))
 
+function formatC2MDistance(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(4)} m` : '--'
+}
+
+function formatC2MPercentage(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '--'
+}
+
 async function runC2M() {
   if (!canRunC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
   if (meshTaskActive.value) {
@@ -202,9 +209,14 @@ async function runC2M() {
   c2mRunning.value = true
   c2mError.value = ''
   try {
-    const response = await computeC2M({ modelScanFileId: props.pointcloudAssetId, modelBimFileId: props.bimAssetId, voxelSize: c2mVoxelSize.value })
+    const response = await computeC2M({
+      modelScanFileId: props.pointcloudAssetId,
+      modelBimFileId: props.bimAssetId,
+      profile: 'quick',
+      voxelSize: c2mVoxelSize.value,
+    })
     c2mResult.value = response.data
-    ElMessage.success('Scan vs BIM 计算完成')
+    ElMessage.success('Scan vs BIM 快速预估完成')
   } catch (error) {
     c2mError.value = error instanceof Error ? error.message : 'Scan vs BIM 计算失败'
     ElMessage.error(c2mError.value)
@@ -771,45 +783,6 @@ function findFirstRenderableDescendant(root: THREE.Object3D | null): THREE.Objec
     }
   })
   return found
-}
-
-function ensureTrailingSlash(value: string) {
-  return value.endsWith('/') ? value : `${value}/`
-}
-
-function resolveTileResourceUrl(uri: string, baseUrl: string) {
-  if (/^(?:https?:)?\/\//i.test(uri) || uri.startsWith('blob:') || uri.startsWith('data:')) {
-    return uri
-  }
-
-  const normalizedBaseUrl = /^(?:https?:)?\/\//i.test(baseUrl)
-    ? baseUrl
-    : new URL(baseUrl, window.location.origin).toString()
-
-  return new URL(uri, normalizedBaseUrl).toString()
-}
-
-function getTileResourceBasePath(assetDetail: {
-  tilesBaseUrl?: string
-  tilesetUrl?: string
-}) {
-  if (assetDetail.tilesBaseUrl) {
-    return ensureTrailingSlash(assetDetail.tilesBaseUrl)
-  }
-
-  if (!assetDetail.tilesetUrl) {
-    return '/'
-  }
-
-  return ensureTrailingSlash(assetDetail.tilesetUrl.replace(/\/[^/]*$/, ''))
-}
-
-function extractTileAssetPath(resourceUrl: string, baseUrl: string) {
-  const normalizedBaseUrl = ensureTrailingSlash(baseUrl)
-  if (!resourceUrl.startsWith(normalizedBaseUrl)) {
-    return null
-  }
-  return resourceUrl.slice(normalizedBaseUrl.length)
 }
 
 function runWithSuppressedConsoleAssert<T>(task: () => T) {
@@ -4160,6 +4133,7 @@ async function handleLoadBimFromApi(silent = false) {
   try {
     const assetDetailResult = await getAssetDetail(props.bimAssetId)
     const assetDetail = assetDetailResult.data
+    if (token !== bimLoadToken) return
     if (assetDetail.type !== 'bim' || assetDetail.status !== 'ready' || !assetDetail.glbUrl) {
       statusText.value = 'BIM 模型尚未就绪'
       if (!silent) {
@@ -4168,8 +4142,7 @@ async function handleLoadBimFromApi(silent = false) {
       return
     }
 
-    const blob = await getBimGlbFile(assetDetail.glbUrl)
-    if (token !== bimLoadToken) return
+    const glbUrl = getBimGlbUrl(assetDetail.glbUrl)
 
     if (assetDetail.metadataUrl) {
       try {
@@ -4181,18 +4154,26 @@ async function handleLoadBimFromApi(silent = false) {
         console.error('[BimPointcloudAlign] 加载 BIM metadata 失败:', error)
       }
     }
+    if (token !== bimLoadToken) return
 
-    const objectUrl = URL.createObjectURL(blob)
     const loader = new GLTFLoader()
     const dracoLoader = new DRACOLoader()
     dracoLoader.setDecoderPath('/draco/')
     loader.setDRACOLoader(dracoLoader)
+    loader.setRequestHeader(
+      createUploadHeaders({ Accept: 'model/gltf-binary,application/octet-stream,*/*' }),
+    )
 
     await new Promise<void>((resolve, reject) => {
       loader.load(
-        objectUrl,
+        glbUrl,
         (gltf: GLTF) => {
-          URL.revokeObjectURL(objectUrl)
+          if (token !== bimLoadToken) {
+            disposeObject3D(gltf.scene)
+            dracoLoader.dispose()
+            resolve()
+            return
+          }
           dracoLoader.dispose()
 
           if (bimPivot) {
@@ -4227,21 +4208,27 @@ async function handleLoadBimFromApi(silent = false) {
         },
         undefined,
         (error) => {
-          URL.revokeObjectURL(objectUrl)
           dracoLoader.dispose()
+          if (token !== bimLoadToken) {
+            resolve()
+            return
+          }
           reject(error)
         },
       )
     })
 
   } catch (error) {
+    if (token !== bimLoadToken) return
     console.error(error)
     if (!silent) {
       ElMessage.error(error instanceof Error ? error.message : '加载 BIM 失败')
     }
     statusText.value = '加载 BIM 失败'
   } finally {
-    loadingBim.value = false
+    if (token === bimLoadToken) {
+      loadingBim.value = false
+    }
   }
 }
 
@@ -4289,8 +4276,6 @@ async function handleLoadPointCloudFromApi(silent = false) {
     persistedPointcloudColor.value = savedPointcloudColor || '#86898D'
 
     const url = getPointcloudTilesetUrl(assetDetail.tilesetUrl)
-    const resourceBasePath = getTileResourceBasePath(assetDetail)
-    const resourceBaseUrl = normalizeBackendUrl(resourceBasePath)
     const nextTileset = new TilesRenderer(url)
     // Keep the parent tile visible while finer children load so zooming never
     // causes a temporary drop in point density.
@@ -4299,30 +4284,6 @@ async function handleLoadPointCloudFromApi(silent = false) {
     nextTileset.fetchOptions = {
       headers: createUploadHeaders({ Accept: '*/*' }),
     }
-    nextTileset.registerPlugin({
-      fetchData: async (uri: any, options: any) => {
-        const raw = typeof uri === 'string' ? uri : uri?.toString?.() || ''
-        if (!raw) return null
-
-        let resolvedUrl = ''
-        try {
-          resolvedUrl = resolveTileResourceUrl(raw, resourceBaseUrl)
-        } catch {
-          resolvedUrl = raw
-        }
-        const assetPath = extractTileAssetPath(resolvedUrl, resourceBaseUrl)
-        if (!assetPath) {
-          return fetch(resolvedUrl, options)
-        }
-
-        const extension = assetPath.split('.').pop()?.toLowerCase()
-        if (extension === 'json') {
-          return getPointcloudTilesAsset(`${resourceBasePath}${assetPath}`, 'json')
-        }
-
-        return getPointcloudTilesAsset(`${resourceBasePath}${assetPath}`, 'arraybuffer')
-      },
-    } as any)
 
     const dracoLoader = new DRACOLoader(nextTileset.manager)
     dracoLoader.setDecoderPath('/draco/')
@@ -4479,6 +4440,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  bimLoadToken++
+  pointcloudLoadToken++
   clearAnalysis()
   clearMeshStatusPolling()
   clearPointcloudColorSaveTimer()
@@ -5052,12 +5015,12 @@ onBeforeUnmount(() => {
           <div v-if="meshError" class="mesh-remesh-error">{{ meshError }}</div>
         </div>
         <div class="panel-section c2m-panel">
-          <div class="section-title">Scan vs BIM 计算</div>
+          <div class="section-title">Scan vs BIM 快速预估</div>
           <div class="control-row">
             <span class="label">降采样 (m)</span>
             <el-input-number v-model="c2mVoxelSize" :min="0.01" :max="1" :step="0.01" :precision="3" size="small" :disabled="!canRunC2M" />
           </div>
-          <el-button type="primary" size="small" style="width: 100%" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">开始计算</el-button>
+          <el-button type="primary" size="small" style="width: 100%" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">开始快速预估</el-button>
           <div class="c2m-actions">
             <el-button size="small" :disabled="!c2mResult?.coloredPlyAvailable || c2mRunning || c2mSceneLoading" :loading="c2mSceneLoading" @click="loadC2MToScene">加载到场景</el-button>
             <el-button size="small" :disabled="!c2mSceneLoaded" @click="clearC2MScene">清空场景</el-button>
@@ -5065,9 +5028,12 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="c2mError" class="mesh-remesh-error">{{ c2mError }}</div>
           <div v-if="c2mResult" class="c2m-result-summary">
+            <div>结果档位：{{ c2mResult.profile === 'reference' ? 'Reference 高精度' : '快速预估（非正式 Reference）' }}</div>
             <div>点云降采样：{{ c2mResult.pointsBefore.toLocaleString() }} → {{ c2mResult.pointsAfter.toLocaleString() }}</div>
             <div>Min / Max：{{ c2mResult.stats.min.toFixed(4) }} m / {{ c2mResult.stats.max.toFixed(4) }} m</div>
             <div>Mean / P95：{{ c2mResult.stats.mean.toFixed(4) }} m / {{ c2mResult.stats.p95.toFixed(4) }} m</div>
+            <div>MeanAbs / RMSE：{{ formatC2MDistance(c2mResult.stats.meanAbs) }} / {{ formatC2MDistance(c2mResult.stats.rmse) }}</div>
+            <div>P95Abs / 容差内：{{ formatC2MDistance(c2mResult.stats.p95Abs) }} / {{ formatC2MPercentage(c2mResult.stats.withinToleranceRatio) }}</div>
             <div v-if="c2mResult.diagnostics?.bboxOverlapIoU !== undefined">BBox 重叠度：{{ (c2mResult.diagnostics.bboxOverlapIoU * 100).toFixed(1) }}%</div>
           </div>
         </div>
