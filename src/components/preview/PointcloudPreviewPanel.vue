@@ -64,6 +64,7 @@ defineExpose({
   setBackgroundColor: (color: string) => viewerRef.value?.setBackgroundColor(color),
   setShowAxes: (show: boolean) => viewerRef.value?.setShowAxes(show),
   setShowGrid: (show: boolean) => viewerRef.value?.setShowGrid(show),
+  setGridColor: (color: string) => viewerRef.value?.setGridColor(color),
   setSectionState: (state: { enabled?: boolean; ratio?: number; box?: any }) => viewerRef.value?.setSectionState(state),
   setPointColor: (color: string | null) => viewerRef.value?.setPointColor(color),
   setPointcloudColorDisplay: (

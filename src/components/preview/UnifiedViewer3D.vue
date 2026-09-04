@@ -180,6 +180,7 @@ let raycaster: THREE.Raycaster | null = null
 let wireframeEnabled = false
 let showAxesEnabled = false
 let showGridEnabled = true
+let gridColor = '#2a6f82'
 let backgroundTheme: PreviewBackgroundTheme = 'deep'
 let customBackgroundColor = ''
 let pointColorOverride: string | null = '#86898D'
@@ -1761,7 +1762,7 @@ function initViewer() {
   scene.add(axesHelper)
 
   // 完全对齐校准页网格参数
-  gridHelper = new THREE.GridHelper(10000, 2000, 0x67e8f9, 0x2a6f82)
+  gridHelper = new THREE.GridHelper(10000, 2000, gridColor, gridColor)
   ;(gridHelper.material as THREE.LineBasicMaterial).transparent = true
   ;(gridHelper.material as THREE.LineBasicMaterial).opacity = 0.62
   gridHelper.position.set(0, -10.01, 0)
@@ -1842,6 +1843,20 @@ function setShowAxes(show: boolean) {
 function setShowGrid(show: boolean) {
   showGridEnabled = show
   if (gridHelper) gridHelper.visible = show
+}
+
+function setGridColor(color: string) {
+  gridColor = color
+  if (!gridHelper) return
+
+  const rgb = new THREE.Color(color)
+  const colors = gridHelper.geometry.getAttribute('color')
+  if (colors) {
+    for (let index = 0; index < colors.count; index += 1) {
+      colors.setXYZ(index, rgb.r, rgb.g, rgb.b)
+    }
+    colors.needsUpdate = true
+  }
 }
 
 function setWireframe(wireframe: boolean) {
@@ -2054,6 +2069,7 @@ defineExpose({
   setBackgroundColor,
   setShowAxes,
   setShowGrid,
+  setGridColor,
   setWireframe,
   setPointColor,
   setPointcloudColorDisplay,

@@ -31,6 +31,8 @@ defineExpose({
   resetView: () => viewerRef.value?.resetView(),
   setBackgroundTheme: (theme: PreviewBackgroundTheme) => viewerRef.value?.setBackgroundTheme(theme),
   setBackgroundColor: (color: string) => viewerRef.value?.setBackgroundColor(color),
+  setShowGrid: (show: boolean) => viewerRef.value?.setShowGrid(show),
+  setGridColor: (color: string) => viewerRef.value?.setGridColor(color),
   getCameraPose: () => viewerRef.value?.getCameraPose(),
   syncFromExternalPose: (pose: CameraPose | null) => viewerRef.value?.syncFromExternalPose(pose),
   syncInitialViewFromExternalPose: (pose: CameraPose | null) => viewerRef.value?.syncFromExternalPose(pose),
