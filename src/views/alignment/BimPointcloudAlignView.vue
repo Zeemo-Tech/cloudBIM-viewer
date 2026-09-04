@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Box, Hide, RefreshLeft, View } from '@element-plus/icons-vue'
+import { ArrowLeft, Hide, RefreshLeft, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import {
   ClippingGroup,
@@ -567,6 +567,18 @@ const activeView = ref('')
 const hasModel = computed(() => bimLoaded.value)
 const hasTileset = computed(() => pointcloudLoaded.value)
 const hasClippableContent = computed(() => hasModel.value || hasTileset.value)
+const clipBoundsDisabledReason = computed(() => {
+  if (enableClipping.value || showBounds.value) return ''
+  if (loadingBim.value) return 'BIM 加载中，请稍候再开启剖切'
+  if (!hasModel.value) return '请先加载 BIM 模型'
+  if (loadingPointcloud.value) return '点云加载中，请等待加载完成后再开启剖切'
+  if (!hasTileset.value) return '请先加载点云'
+  return ''
+})
+const clipBoundsTooltip = computed(() => {
+  if (enableClipping.value && showBounds.value) return '关闭剖切'
+  return clipBoundsDisabledReason.value || '开启剖切'
+})
 const bimVisibilityLabel = computed(() => (bimVisible.value ? '隐藏模型' : '显示模型'))
 const pointcloudVisibilityLabel = computed(() =>
   pointcloudVisible.value ? '隐藏点云' : '显示点云',
@@ -615,11 +627,6 @@ const webgpuSupported = computed(
 )
 
 const dprCap = 1.25
-const clipStep = computed(() => {
-  const span = (clipRange.value?.max ?? 0) - (clipRange.value?.min ?? 0)
-  if (!Number.isFinite(span) || span <= 0) return 0.001
-  return Math.max(span / 1000, 1e-6)
-})
 const originalMaterialStore = new WeakMap<THREE.Object3D, THREE.Material | THREE.Material[]>()
 const originalWireframeStore = new WeakMap<THREE.Material, boolean>()
 const bimUnlitMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
@@ -2649,6 +2656,21 @@ function onShowBoundsChange() {
   }
 }
 
+function onClippingButtonClick() {
+  if (enableClipping.value || showBounds.value) {
+    enableClipping.value = false
+    showBounds.value = false
+    return
+  }
+
+  if (clipBoundsDisabledReason.value) {
+    ElMessage.warning(clipBoundsDisabledReason.value)
+    return
+  }
+
+  enableClipping.value = true
+}
+
 function onClippingEnabledChange() {
   if (!contentGroup) return
 
@@ -2686,22 +2708,6 @@ function onClippingParamsChange() {
 function onClippingFaceChange() {
   if (!contentGroup) return
   updateClipRangeFromContent({ preserveT: true })
-  syncBoundsHelpers()
-  applyClippingState()
-}
-
-function resetClippingState() {
-  clipAxis.value = 'z'
-  clipInvert.value = false
-  clipBoxState = null
-
-  if (contentGroup) {
-    updateClipRangeFromContent({ resetPosition: true })
-  } else {
-    clipRange.value = { min: 0, max: 1 }
-    clipPosition.value = 0
-  }
-
   syncBoundsHelpers()
   applyClippingState()
 }
@@ -4620,17 +4626,34 @@ onBeforeUnmount(() => {
           </div>
         </el-tooltip>
 
-        <el-tooltip content="包围盒" placement="right">
+        <el-tooltip :content="clipBoundsTooltip" placement="right">
           <div class="tool-item">
             <el-button
-              class="tool-btn"
-              :class="{ 'is-on': showBounds }"
+              class="tool-btn tool-btn--svg"
+              :class="{
+                'is-on': enableClipping && showBounds,
+                'is-disabled': !enableClipping && !!clipBoundsDisabledReason,
+              }"
               circle
               text
-              :icon="Box"
-              :disabled="!hasClippableContent"
-              @click="showBounds = !showBounds"
-            />
+              @click="onClippingButtonClick"
+            >
+              <svg
+                class="tool-btn__svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 7 L12 3 L21 7 L21 17 L12 21 L3 17 Z" />
+                <line x1="3" y1="7" x2="21" y2="7" />
+                <line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 2" />
+                <line x1="12" y1="3" x2="12" y2="7" />
+              </svg>
+            </el-button>
           </div>
         </el-tooltip>
 
@@ -5128,57 +5151,6 @@ onBeforeUnmount(() => {
                 重置
               </el-button>
             </div>
-          </div>
-        </div>
-
-        <div class="panel-section">
-          <div class="section-title section-title--with-action">
-            <span>剖切</span>
-            <el-tooltip content="恢复原始状态" placement="top">
-              <el-button
-                class="section-icon-btn"
-                circle
-                text
-                size="small"
-                :icon="RefreshLeft"
-                :disabled="!hasClippableContent"
-                @click="resetClippingState"
-              />
-            </el-tooltip>
-          </div>
-          <div class="control-row">
-            <span class="label">剖切</span>
-            <el-switch v-model="enableClipping" :disabled="!hasClippableContent" />
-          </div>
-          <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasClippableContent }">
-            <span class="label">剖切轴</span>
-            <el-select
-              v-model="clipAxis"
-              popper-class="bpa-right-popper"
-              :disabled="!enableClipping || !showBounds || !hasClippableContent"
-            >
-              <el-option label="X" value="x" />
-              <el-option label="Y" value="y" />
-              <el-option label="Z" value="z" />
-            </el-select>
-            <el-switch
-              v-model="clipInvert"
-              inline-prompt
-              active-text="反"
-              inactive-text="正"
-              :disabled="!enableClipping || !showBounds || !hasClippableContent"
-            />
-          </div>
-          <div class="control-row" :class="{ disabled: !enableClipping || !showBounds || !hasClippableContent }">
-            <span class="label">位置</span>
-            <el-slider
-              v-model="clipPosition"
-              :min="clipRange.min"
-              :max="clipRange.max"
-              :step="clipStep"
-              :disabled="!enableClipping || !showBounds || !hasClippableContent"
-            />
-            <span class="value">{{ clipPosition.toFixed(2) }}</span>
           </div>
         </div>
 
