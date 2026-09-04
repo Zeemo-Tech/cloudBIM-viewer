@@ -9,7 +9,7 @@ export type EdlPipelineOptions = {
   radius?: number;
 };
 
-const DEFAULT_STRENGTH = 0.45;
+const DEFAULT_STRENGTH = 1.0;
 const DEFAULT_RADIUS = 1.0;
 
 const edlVertexShader = /* glsl */ `

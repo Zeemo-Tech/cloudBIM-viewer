@@ -43,6 +43,7 @@ export function computeC2M(params: C2MParams) {
   return backendRequest<BackendResult<C2MResult>>('/alignments/bim/c2m', {
     method: 'POST',
     data: params,
+    timeout: 600_000,
   })
 }
 

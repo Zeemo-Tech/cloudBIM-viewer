@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.vscode
+backend
+tools
+services
+deploy
+*.log
+.env
+.env.*
+*.tar
+*.tar.gz
+*.zst

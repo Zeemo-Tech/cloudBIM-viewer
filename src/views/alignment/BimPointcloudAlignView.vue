@@ -47,6 +47,7 @@ import ViewerAnalysisOverlay, {
   type AnalysisMode,
   type AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
+import { PointCloudEdlPipeline } from '@/components/preview/edlPipeline'
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
@@ -194,6 +195,10 @@ const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAss
 
 async function runC2M() {
   if (!canRunC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
+  if (meshTaskActive.value) {
+    ElMessage.warning('网格均匀化任务正在排队或处理中，请稍候')
+    return
+  }
   c2mRunning.value = true
   c2mError.value = ''
   try {
@@ -518,9 +523,9 @@ const showGrid = ref(true)
 const showMeshWireframe = ref(false)
 const showBounds = ref(false)
 const backgroundColor = ref('#0b1020')
-const pointcloudColor = ref('#ffffff')
-const persistedPointcloudColor = ref('#ffffff')
-const pointcloudColorOverridden = ref(false)
+const pointcloudColor = ref('#86898D')
+const persistedPointcloudColor = ref('#86898D')
+const pointcloudColorOverridden = ref(true)
 const pointcloudColorSaving = ref(false)
 let pointcloudColorSaveTimer: number | null = null
 const enableClipping = ref(false)
@@ -634,6 +639,8 @@ let perspectiveCamera: THREE.PerspectiveCamera | null = null
 let orthographicCamera: THREE.OrthographicCamera | null = null
 let activeCamera: THREE.PerspectiveCamera | THREE.OrthographicCamera | null = null
 let controls: OrbitControls | null = null
+let edlPipeline: PointCloudEdlPipeline | null = null
+const edlEnabled = ref(true)
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
 let contentGroup: THREE.Group | null = null
@@ -1809,6 +1816,7 @@ function syncRendererSize() {
 
   renderer.setPixelRatio(dpr)
   renderer.setSize(width, height, false)
+  edlPipeline?.setSize(width, height)
 
   if (isPerspectiveCamera(activeCamera)) {
     activeCamera.aspect = width / height
@@ -1865,7 +1873,11 @@ function requestRender() {
     }
 
     syncBoundsHelpers()
-    renderer.render(scene, activeCamera)
+    if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
+      edlPipeline.render(scene, activeCamera)
+    } else {
+      renderer.render(scene, activeCamera)
+    }
   }
 
   renderFrame()
@@ -2034,36 +2046,15 @@ async function initScene() {
       }
       viewportEl.value?.appendChild(nextRenderer.domElement)
       renderer = nextRenderer
+      edlPipeline = new PointCloudEdlPipeline(nextRenderer, {
+        enabled: edlEnabled.value,
+        strength: 1.0,
+        radius: 1.0,
+      })
       setupRendererCommon()
     }
 
-    const buildWebGPURenderer = async () => {
-      rendererMode = 'webgpu'
-      const nextRenderer = new WebGPURenderer({ antialias: true })
-      nextRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap))
-      nextRenderer.setSize(width, height)
-      nextRenderer.toneMapping = THREE.ACESFilmicToneMapping
-      nextRenderer.toneMappingExposure = 1
-      viewportEl.value?.appendChild(nextRenderer.domElement)
-      await nextRenderer.init?.()
-      renderer = nextRenderer
-      setupRendererCommon()
-    }
-
-    const supportsWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator
-    if (supportsWebGPU) {
-      try {
-        await buildWebGPURenderer()
-      } catch (error) {
-        console.error('[BimPointcloudAlign] WebGPU 初始化失败:', error)
-        renderer = null
-        rendererMode = null
-      }
-    }
-
-    if (!renderer) {
-      buildWebGLRenderer()
-    }
+    buildWebGLRenderer()
   })()
 
   await initPromise
@@ -2257,8 +2248,8 @@ function getMaterialClone(
   if (opts.isPoints) {
     const next = new THREE.PointsMaterial({
       color: (source as any).color?.clone?.() ?? new THREE.Color(0xffffff),
-      size: Math.max(0.2, (source as any).size ?? 1),
-      sizeAttenuation: (source as any).sizeAttenuation ?? true,
+      size: 2.5,
+      sizeAttenuation: false,
       map: (source as any).map ?? null,
       alphaMap: (source as any).alphaMap ?? null,
       vertexColors: opts.vertexColors,
@@ -2388,8 +2379,8 @@ function getOrCreatePointcloudUnlitMaterial(
   let material: THREE.Material
   if (opts.isPoints) {
     const next = new THREE.PointsMaterial({
-      size: (source as any)?.size ?? 1,
-      sizeAttenuation: (source as any)?.sizeAttenuation ?? true,
+      size: 2.5,
+      sizeAttenuation: false,
       color: (source as any)?.color?.clone?.() ?? new THREE.Color(0xffffff),
       vertexColors: opts.vertexColors,
     })
@@ -2493,6 +2484,29 @@ function applyBimMaterialMode(root: THREE.Object3D | null) {
   applyClippingState()
 }
 
+function normalizePointMaterial(obj: any) {
+  if (!obj?.isPoints || !obj?.material) return
+  const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+  mats.forEach((m: any) => {
+    if (m && 'size' in m) {
+      m.sizeAttenuation = false
+      m.size = 2.5
+      if (!m.userData?.roundPointsHooked) {
+        m.userData = m.userData || {}
+        m.userData.roundPointsHooked = true
+        m.onBeforeCompile = (shader: any) => {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <clipping_planes_fragment>',
+            `#include <clipping_planes_fragment>
+            if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;`
+          )
+        }
+      }
+      m.needsUpdate = true
+    }
+  })
+}
+
 function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
   if (!root) return
 
@@ -2505,6 +2519,7 @@ function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
 
     if (materialMode.value === 'original') {
       obj.material = originalMaterialStore.get(obj)
+      normalizePointMaterial(obj)
       return
     }
 
@@ -2516,12 +2531,10 @@ function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
       const original = originalMaterialStore.get(obj)
       if (Array.isArray(original)) {
         obj.material = original.map((item) => getMaterialClone(item, materialMode.value, opts))
-        return
-      }
-
-      if (original) {
+      } else if (original) {
         obj.material = getMaterialClone(original, materialMode.value, opts)
       }
+      normalizePointMaterial(obj)
       return
     }
 
@@ -2537,14 +2550,12 @@ function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
           ? getOrCreatePointcloudUnlitTSLMaterial(item, opts, 'multi')
           : getOrCreatePointcloudUnlitMaterial(item, opts, 'multi'),
       )
-      return
-    }
-
-    if (original) {
+    } else if (original) {
       obj.material = useWebGPU
         ? getOrCreatePointcloudUnlitTSLMaterial(original, opts)
         : getOrCreatePointcloudUnlitMaterial(original, opts)
     }
+    normalizePointMaterial(obj)
   })
   applyPointcloudColor()
 }
@@ -3414,6 +3425,12 @@ function togglePointcloudVisibility() {
   applySceneVisibility()
 }
 
+function toggleEdl() {
+  edlEnabled.value = !edlEnabled.value
+  edlPipeline?.setEnabled(edlEnabled.value)
+  requestRender()
+}
+
 function toggleMeshWireframe() {
   showMeshWireframe.value = !showMeshWireframe.value
   if (!bimRoot) return
@@ -3857,13 +3874,38 @@ function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
 }
 
 async function fetchAndLogSavedAlignmentIfExists() {
-  if (
-    !props.pointcloudAssetId ||
-    !props.bimAssetId ||
-    !bimPivot ||
-    !pointcloudGroup ||
-    !pointcloudRootReady
-  ) {
+  if (!props.pointcloudAssetId || !props.bimAssetId) {
+    return
+  }
+
+  // 1. 优先拉取后端保存的配准数据，解除对 3D 渲染完成时机的强依赖
+  if (!hasSavedAlignmentMatrix.value && !latestAlignmentResult.value) {
+    try {
+      const response = await getBimAlignment({
+        modelScanFileId: props.pointcloudAssetId,
+        modelBimFileId: props.bimAssetId,
+      })
+
+      if (response?.data) {
+        latestAlignmentResult.value = response.data
+        logSavedAlignmentMatrix(response.data)
+        hasSavedAlignmentMatrix.value = true
+        coarseAlignmentDirty.value = false
+      }
+    } catch (error: any) {
+      const status = error?.response?.status
+      if (status === 400 || status === 404) {
+        hasSavedAlignmentMatrix.value = false
+        loggedSavedAlignmentKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
+        return
+      }
+
+      console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
+    }
+  }
+
+  // 2. 检查 3D 视口渲染对象是否已完全就绪
+  if (!bimPivot || !pointcloudGroup || !pointcloudRootReady) {
     return
   }
 
@@ -3872,21 +3914,8 @@ async function fetchAndLogSavedAlignmentIfExists() {
     return
   }
 
-  try {
-    const response = await getBimAlignment({
-      modelScanFileId: props.pointcloudAssetId,
-      modelBimFileId: props.bimAssetId,
-    })
-
-    if (!response?.data) {
-      return
-    }
-
-    latestAlignmentResult.value = response.data
-    logSavedAlignmentMatrix(response.data)
-    hasSavedAlignmentMatrix.value = true
-    coarseAlignmentDirty.value = false
-    const restored = tryRestoreSavedAlignment(response.data)
+  if (latestAlignmentResult.value) {
+    const restored = tryRestoreSavedAlignment(latestAlignmentResult.value)
     logBimRelativeTransform()
     if (restored) {
       loggedSavedAlignmentKey = logKey
@@ -3895,18 +3924,6 @@ async function fetchAndLogSavedAlignmentIfExists() {
         void fetchAndLogSavedAlignmentIfExists()
       }, 250)
     }
-  } catch (error: any) {
-    const status = error?.response?.status
-    if (status === 400 || status === 404) {
-      console.info('[BimPointcloudAlign] 当前组合暂无后端已保存校准矩阵', {
-        pointcloudAssetId: props.pointcloudAssetId,
-        bimAssetId: props.bimAssetId,
-      })
-      loggedSavedAlignmentKey = logKey
-      return
-    }
-
-    console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
   }
 }
 
@@ -4138,7 +4155,6 @@ async function handleLoadBimFromApi(silent = false) {
 
   const token = ++bimLoadToken
   loadingBim.value = true
-  statusText.value = '加载 BIM 模型中...'
   bimMetadata.value = null
 
   try {
@@ -4243,7 +4259,6 @@ async function handleLoadPointCloudFromApi(silent = false) {
 
   const token = ++pointcloudLoadToken
   loadingPointcloud.value = true
-  statusText.value = '加载点云中...'
 
   try {
     if (pointcloudWrapper) {
@@ -4269,9 +4284,9 @@ async function handleLoadPointCloudFromApi(silent = false) {
     }
 
     const savedPointcloudColor = normalizePointcloudColor(assetDetail.pointcloudColor || '', '')
-    pointcloudColorOverridden.value = Boolean(savedPointcloudColor)
-    pointcloudColor.value = savedPointcloudColor || '#ffffff'
-    persistedPointcloudColor.value = savedPointcloudColor || '#ffffff'
+    pointcloudColorOverridden.value = true
+    pointcloudColor.value = savedPointcloudColor || '#86898D'
+    persistedPointcloudColor.value = savedPointcloudColor || '#86898D'
 
     const url = getPointcloudTilesetUrl(assetDetail.tilesetUrl)
     const resourceBasePath = getTileResourceBasePath(assetDetail)
@@ -4334,7 +4349,6 @@ async function handleLoadPointCloudFromApi(silent = false) {
 
     nextTileset.addEventListener('tiles-load-start', () => {
       if (token !== pointcloudLoadToken) return
-      statusText.value = '点云加载中...'
     })
     nextTileset.addEventListener('tiles-load-end', () => {
       if (token !== pointcloudLoadToken) return
@@ -4711,6 +4725,20 @@ onBeforeUnmount(() => {
           </div>
         </el-tooltip>
 
+        <el-tooltip :content="edlEnabled ? '关闭 EDL 深度边缘增强' : '开启 EDL 深度边缘增强'" placement="right">
+          <div class="tool-item">
+            <el-button
+              class="tool-btn"
+              :class="{ 'is-on': edlEnabled && hasTileset }"
+              circle
+              text
+              :disabled="!hasTileset"
+              @click="toggleEdl"
+            >
+              EDL
+            </el-button>
+          </div>
+        </el-tooltip>
       </aside>
 
       <div ref="viewportEl" class="viewport"></div>
@@ -5187,7 +5215,6 @@ onBeforeUnmount(() => {
     </div>
 
     <footer class="status-bar">
-      <el-tag v-if="!webgpuSupported" type="warning" size="small">WebGPU 不支持</el-tag>
       <span class="status-text">{{ statusText }}</span>
     </footer>
 

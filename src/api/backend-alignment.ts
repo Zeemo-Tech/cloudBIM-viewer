@@ -149,5 +149,6 @@ export function computeFineAlignment(params: FineAlignmentParams) {
   return backendRequest<BackendResult<FineAlignmentResult>>('/alignments/bim/fine', {
     method: 'POST',
     data: params,
+    timeout: 600_000,
   })
 }
