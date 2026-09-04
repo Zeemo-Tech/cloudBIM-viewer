@@ -7,7 +7,6 @@ import {
   Delete,
   Document,
   Files,
-  FolderOpened,
   UploadFilled,
 } from '@element-plus/icons-vue'
 import type { UploadFileConfig } from '@/features/upload/upload.types'
@@ -192,10 +191,6 @@ function handleRemoveFile() {
             <span class="chip">
               <el-icon><Document /></el-icon>
               {{ config.accept }}
-            </span>
-            <span class="chip">
-              <el-icon><FolderOpened /></el-icon>
-              本地选择
             </span>
           </div>
         </div>

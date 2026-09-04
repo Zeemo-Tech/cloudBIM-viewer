@@ -13,13 +13,21 @@ import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import C2MResultPreviewPanel from '@/components/preview/C2MResultPreviewPanel.vue'
+import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
+  type AnalysisArea,
   type AnalysisMode,
   type AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
 import { getBimAlignment, type BimAlignmentResult } from '@/api/backend-alignment'
 import * as THREE from 'three'
+import {
+  createMeasurement,
+  deleteMeasurement,
+  listMeasurements,
+  type MeasurementKind,
+} from '@/api/backend-measurement'
 
 type CameraPose = {
   camera: any
@@ -47,10 +55,18 @@ const bimPanelRef = ref<any>(null)
 const consistencyPanelRef = ref<any>(null)
 const applyingViewSync = ref(false)
 const toolsExpanded = ref(true)
+const measurementToolbarCollapsed = ref(true)
 const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
+const analysisAreas = ref<AnalysisArea[]>([])
+const analysisPoints = ref<AnalysisPoint[]>([])
+const analysisDistances = ref<AnalysisDistance[]>([])
+const measurementBackendIds = new Map<string, number>()
+let measurementLoadToken = 0
 type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+type InterfaceStyle = 'dark' | 'light'
+const interfaceStyle = ref<InterfaceStyle>('dark')
 const splitBackgrounds = reactive<Record<SyncSource, PreviewBackgroundTheme>>({
   bim: 'deep',
   pointcloud: 'deep',
@@ -61,10 +77,12 @@ const splitBackgroundColors = reactive<Record<SyncSource, string>>({
   pointcloud: '#08111d',
   consistency: '#08111d',
 })
-const pointcloudColorMode = ref<'original' | 'custom'>('custom')
+const pointcloudColorMode = ref<'original' | 'custom'>('original')
 const pointcloudColor = ref('#86898D')
+const showGrid = ref(false)
+const gridColor = ref('#2a6f82')
 const edlEnabled = ref(true)
-const edlStrength = ref(1.0)
+const edlStrength = ref(1)
 const viewVisibility = reactive({
   bim: true,
   pointcloud: true,
@@ -479,19 +497,131 @@ function handleConsistencyCameraChange(_pose: CameraPose | null) {
 }
 
 function selectAnalysisMode(mode: AnalysisMode) {
+  bimPanelRef.value?.cancelAnalysis?.()
+  pointcloudPanelRef.value?.cancelAnalysis?.()
   analysisMode.value = analysisMode.value === mode ? 'none' : mode
+}
+
+function handleAnalysisModeExit() {
+  analysisMode.value = 'none'
   analysisPoint.value = null
   analysisDistance.value = null
-  bimPanelRef.value?.clearAnalysis?.()
-  pointcloudPanelRef.value?.clearAnalysis?.()
 }
 
 function clearAnalysis() {
   analysisMode.value = 'none'
   analysisPoint.value = null
   analysisDistance.value = null
+  analysisAreas.value = []
+  analysisPoints.value = []
+  analysisDistances.value = []
   bimPanelRef.value?.clearAnalysis?.()
   pointcloudPanelRef.value?.clearAnalysis?.()
+  const backendIds = [...new Set(measurementBackendIds.values())]
+  measurementBackendIds.clear()
+  backendIds.forEach((id) => {
+    void deleteMeasurement(id).catch((error) => {
+      console.warn('[SplitPreview] 删除测量记录失败', error)
+    })
+  })
+}
+
+function removeAnalysisById(kind: 'point' | 'distance' | 'area', id: string) {
+  if (kind === 'point') {
+    analysisPoints.value = analysisPoints.value.filter((record, index) => (record.id || `point-${index}`) !== id)
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+  }
+  if (kind === 'distance') {
+    analysisDistances.value = analysisDistances.value.filter((record, index) => (record.id || `distance-${index}`) !== id)
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+  }
+  if (kind === 'area') {
+    analysisAreas.value = analysisAreas.value.filter((record, index) => (record.id || `area-${index}`) !== id)
+  }
+
+  const backendId = measurementBackendIds.get(id)
+  measurementBackendIds.delete(id)
+  bimPanelRef.value?.removeAnalysisVisual?.(kind, id)
+  pointcloudPanelRef.value?.removeAnalysisVisual?.(kind, id)
+  if (backendId !== undefined) {
+    void deleteMeasurement(backendId).catch((error) => {
+      console.warn('[SplitPreview] 删除测量记录失败', error)
+    })
+  }
+}
+
+function handleAnalysisPoint(point: AnalysisPoint) {
+  analysisPoint.value = point
+  analysisPoints.value = [...analysisPoints.value, point]
+  persistMeasurement('locate', point)
+}
+
+function handleAnalysisDistance(distance: AnalysisDistance) {
+  analysisDistance.value = distance
+  analysisDistances.value = [...analysisDistances.value, distance]
+  persistMeasurement('distance', distance)
+}
+
+function handleAnalysisArea(area: AnalysisArea) {
+  analysisAreas.value = [...analysisAreas.value, area]
+  persistMeasurement('area', area)
+}
+
+function hasMeasurement(kind: MeasurementKind, id: string) {
+  if (kind === 'locate') return analysisPoints.value.some((record) => record.id === id)
+  if (kind === 'distance') return analysisDistances.value.some((record) => record.id === id)
+  return analysisAreas.value.some((record) => record.id === id)
+}
+
+async function persistMeasurement(kind: MeasurementKind, payload: unknown) {
+  if (!props.bimAssetId) return
+  const localId = typeof payload === 'object' && payload && 'id' in payload
+    ? String(payload.id)
+    : ''
+  try {
+    const response = await createMeasurement(props.bimAssetId, kind, payload)
+    if (!localId) return
+    if (hasMeasurement(kind, localId)) {
+      measurementBackendIds.set(localId, response.data.id)
+    } else {
+      void deleteMeasurement(response.data.id).catch(() => undefined)
+    }
+  } catch (error) {
+    console.warn('[SplitPreview] 保存测量记录失败', error)
+  }
+}
+
+async function loadMeasurements() {
+  const assetId = props.bimAssetId
+  const token = ++measurementLoadToken
+  analysisPoint.value = null
+  analysisDistance.value = null
+  analysisPoints.value = []
+  analysisDistances.value = []
+  analysisAreas.value = []
+  measurementBackendIds.clear()
+  if (!assetId) return
+
+  try {
+    const response = await listMeasurements(assetId)
+    if (token !== measurementLoadToken) return
+    response.data.forEach((record) => {
+      const payload = record.payload && typeof record.payload === 'object'
+        ? { ...(record.payload as Record<string, unknown>) }
+        : {}
+      const id = typeof payload.id === 'string' && payload.id
+        ? payload.id
+        : `${record.kind}-${record.id}`
+      measurementBackendIds.set(id, record.id)
+      if (record.kind === 'locate') analysisPoints.value.push({ ...payload, id } as AnalysisPoint)
+      if (record.kind === 'distance') analysisDistances.value.push({ ...payload, id } as AnalysisDistance)
+      if (record.kind === 'area') analysisAreas.value.push({ ...payload, id } as AnalysisArea)
+    })
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+  } catch (error) {
+    console.warn('[SplitPreview] 读取测量记录失败', error)
+  }
 }
 
 function applySplitPresentation() {
@@ -501,6 +631,12 @@ function applySplitPresentation() {
   bimPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.bim)
   pointcloudPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.pointcloud)
   consistencyPanelRef.value?.setBackgroundColor?.(splitBackgroundColors.consistency)
+  bimPanelRef.value?.setShowGrid?.(showGrid.value)
+  pointcloudPanelRef.value?.setShowGrid?.(showGrid.value)
+  consistencyPanelRef.value?.setShowGrid?.(showGrid.value)
+  bimPanelRef.value?.setGridColor?.(gridColor.value)
+  pointcloudPanelRef.value?.setGridColor?.(gridColor.value)
+  consistencyPanelRef.value?.setGridColor?.(gridColor.value)
   pointcloudPanelRef.value?.setPointColor?.(
     pointcloudColorMode.value === 'custom' ? pointcloudColor.value : null,
   )
@@ -518,6 +654,15 @@ function syncBackgroundColorFromTheme(source: SyncSource) {
   splitBackgroundColors[source] = colors[splitBackgrounds[source]]
 }
 
+function applyInterfaceStyle(style: InterfaceStyle) {
+  const backgroundTheme: PreviewBackgroundTheme = style === 'light' ? 'light' : 'deep'
+  ;(['bim', 'pointcloud', 'consistency'] as const).forEach((source) => {
+    splitBackgrounds[source] = backgroundTheme
+    syncBackgroundColorFromTheme(source)
+  })
+  requestAnimationFrame(applySplitPresentation)
+}
+
 function clearScreen(source: SyncSource) {
   if (source === 'bim') bimPanelRef.value?.clearAnalysis?.()
   if (source === 'pointcloud') pointcloudPanelRef.value?.clearAnalysis?.()
@@ -525,6 +670,7 @@ function clearScreen(source: SyncSource) {
 }
 
 onMounted(() => {
+  void loadMeasurements()
   void loadCalibration()
   requestAnimationFrame(applySplitPresentation)
 })
@@ -533,10 +679,13 @@ watch(
   () => [props.bimAssetId, props.pointcloudAssetId] as const,
   () => {
     clearRotationSyncState()
+    void loadMeasurements()
     void loadCalibration()
     requestAnimationFrame(applySplitPresentation)
   },
 )
+
+watch(interfaceStyle, applyInterfaceStyle)
 
 watch(
   [
@@ -548,6 +697,8 @@ watch(
     () => splitBackgroundColors.consistency,
     pointcloudColorMode,
     pointcloudColor,
+    showGrid,
+    gridColor,
     edlEnabled,
     edlStrength,
     bimPanelRef,
@@ -559,8 +710,21 @@ watch(
 </script>
 
 <template>
-  <section class="split-preview-page">
-    <div v-if="isReady" class="floating-controls" :class="{ 'is-collapsed': !toolsExpanded }">
+  <section class="split-preview-page" :class="`theme-${interfaceStyle}`">
+    <button class="page-back-btn" type="button" title="返回上传页" @click="closePage">
+      <el-icon><ArrowLeft /></el-icon>
+      <span>返回</span>
+    </button>
+
+    <MeasurementToolbar
+      v-if="isReady"
+      v-model:collapsed="measurementToolbarCollapsed"
+      class="split-measurement-toolbar"
+      :mode="analysisMode"
+      @update:mode="selectAnalysisMode"
+      @clear="clearAnalysis"
+    />
+    <div v-if="isReady" class="floating-controls">
       <button
         class="tools-toggle"
         type="button"
@@ -572,11 +736,6 @@ watch(
       </button>
 
       <div v-if="toolsExpanded" class="tools-panel">
-        <button class="floating-btn" type="button" title="返回上传页" @click="closePage">
-          <el-icon><ArrowLeft /></el-icon>
-          <span>返回</span>
-        </button>
-
         <button class="floating-btn" type="button" title="重置三个视图" @click="handleResetView">
           <el-icon><RefreshRight /></el-icon>
           <span>重置</span>
@@ -599,23 +758,6 @@ watch(
           <el-icon><Connection /></el-icon>
           <span>同步</span>
         </button>
-
-        <button
-          class="floating-btn layer-btn"
-          :class="{ 'is-active': analysisMode === 'distance' }"
-          type="button"
-          title="全局测距"
-          @click="selectAnalysisMode('distance')"
-        >测距</button>
-        <button
-          class="floating-btn layer-btn"
-          :class="{ 'is-active': analysisMode === 'locate' }"
-          type="button"
-          title="全局定位"
-          @click="selectAnalysisMode('locate')"
-        >定位</button>
-
-        <span class="tools-divider" aria-hidden="true" />
 
         <button
           class="floating-btn layer-btn"
@@ -655,6 +797,13 @@ watch(
 
         <span class="tools-divider" aria-hidden="true" />
         <label class="tool-select-row">
+          <span>风格</span>
+          <select v-model="interfaceStyle">
+            <option value="dark">暗夜</option>
+            <option value="light">白昼</option>
+          </select>
+        </label>
+        <label class="tool-select-row">
           <span>BIM 自定义</span>
           <input v-model="splitBackgroundColors.bim" type="color" />
         </label>
@@ -667,12 +816,27 @@ watch(
           <input v-model="splitBackgroundColors.consistency" type="color" />
         </label>
         <label class="tool-select-row">
+          <span>显示网格</span>
+          <input v-model="showGrid" type="checkbox" />
+        </label>
+        <label class="tool-select-row">
+          <span>网格颜色</span>
+          <input v-model="gridColor" type="color" :disabled="!showGrid" />
+        </label>
+        <label class="tool-select-row">
           <span>EDL</span>
           <input v-model="edlEnabled" type="checkbox" />
         </label>
         <label class="tool-range-row">
-          <span>EDL 强度</span>
-          <input v-model.number="edlStrength" type="range" min="0" max="1" step="0.05" :disabled="!edlEnabled" />
+          <span>EDL 强度 {{ Math.round(edlStrength * 100) }}%</span>
+          <input
+            v-model.number="edlStrength"
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.05"
+            :disabled="!edlEnabled"
+          />
         </label>
         <label class="tool-select-row">
           <span>点云颜色</span>
@@ -705,7 +869,6 @@ watch(
       :class="{
         'viewer-shell--single': visibleViewCount === 1,
         'viewer-shell--triple': visibleViewCount === 3,
-        'viewer-shell--tools-expanded': toolsExpanded,
       }"
     >
       <div v-show="viewVisibility.bim" class="viewer-slot">
@@ -720,12 +883,18 @@ watch(
           :display-name="bimDisplayName"
           :calibration="calibration"
           :analysis-mode="analysisMode"
+          :analysis-points="analysisPoints"
+          :analysis-distances="analysisDistances"
+          :analysis-areas="analysisAreas"
           fusion-mode
           minimal
           @loaded-change="handleBimLoadedChange"
           @camera-change="handleBimCameraChange"
-          @analysis-point="analysisPoint = $event"
-          @analysis-distance="analysisDistance = $event"
+          @analysis-point="handleAnalysisPoint"
+          @analysis-area="handleAnalysisArea"
+          @analysis-distance="handleAnalysisDistance"
+          @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+          @analysis-mode-exit="handleAnalysisModeExit"
         />
       </div>
       <div v-show="viewVisibility.pointcloud" class="viewer-slot">
@@ -737,18 +906,28 @@ watch(
         <PointcloudPreviewPanel
           ref="pointcloudPanelRef"
           :asset-id="pointcloudAssetId"
+          :show-edl-control="false"
           :analysis-mode="analysisMode"
+          :analysis-points="analysisPoints"
+          :analysis-distances="analysisDistances"
+          :analysis-areas="analysisAreas"
           minimal
           @loaded-change="handlePointcloudLoadedChange"
           @camera-change="handlePointcloudCameraChange"
-          @analysis-point="analysisPoint = $event"
-          @analysis-distance="analysisDistance = $event"
+          @analysis-point="handleAnalysisPoint"
+          @analysis-area="handleAnalysisArea"
+          @analysis-distance="handleAnalysisDistance"
+          @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+          @analysis-mode-exit="handleAnalysisModeExit"
         />
       </div>
       <ViewerAnalysisOverlay
         :mode="analysisMode"
         :point="analysisPoint"
         :distance="analysisDistance"
+        :points="analysisPoints"
+        :distances="analysisDistances"
+        :areas="analysisAreas"
         @clear="clearAnalysis"
       />
       <div v-show="viewVisibility.consistency" class="viewer-slot">
@@ -779,6 +958,13 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
+  transition: background 0.25s ease;
+}
+
+.split-preview-page.theme-light {
+  background:
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.1), transparent 24%),
+    linear-gradient(180deg, #f8fafc 0%, #e8eef6 100%);
 }
 
 .floating-controls {
@@ -786,13 +972,14 @@ watch(
   top: 50%;
   left: 14px;
   z-index: 20;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   transform: translateY(-50%);
 }
 
 .tools-panel {
+  position: absolute;
+  top: 50%;
+  left: 50px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -826,6 +1013,75 @@ watch(
 .tools-toggle:hover {
   color: #fff;
   border-color: rgba(103, 232, 249, 0.42);
+}
+
+.page-back-btn {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 30;
+  height: 42px;
+  padding: 0 18px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #e0f2fe;
+  font-size: 13px;
+  cursor: pointer;
+  background: rgba(8, 17, 29, 0.86);
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.36);
+  backdrop-filter: blur(18px) saturate(135%);
+}
+
+.page-back-btn:hover {
+  color: #fff;
+  border-color: rgba(103, 232, 249, 0.5);
+  background: rgba(12, 30, 50, 0.92);
+}
+
+.split-preview-page :deep(.split-measurement-toolbar) {
+  top: 18px;
+  right: 108px;
+}
+
+.split-preview-page.theme-light .tools-panel,
+.split-preview-page.theme-light .tools-toggle,
+.split-preview-page.theme-light .page-back-btn,
+.split-preview-page.theme-light :deep(.split-measurement-toolbar) {
+  border-color: rgba(100, 116, 139, 0.28);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14);
+}
+
+.split-preview-page.theme-light .tools-toggle:hover,
+.split-preview-page.theme-light .page-back-btn:hover {
+  border-color: rgba(37, 99, 235, 0.44);
+  color: #1d4ed8;
+  background: #fff;
+}
+
+.split-preview-page.theme-light :deep(.measurement-toggle),
+.split-preview-page.theme-light :deep(.measurement-action) {
+  color: #334155;
+}
+
+.split-preview-page.theme-light :deep(.measurement-toggle-icon) {
+  filter: none;
+}
+
+.split-preview-page.theme-light :deep(.measurement-toggle:hover),
+.split-preview-page.theme-light :deep(.measurement-action:hover:not(:disabled)) {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.split-preview-page.theme-light :deep(.measurement-action.is-active) {
+  border-color: rgba(220, 38, 38, 0.42);
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.9);
 }
 
 .tools-divider {
@@ -877,10 +1133,46 @@ watch(
 
 .floating-btn.is-active {
   color: #ecfeff;
+  background:
+    linear-gradient(180deg, rgba(14, 116, 144, 0.72), rgba(8, 47, 73, 0.86));
   box-shadow:
-    inset 0 0 0 1px rgba(34, 211, 238, 0.36),
-    0 0 34px rgba(34, 211, 238, 0.28),
+    inset 0 0 0 1px rgba(103, 232, 249, 0.78),
+    inset 0 0 18px rgba(34, 211, 238, 0.18),
+    0 0 34px rgba(34, 211, 238, 0.34),
     0 20px 40px rgba(2, 6, 23, 0.44);
+}
+
+.floating-btn.is-active:hover {
+  background:
+    linear-gradient(180deg, rgba(21, 133, 163, 0.82), rgba(8, 61, 91, 0.92));
+  box-shadow:
+    inset 0 0 0 1px rgba(165, 243, 252, 0.9),
+    inset 0 0 20px rgba(34, 211, 238, 0.24),
+    0 0 38px rgba(34, 211, 238, 0.4),
+    0 20px 40px rgba(2, 6, 23, 0.44);
+}
+
+.split-preview-page.theme-light .floating-btn {
+  color: #334155;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  box-shadow:
+    inset 0 0 0 1px rgba(100, 116, 139, 0.22),
+    0 10px 24px rgba(15, 23, 42, 0.1);
+}
+
+.split-preview-page.theme-light .floating-btn:hover {
+  color: #1d4ed8;
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 99, 235, 0.34),
+    0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.split-preview-page.theme-light .floating-btn.is-active {
+  color: #fff;
+  background: linear-gradient(180deg, #0ea5e9, #2563eb);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42),
+    0 10px 24px rgba(37, 99, 235, 0.24);
 }
 
 .layer-btn {
@@ -918,6 +1210,26 @@ watch(
   background: rgba(15, 23, 42, 0.86);
   color: #e2e8f0;
   font-size: 12px;
+}
+
+.split-preview-page.theme-light .tools-divider {
+  background: rgba(100, 116, 139, 0.24);
+}
+
+.split-preview-page.theme-light .tool-select-row,
+.split-preview-page.theme-light .tool-clear-row,
+.split-preview-page.theme-light .tool-range-row {
+  color: #334155;
+}
+
+.split-preview-page.theme-light .tool-select-row select {
+  border-color: rgba(100, 116, 139, 0.3);
+  color: #0f172a;
+  background: #fff;
+}
+
+.split-preview-page.theme-light .layer-btn:not(.is-active) {
+  color: #64748b;
 }
 
 .tool-clear-row {
@@ -971,6 +1283,22 @@ watch(
   color: #94a3b8;
 }
 
+.split-preview-page.theme-light .empty-state {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(100, 116, 139, 0.16),
+    0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.split-preview-page.theme-light .empty-state h2 {
+  color: #0f172a;
+}
+
+.split-preview-page.theme-light .empty-state p {
+  color: #64748b;
+}
+
 .viewer-shell {
   flex: 1;
   display: grid;
@@ -1014,9 +1342,15 @@ watch(
   backdrop-filter: blur(8px);
 }
 
-/* Keep the pane labels clear of the expanded global tools panel. */
-.viewer-shell--tools-expanded .viewer-label {
-  top: 78px;
+.split-preview-page.theme-light .viewer-label {
+  border-color: rgba(100, 116, 139, 0.26);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+}
+
+.split-preview-page.theme-light .viewer-label__name {
+  color: #475569;
 }
 
 .viewer-label__dot {
@@ -1059,22 +1393,22 @@ watch(
   .tools-panel {
     width: 176px;
   }
-
-  .viewer-shell--tools-expanded .viewer-label {
-    top: 142px;
-  }
 }
 
 @media (max-width: 640px) {
-  .floating-controls {
-    top: 12px;
-    left: 12px;
-    transform: none;
-  }
-
   .tools-panel {
     width: min(176px, calc(100vw - 72px));
-    max-height: calc(100vh - 72px);
+    max-height: calc(100vh - 36px);
+  }
+
+  .page-back-btn {
+    top: 12px;
+    right: 12px;
+  }
+
+  .split-preview-page :deep(.split-measurement-toolbar) {
+    top: 12px;
+    right: 102px;
   }
 }
 </style>

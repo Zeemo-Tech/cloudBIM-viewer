@@ -855,6 +855,7 @@ async function openPreview(mode: PreviewMode) {
         <div class="header-progress">
           <el-steps
             class="header-steps"
+            :class="{ 'is-split-preview-ready': canOpenSplitPreviewStep }"
             :active="headerWorkflowActive"
             finish-status="success"
             process-status="process"
@@ -1318,6 +1319,12 @@ margin: 0;
 
 .header-progress :deep(.el-step__line) {
   top: 16px;
+}
+
+.header-steps.is-split-preview-ready :deep(.el-step__line),
+.header-steps.is-split-preview-ready :deep(.el-step__line-inner) {
+  background-color: #22c55e;
+  border-color: #22c55e;
 }
 
 .header-step {
