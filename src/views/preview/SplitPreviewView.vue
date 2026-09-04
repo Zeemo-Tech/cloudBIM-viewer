@@ -13,6 +13,7 @@ import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import C2MResultPreviewPanel from '@/components/preview/C2MResultPreviewPanel.vue'
+import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisArea,
@@ -54,6 +55,7 @@ const bimPanelRef = ref<any>(null)
 const consistencyPanelRef = ref<any>(null)
 const applyingViewSync = ref(false)
 const toolsExpanded = ref(true)
+const measurementToolbarCollapsed = ref(true)
 const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
@@ -686,6 +688,13 @@ watch(
 
 <template>
   <section class="split-preview-page">
+    <MeasurementToolbar
+      v-if="isReady"
+      v-model:collapsed="measurementToolbarCollapsed"
+      :mode="analysisMode"
+      @update:mode="selectAnalysisMode"
+      @clear="clearAnalysis"
+    />
     <div v-if="isReady" class="floating-controls" :class="{ 'is-collapsed': !toolsExpanded }">
       <button
         class="tools-toggle"
@@ -725,30 +734,6 @@ watch(
           <el-icon><Connection /></el-icon>
           <span>同步</span>
         </button>
-
-        <button
-          class="floating-btn layer-btn"
-          :class="{ 'is-active': analysisMode === 'distance' }"
-          type="button"
-          title="全局测距"
-          @click="selectAnalysisMode('distance')"
-        >测距</button>
-        <button
-          class="floating-btn layer-btn"
-          :class="{ 'is-active': analysisMode === 'locate' }"
-          type="button"
-          title="全局定位"
-          @click="selectAnalysisMode('locate')"
-        >定位</button>
-        <button
-          class="floating-btn layer-btn"
-          :class="{ 'is-active': analysisMode === 'area' }"
-          type="button"
-          title="面积测量"
-          @click="selectAnalysisMode('area')"
-        >面积</button>
-
-        <span class="tools-divider" aria-hidden="true" />
 
         <button
           class="floating-btn layer-btn"

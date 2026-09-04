@@ -41,7 +41,7 @@ import { createUploadHeaders } from '@/config/upload-backend'
 import wanggeIcon from '@/assets/images/wangge.png'
 import toushiIcon from '@/assets/images/toushi.png'
 import zhengjiaoIcon from '@/assets/images/zhengjiao.png'
-import GlobalAnalysisToolbar from '@/components/preview/GlobalAnalysisToolbar.vue'
+import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisMode,
@@ -4513,13 +4513,6 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="BimPointcloudAlign-container">
-    <GlobalAnalysisToolbar
-      v-model:collapsed="analysisToolbarCollapsed"
-      :mode="analysisMode"
-      :disabled="!hasModel"
-      @update:mode="selectAnalysisMode"
-      @clear="clearAnalysis"
-    />
     <ViewerAnalysisOverlay
       :mode="analysisMode"
       :point="analysisPoint"
@@ -4537,6 +4530,14 @@ onBeforeUnmount(() => {
 
       <div class="topbar-right">
         <el-button :icon="ArrowLeft" @click="closePage">返回</el-button>
+        <MeasurementToolbar
+          v-model:collapsed="analysisToolbarCollapsed"
+          :mode="analysisMode"
+          :disabled="!hasModel"
+          position="static"
+          @update:mode="selectAnalysisMode"
+          @clear="clearAnalysis"
+        />
         <el-button :loading="loadingAlignmentMatrix" :disabled="!bimAssetId || !pointcloudAssetId" @click="handleShowAlignmentMatrix">校准矩阵</el-button>
         <el-button type="primary" :disabled="!canSaveCalibration" @click="handleCalibrationComplete">
           校准完成

@@ -22,10 +22,15 @@ import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from
 
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
 export type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
+export type StandardView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
+export type PointcloudColorMode = 'rgb' | 'intensity'
+export type PointcloudColorRamp = 'grayscale' | 'spectrum' | 'viridis'
+export type PointcloudColorRange = { min: number; max: number }
 
 export type CameraPose = {
   camera: THREE.Vector3
   target: THREE.Vector3
+  up?: THREE.Vector3
 }
 
 export type CameraRotation = {
@@ -102,6 +107,11 @@ const emit = defineEmits<{
   (event: 'analysis-area', area: AnalysisArea): void
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
+  (event: 'pointcloud-color-stats', payload: {
+    histogram: number[]
+    hasIntensity: boolean
+    hasRgb: boolean
+  }): void
 }>()
 
 const viewportEl = ref<HTMLDivElement | null>(null)
@@ -173,6 +183,13 @@ let showGridEnabled = true
 let backgroundTheme: PreviewBackgroundTheme = 'deep'
 let customBackgroundColor = ''
 let pointColorOverride: string | null = '#86898D'
+let pointSize = 2.5
+let pointcloudColorMode: PointcloudColorMode = 'rgb'
+let pointcloudColorRamp: PointcloudColorRamp = 'grayscale'
+let pointcloudColorRange: PointcloudColorRange = { min: 0, max: 1 }
+let pointcloudIntensityHistogram = Array.from({ length: 64 }, () => 0)
+let pointcloudHasIntensity = false
+let pointcloudHasRgb = false
 
 // 剖切盒状态
 let sectionEnabled = false
@@ -223,6 +240,7 @@ const measurementBadges = ref<Array<{
 
 // 材质存储
 const originalMaterialStore = new WeakMap<THREE.Object3D, any>()
+const originalPointColors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute | null>()
 
 // ---------------------------
 // 基础渲染流程（平滑 60FPS 连续渲染环，对齐校准页机制）
@@ -269,6 +287,7 @@ function emitCameraPose() {
   emit('camera-change', {
     camera: camera.position.clone(),
     target: controls.target.clone(),
+    up: camera.up.clone(),
   })
 }
 
@@ -804,6 +823,74 @@ function hideMeasurementBadge(id: string) {
   syncMeasurementBadges()
 }
 
+function distanceToScreenSegment(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared <= 1e-8) return Math.hypot(point.x - start.x, point.y - start.y)
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
+}
+
+function restoreMeasurementAt(event: MouseEvent) {
+  if (!viewportEl.value || !hiddenMeasurementIds.size) return
+  const rect = viewportEl.value.getBoundingClientRect()
+  const cursor = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  let bestId = ''
+  let bestDistance = 16
+
+  props.analysisDistances.forEach((record, index) => {
+    const id = getMeasurementId('distance', index, record.id)
+    if (!hiddenMeasurementIds.has(id)) return
+    const start = projectMeasurementPoint(new THREE.Vector3(record.start.x, record.start.y, record.start.z))
+    const end = projectMeasurementPoint(new THREE.Vector3(record.end.x, record.end.y, record.end.z))
+    if (!start || !end) return
+    const distance = distanceToScreenSegment(cursor, start, end)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestId = id
+    }
+  })
+
+  props.analysisPoints.forEach((point, index) => {
+    const id = getMeasurementId('point', index, point.id)
+    if (!hiddenMeasurementIds.has(id)) return
+    const projected = projectMeasurementPoint(new THREE.Vector3(point.x, point.y, point.z))
+    if (!projected) return
+    const distance = Math.hypot(cursor.x - projected.x, cursor.y - projected.y)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestId = id
+    }
+  })
+
+  props.analysisAreas.forEach((record, index) => {
+    const id = getMeasurementId('area', index, record.id)
+    if (!hiddenMeasurementIds.has(id)) return
+    const points = record.points
+      .map((point) => projectMeasurementPoint(new THREE.Vector3(point.x, point.y, point.z)))
+      .filter((point): point is { x: number; y: number } => point != null)
+    for (let index = 0; index < points.length; index++) {
+      const distance = distanceToScreenSegment(cursor, points[index], points[(index + 1) % points.length])
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestId = id
+      }
+    }
+  })
+
+  if (bestId) {
+    event.preventDefault()
+    event.stopPropagation()
+    hiddenMeasurementIds.delete(bestId)
+    syncMeasurementBadges()
+  }
+}
+
 function deleteMeasurementBadge(badge: (typeof measurementBadges.value)[number]) {
   emit('analysis-delete', { kind: badge.kind, id: badge.id })
 }
@@ -1205,6 +1292,9 @@ async function loadBimModel(assetId: number) {
 async function loadPointcloudModel(assetId: number) {
   loaded.value = false
   emit('loaded-change', false)
+  pointcloudIntensityHistogram = Array.from({ length: 64 }, () => 0)
+  pointcloudHasIntensity = false
+  pointcloudHasRgb = false
 
   const res = await getAssetDetail(assetId)
   const detail = res.data
@@ -1251,6 +1341,7 @@ async function loadPointcloudModel(assetId: number) {
 
   tileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
     if (!tileScene) return
+    collectPointcloudColorStats(tileScene)
     applyPointcloudMaterial(tileScene)
   })
 
@@ -1272,6 +1363,152 @@ async function loadPointcloudModel(assetId: number) {
   })
 }
 
+function getPointAttribute(geometry: THREE.BufferGeometry, names: string[]) {
+  const attributes = geometry.attributes as Record<string, THREE.BufferAttribute>
+  const entry = Object.entries(attributes).find(([name]) =>
+    names.includes(name.toLowerCase()),
+  )
+  return entry?.[1] ?? null
+}
+
+function getPointScalarSource(geometry: THREE.BufferGeometry) {
+  const intensity = getPointAttribute(geometry, ['intensity', '_intensity', 'scalar_intensity'])
+  if (intensity?.count) {
+    return {
+      count: intensity.count,
+      valueAt: (index: number) => intensity.getX(index),
+    }
+  }
+
+  const originalColor = originalPointColors.get(geometry) ??
+    (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)
+  if (originalColor?.count) {
+    return {
+      count: originalColor.count,
+      valueAt: (index: number) =>
+        originalColor.getX(index) * 0.2126 +
+        originalColor.getY(index) * 0.7152 +
+        originalColor.getZ(index) * 0.0722,
+    }
+  }
+
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+  if (!position?.count) return null
+  return {
+    count: position.count,
+    valueAt: (index: number) => position.getY(index),
+  }
+}
+
+function scalarBounds(source: { count: number; valueAt: (index: number) => number }, stride = 1) {
+  let min = Infinity
+  let max = -Infinity
+  for (let index = 0; index < source.count; index += stride) {
+    const value = source.valueAt(index)
+    if (!Number.isFinite(value)) continue
+    min = Math.min(min, value)
+    max = Math.max(max, value)
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1 }
+  return { min, max }
+}
+
+function collectPointcloudColorStats(root: THREE.Object3D) {
+  root.traverse((object) => {
+    const points = object as THREE.Points
+    if (!points.isPoints) return
+    const geometry = points.geometry as THREE.BufferGeometry
+    if (geometry.getAttribute('color')) pointcloudHasRgb = true
+    const scalar = getPointScalarSource(geometry)
+    if (!scalar) return
+    pointcloudHasIntensity = true
+    const stride = Math.max(1, Math.ceil(scalar.count / 50000))
+    const { min, max } = scalarBounds(scalar, stride)
+    const span = Math.max(1e-9, max - min)
+    for (let i = 0; i < scalar.count; i += stride) {
+      const value = scalar.valueAt(i)
+      if (!Number.isFinite(value)) continue
+      const bin = Math.min(63, Math.max(0, Math.floor(((value - min) / span) * 64)))
+      pointcloudIntensityHistogram[bin] += 1
+    }
+  })
+  emit('pointcloud-color-stats', {
+    histogram: [...pointcloudIntensityHistogram],
+    hasIntensity: pointcloudHasIntensity,
+    hasRgb: pointcloudHasRgb,
+  })
+}
+
+function samplePointcloudRamp(value: number): [number, number, number] {
+  const t = THREE.MathUtils.clamp(value, 0, 1)
+  if (pointcloudColorRamp === 'grayscale') return [t, t, t]
+  if (pointcloudColorRamp === 'viridis') {
+    const stops = [
+      [0, 0.267, 0.005, 0.329],
+      [0.25, 0.283, 0.141, 0.458],
+      [0.5, 0.128, 0.567, 0.551],
+      [0.75, 0.37, 0.789, 0.383],
+      [1, 0.993, 0.906, 0.144],
+    ]
+    const upper = stops.findIndex((stop) => t <= stop[0])
+    const b = stops[Math.max(1, upper < 0 ? stops.length - 1 : upper)]
+    const a = stops[Math.max(0, (upper < 0 ? stops.length - 1 : upper) - 1)]
+    const mix = (t - a[0]) / Math.max(1e-6, b[0] - a[0])
+    return [
+      THREE.MathUtils.lerp(a[1], b[1], mix),
+      THREE.MathUtils.lerp(a[2], b[2], mix),
+      THREE.MathUtils.lerp(a[3], b[3], mix),
+    ]
+  }
+  const hue = (1 - t) * 240
+  const color = new THREE.Color().setHSL(hue / 360, 1, 0.5)
+  return [color.r, color.g, color.b]
+}
+
+function applyPointcloudColoring(obj: THREE.Points, material: THREE.PointsMaterial) {
+  const geometry = obj.geometry as THREE.BufferGeometry
+  if (!originalPointColors.has(geometry)) {
+    const original = geometry.getAttribute('color') as THREE.BufferAttribute | undefined
+    originalPointColors.set(geometry, original?.clone() ?? null)
+  }
+
+  if (pointColorOverride) {
+    material.color.set(pointColorOverride)
+    material.vertexColors = false
+    return
+  }
+
+  if (pointcloudColorMode === 'intensity') {
+    const scalar = getPointScalarSource(geometry)
+    if (scalar) {
+      const { min, max } = scalarBounds(scalar)
+      const span = Math.max(1e-9, max - min)
+      const displaySpan = Math.max(0.01, pointcloudColorRange.max - pointcloudColorRange.min)
+      const colors = new Float32Array(scalar.count * 3)
+      for (let i = 0; i < scalar.count; i++) {
+        const normalized = (scalar.valueAt(i) - min) / span
+        const displayed = (normalized - pointcloudColorRange.min) / displaySpan
+        const [r, g, b] = samplePointcloudRamp(displayed)
+        colors[i * 3] = r
+        colors[i * 3 + 1] = g
+        colors[i * 3 + 2] = b
+      }
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+      material.color.set(0xffffff)
+      material.vertexColors = true
+      material.needsUpdate = true
+      return
+    }
+  }
+
+  const original = originalPointColors.get(geometry)
+  if (original) geometry.setAttribute('color', original)
+  else geometry.deleteAttribute('color')
+  material.color.set(0xffffff)
+  material.vertexColors = Boolean(original)
+  material.needsUpdate = true
+}
+
 // 核心：100% 对齐校准页点云材质（sizeAttenuation=false, 2.5px圆点，禁用色调映射）
 function applyPointcloudMaterial(root: THREE.Object3D) {
   root.traverse((obj: any) => {
@@ -1287,15 +1524,9 @@ function applyPointcloudMaterial(root: THREE.Object3D) {
         mat.depthWrite = true
         mat.depthTest = true
         mat.sizeAttenuation = false
-        mat.size = 2.5
+        mat.size = pointSize
 
-        if (pointColorOverride) {
-          mat.color = new THREE.Color(pointColorOverride)
-          mat.vertexColors = false
-        } else {
-          mat.color = new THREE.Color(0xffffff)
-          mat.vertexColors = !!obj.geometry?.attributes?.color
-        }
+        applyPointcloudColoring(obj as THREE.Points, mat as THREE.PointsMaterial)
         mat.clippingPlanes = sectionEnabled ? clipPlanes : []
 
         if (!mat.userData?.roundPointsHooked) {
@@ -1519,6 +1750,7 @@ function initViewer() {
   renderer.domElement.addEventListener('pointerdown', handleAnalysisPointerDown)
   renderer.domElement.addEventListener('pointermove', handleAnalysisPointerMove)
   renderer.domElement.addEventListener('pointerup', handleAnalysisPointerUp)
+  renderer.domElement.addEventListener('contextmenu', restoreMeasurementAt)
   window.addEventListener('keydown', handleAnalysisKeydown)
 
   initLights()
@@ -1571,6 +1803,7 @@ function cleanup() {
     renderer.domElement.removeEventListener('pointerdown', handleAnalysisPointerDown)
     renderer.domElement.removeEventListener('pointermove', handleAnalysisPointerMove)
     renderer.domElement.removeEventListener('pointerup', handleAnalysisPointerUp)
+    renderer.domElement.removeEventListener('contextmenu', restoreMeasurementAt)
     renderer.dispose()
     renderer.domElement.remove()
     renderer = null
@@ -1627,6 +1860,72 @@ function setPointColor(color: string | null) {
   if (tileset?.group) {
     applyPointcloudMaterial(tileset.group)
   }
+}
+
+function setPointcloudColorDisplay(
+  mode: PointcloudColorMode,
+  ramp: PointcloudColorRamp,
+  range: PointcloudColorRange,
+) {
+  pointColorOverride = null
+  pointcloudColorMode = mode
+  pointcloudColorRamp = ramp
+  pointcloudColorRange = {
+    min: THREE.MathUtils.clamp(range.min, 0, 1),
+    max: THREE.MathUtils.clamp(range.max, 0, 1),
+  }
+  if (tileset?.group) applyPointcloudMaterial(tileset.group)
+}
+
+function setPointSize(size: number) {
+  pointSize = Math.min(5, Math.max(1, size))
+  if (tileset?.group) {
+    applyPointcloudMaterial(tileset.group)
+  }
+}
+
+function setStandardView(view: StandardView) {
+  if (!camera || !controls) return
+
+  const distance = Math.max(camera.position.distanceTo(controls.target), 1)
+  const directions: Record<StandardView, THREE.Vector3> = {
+    front: new THREE.Vector3(0, 0, 1),
+    back: new THREE.Vector3(0, 0, -1),
+    left: new THREE.Vector3(-1, 0, 0),
+    right: new THREE.Vector3(1, 0, 0),
+    top: new THREE.Vector3(0, 1, 0),
+    bottom: new THREE.Vector3(0, -1, 0),
+  }
+
+  camera.up.set(0, view === 'top' ? 0 : view === 'bottom' ? 0 : 1, view === 'top' ? -1 : view === 'bottom' ? 1 : 0)
+  camera.position.copy(controls.target).addScaledVector(directions[view], distance)
+  camera.lookAt(controls.target)
+  controls.update()
+  emitCameraPose()
+}
+
+function setViewDirection(direction: [number, number, number]) {
+  if (!camera || !controls) return
+  const next = new THREE.Vector3(...direction)
+  if (next.lengthSq() < 1e-8) return
+  const distance = Math.max(camera.position.distanceTo(controls.target), 1)
+  next.normalize()
+  camera.up.set(0, Math.abs(next.y) > 0.98 ? 0 : 1, next.y > 0.98 ? -1 : next.y < -0.98 ? 1 : 0)
+  camera.position.copy(controls.target).addScaledVector(next, distance)
+  camera.lookAt(controls.target)
+  controls.update()
+  emitCameraPose()
+}
+
+function rollView(direction: -1 | 1) {
+  if (!camera || !controls) return
+  const axis = camera.position.clone().sub(controls.target).normalize()
+  camera.up.applyQuaternion(
+    new THREE.Quaternion().setFromAxisAngle(axis, direction * Math.PI / 2),
+  ).normalize()
+  camera.lookAt(controls.target)
+  controls.update()
+  emitCameraPose()
 }
 
 function resetView() {
@@ -1757,6 +2056,11 @@ defineExpose({
   setShowGrid,
   setWireframe,
   setPointColor,
+  setPointcloudColorDisplay,
+  setPointSize,
+  setStandardView,
+  setViewDirection,
+  rollView,
   setSectionState,
   setEdlEnabled,
   setEdlStrength,

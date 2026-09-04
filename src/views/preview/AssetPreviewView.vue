@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRightBold, DArrowRight } from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  Aim,
+  ArrowLeft,
+  ArrowRightBold,
+  Close,
+  DArrowRight,
+  FullScreen,
+} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
+import PointcloudViewCube from '@/components/preview/PointcloudViewCube.vue'
+import PointcloudColorRangeBar, {
+  type PointcloudColorRamp,
+  type PointcloudColorRange,
+} from '@/components/preview/PointcloudColorRangeBar.vue'
+import type { CameraPose } from '@/components/preview/UnifiedViewer3D.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisArea,
   type AnalysisMode,
   type AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
-import GlobalAnalysisToolbar from '@/components/preview/GlobalAnalysisToolbar.vue'
+import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
 import {
   createMeasurement,
   deleteMeasurement,
@@ -18,9 +31,9 @@ import {
   type MeasurementKind,
 } from '@/api/backend-measurement'
 
-type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
-
 const DEFAULT_POINT_COLOR = '#86898D'
+
+type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 
 const props = defineProps<{
   previewType: 'bim' | 'pointcloud'
@@ -31,6 +44,7 @@ const props = defineProps<{
 const router = useRouter()
 const bimPanelRef = ref<any>(null)
 const pointcloudPanelRef = ref<any>(null)
+const pointcloudStageRef = ref<HTMLElement | null>(null)
 
 const backgroundTheme = ref<PreviewBackgroundTheme>('deep')
 const sidebarCollapsed = ref(false)
@@ -41,6 +55,14 @@ const analysisAreas = ref<AnalysisArea[]>([])
 const analysisPoints = ref<AnalysisPoint[]>([])
 const analysisDistances = ref<AnalysisDistance[]>([])
 const analysisToolbarCollapsed = ref(false)
+const pointcloudLoaded = ref(false)
+const pointcloudEdlEnabled = ref(true)
+const pointcloudSize = ref(2.5)
+const pointcloudFullscreen = ref(false)
+const pointcloudCameraPose = ref<CameraPose | null>(null)
+const pointcloudColorRamp = ref<PointcloudColorRamp>('grayscale')
+const pointcloudColorRange = ref<PointcloudColorRange>({ min: 0, max: 1 })
+const pointcloudIntensityHistogram = ref<number[]>([])
 const measurementBackendIds = new Map<string, number>()
 let measurementLoadToken = 0
 
@@ -53,9 +75,9 @@ const bimControls = reactive({
 
 const pointcloudControls = reactive({
   showAxes: false,
-  showGrid: true,
+  showGrid: false,
   sectionEnabled: false,
-  colorMode: 'custom' as 'original' | 'custom',
+  colorMode: 'intensity' as 'rgb' | 'intensity' | 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
 })
 
@@ -64,7 +86,7 @@ const pointColorPresets = [
   { label: '青色', value: '#67e8f9' },
   { label: '橙色', value: '#fb923c' },
   { label: '绿色', value: '#4ade80' },
-  { label: '灰色', value: '#86898D' },
+  { label: '灰色', value: DEFAULT_POINT_COLOR },
 ]
 
 const backgroundOptions: Array<{ label: string; value: PreviewBackgroundTheme }> = [
@@ -125,18 +147,69 @@ function applyPanelSettings() {
   panel.setShowAxes?.(pointcloudControls.showAxes)
   panel.setShowGrid?.(pointcloudControls.showGrid)
   panel.setSectionState?.(pointcloudControls.sectionEnabled)
-  panel.setPointColor?.(
-    pointcloudControls.colorMode === 'custom' ? pointcloudControls.pointColor : null,
-  )
+  if (pointcloudControls.colorMode === 'custom') {
+    panel.setPointColor?.(pointcloudControls.pointColor)
+  } else {
+    panel.setPointcloudColorDisplay?.(
+      pointcloudControls.colorMode === 'intensity' ? 'intensity' : 'rgb',
+      pointcloudColorRamp.value,
+      pointcloudColorRange.value,
+    )
+  }
+  panel.setPointSize?.(pointcloudSize.value)
+  panel.setEdlEnabled?.(pointcloudEdlEnabled.value)
 }
 
 function applyPointColorPreset(color: string) {
   pointcloudControls.colorMode = 'custom'
   pointcloudControls.pointColor = color
+  pointcloudPanelRef.value?.setPointColor?.(color)
 }
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+function setPointcloudViewDirection(direction: [number, number, number]) {
+  pointcloudPanelRef.value?.setViewDirection?.(direction)
+}
+
+function orbitPointcloudFromCube(delta: { lon: number; lat: number }) {
+  pointcloudPanelRef.value?.syncFromRotation?.(delta.lon, delta.lat)
+}
+
+function rollPointcloudView(direction: -1 | 1) {
+  pointcloudPanelRef.value?.rollView?.(direction)
+}
+
+function handlePointcloudColorStats(stats: {
+  histogram: number[]
+  hasIntensity: boolean
+  hasRgb: boolean
+}) {
+  pointcloudIntensityHistogram.value = stats.histogram
+}
+
+function togglePointcloudEdl() {
+  pointcloudEdlEnabled.value = !pointcloudEdlEnabled.value
+}
+
+async function togglePointcloudFullscreen() {
+  const stage = pointcloudStageRef.value
+  if (!stage) return
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else {
+      await stage.requestFullscreen()
+    }
+  } catch (error) {
+    console.warn('[AssetPreview] 切换全屏失败', error)
+  }
+}
+
+function syncFullscreenState() {
+  pointcloudFullscreen.value = document.fullscreenElement === pointcloudStageRef.value
 }
 
 function selectAnalysisMode(mode: AnalysisMode) {
@@ -281,7 +354,11 @@ watch(
     pointcloudControls.showGrid,
     pointcloudControls.sectionEnabled,
     pointcloudControls.colorMode,
-    pointcloudControls.pointColor,
+    pointcloudColorRamp.value,
+    pointcloudColorRange.value.min,
+    pointcloudColorRange.value.max,
+    pointcloudSize.value,
+    pointcloudEdlEnabled.value,
     bimPanelRef.value,
     pointcloudPanelRef.value,
   ] as const,
@@ -292,28 +369,260 @@ watch(
 )
 
 onMounted(() => {
+  document.addEventListener('fullscreenchange', syncFullscreenState)
   applyPanelSettings()
   void loadMeasurements()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreenState)
 })
 
 watch(
   () => [props.assetId, props.previewType] as const,
   () => {
     analysisMode.value = 'none'
+    pointcloudIntensityHistogram.value = []
     void loadMeasurements()
   },
 )
 </script>
 
 <template>
-  <section class="asset-preview-page" :class="`theme-${backgroundTheme}`">
+  <section v-if="previewType === 'pointcloud'" class="pointcloud-preview-page">
+    <header class="pointcloud-preview-header">
+      <span class="pointcloud-preview-heading">
+        <strong>{{ displayName || '点云预览' }}</strong>
+        <small>扫描记录 · 扫描点云</small>
+      </span>
+
+      <div class="pointcloud-header-controls" role="group" aria-label="预览背景">
+        <span class="pointcloud-header-label">背景</span>
+        <div class="pointcloud-segmented">
+          <button
+            v-for="option in backgroundOptions"
+            :key="option.value"
+            type="button"
+            :class="{ on: backgroundTheme === option.value }"
+            @click="backgroundTheme = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <el-tooltip content="关闭预览" placement="bottom">
+        <button class="pointcloud-close" type="button" aria-label="关闭预览" @click="closePage">
+          <el-icon><Close /></el-icon>
+        </button>
+      </el-tooltip>
+    </header>
+
+    <div v-if="!assetId" class="pointcloud-empty-state">
+      <h2>{{ pageTitle }}</h2>
+      <p>{{ emptyText }}</p>
+    </div>
+
+    <main
+      v-else
+      ref="pointcloudStageRef"
+      class="pointcloud-preview-stage"
+      :class="`theme-${backgroundTheme}`"
+    >
+      <PointcloudPreviewPanel
+        ref="pointcloudPanelRef"
+        class="pointcloud-viewer-panel"
+        :asset-id="assetId"
+        :analysis-mode="analysisMode"
+        :analysis-points="analysisPoints"
+        :analysis-distances="analysisDistances"
+        :analysis-areas="analysisAreas"
+        :show-edl-control="false"
+        minimal
+        @loaded-change="pointcloudLoaded = $event"
+        @camera-change="pointcloudCameraPose = $event"
+        @pointcloud-color-stats="handlePointcloudColorStats"
+        @analysis-point="handleAnalysisPoint"
+        @analysis-distance="handleAnalysisDistance"
+        @analysis-area="handleAnalysisArea"
+        @analysis-delete="removeAnalysisById($event.kind, $event.id)"
+        @analysis-mode-exit="handleAnalysisModeExit"
+      />
+
+      <ViewerAnalysisOverlay
+        :mode="analysisMode"
+        :point="analysisPoint"
+        :distance="analysisDistance"
+        :points="analysisPoints"
+        :distances="analysisDistances"
+        :areas="analysisAreas"
+        @clear="clearAnalysis"
+      />
+
+      <div class="pointcloud-viewport-toolbar">
+        <div class="pointcloud-toolbar-cluster">
+          <el-tooltip content="重置视角" placement="bottom">
+            <button type="button" aria-label="重置视角" @click="resetView">
+              <el-icon><Aim /></el-icon>
+            </button>
+          </el-tooltip>
+          <el-tooltip :content="pointcloudFullscreen ? '退出全屏' : '进入全屏'" placement="bottom">
+            <button
+              type="button"
+              :class="{ 'is-active': pointcloudFullscreen }"
+              :aria-label="pointcloudFullscreen ? '退出全屏' : '进入全屏'"
+              @click="togglePointcloudFullscreen"
+            >
+              <el-icon><FullScreen /></el-icon>
+            </button>
+          </el-tooltip>
+        </div>
+
+        <div class="pointcloud-display-panel">
+          <div class="pointcloud-display-row">
+            <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
+              <button
+                type="button"
+                :class="{ on: pointcloudControls.colorMode === 'rgb' }"
+                @click="pointcloudControls.colorMode = 'rgb'"
+              >
+                真彩
+              </button>
+              <button
+                type="button"
+                :class="{ on: pointcloudControls.colorMode === 'intensity' }"
+                @click="pointcloudControls.colorMode = 'intensity'"
+              >
+                强度
+              </button>
+            </div>
+            <div
+              class="pointcloud-segmented pointcloud-ramp-modes"
+              :class="{ 'is-disabled': pointcloudControls.colorMode !== 'intensity' }"
+              role="group"
+              aria-label="色带"
+            >
+              <button
+                type="button"
+                :disabled="pointcloudControls.colorMode !== 'intensity'"
+                :class="{ on: pointcloudColorRamp === 'grayscale' }"
+                @click="pointcloudColorRamp = 'grayscale'"
+              >
+                灰度
+              </button>
+              <button
+                type="button"
+                :disabled="pointcloudControls.colorMode !== 'intensity'"
+                :class="{ on: pointcloudColorRamp === 'spectrum' }"
+                @click="pointcloudColorRamp = 'spectrum'"
+              >
+                彩虹
+              </button>
+              <button
+                type="button"
+                :disabled="pointcloudControls.colorMode !== 'intensity'"
+                :class="{ on: pointcloudColorRamp === 'viridis' }"
+                @click="pointcloudColorRamp = 'viridis'"
+              >
+                紫黄
+              </button>
+            </div>
+          </div>
+
+          <div class="pointcloud-display-row pointcloud-display-settings">
+            <div class="pointcloud-segmented">
+              <button
+                type="button"
+                :class="{ on: pointcloudEdlEnabled }"
+                :aria-pressed="pointcloudEdlEnabled"
+                @click="togglePointcloudEdl"
+              >
+                显示增强
+              </button>
+            </div>
+            <label class="pointcloud-size-control" title="点大小">
+              <span>点</span>
+              <input v-model.number="pointcloudSize" type="range" min="1" max="5" step="0.1" />
+              <output>{{ pointcloudSize.toFixed(1) }}</output>
+            </label>
+          </div>
+
+          <div class="pointcloud-display-row">
+            <div class="pointcloud-segmented" role="group" aria-label="场景辅助显示">
+              <button
+                type="button"
+                :class="{ on: pointcloudControls.showAxes }"
+                @click="pointcloudControls.showAxes = !pointcloudControls.showAxes"
+              >
+                坐标轴
+              </button>
+              <button
+                type="button"
+                :class="{ on: pointcloudControls.showGrid }"
+                @click="pointcloudControls.showGrid = !pointcloudControls.showGrid"
+              >
+                网格
+              </button>
+              <button
+                type="button"
+                :class="{ on: pointcloudControls.sectionEnabled }"
+                @click="pointcloudControls.sectionEnabled = !pointcloudControls.sectionEnabled"
+              >
+                剖切
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <PointcloudViewCube
+        :pose="pointcloudCameraPose"
+        @home="resetView"
+        @select-direction="setPointcloudViewDirection"
+        @orbit="orbitPointcloudFromCube"
+        @roll="rollPointcloudView"
+      />
+
+      <div class="pointcloud-axes-triad" aria-hidden="true">
+        <span class="axis axis-x">X</span>
+        <span class="axis axis-y">Y</span>
+        <span class="axis axis-z">Z</span>
+        <i></i>
+      </div>
+
+      <PointcloudColorRangeBar
+        v-model:range="pointcloudColorRange"
+        class="pointcloud-bottom-color-bar"
+        :ramp="pointcloudColorRamp"
+        :histogram="pointcloudIntensityHistogram"
+      />
+
+      <div class="pointcloud-viewer-status" role="status">
+        <i :class="{ loading: !pointcloudLoaded }" aria-hidden="true"></i>
+        {{ pointcloudLoaded ? '点云已加载' : '正在加载点云' }}
+        <span v-if="pointcloudEdlEnabled">显示增强</span>
+      </div>
+
+      <div class="pointcloud-measurement-dock">
+        <MeasurementToolbar
+          v-model:collapsed="analysisToolbarCollapsed"
+          :mode="analysisMode"
+          position="static"
+          @update:mode="selectAnalysisMode"
+          @clear="clearAnalysis"
+        />
+      </div>
+    </main>
+  </section>
+
+  <section v-else class="asset-preview-page" :class="`theme-${backgroundTheme}`">
     <div class="floating-controls">
       <button class="floating-btn" type="button" @click="closePage">
         <el-icon><ArrowLeft /></el-icon>
         <span>关闭</span>
       </button>
     </div>
-    <GlobalAnalysisToolbar
+    <MeasurementToolbar
       v-if="assetId"
       v-model:collapsed="analysisToolbarCollapsed"
       :mode="analysisMode"
@@ -597,6 +906,474 @@ watch(
 </template>
 
 <style scoped>
+.pointcloud-preview-page {
+  --viewer-stage: #0c1224;
+  --viewer-chrome: rgb(12 18 36 / 88%);
+  --viewer-ink: #e8ecf8;
+  --viewer-muted: #9aa8c7;
+  --viewer-accent: #9ec1ff;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--viewer-stage);
+}
+
+.pointcloud-preview-header {
+  position: relative;
+  z-index: 100;
+  width: 100%;
+  height: 64px;
+  padding: 8px 64px 8px 20px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #cfd7e8;
+  background: #e6ebf5;
+}
+
+.pointcloud-preview-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.pointcloud-preview-heading strong,
+.pointcloud-preview-heading small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pointcloud-preview-heading strong {
+  color: #1a1d24;
+  font-size: 14px;
+  line-height: 19px;
+}
+
+.pointcloud-preview-heading small {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.pointcloud-header-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pointcloud-header-label {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.pointcloud-close {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #6b7280;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pointcloud-close:hover {
+  color: #4e66cc;
+  background: rgb(255 255 255 / 60%);
+}
+
+.pointcloud-preview-stage {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 64px);
+  min-height: 320px;
+  overflow: hidden;
+  background: var(--viewer-stage);
+}
+
+.pointcloud-preview-stage:fullscreen {
+  height: 100vh;
+}
+
+.pointcloud-viewer-panel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.pointcloud-preview-stage :deep(.unified-viewer-3d),
+.pointcloud-preview-stage :deep(.preview-panel),
+.pointcloud-preview-stage :deep(.preview-panel.is-minimal) {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--viewer-stage);
+  box-shadow: none;
+}
+
+.pointcloud-preview-stage.theme-deep,
+.pointcloud-preview-stage.theme-deep :deep(.unified-viewer-3d) {
+  background: #0c1224;
+}
+
+.pointcloud-preview-stage.theme-black,
+.pointcloud-preview-stage.theme-black :deep(.unified-viewer-3d) {
+  background: #000;
+}
+
+.pointcloud-preview-stage.theme-light,
+.pointcloud-preview-stage.theme-light :deep(.unified-viewer-3d) {
+  background: #e8eef6;
+}
+
+.pointcloud-preview-stage.theme-gradient,
+.pointcloud-preview-stage.theme-gradient :deep(.unified-viewer-3d) {
+  background: #10213b;
+}
+
+.pointcloud-viewport-toolbar {
+  position: absolute;
+  z-index: 30;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 140px);
+  pointer-events: none;
+}
+
+.pointcloud-toolbar-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.pointcloud-toolbar-cluster button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 6px;
+  color: var(--viewer-ink);
+  background: var(--viewer-chrome);
+  cursor: pointer;
+}
+
+.pointcloud-toolbar-cluster button:hover,
+.pointcloud-toolbar-cluster button.is-active {
+  border-color: rgb(115 162 243 / 55%);
+  color: var(--viewer-accent);
+  background: rgb(24 42 72 / 88%);
+}
+
+.pointcloud-display-panel {
+  width: max-content;
+  max-width: min(720px, calc(100vw - 140px));
+  padding: 8px 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  background: rgb(26 29 36 / 90%);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.pointcloud-display-row,
+.pointcloud-display-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pointcloud-segmented {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.pointcloud-header-controls .pointcloud-segmented {
+  background: rgb(255 255 255 / 55%);
+}
+
+.pointcloud-segmented button {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: rgb(255 255 255 / 72%);
+  background: transparent;
+  font-size: 11px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.pointcloud-header-controls .pointcloud-segmented button {
+  padding: 6px 12px;
+  color: #3d4450;
+  font-size: 12px;
+}
+
+.pointcloud-segmented button:hover {
+  color: var(--viewer-ink);
+}
+
+.pointcloud-segmented button:disabled,
+.pointcloud-ramp-modes.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.pointcloud-segmented button.on {
+  color: var(--viewer-accent);
+  background: rgb(255 255 255 / 14%);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 12%);
+}
+
+.pointcloud-header-controls .pointcloud-segmented button.on {
+  color: #4e66cc;
+  background: #fff;
+  box-shadow: 0 0 0 1px #cfd7e8;
+  font-weight: 600;
+}
+
+.pointcloud-size-control {
+  min-width: 164px;
+  height: 34px;
+  padding: 3px 7px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  color: rgb(255 255 255 / 72%);
+  background: rgb(255 255 255 / 10%);
+  font-size: 11px;
+}
+
+.pointcloud-size-control input {
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 4px;
+  accent-color: var(--viewer-accent);
+  cursor: pointer;
+}
+
+.pointcloud-size-control output {
+  min-width: 24px;
+  color: var(--viewer-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pointcloud-axes-triad {
+  position: absolute;
+  z-index: 25;
+  left: 24px;
+  bottom: 24px;
+  width: 88px;
+  height: 88px;
+  pointer-events: none;
+}
+
+.pointcloud-axes-triad i {
+  position: absolute;
+  left: 42px;
+  bottom: 40px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #dbe5f8;
+}
+
+.pointcloud-axes-triad .axis {
+  position: absolute;
+  left: 44px;
+  bottom: 42px;
+  width: 34px;
+  height: 2px;
+  transform-origin: left center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.pointcloud-axes-triad .axis::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+}
+
+.pointcloud-axes-triad .axis::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  border-left: 6px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
+.pointcloud-axes-triad .axis-x {
+  color: #f06969;
+  transform: rotate(12deg);
+}
+
+.pointcloud-axes-triad .axis-y {
+  color: #6ecb8b;
+  transform: rotate(-108deg);
+}
+
+.pointcloud-axes-triad .axis-z {
+  color: #72a8f2;
+  transform: rotate(142deg);
+}
+
+.pointcloud-viewer-status {
+  position: absolute;
+  z-index: 25;
+  left: 14px;
+  bottom: 126px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--viewer-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.pointcloud-viewer-status > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4aa896;
+  box-shadow: 0 0 8px rgb(74 168 150 / 60%);
+}
+
+.pointcloud-viewer-status > i.loading {
+  background: #e0b85f;
+  box-shadow: 0 0 8px rgb(224 184 95 / 55%);
+}
+
+.pointcloud-viewer-status span {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #a9bee8;
+  background: rgb(34 53 86 / 80%);
+}
+
+.pointcloud-bottom-color-bar {
+  position: absolute;
+  z-index: 28;
+  left: 126px;
+  right: 14px;
+  bottom: 12px;
+  width: auto !important;
+  max-width: calc(100% - 140px);
+}
+
+.pointcloud-measurement-dock {
+  position: absolute;
+  z-index: 80;
+  top: 16px;
+  right: 116px;
+}
+
+.pointcloud-measurement-dock :deep(.measurement-toolbar) {
+  top: auto;
+  right: auto;
+}
+
+.pointcloud-empty-state {
+  height: calc(100vh - 64px);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  color: var(--viewer-ink);
+  background: var(--viewer-stage);
+}
+
+.pointcloud-empty-state h2,
+.pointcloud-empty-state p {
+  margin: 0;
+}
+
+.pointcloud-empty-state p {
+  margin-top: 8px;
+  color: var(--viewer-muted);
+}
+
+@media (max-width: 900px) {
+  .pointcloud-preview-header {
+    padding-left: 14px;
+  }
+
+  .pointcloud-header-label {
+    display: none;
+  }
+
+  .pointcloud-header-controls .pointcloud-segmented button {
+    padding-inline: 8px;
+  }
+
+  .pointcloud-color-modes button:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pointcloud-preview-heading small,
+  .pointcloud-header-controls {
+    display: none;
+  }
+
+  .pointcloud-preview-header {
+    height: 56px;
+  }
+
+  .pointcloud-preview-stage,
+  .pointcloud-empty-state {
+    height: calc(100vh - 56px);
+  }
+
+  .pointcloud-viewport-toolbar {
+    top: 10px;
+    left: 10px;
+    max-width: calc(100% - 110px);
+  }
+
+  .pointcloud-display-panel {
+    max-width: calc(100vw - 120px);
+    overflow-x: auto;
+  }
+
+  .pointcloud-measurement-dock {
+    top: auto;
+    right: 12px;
+    bottom: 14px;
+  }
+}
+
 .asset-preview-page {
   min-height: 100vh;
   padding: 18px;
