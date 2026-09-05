@@ -104,18 +104,18 @@ Implementation and integrated validation are in progress. V5 is not released.
 
 Current recovery checks:
 
-- Full Python rebar regression: 197 tests passed on recovery-03, recorded in
-  `.cloudbim/rebar-v5-validation/unit-tests-recovery-03.log`.
+- Full Python rebar regression: 198 tests passed on recovery-04, recorded in
+  `.cloudbim/rebar-v5-validation/unit-tests-recovery-04.log`.
 - `go test ./...`: passed. `npm run build`: passed, with the existing bundle-size
   warning. Nine visualization Node tests and six source-comparison tests passed.
 - Real Three.js module/browser fixture: passed. The mounted real Vue panel also
   passed eight browser cases (new, V3, V4, V5 at widths 1100 and 390), preserving
   old results and gating intersection controls to V5. These are synthetic UI
   checks, not an authenticated full-asset workflow.
-- Development suite recovery-03: all three parameter cases passed every fixed
+- Development suite recovery-04: all three parameter cases passed every fixed
   gate, including zero merged physical instances. This is not held-out or real
   accuracy. Its implementation/evaluator fingerprint is
-  `e787fe875b36cdf071016d9a26754c3fe9d8715868387b20e1579e2a56f19aed`.
+  `d90e4a88062659ec6ce892b8204e40fb43909510087b342a6d90042e9e3dd33a`.
 
 | Parameter case | Steel P | Steel R (base family) | Instance IoU50 P/R | Hook parent | Merges |
 | --- | ---: | ---: | --- | ---: | ---: |

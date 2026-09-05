@@ -312,6 +312,8 @@ def verify_raw_instances(runtime, instances, p, *, preserve_association=False):
             # extension, not the original shorter proposal.
             owner = verified[parent]
             accepted_ids = _append_transferred_support(runtime, owner, evidence, p)
+            if not len(accepted_ids):
+                continue
             old_support = owner['_rawSupportIndices']
             if support_bytes + evidence_bytes + old_support.nbytes + 3*accepted_ids.nbytes > 512*1024**2:
                 raise ValueError('V5 raw candidate support exceeds 512 MiB evidence budget')

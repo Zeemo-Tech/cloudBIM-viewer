@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 from algorithms.rebar_v5.contracts import Params
@@ -52,6 +53,15 @@ class VerificationTests(unittest.TestCase):
                 physical = [item for item in kept if not item.get('_associationOnly')]
                 self.assertEqual([item['id'] for item in physical], [1])
                 self.assertEqual(diagnostics['verifiedCount'], 1)
+
+    def test_failed_owner_axis_reverification_does_not_suppress_unique_tail(self):
+        parent=candidate()
+        parent.update(id=1,role='planar',length=1.,observedSegments=[{'points':[[0,0,0],[1,0,0]]}])
+        tail=candidate()
+        tail.update(id=2,role='planar',length=.35,observedSegments=[{'points':[[-.25,0,0],[.1,0,0]]}])
+        with patch('algorithms.rebar_v5.verification._append_transferred_support',return_value=np.empty(0,np.uint64)):
+            kept,_=verify_raw_instances(Runtime(surface(np.linspace(-.25,1.,251))),[parent,tail],self.p)
+        self.assertEqual([item['id'] for item in kept],[1,2])
 
     def test_surface_stripe_transfers_continuous_tail_to_parent_in_both_orders(self):
         parent = candidate()
