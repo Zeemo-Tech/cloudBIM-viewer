@@ -3,6 +3,7 @@
 提供 REST API：
 - /remesh：接收网格文件，执行均匀化/简化后返回处理结果
 - /c2m/compute：Cloud-to-Mesh Distance 计算
+- /rebar/segment：无标注钢筋几何 PoC
 
 离线诊断（容器内，原始网格与 remesh 产物对比法向统计）：
   docker compose run --rm mesh-service \\
@@ -33,6 +34,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from algorithms import ALGORITHM_REGISTRY
+from rebar_api import include_rebar_router
 
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,9 @@ def _single_heavy_task(task_name: str):
 
         return wrapped
     return decorator
+
+
+include_rebar_router(app, heavy_task=_single_heavy_task)
 
 
 def _normalize_ply_to_float32(ply_path: str) -> None:

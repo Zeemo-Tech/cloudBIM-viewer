@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 
 from algorithms.rebar_segmentation import (
+    InsufficientRebarEvidenceError,
     InvalidPointCloudError,
     ScaleValidationError,
     segment_rebar_points,
@@ -24,12 +25,17 @@ def _synthetic_grid(
     add_outliers: bool = False,
     add_high_device_rod: bool = False,
     occlude_middle_horizontal: bool = False,
+    wide_middle_gap: bool = False,
+    dense_crossbars: bool = False,
+    bar_cross_offsets: tuple[float, ...] = (-0.002, 0.0, 0.002),
+    secondary_angle_degrees: float = 90.0,
 ) -> np.ndarray:
     rng = np.random.default_rng(seed)
 
+    plane_x_count, plane_y_count = (67, 49) if dense_crossbars else (43, 31)
     plane_x, plane_y = np.meshgrid(
-        np.linspace(-0.52, 0.52, 43),
-        np.linspace(-0.36, 0.36, 31),
+        np.linspace(-0.52, 0.52, plane_x_count),
+        np.linspace(-0.36, 0.36, plane_y_count),
     )
     plane = np.column_stack(
         (
@@ -45,7 +51,9 @@ def _synthetic_grid(
         samples = x_samples
         if occlude_middle_horizontal and offset == 0.0:
             samples = samples[np.abs(samples) >= 0.055]
-        for cross_offset in (-0.002, 0.0, 0.002):
+        if wide_middle_gap and offset == 0.0:
+            samples = samples[np.abs(samples) >= 0.35]
+        for cross_offset in bar_cross_offsets:
             bars.append(
                 np.column_stack(
                     (
@@ -58,17 +66,32 @@ def _synthetic_grid(
                 )
             )
 
-    y_samples = np.linspace(-0.34, 0.34, 47)
-    for offset in VERTICAL_OFFSETS:
-        for cross_offset in (-0.002, 0.0, 0.002):
+    secondary_samples = np.linspace(-0.34, 0.34, 47)
+    secondary_offsets = (
+        tuple(np.arange(-0.30, 0.301, 0.10))
+        if dense_crossbars
+        else VERTICAL_OFFSETS
+    )
+    secondary_angle = np.deg2rad(secondary_angle_degrees)
+    secondary_direction = np.array(
+        [np.cos(secondary_angle), np.sin(secondary_angle)]
+    )
+    secondary_perpendicular = np.array(
+        [-secondary_direction[1], secondary_direction[0]]
+    )
+    for offset in secondary_offsets:
+        for cross_offset in bar_cross_offsets:
+            xy = (
+                secondary_samples[:, None] * secondary_direction
+                + (offset + cross_offset) * secondary_perpendicular
+            )
             bars.append(
                 np.column_stack(
                     (
-                        np.full(y_samples.size, offset + cross_offset)
-                        + rng.normal(0.0, 0.00025, y_samples.size),
-                        y_samples + rng.normal(0.0, 0.00035, y_samples.size),
-                        np.full(y_samples.size, 0.030)
-                        + rng.normal(0.0, 0.00035, y_samples.size),
+                        xy[:, 0] + rng.normal(0.0, 0.00025, secondary_samples.size),
+                        xy[:, 1] + rng.normal(0.0, 0.00035, secondary_samples.size),
+                        np.full(secondary_samples.size, 0.030)
+                        + rng.normal(0.0, 0.00035, secondary_samples.size),
                     )
                 )
             )
@@ -134,7 +157,7 @@ class RebarGridSegmentationTests(unittest.TestCase):
     def test_extracts_orthogonal_parallel_bars_and_spacing(self):
         result = segment_rebar_points(_synthetic_grid(), _params())
 
-        self.assertEqual(result["schema_version"], "rebar-geometric-poc-v1")
+        self.assertEqual(result["schema_version"], "rebar-geometric-poc-v2")
         self.assertEqual(len(result["directions"]), 2)
         self.assertEqual(len(result["instances"]), 7)
         self.assertEqual(
@@ -176,6 +199,65 @@ class RebarGridSegmentationTests(unittest.TestCase):
             sorted(direction["axis_count"] for direction in result["directions"]),
             [3, 4],
         )
+
+    def test_crossbars_cannot_chain_bridge_a_wide_axial_gap(self):
+        result = segment_rebar_points(
+            _synthetic_grid(wide_middle_gap=True, dense_crossbars=True),
+            _params(min_line_length=0.10, min_line_support=12),
+        )
+
+        false_bridges = [
+            instance
+            for instance in result["instances"]
+            if instance["direction_index"] == 0
+            and abs(instance["axis_offset"]) < 0.01
+            and instance["length"] > 0.50
+        ]
+        self.assertEqual(false_bridges, [])
+
+    def test_separates_coincident_xy_axes_in_two_height_layers(self):
+        lower = _synthetic_grid()
+        upper_bars = lower[lower[:, 2] > 0.01] + np.array([0.0, 0.0, 0.035])
+        points = np.vstack((lower, upper_bars))
+
+        result = segment_rebar_points(points, _params(max_rebar_height=0.08))
+
+        self.assertEqual(len(result["instances"]), 14)
+        heights = sorted(
+            instance["centerline"]["local_start"][2]
+            for instance in result["instances"]
+        )
+        self.assertLess(max(heights[:7]), 0.04)
+        self.assertGreater(min(heights[7:]), 0.05)
+
+    def test_merges_two_visible_surface_strips_into_one_physical_axis(self):
+        result = segment_rebar_points(
+            _synthetic_grid(bar_cross_offsets=(-0.0085, 0.0085)),
+            _params(min_axis_spacing=0.04),
+        )
+
+        self.assertEqual(len(result["instances"]), 7)
+        self.assertEqual(
+            sorted(direction["axis_count"] for direction in result["directions"]),
+            [3, 4],
+        )
+        spacings = sorted(
+            spacing
+            for direction in result["directions"]
+            for spacing in direction["spacings"]
+        )
+        np.testing.assert_allclose(spacings[:3], 0.20, atol=0.008)
+        np.testing.assert_allclose(spacings[3:], 0.24, atol=0.008)
+
+    def test_rejects_main_directions_that_are_not_well_separated(self):
+        with self.assertRaisesRegex(
+            InsufficientRebarEvidenceError,
+            "main directions are separated",
+        ):
+            segment_rebar_points(
+                _synthetic_grid(secondary_angle_degrees=25.0),
+                _params(),
+            )
 
     def test_axial_bridge_keeps_an_occluded_bar_as_one_instance(self):
         result = segment_rebar_points(
@@ -243,6 +325,38 @@ class RebarInputGuardTests(unittest.TestCase):
                 _synthetic_grid(),
                 _params(min_point_count=1_000, max_point_count=999),
             )
+
+    def test_rejects_an_inverted_pca_neighbour_contract(self):
+        with self.assertRaisesRegex(
+            InvalidPointCloudError,
+            "pca_min_neighbors must not exceed pca_max_neighbors",
+        ):
+            segment_rebar_points(
+                _synthetic_grid(),
+                _params(pca_min_neighbors=65, pca_max_neighbors=64),
+            )
+
+    def test_rejects_ransac_budget_below_declared_confidence(self):
+        with self.assertRaisesRegex(
+            InvalidPointCloudError,
+            "plane_ransac_iterations is too low",
+        ):
+            segment_rebar_points(
+                _synthetic_grid(),
+                _params(
+                    min_plane_inlier_ratio=0.15,
+                    plane_ransac_iterations=500,
+                    ransac_confidence=0.99,
+                ),
+            )
+
+    def test_normalizes_numpy_parameter_scalars_for_json(self):
+        result = segment_rebar_points(
+            _synthetic_grid(),
+            _params(min_scene_extent=np.float32(0.20)),
+        )
+
+        json.dumps(result, allow_nan=False)
 
 
 if __name__ == "__main__":

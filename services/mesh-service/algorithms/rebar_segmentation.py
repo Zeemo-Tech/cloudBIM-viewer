@@ -60,22 +60,27 @@ class RebarSegmentationParams:
     plane_ransac_iterations: int = 500
     plane_distance_threshold: float = 0.003
     min_plane_inliers: int = 80
-    min_plane_inlier_ratio: float = 0.15
+    min_plane_inlier_ratio: float = 0.25
+    ransac_confidence: float = 0.99
     max_plane_tilt_deg: float = 30.0
     up_hint_x: float = 0.0
     up_hint_y: float = 0.0
     up_hint_z: float = 1.0
     min_rebar_height: float = 0.008
     max_rebar_height: float = 0.080
+    height_cluster_gap: float = 0.015
     min_height_band_points: int = 60
     pca_radius: float = 0.032
     pca_min_neighbors: int = 7
+    pca_max_neighbors: int = 64
     min_linearity: float = 0.55
     direction_count: int = 2
     direction_bin_count: int = 180
     direction_tolerance_deg: float = 12.0
+    min_direction_separation_deg: float = 45.0
     min_direction_votes: int = 15
     offset_cluster_gap: float = 0.014
+    min_axis_spacing: float = 0.030
     axis_distance_threshold: float = 0.008
     min_axis_directional_support: int = 10
     axial_sample_gap: float = 0.035
@@ -105,6 +110,18 @@ class RebarSegmentationParams:
                 raise InvalidPointCloudError(f"invalid segmentation parameters: {exc}") from exc
         else:
             raise InvalidPointCloudError("params must be a mapping or RebarSegmentationParams")
+        normalized: dict[str, Any] = {}
+        for field in fields(cls):
+            field_value = getattr(result, field.name)
+            if isinstance(field_value, bool):
+                normalized[field.name] = field_value
+            elif isinstance(field_value, Integral):
+                normalized[field.name] = int(field_value)
+            elif isinstance(field_value, Real):
+                normalized[field.name] = float(field_value)
+            else:
+                normalized[field.name] = field_value
+        result = cls(**normalized)
         result.validate()
         return result
 
@@ -117,6 +134,7 @@ class RebarSegmentationParams:
             "min_plane_inliers",
             "min_height_band_points",
             "pca_min_neighbors",
+            "pca_max_neighbors",
             "direction_count",
             "direction_bin_count",
             "min_direction_votes",
@@ -147,14 +165,18 @@ class RebarSegmentationParams:
             "max_plane_tilt_deg",
             "min_rebar_height",
             "max_rebar_height",
+            "height_cluster_gap",
             "min_height_band_points",
             "pca_radius",
             "pca_min_neighbors",
+            "pca_max_neighbors",
             "direction_count",
             "direction_bin_count",
             "direction_tolerance_deg",
+            "min_direction_separation_deg",
             "min_direction_votes",
             "offset_cluster_gap",
+            "min_axis_spacing",
             "axis_distance_threshold",
             "min_axis_directional_support",
             "axial_sample_gap",
@@ -179,17 +201,44 @@ class RebarSegmentationParams:
             raise InvalidPointCloudError("min_scene_extent must be less than max_scene_extent")
         if not 0 < self.min_plane_inlier_ratio <= 1:
             raise InvalidPointCloudError("min_plane_inlier_ratio must be in (0, 1]")
+        if not 0 < self.ransac_confidence < 1:
+            raise InvalidPointCloudError("ransac_confidence must be in (0, 1)")
+        required_iterations = int(
+            np.ceil(
+                np.log1p(-self.ransac_confidence)
+                / np.log1p(-(self.min_plane_inlier_ratio ** 3))
+            )
+        )
+        if self.plane_ransac_iterations < required_iterations:
+            raise InvalidPointCloudError(
+                "plane_ransac_iterations is too low for min_plane_inlier_ratio "
+                f"and ransac_confidence; expected at least {required_iterations}"
+            )
         if not 0 < self.max_plane_tilt_deg < 90:
             raise InvalidPointCloudError("max_plane_tilt_deg must be in (0, 90)")
         if self.min_rebar_height >= self.max_rebar_height:
             raise InvalidPointCloudError("min_rebar_height must be less than max_rebar_height")
+        if self.pca_min_neighbors < 3:
+            raise InvalidPointCloudError("pca_min_neighbors must be at least 3")
+        if self.pca_min_neighbors > self.pca_max_neighbors:
+            raise InvalidPointCloudError(
+                "pca_min_neighbors must not exceed pca_max_neighbors"
+            )
         if not 0 <= self.min_linearity < 1:
             raise InvalidPointCloudError("min_linearity must be in [0, 1)")
         if not 0 < self.direction_tolerance_deg < 45:
             raise InvalidPointCloudError("direction_tolerance_deg must be in (0, 45)")
+        if not 0 < self.min_direction_separation_deg <= 90:
+            raise InvalidPointCloudError(
+                "min_direction_separation_deg must be in (0, 90]"
+            )
         if self.axis_distance_threshold >= self.offset_cluster_gap:
             raise InvalidPointCloudError(
                 "axis_distance_threshold must be less than offset_cluster_gap"
+            )
+        if self.offset_cluster_gap >= self.min_axis_spacing:
+            raise InvalidPointCloudError(
+                "offset_cluster_gap must be less than min_axis_spacing"
             )
         up_hint = np.array([self.up_hint_x, self.up_hint_y, self.up_hint_z], dtype=np.float64)
         if not np.isfinite(up_hint).all() or np.linalg.norm(up_hint) < 1e-12:
@@ -307,6 +356,11 @@ def segment_rebar_points(
             {
                 "direction_index": direction_index,
                 "angle_degrees_mod_180": float(np.degrees(direction["angle"])),
+                "angle_degrees_signed": float(
+                    np.degrees(
+                        np.arctan2(direction["vector"][1], direction["vector"][0])
+                    )
+                ),
                 "local_vector": direction["vector"].tolist(),
                 "world_vector": world_direction.tolist(),
                 "pca_vote_count": int(direction["vote_count"]),
@@ -318,15 +372,23 @@ def segment_rebar_points(
         )
 
     membership_counts: dict[int, int] = {}
+    membership_directions: dict[int, set[int]] = {}
     for instance in instances:
         for point_index in instance["support_point_indices"]:
             membership_counts[point_index] = membership_counts.get(point_index, 0) + 1
-    soft_indices = sorted(index for index, count in membership_counts.items() if count > 1)
+            membership_directions.setdefault(point_index, set()).add(
+                int(instance["direction_index"])
+            )
+    soft_indices = sorted(
+        index
+        for index, directions_for_point in membership_directions.items()
+        if len(directions_for_point) > 1
+    )
     rebar_indices = sorted(membership_counts)
 
     plane_residuals = frame.residuals[frame.inlier_indices]
     result: dict[str, Any] = {
-        "schema_version": "rebar-geometric-poc-v1",
+        "schema_version": "rebar-geometric-poc-v2",
         "units": "metre",
         "parameters": asdict(config),
         "plane": {
@@ -518,32 +580,54 @@ def _local_pca_candidates(
     config: RebarSegmentationParams,
 ) -> dict[str, np.ndarray]:
     tree = cKDTree(band_points)
-    neighbourhoods = tree.query_ball_point(band_points, r=config.pca_radius, workers=-1)
     candidate_indices: list[int] = []
     angles: list[float] = []
     linearities: list[float] = []
 
-    for point_index, neighbours in enumerate(neighbourhoods):
-        if len(neighbours) < config.pca_min_neighbors:
-            continue
-        neighbourhood = band_points[np.asarray(neighbours, dtype=np.int64)]
-        covariance = np.cov(neighbourhood - np.mean(neighbourhood, axis=0), rowvar=False)
-        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-        order = np.argsort(eigenvalues)[::-1]
-        eigenvalues = np.maximum(eigenvalues[order], 0.0)
-        direction_3d = eigenvectors[:, order[0]]
-        if eigenvalues[0] <= 1e-15:
-            continue
-        linearity = float((eigenvalues[0] - eigenvalues[1]) / eigenvalues[0])
-        projected = direction_3d[:2]
-        projected_norm = np.linalg.norm(projected)
-        if linearity < config.min_linearity or projected_norm < 0.80:
-            continue
-        projected /= projected_norm
-        angle = float(np.arctan2(projected[1], projected[0]) % np.pi)
-        candidate_indices.append(point_index)
-        angles.append(angle)
-        linearities.append(linearity)
+    # A radius query returning every neighbourhood at once can approach O(N^2)
+    # resident memory on dense scans or an accidentally large radius.  Query a
+    # bounded number of nearest neighbours in batches and retain only those
+    # inside the requested physical radius.
+    neighbour_count = min(config.pca_max_neighbors, band_points.shape[0])
+    batch_size = 4_096
+    for batch_start in range(0, band_points.shape[0], batch_size):
+        batch_end = min(batch_start + batch_size, band_points.shape[0])
+        distances, neighbour_indices = tree.query(
+            band_points[batch_start:batch_end],
+            k=neighbour_count,
+            distance_upper_bound=config.pca_radius,
+            workers=-1,
+        )
+        if neighbour_count == 1:
+            distances = distances[:, None]
+            neighbour_indices = neighbour_indices[:, None]
+
+        for local_index, (row_distances, row_indices) in enumerate(
+            zip(distances, neighbour_indices)
+        ):
+            valid = np.isfinite(row_distances) & (row_indices < band_points.shape[0])
+            if np.count_nonzero(valid) < config.pca_min_neighbors:
+                continue
+            neighbourhood = band_points[row_indices[valid]]
+            covariance = np.cov(
+                neighbourhood - np.mean(neighbourhood, axis=0), rowvar=False
+            )
+            eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+            order = np.argsort(eigenvalues)[::-1]
+            eigenvalues = np.maximum(eigenvalues[order], 0.0)
+            direction_3d = eigenvectors[:, order[0]]
+            if eigenvalues[0] <= 1e-15:
+                continue
+            linearity = float((eigenvalues[0] - eigenvalues[1]) / eigenvalues[0])
+            projected = direction_3d[:2]
+            projected_norm = np.linalg.norm(projected)
+            if linearity < config.min_linearity or projected_norm < 0.80:
+                continue
+            projected /= projected_norm
+            angle = float(np.arctan2(projected[1], projected[0]) % np.pi)
+            candidate_indices.append(batch_start + local_index)
+            angles.append(angle)
+            linearities.append(linearity)
 
     return {
         "indices": np.asarray(candidate_indices, dtype=np.int64),
@@ -569,9 +653,17 @@ def _estimate_unoriented_directions(
         active_weights = weights[remaining]
         if active_angles.size < config.min_direction_votes:
             break
-        residual_matrix = _angular_distance_pi(active_angles[:, None], grid[None, :])
-        scores = np.sum(
-            active_weights[:, None] * (residual_matrix <= tolerance), axis=0
+        # Accumulate one angular bin at a time to keep memory O(candidate_count)
+        # instead of allocating candidate_count × direction_bin_count.
+        scores = np.asarray(
+            [
+                np.sum(
+                    active_weights
+                    * (_angular_distance_pi(active_angles, grid_angle) <= tolerance)
+                )
+                for grid_angle in grid
+            ],
+            dtype=np.float64,
         )
         peak = float(grid[int(np.argmax(scores))])
         selected_active = _angular_distance_pi(active_angles, peak) <= tolerance
@@ -592,6 +684,10 @@ def _estimate_unoriented_directions(
         if vote_count < config.min_direction_votes:
             break
         vector = np.array([np.cos(refined), np.sin(refined)], dtype=np.float64)
+        dominant_component = int(np.argmax(np.abs(vector)))
+        if vector[dominant_component] < 0:
+            vector = -vector
+        refined = float(np.arctan2(vector[1], vector[0]) % np.pi)
         recovered.append(
             {"angle": refined, "vector": vector, "vote_count": vote_count}
         )
@@ -601,7 +697,22 @@ def _estimate_unoriented_directions(
         raise InsufficientRebarEvidenceError(
             f"recovered {len(recovered)} main directions; expected {config.direction_count}"
         )
-    recovered.sort(key=lambda item: item["angle"])
+    minimum_separation = np.deg2rad(config.min_direction_separation_deg)
+    for left_index, left in enumerate(recovered):
+        for right in recovered[left_index + 1 :]:
+            separation = float(_angular_distance_pi(left["angle"], right["angle"]))
+            if separation < minimum_separation:
+                raise InsufficientRebarEvidenceError(
+                    "main directions are separated by only "
+                    f"{np.degrees(separation):.3f} degrees; expected at least "
+                    f"{config.min_direction_separation_deg:.3f} degrees"
+                )
+    recovered.sort(
+        key=lambda item: (
+            abs(float(np.arctan2(item["vector"][1], item["vector"][0]))),
+            float(item["angle"]),
+        )
+    )
     return recovered
 
 
@@ -633,9 +744,15 @@ def _extract_parallel_instances(
         for cluster in clusters
         if cluster.size >= config.min_axis_directional_support
     ]
-    if len(clusters) > config.max_axis_candidates_per_direction:
+    axis_candidates = _merge_nearby_axis_clusters(
+        clusters,
+        aligned_offsets,
+        aligned_weights,
+        config,
+    )
+    if len(axis_candidates) > config.max_axis_candidates_per_direction:
         raise InsufficientRebarEvidenceError(
-            f"direction {direction_index} yielded {len(clusters)} axis candidates; "
+            f"direction {direction_index} yielded {len(axis_candidates)} axis candidates; "
             f"limit is {config.max_axis_candidates_per_direction}"
         )
 
@@ -645,13 +762,14 @@ def _extract_parallel_instances(
     accepted_axis_offsets: list[float] = []
     next_instance_id = first_instance_id
 
-    for cluster in clusters:
-        axis_offset = _weighted_median(aligned_offsets[cluster], aligned_weights[cluster])
-        tube_mask = np.abs(band_offsets - axis_offset) <= config.axis_distance_threshold
+    for cluster, axis_offset, tube_radius in axis_candidates:
+        tube_mask = np.abs(band_offsets - axis_offset) <= tube_radius
         tube_indices = np.flatnonzero(tube_mask)
         if tube_indices.size < config.min_line_support:
             continue
-        intervals = _bridged_intervals(band_axial[tube_indices], config)
+        aligned_axis_mask = np.abs(aligned_offsets - axis_offset) <= tube_radius
+        axis_aligned_indices = aligned_pca_indices[aligned_axis_mask]
+        intervals = _bridged_intervals(band_axial[axis_aligned_indices], config)
 
         axis_accepted = False
         for interval_start, interval_end in intervals:
@@ -661,65 +779,138 @@ def _extract_parallel_instances(
                 & (band_axial <= interval_end)
             )
             interval_band_indices = np.flatnonzero(interval_mask)
-            if interval_band_indices.size < config.min_line_support:
-                continue
             length = float(interval_end - interval_start)
             if length < config.min_line_length:
                 continue
 
-            directional_in_interval = (
-                (np.abs(aligned_offsets - axis_offset) <= config.axis_distance_threshold)
-                & (band_axial[aligned_pca_indices] >= interval_start)
-                & (band_axial[aligned_pca_indices] <= interval_end)
+            height_clusters = _cluster_indices_by_value_gap(
+                band_points[interval_band_indices, 2],
+                config.height_cluster_gap,
             )
-            directional_support = int(np.count_nonzero(directional_in_interval))
-            if directional_support < config.min_axis_directional_support:
-                continue
+            for layer_index, height_cluster in enumerate(height_clusters):
+                layer_band_indices = interval_band_indices[height_cluster]
+                if layer_band_indices.size < config.min_line_support:
+                    continue
+                layer_heights = band_points[layer_band_indices, 2]
+                layer_min = float(np.min(layer_heights))
+                layer_max = float(np.max(layer_heights))
+                directional_in_interval = (
+                    aligned_axis_mask
+                    & (band_axial[aligned_pca_indices] >= interval_start)
+                    & (band_axial[aligned_pca_indices] <= interval_end)
+                    & (band_points[aligned_pca_indices, 2] >= layer_min)
+                    & (band_points[aligned_pca_indices, 2] <= layer_max)
+                )
+                directional_support = int(np.count_nonzero(directional_in_interval))
+                if directional_support < config.min_axis_directional_support:
+                    continue
 
-            source_indices = height_indices[interval_band_indices]
-            center_height = float(np.median(local[source_indices, 2]))
-            local_start = np.array(
-                [
-                    *(vector * interval_start + perpendicular * axis_offset),
-                    center_height,
-                ],
-                dtype=np.float64,
-            )
-            local_end = np.array(
-                [
-                    *(vector * interval_end + perpendicular * axis_offset),
-                    center_height,
-                ],
-                dtype=np.float64,
-            )
-            world_endpoints = frame.local_to_world(
-                np.vstack((local_start, local_end))
-            )
-            residuals = np.abs(band_offsets[interval_band_indices] - axis_offset)
-            instances.append(
-                {
-                    "instance_id": f"rebar-{next_instance_id}",
-                    "direction_index": direction_index,
-                    "axis_offset": float(axis_offset),
-                    "centerline": {
-                        "local_start": local_start.tolist(),
-                        "local_end": local_end.tolist(),
-                        "world_start": world_endpoints[0].tolist(),
-                        "world_end": world_endpoints[1].tolist(),
-                    },
-                    "length": length,
-                    "support_count": int(source_indices.size),
-                    "directional_support_count": directional_support,
-                    "support_point_indices": source_indices.tolist(),
-                    "axis_residual_rmse": float(np.sqrt(np.mean(np.square(residuals)))),
-                }
-            )
-            next_instance_id += 1
-            axis_accepted = True
+                source_indices = height_indices[layer_band_indices]
+                center_height = float(np.median(layer_heights))
+                local_start = np.array(
+                    [
+                        *(vector * interval_start + perpendicular * axis_offset),
+                        center_height,
+                    ],
+                    dtype=np.float64,
+                )
+                local_end = np.array(
+                    [
+                        *(vector * interval_end + perpendicular * axis_offset),
+                        center_height,
+                    ],
+                    dtype=np.float64,
+                )
+                world_endpoints = frame.local_to_world(
+                    np.vstack((local_start, local_end))
+                )
+                residuals = np.abs(band_offsets[layer_band_indices] - axis_offset)
+                instances.append(
+                    {
+                        "instance_id": f"rebar-{next_instance_id}",
+                        "direction_index": direction_index,
+                        "axis_offset": float(axis_offset),
+                        "axis_support_radius": float(tube_radius),
+                        "height_layer_index": layer_index,
+                        "observed_height_range": [layer_min, layer_max],
+                        "centerline": {
+                            "local_start": local_start.tolist(),
+                            "local_end": local_end.tolist(),
+                            "world_start": world_endpoints[0].tolist(),
+                            "world_end": world_endpoints[1].tolist(),
+                        },
+                        "length": length,
+                        "support_count": int(source_indices.size),
+                        "directional_support_count": directional_support,
+                        "support_point_indices": source_indices.tolist(),
+                        "axis_residual_rmse": float(
+                            np.sqrt(np.mean(np.square(residuals)))
+                        ),
+                    }
+                )
+                next_instance_id += 1
+                axis_accepted = True
         if axis_accepted:
             accepted_axis_offsets.append(float(axis_offset))
 
     return instances, accepted_axis_offsets
+
+
+def _merge_nearby_axis_clusters(
+    clusters: list[np.ndarray],
+    offsets: np.ndarray,
+    weights: np.ndarray,
+    config: RebarSegmentationParams,
+) -> list[tuple[np.ndarray, float, float]]:
+    """Merge surface-side clusters that cannot be distinct physical bars."""
+
+    if not clusters:
+        return []
+    summaries = sorted(
+        (
+            _weighted_median(offsets[cluster], weights[cluster]),
+            float(np.sum(weights[cluster])),
+            cluster,
+        )
+        for cluster in clusters
+    )
+    groups: list[list[tuple[float, float, np.ndarray]]] = [[summaries[0]]]
+    for summary in summaries[1:]:
+        if summary[0] - groups[-1][-1][0] < config.min_axis_spacing:
+            groups[-1].append(summary)
+        else:
+            groups.append([summary])
+
+    merged: list[tuple[np.ndarray, float, float]] = []
+    for group in groups:
+        group_offsets = np.asarray([item[0] for item in group], dtype=np.float64)
+        group_weights = np.asarray([item[1] for item in group], dtype=np.float64)
+        axis_offset = float(np.average(group_offsets, weights=group_weights))
+        combined = np.concatenate([item[2] for item in group]).astype(
+            np.int64, copy=False
+        )
+        deviations = np.abs(offsets[combined] - axis_offset)
+        observed_radius = float(np.percentile(deviations, 95))
+        tube_radius = min(
+            0.5 * config.min_axis_spacing,
+            max(
+                config.axis_distance_threshold,
+                observed_radius + config.plane_distance_threshold,
+            ),
+        )
+        merged.append((combined, axis_offset, tube_radius))
+    return merged
+
+
+def _cluster_indices_by_value_gap(
+    values: np.ndarray,
+    max_gap: float,
+) -> list[np.ndarray]:
+    if values.size == 0:
+        return []
+    order = np.argsort(values, kind="stable")
+    split_positions = np.flatnonzero(np.diff(values[order]) > max_gap) + 1
+    return [cluster for cluster in np.split(order, split_positions) if cluster.size]
 
 
 def _cluster_sorted_values(values: np.ndarray, max_gap: float) -> list[np.ndarray]:
