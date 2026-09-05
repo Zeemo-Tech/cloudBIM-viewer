@@ -45,52 +45,78 @@ logger = logging.getLogger(__name__)
 
 CHUNKED_READ_THRESHOLD = 5_000_000
 CHUNK_SIZE = 1_000_000
+MAX_UNDOWNSAMPLED_POINTS = int(os.getenv("C2M_MAX_UNDOWNSAMPLED_POINTS", "5000000"))
+
+
+class RawPointLimitExceeded(ValueError):
+    """Raised before allocating an unsafe full-resolution point cloud."""
 
 
 def load_and_downsample_las(
-    path: str, voxel_size: float
+    path: str, voxel_size: float, *, downsample_enabled: bool = True,
 ) -> tuple[o3d.geometry.PointCloud, int, dict[str, Any]]:
-    """读取 LAS 并体素降采样，控制峰值内存。
+    """读取 LAS，并在明确启用时体素降采样，控制峰值内存。
 
-    < CHUNKED_READ_THRESHOLD 点直接全量读取；否则分块读取每块独立降采样后合并。
-    返回 (降采样后 PointCloud, 原始总点数, scanBboxRaw)。
+    < CHUNKED_READ_THRESHOLD 点直接全量读取；否则分块读取。禁用时原始块直接合并，
+    不调用 voxel_down_sample，保证返回的点数等于原始总点数。
+    返回 (处理后 PointCloud, 原始总点数, scanBboxRaw)。
     """
     t0 = time.time()
     with laspy.open(path) as reader:
         total_points = reader.header.point_count
 
+    if not downsample_enabled and total_points > MAX_UNDOWNSAMPLED_POINTS:
+        raise RawPointLimitExceeded(
+            f"关闭降采样最多支持 {MAX_UNDOWNSAMPLED_POINTS:,} 个点；"
+            f"当前文件包含 {total_points:,} 个点，请启用降采样或调整服务限制"
+        )
+
     bbox_raw: dict[str, Any] = {}
 
     if total_points < CHUNKED_READ_THRESHOLD:
         las = laspy.read(path)
-        xyz = np.vstack([las.x, las.y, las.z]).T.astype(np.float32)
+        # LAS projected coordinates are commonly hundreds of thousands of metres.
+        # float32 loses centimetres at that magnitude, defeating a 1 mm voxel size.
+        xyz = np.vstack([las.x, las.y, las.z]).T.astype(np.float64)
         bbox_raw = _bbox_dict(xyz)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(xyz)
         del las, xyz
-        pcd = pcd.voxel_down_sample(voxel_size)
+        if downsample_enabled:
+            pcd = pcd.voxel_down_sample(voxel_size)
     else:
-        logger.info("LAS 点数 %d 超过阈值，启用分块读取 + 即时降采样", total_points)
+        mode = "即时降采样" if downsample_enabled else "原始块合并（未降采样）"
+        logger.info("LAS 点数 %d 超过阈值，启用分块读取 + %s", total_points, mode)
         chunks: list[np.ndarray] = []
         global_min = np.full(3, np.inf, dtype=np.float64)
         global_max = np.full(3, -np.inf, dtype=np.float64)
         with laspy.open(path) as reader:
             for chunk in reader.chunk_iterator(CHUNK_SIZE):
-                xyz_chunk = np.vstack([chunk.x, chunk.y, chunk.z]).T.astype(np.float32)
+                xyz_chunk = np.vstack([chunk.x, chunk.y, chunk.z]).T.astype(np.float64)
+                if xyz_chunk.size == 0:
+                    continue
                 global_min = np.minimum(global_min, xyz_chunk.min(axis=0))
                 global_max = np.maximum(global_max, xyz_chunk.max(axis=0))
-                pcd_chunk = o3d.geometry.PointCloud()
-                pcd_chunk.points = o3d.utility.Vector3dVector(xyz_chunk)
-                pcd_chunk = pcd_chunk.voxel_down_sample(voxel_size)
-                chunks.append(np.asarray(pcd_chunk.points, dtype=np.float32))
-                del xyz_chunk, pcd_chunk
+                if downsample_enabled:
+                    pcd_chunk = o3d.geometry.PointCloud()
+                    pcd_chunk.points = o3d.utility.Vector3dVector(xyz_chunk)
+                    pcd_chunk = pcd_chunk.voxel_down_sample(voxel_size)
+                    chunks.append(np.asarray(pcd_chunk.points, dtype=np.float64))
+                    del pcd_chunk
+                else:
+                    chunks.append(xyz_chunk)
+                del xyz_chunk
+        if not chunks:
+            empty = o3d.geometry.PointCloud()
+            return empty, total_points, bbox_raw
         bbox_raw = {"min": global_min.tolist(), "max": global_max.tolist()}
         merged = np.concatenate(chunks, axis=0)
         del chunks
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(merged)
         del merged
-        pcd = pcd.voxel_down_sample(voxel_size)
+        if downsample_enabled:
+            pcd = pcd.voxel_down_sample(voxel_size)
 
     logger.info(
         "LAS 加载完成: %d -> %d 点, 耗时 %.1fs",

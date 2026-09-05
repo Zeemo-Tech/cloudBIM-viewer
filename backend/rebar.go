@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -101,7 +102,9 @@ func rebarFile(root, v string) (string, error) {
 	return real, nil
 }
 func rebarManifest(root string, m RebarArtifactManifest) (string, int64, error) {
-	if m.Schema != "rebar-artifact-manifest-v1" || m.AnalysisSchema != "rebar-analysis-v1" || m.ArtifactVersion == "" || strings.ContainsAny(m.ArtifactVersion, "/\\") || m.Algorithm.ID == "" {
+	if (m.Schema != "rebar-artifact-manifest-v1" || m.AnalysisSchema != "rebar-analysis-v1") &&
+		(m.Schema != "rebar-artifact-manifest-v2" || m.AnalysisSchema != "rebar-analysis-v2") ||
+		m.ArtifactVersion == "" || strings.ContainsAny(m.ArtifactVersion, "/\\") || m.Algorithm.ID == "" {
 		return "", 0, errors.New("manifest")
 	}
 	if m.ManifestPath != "manifest.json" {
@@ -129,6 +132,15 @@ func rebarManifest(root string, m RebarArtifactManifest) (string, int64, error) 
 	if info, statErr := os.Stat(result); statErr != nil || !info.Mode().IsRegular() {
 		return "", 0, errors.New("result")
 	}
+	if m.Schema == "rebar-artifact-manifest-v2" {
+		features, featureErr := rebarFile(root, m.FeaturesPath)
+		if featureErr != nil || filepath.ToSlash(m.FeaturesPath) != "features/manifest.json" {
+			return "", 0, errors.New("features")
+		}
+		if info, statErr := os.Stat(features); statErr != nil || !info.Mode().IsRegular() {
+			return "", 0, errors.New("features")
+		}
+	}
 	var n int64
 	h := sha256.New()
 	e = filepath.Walk(root, func(path string, i os.FileInfo, e error) error {
@@ -145,13 +157,20 @@ func rebarManifest(root string, m RebarArtifactManifest) (string, int64, error) 
 				if relErr != nil {
 					return relErr
 				}
-				contents, readErr := os.ReadFile(path)
-				if readErr != nil {
-					return readErr
-				}
 				_, _ = h.Write([]byte(filepath.ToSlash(rel)))
 				_, _ = h.Write([]byte{0})
-				_, _ = h.Write(contents)
+				file, openErr := os.Open(path)
+				if openErr != nil {
+					return openErr
+				}
+				_, copyErr := io.Copy(h, file)
+				closeErr := file.Close()
+				if copyErr != nil {
+					return copyErr
+				}
+				if closeErr != nil {
+					return closeErr
+				}
 			}
 		}
 		return nil
@@ -186,13 +205,20 @@ func rebarFingerprint(a *Asset, source, tiles, request string) (string, error) {
 		if re != nil {
 			return re
 		}
-		b, re := os.ReadFile(path)
+		_, _ = h.Write([]byte(filepath.ToSlash(rel)))
+		_, _ = h.Write([]byte{0})
+		f, re := os.Open(path)
 		if re != nil {
 			return re
 		}
-		_, _ = h.Write([]byte(filepath.ToSlash(rel)))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(b)
+		_, re = io.Copy(h, f)
+		closeErr := f.Close()
+		if re != nil {
+			return re
+		}
+		if closeErr != nil {
+			return closeErr
+		}
 		return nil
 	})
 	if e != nil {
@@ -243,8 +269,62 @@ func mapAny(v any) map[string]any {
 }
 func (a *app) rebarResponse(id int64, r DBAssetDerivative, cached bool) gin.H {
 	m, _ := decodeMeta(r)
-	return gin.H{"assetId": id, "artifactVersion": r.Version, "algorithm": m.Algorithm, "analysisSchema": m.AnalysisSchema, "capabilities": m.Capabilities, "visualization": m.Visualization, "inputOptions": m.InputOptions, "effectiveParameters": m.EffectiveParameters, "summary": m.Summary, "tilesetUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/tiles/tileset.json", id, r.Version), "resultUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/result", id, r.Version), "cached": cached, "updatedAt": r.UpdatedAt}
+	response := gin.H{"assetId": id, "artifactVersion": r.Version, "algorithm": m.Algorithm, "analysisSchema": m.AnalysisSchema, "capabilities": m.Capabilities, "visualization": m.Visualization, "inputOptions": m.InputOptions, "effectiveParameters": m.EffectiveParameters, "summary": m.Summary, "tilesetUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/tiles/tileset.json", id, r.Version), "resultUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/result", id, r.Version), "cached": cached, "updatedAt": r.UpdatedAt}
+	if m.AnalysisSchema == "rebar-analysis-v2" {
+		response["featuresUrl"] = fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/features/manifest.json", id, r.Version)
+	}
+	return response
 }
+
+// normalizeRebarObject applies descriptor defaults and rejects request fields
+// outside a descriptor which explicitly disallows additional properties.
+func normalizeRebarObject(raw map[string]any, schema map[string]any) (map[string]any, error) {
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if properties == nil {
+		return raw, nil
+	}
+	additional, hasAdditional := schema["additionalProperties"].(bool)
+	if hasAdditional && !additional {
+		for key := range raw {
+			if _, known := properties[key]; !known {
+				return nil, fmt.Errorf("unknown field %s", key)
+			}
+		}
+	}
+	out := make(map[string]any, len(properties))
+	for key, rawProperty := range properties {
+		property, _ := rawProperty.(map[string]any)
+		value, supplied := raw[key]
+		if !supplied {
+			if fallback, ok := property["default"]; ok {
+				out[key] = fallback
+			}
+			continue
+		}
+		kind, _ := property["type"].(string)
+		valid := kind == "" || (kind == "number" && isJSONNumber(value)) || (kind == "integer" && isJSONInteger(value)) || (kind == "boolean" && isJSONBool(value)) || (kind == "string" && isJSONString(value)) || (kind == "object" && isJSONObject(value))
+		if !valid {
+			return nil, fmt.Errorf("invalid field %s", key)
+		}
+		out[key] = value
+	}
+	if !hasAdditional || additional {
+		for key, value := range raw {
+			if _, known := properties[key]; !known {
+				out[key] = value
+			}
+		}
+	}
+	return out, nil
+}
+func isJSONNumber(v any) bool  { _, ok := v.(float64); return ok }
+func isJSONInteger(v any) bool { n, ok := v.(float64); return ok && n == float64(int64(n)) }
+func isJSONBool(v any) bool    { _, ok := v.(bool); return ok }
+func isJSONString(v any) bool  { _, ok := v.(string); return ok }
+func isJSONObject(v any) bool  { _, ok := v.(map[string]any); return ok }
 func (a *app) rebarCompute(c *gin.Context) {
 	var b struct {
 		Algorithm    string             `json:"algorithm"`
@@ -266,36 +346,48 @@ func (a *app) rebarCompute(c *gin.Context) {
 		return
 	}
 	if b.Algorithm == "" {
-		b.Algorithm = "geometric-v3"
+		b.Algorithm = "geometric-v5"
 	}
-	prior, priorErr := a.resolveRebarBimPrior(asset.ID, userID(c), b.BimPrior)
-	if priorErr != nil {
-		fail(c, 422, "bim_prior_unavailable")
+	descriptors, err := a.rebarProvider.ListAlgorithms(c.Request.Context())
+	if err != nil {
+		fail(c, 502, "provider_failed")
 		return
 	}
-	params, _ := canonicalJSON(b)
-	if b.Algorithm == "geometric-v4" {
-		descriptors, err := a.rebarProvider.ListAlgorithms(c.Request.Context())
-		if err != nil {
-			fail(c, 502, "provider_failed")
-			return
+	var descriptor *RebarAlgorithmDescriptor
+	for i := range descriptors {
+		if descriptors[i].ID == b.Algorithm {
+			descriptor = &descriptors[i]
+			break
 		}
-		var descriptor *RebarAlgorithmDescriptor
-		for i := range descriptors {
-			if descriptors[i].ID == b.Algorithm {
-				descriptor = &descriptors[i]
-				break
-			}
-		}
-		if descriptor == nil {
-			fail(c, 422, "unsupported_algorithm")
-			return
-		}
-		params, _ = canonicalJSON(map[string]any{"request": b, "descriptor": descriptor, "bimSnapshot": prior})
-	} else if prior != nil {
+	}
+	if descriptor == nil {
+		fail(c, 422, "unsupported_algorithm")
+		return
+	}
+	effectiveParameters, err := normalizeRebarObject(b.Parameters, descriptor.ParameterSchema)
+	if err != nil {
+		fail(c, 422, "invalid_parameters")
+		return
+	}
+	effectiveInputOptions, err := normalizeRebarObject(b.InputOptions, descriptor.InputOptionSchema)
+	if err != nil {
+		fail(c, 422, "invalid_parameters")
+		return
+	}
+	bimPriorSupported, _ := descriptor.Capabilities["bimPrior"].(bool)
+	if b.BimPrior != nil && !bimPriorSupported {
 		fail(c, 422, "selected_algorithm_does_not_support_bim")
 		return
 	}
+	var prior *RebarBimPrior
+	if b.BimPrior != nil {
+		prior, err = a.resolveRebarBimPrior(asset.ID, userID(c), b.BimPrior)
+		if err != nil {
+			fail(c, 422, "bim_prior_unavailable")
+			return
+		}
+	}
+	params, _ := canonicalJSON(map[string]any{"algorithm": descriptor, "inputOptions": effectiveInputOptions, "parameters": effectiveParameters, "bimSnapshot": prior})
 	lock := a.rebarLock(asset.ID)
 	if !lock.TryLock() {
 		fail(c, 409, "provider_busy")
@@ -327,7 +419,9 @@ func (a *app) rebarCompute(c *gin.Context) {
 	version := fmt.Sprintf("%d-%s", time.Now().UnixNano(), fp[:12])
 	base := filepath.Join(asset.Dir, "derivatives", rebarKind)
 	stage := filepath.Join(base, ".staging-"+version)
-	if e = os.MkdirAll(stage, 0755); e != nil {
+	// The provider atomically creates its immutable output version. Precreating
+	// that directory would conflict with the V5 no-overwrite contract.
+	if e = os.MkdirAll(base, 0755); e != nil {
 		fail(c, 500, "artifact_invalid")
 		return
 	}
@@ -337,7 +431,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 	m, e := a.rebarProvider.Compute(ctx, RebarComputeRequest{
 		PointCloudPath: meshServicePath(a.cfg.DataDir, source, a.cfg.MeshServiceStorageDir), PointCloudFormat: rebarFormat(*asset),
 		SourceTilesetPath: meshServicePath(a.cfg.DataDir, tiles, a.cfg.MeshServiceStorageDir), OutputDirectory: meshServicePath(a.cfg.DataDir, stage, a.cfg.MeshServiceStorageDir),
-		ArtifactVersion: version, Algorithm: b.Algorithm, InputOptions: b.InputOptions, Parameters: b.Parameters, BimPrior: prior})
+		ArtifactVersion: version, Algorithm: b.Algorithm, InputOptions: effectiveInputOptions, Parameters: effectiveParameters, BimPrior: prior})
 	if e != nil {
 		if errors.Is(e, context.DeadlineExceeded) {
 			fail(c, http.StatusGatewayTimeout, "provider_timeout")
@@ -394,13 +488,6 @@ func (a *app) rebarCompute(c *gin.Context) {
 		fail(c, 500, "artifact_invalid")
 		return
 	}
-	if old.ID != 0 && old.RelativePath != row.RelativePath {
-		if p, e := safeJoin(asset.Dir, old.RelativePath); e == nil {
-			if cleanupErr := os.RemoveAll(p); cleanupErr != nil {
-				log.Printf("retiring old rebar artifact failed: asset=%d version=%s err=%v", asset.ID, old.Version, cleanupErr)
-			}
-		}
-	}
 	ok(c, a.rebarResponse(asset.ID, row, false))
 }
 func (a *app) rebarLatest(c *gin.Context) {
@@ -441,6 +528,8 @@ func (a *app) rebarResource(c *gin.Context) {
 		rel = m.ResultPath
 	} else if strings.Contains(c.FullPath(), "/labels/") {
 		rel = filepath.Join("labels", rel)
+	} else if strings.Contains(c.FullPath(), "/features/") {
+		rel = filepath.Join("features", rel)
 	} else {
 		rel = filepath.Join("tiles", rel)
 	}

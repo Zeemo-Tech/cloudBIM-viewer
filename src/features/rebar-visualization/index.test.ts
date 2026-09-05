@@ -89,3 +89,16 @@ test('v2 flags keep crossings and ownership ambiguity distinct with crossing pri
   assert.ok(labels.includes('归属待确认'))
   assert.ok(!legendItems('rebar-class', v2).some((item) => item.label === '归属待确认'))
 })
+
+test('V5 has no point-intersection color and reserves bit 1 for ownership ambiguity', () => {
+  const v5 = {
+    schema: 'rebar-visualization-v3', defaultMode: 'rebar-class', instanceStrategy: 'golden-angle-v1',
+    attributes: { REBAR_CLASS: { componentType: 'UNSIGNED_BYTE' }, REBAR_INSTANCE: { componentType: 'UNSIGNED_INT' }, REBAR_FLAGS: { componentType: 'UNSIGNED_BYTE' }, CLASS_CONFIDENCE: { componentType: 'FLOAT' }, INSTANCE_CONFIDENCE: { componentType: 'FLOAT' } },
+    values: { sceneClass: { unknown: 0, table: 1, rebar: 2, noise: 3, fixture: 4 }, rebarClass: { nonRebar: 0, rebar: 1 }, rebarFlags: { instanceAmbiguity: 2 } },
+    colors: { unknown: '#334155', table: '#94a3b8', rebar: '#ef4444', noise: '#d946ef', fixture: '#10b981', directionA: '#22d3ee', directionB: '#f97316', ambiguity: '#a855f7' },
+  } as const
+  assert.ok(validateVisualization(v5))
+  assert.deepEqual(v3Color('rebar-instance', v5, { sceneClass: 2, flags: 2, instance: 0 }), [168 / 255, 85 / 255, 247 / 255])
+  assert.notDeepEqual(v3Color('rebar-class', v5, { sceneClass: 2, flags: 1, instance: 7 }), [250 / 255, 204 / 255, 21 / 255])
+  assert.ok(!legendItems('rebar-class', v5).some((item) => /交点|交叉/.test(item.label)))
+})

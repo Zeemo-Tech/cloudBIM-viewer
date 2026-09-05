@@ -28,12 +28,17 @@ func validRebarManifest() RebarArtifactManifest {
 }
 
 type fakeRebarProvider struct {
-	calls   int
-	request RebarComputeRequest
+	calls             int
+	request           RebarComputeRequest
+	descriptorVersion string
 }
 
 func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDescriptor, error) {
-	return []RebarAlgorithmDescriptor{{ID: "geometric-v3", Version: "1", Capabilities: map[string]any{}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}}, nil
+	version := p.descriptorVersion
+	if version == "" {
+		version = "5"
+	}
+	return []RebarAlgorithmDescriptor{{ID: "geometric-v5", Version: version, AnalysisSchema: "rebar-analysis-v2", Capabilities: map[string]any{"bimPrior": false}, ParameterSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"radius": map[string]any{"type": "number", "default": 0.02}}}, InputOptionSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"maxInputPoints": map[string]any{"type": "integer", "default": 1000}}}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}}, nil
 }
 func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (RebarArtifactManifest, error) {
 	p.calls++
@@ -44,32 +49,36 @@ func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (R
 	_ = os.WriteFile(filepath.Join(r.OutputDirectory, "result.json"), []byte(`{"result":true}`), 0644)
 	_ = os.WriteFile(filepath.Join(r.OutputDirectory, "tiles", "tileset.json"), []byte(`{}`), 0644)
 	_ = os.WriteFile(filepath.Join(r.OutputDirectory, "tiles", "0.pnts"), []byte("pnts"), 0644)
+	_ = os.MkdirAll(filepath.Join(r.OutputDirectory, "features"), 0755)
+	_ = os.WriteFile(filepath.Join(r.OutputDirectory, "features", "manifest.json"), []byte(`{"chunks":["0.json"]}`), 0644)
+	_ = os.WriteFile(filepath.Join(r.OutputDirectory, "features", "0.json"), []byte(`[]`), 0644)
 	// Python's tree hash excludes manifest itself.
 	h := sha256.New()
-	for _, x := range []string{"result.json", "tiles/0.pnts", "tiles/tileset.json"} {
+	for _, x := range []string{"features/0.json", "features/manifest.json", "result.json", "tiles/0.pnts", "tiles/tileset.json"} {
 		b, _ := os.ReadFile(filepath.Join(r.OutputDirectory, x))
 		_, _ = h.Write([]byte(x))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(b)
 	}
 	var m RebarArtifactManifest
-	m.Schema = "rebar-artifact-manifest-v1"
+	m.Schema = "rebar-artifact-manifest-v2"
 	m.ArtifactVersion = r.ArtifactVersion
-	m.AnalysisSchema = "rebar-analysis-v1"
-	m.Algorithm.ID, m.Algorithm.Version = "geometric-v3", "1"
-	m.Capabilities = map[string]any{}
-	m.InputOptions = map[string]any{}
-	m.EffectiveParameters = map[string]any{}
+	m.AnalysisSchema = "rebar-analysis-v2"
+	m.Algorithm.ID, m.Algorithm.Version = "geometric-v5", "5"
+	m.Capabilities = map[string]any{"bimPrior": false}
+	m.InputOptions = r.InputOptions
+	m.EffectiveParameters = r.Parameters
 	m.Summary = map[string]any{}
 	m.Visualization = map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}
 	m.ResultPath = "result.json"
 	m.TilesetPath = "tiles/tileset.json"
+	m.FeaturesPath = "features/manifest.json"
 	m.ManifestPath = "manifest.json"
 	m.ContentHash = hex.EncodeToString(h.Sum(nil))
-	m.ByteSize = int64(len(`{"result":true}`) + 2 + 4)
+	m.ByteSize = int64(len(`{"result":true}`) + 2 + 4 + len(`{"chunks":["0.json"]}`) + len(`[]`))
 	for range 3 {
 		manifest, _ := json.Marshal(m)
-		m.ByteSize = int64(len(`{"result":true}`)+2+4) + int64(len(manifest))
+		m.ByteSize = int64(len(`{"result":true}`)+2+4+len(`{"chunks":["0.json"]}`)+len(`[]`)) + int64(len(manifest))
 	}
 	manifest, _ := json.Marshal(m)
 	_ = os.WriteFile(filepath.Join(r.OutputDirectory, "manifest.json"), manifest, 0644)
@@ -121,7 +130,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	if w.Code != 200 || fake.calls != 1 || !bytes.Contains(w.Body.Bytes(), []byte(`"cached":false`)) {
 		t.Fatalf("first=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
 	}
-	if fake.request.Algorithm != "geometric-v3" || !bytes.Contains(w.Body.Bytes(), []byte(`"visualization"`)) {
+	if fake.request.Algorithm != "geometric-v5" || !bytes.Contains(w.Body.Bytes(), []byte(`"visualization"`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"featuresUrl"`)) {
 		t.Fatalf("default/visualization=%q %s", fake.request.Algorithm, w.Body.String())
 	}
 	var row DBAssetDerivative
@@ -129,6 +138,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := row.Version
+	firstPath := filepath.Join(dir, row.RelativePath)
 	w = post(false)
 	if w.Code != 200 || fake.calls != 1 || !bytes.Contains(w.Body.Bytes(), []byte(`"cached":true`)) ||
 		!bytes.Contains(w.Body.Bytes(), []byte(`"visualization"`)) {
@@ -143,6 +153,9 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	}
 	if row.Version == first {
 		t.Fatal("force did not replace version")
+	}
+	if _, err := os.Stat(firstPath); err != nil {
+		t.Fatalf("successful replacement removed prior immutable artifact: %v", err)
 	}
 	c, w := rebarContext(http.MethodGet, "/assets/1/rebar-segmentation/latest", "", 7)
 	a.rebarLatest(c)
@@ -173,10 +186,26 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("userID", int64(7)) })
 	router.GET("/assets/:id/rebar-segmentation/versions/:version/labels/*path", a.rebarResource)
+	router.GET("/assets/:id/rebar-segmentation/versions/:version/features/*path", a.rebarResource)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/1/rebar-segmentation/versions/"+row.Version+"/labels/manifest.json", nil))
 	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("finitePointCount")) {
 		t.Fatalf("labels=%d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/1/rebar-segmentation/versions/"+row.Version+"/features/manifest.json", nil))
+	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"chunks"`)) {
+		t.Fatalf("features=%d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/1/rebar-segmentation/versions/not-"+row.Version+"/features/manifest.json", nil))
+	if w.Code != 404 {
+		t.Fatalf("wrong version features=%d", w.Code)
+	}
+	// net/http cleans a literal ../ URL before Gin sees it; the common
+	// rebarFile boundary that feature paths use must still reject it.
+	if _, err := rebarFile(filepath.Join(dir, row.RelativePath), "features/../manifest.json"); err == nil {
+		t.Fatal("feature traversal was accepted")
 	}
 	// A corrupt latest manifest must neither be served as latest nor hit cache.
 	if err := os.Remove(filepath.Join(dir, row.RelativePath, "manifest.json")); err != nil {
@@ -190,6 +219,51 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	w = post(false)
 	if w.Code != 200 || fake.calls != 3 {
 		t.Fatalf("damaged cache=%d calls=%d", w.Code, fake.calls)
+	}
+}
+
+func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file:rebar_defaults?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&DBAsset{}, &DBAssetDerivative{}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "assets", "1")
+	if err = os.MkdirAll(filepath.Join(dir, "tiles"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "source"), []byte("scan"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "tiles", "tileset.json"), []byte("{}"), 0644)
+	if err = db.Create(&DBAsset{ID: 1, OwnerID: 7, Type: "pointcloud", Status: "ready", SourceName: "scan.las", SourceSize: 4, Dir: dir}).Error; err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeRebarProvider{}
+	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
+	a.db, a.rebarProvider = db, fake
+	post := func(body string) *httptest.ResponseRecorder {
+		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation", body, 7)
+		a.rebarCompute(c)
+		return w
+	}
+	if w := post(`{}`); w.Code != 200 || fake.calls != 1 {
+		t.Fatalf("defaults=%d %s", w.Code, w.Body.String())
+	}
+	if got := fake.request.Parameters["radius"]; got != float64(0.02) {
+		t.Fatalf("parameter defaults were not sent: %#v", fake.request.Parameters)
+	}
+	if w := post(`{"parameters":{"radius":0.02},"inputOptions":{"maxInputPoints":1000}}`); w.Code != 200 || fake.calls != 1 || !bytes.Contains(w.Body.Bytes(), []byte(`"cached":true`)) {
+		t.Fatalf("equivalent defaults=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
+	}
+	fake.descriptorVersion = "6"
+	if w := post(`{}`); w.Code != 200 || fake.calls != 2 {
+		t.Fatalf("descriptor cache invalidation=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
+	}
+	if w := post(`{"bimPrior":{"bimAssetId":999}}`); w.Code != 422 || fake.calls != 2 || !bytes.Contains(w.Body.Bytes(), []byte("selected_algorithm_does_not_support_bim")) {
+		t.Fatalf("v5 BIM=%d %s", w.Code, w.Body.String())
 	}
 }
 

@@ -69,6 +69,7 @@ type RebarArtifactManifest struct {
 	Visualization       any    `json:"visualization,omitempty"`
 	ResultPath          string `json:"resultPath"`
 	TilesetPath         string `json:"tilesetPath"`
+	FeaturesPath        string `json:"featuresPath,omitempty"`
 	ManifestPath        string `json:"manifestPath"`
 	ContentHash         string `json:"contentHash"`
 	ByteSize            int64  `json:"byteSize"`

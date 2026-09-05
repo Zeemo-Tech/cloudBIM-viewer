@@ -62,37 +62,49 @@ type User struct {
 	CreatedAt    time.Time `json:"createdAt"`
 }
 type Asset struct {
-	ID                 int64              `json:"id"`
-	Type               string             `json:"type"`
-	SourceName         string             `json:"sourceName"`
-	SourceSize         int64              `json:"sourceSize"`
-	Status             string             `json:"status"`
-	ErrorMessage       *string            `json:"errorMessage"`
-	CreatedAt          int64              `json:"createdAt"`
-	OwnerID            int64              `json:"-"`
-	Dir                string             `json:"-"`
-	PointcloudColor    string             `json:"pointcloudColor,omitempty"`
-	MeshRemesh         *MeshRemeshSummary `json:"meshRemesh,omitempty"`
-	RemeshStatus       string             `json:"-"`
-	RemeshError        *string            `json:"-"`
-	RemeshQueuedAt     *time.Time         `json:"-"`
-	RemeshStartedAt    *time.Time         `json:"-"`
-	RemeshFinishedAt   *time.Time         `json:"-"`
-	RemeshVertexBefore int                `json:"-"`
-	RemeshFaceBefore   int                `json:"-"`
-	RemeshVertexAfter  int                `json:"-"`
-	RemeshFaceAfter    int                `json:"-"`
+	ID                          int64              `json:"id"`
+	Type                        string             `json:"type"`
+	SourceName                  string             `json:"sourceName"`
+	SourceSize                  int64              `json:"sourceSize"`
+	Status                      string             `json:"status"`
+	ErrorMessage                *string            `json:"errorMessage"`
+	CreatedAt                   int64              `json:"createdAt"`
+	OwnerID                     int64              `json:"-"`
+	Dir                         string             `json:"-"`
+	PointcloudColor             string             `json:"pointcloudColor,omitempty"`
+	MeshRemesh                  *MeshRemeshSummary `json:"meshRemesh,omitempty"`
+	RemeshStatus                string             `json:"-"`
+	RemeshError                 *string            `json:"-"`
+	RemeshQueuedAt              *time.Time         `json:"-"`
+	RemeshStartedAt             *time.Time         `json:"-"`
+	RemeshFinishedAt            *time.Time         `json:"-"`
+	RemeshVertexBefore          int                `json:"-"`
+	RemeshFaceBefore            int                `json:"-"`
+	RemeshVertexAfter           int                `json:"-"`
+	RemeshFaceAfter             int                `json:"-"`
+	RemeshAlgorithm             string             `json:"-"`
+	RemeshParamsJSON            string             `json:"-"`
+	RemeshInputHash             string             `json:"-"`
+	RemeshImplementationVersion string             `json:"-"`
+	RemeshContractVersion       string             `json:"-"`
+	RemeshFingerprint           string             `json:"-"`
+	RemeshContentHash           string             `json:"-"`
 }
 type MeshRemeshSummary struct {
-	Supported      bool             `json:"supported"`
-	Status         string           `json:"status,omitempty"`
-	CanManualRetry bool             `json:"canManualRetry"`
-	ResultFileID   *int64           `json:"resultFileId,omitempty"`
-	LastError      *string          `json:"lastError,omitempty"`
-	QueuedAt       *time.Time       `json:"queuedAt,omitempty"`
-	StartedAt      *time.Time       `json:"startedAt,omitempty"`
-	FinishedAt     *time.Time       `json:"finishedAt,omitempty"`
-	Stats          *meshRemeshStats `json:"stats,omitempty"`
+	Supported             bool             `json:"supported"`
+	Status                string           `json:"status,omitempty"`
+	CanManualRetry        bool             `json:"canManualRetry"`
+	ResultFileID          *int64           `json:"resultFileId,omitempty"`
+	LastError             *string          `json:"lastError,omitempty"`
+	QueuedAt              *time.Time       `json:"queuedAt,omitempty"`
+	StartedAt             *time.Time       `json:"startedAt,omitempty"`
+	FinishedAt            *time.Time       `json:"finishedAt,omitempty"`
+	Stats                 *meshRemeshStats `json:"stats,omitempty"`
+	Algorithm             string           `json:"algorithm,omitempty"`
+	ImplementationVersion string           `json:"implementationVersion,omitempty"`
+	ContractVersion       string           `json:"contractVersion,omitempty"`
+	Parameters            map[string]any   `json:"parameters,omitempty"`
+	ContentHash           string           `json:"contentHash,omitempty"`
 }
 type Upload struct {
 	ID           string  `json:"uploadId"`
@@ -131,27 +143,32 @@ type DBUser struct {
 	CreatedAt    time.Time
 }
 type DBAsset struct {
-	ID                 int64   `gorm:"primaryKey"`
-	Type               string  `gorm:"size:32;index;not null"`
-	SourceName         string  `gorm:"size:255;not null"`
-	SourceSize         int64   `gorm:"not null"`
-	Status             string  `gorm:"size:32;index;not null"`
-	ErrorMessage       *string `gorm:"type:text"`
-	CreatedAt          int64   `gorm:"index;not null"`
-	OwnerID            int64   `gorm:"index;not null"`
-	Dir                string  `gorm:"size:1024;not null"`
-	PointcloudColor    string  `gorm:"column:pointcloud_color;size:7"`
-	RemeshStatus       string  `gorm:"size:32;index"`
-	RemeshError        *string `gorm:"type:text"`
-	RemeshAlgorithm    string  `gorm:"size:64"`
-	RemeshParamsJSON   string  `gorm:"type:text"`
-	RemeshQueuedAt     *time.Time
-	RemeshStartedAt    *time.Time
-	RemeshFinishedAt   *time.Time
-	RemeshVertexBefore int
-	RemeshFaceBefore   int
-	RemeshVertexAfter  int
-	RemeshFaceAfter    int
+	ID                          int64   `gorm:"primaryKey"`
+	Type                        string  `gorm:"size:32;index;not null"`
+	SourceName                  string  `gorm:"size:255;not null"`
+	SourceSize                  int64   `gorm:"not null"`
+	Status                      string  `gorm:"size:32;index;not null"`
+	ErrorMessage                *string `gorm:"type:text"`
+	CreatedAt                   int64   `gorm:"index;not null"`
+	OwnerID                     int64   `gorm:"index;not null"`
+	Dir                         string  `gorm:"size:1024;not null"`
+	PointcloudColor             string  `gorm:"column:pointcloud_color;size:7"`
+	RemeshStatus                string  `gorm:"size:32;index"`
+	RemeshError                 *string `gorm:"type:text"`
+	RemeshAlgorithm             string  `gorm:"size:64"`
+	RemeshParamsJSON            string  `gorm:"type:text"`
+	RemeshQueuedAt              *time.Time
+	RemeshStartedAt             *time.Time
+	RemeshFinishedAt            *time.Time
+	RemeshVertexBefore          int
+	RemeshFaceBefore            int
+	RemeshVertexAfter           int
+	RemeshFaceAfter             int
+	RemeshInputHash             string `gorm:"size:64"`
+	RemeshImplementationVersion string `gorm:"size:64"`
+	RemeshContractVersion       string `gorm:"size:64"`
+	RemeshFingerprint           string `gorm:"size:64;index"`
+	RemeshContentHash           string `gorm:"size:64"`
 }
 type DBAssetDerivative struct {
 	ID           int64   `gorm:"primaryKey"`
@@ -1079,9 +1096,6 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 			if queueErr := a.queueRemeshAsset(ctx, asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); queueErr != nil {
 				log.Printf("BIM 资产 %d 自动网格均匀化入队失败: %v", asset.ID, queueErr)
 			}
-			if !a.enqueueAnalysisMesh(ctx, asset.ID) {
-				log.Printf("BIM 资产 %d analysis-mesh 入队取消: %v", asset.ID, ctx.Err())
-			}
 		}
 	}
 }
@@ -1161,17 +1175,11 @@ func (a *app) startWorkers(ctx context.Context) error {
 	// Recovery can enqueue more work than the bounded channel can hold. Dispatch
 	// it asynchronously so a large installation never blocks HTTP startup while
 	// the single mesh worker drains durable database-backed jobs.
-	a.workerWG.Add(2)
+	a.workerWG.Add(1)
 	go func() {
 		defer a.workerWG.Done()
 		if err := a.recoverRemeshJobs(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("恢复网格均匀化任务失败: %v", err)
-		}
-	}()
-	go func() {
-		defer a.workerWG.Done()
-		if err := a.recoverAnalysisMeshJobs(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("恢复 analysis-mesh 任务失败: %v", err)
 		}
 	}()
 	return nil
@@ -1186,21 +1194,19 @@ func meshRemeshSummary(a Asset) *MeshRemeshSummary {
 	}
 	status := a.RemeshStatus
 	if status == "" {
-		if _, err := os.Stat(filepath.Join(a.Dir, "mesh_remesh.ply")); err == nil {
-			status = "succeeded"
-		} else {
-			status = "idle"
-		}
+		status = "idle"
 	} else if status == "succeeded" {
-		if _, err := os.Stat(filepath.Join(a.Dir, "mesh_remesh.ply")); err != nil {
+		if validateStoredLegacyRemeshArtifact(a, false) != nil {
 			status = "failed"
 		}
 	}
 	canRetry := status == "failed" || status == "idle"
 	resultID := (*int64)(nil)
 	var stats *meshRemeshStats
+	var parameters map[string]any
 	if status == "succeeded" {
 		resultID = &a.ID
+		_ = json.Unmarshal([]byte(a.RemeshParamsJSON), &parameters)
 		if a.RemeshVertexBefore > 0 || a.RemeshFaceBefore > 0 || a.RemeshVertexAfter > 0 || a.RemeshFaceAfter > 0 {
 			stats = &meshRemeshStats{
 				VertexBefore: a.RemeshVertexBefore,
@@ -1211,40 +1217,52 @@ func meshRemeshSummary(a Asset) *MeshRemeshSummary {
 		}
 	}
 	return &MeshRemeshSummary{
-		Supported:      true,
-		Status:         status,
-		CanManualRetry: canRetry,
-		ResultFileID:   resultID,
-		LastError:      a.RemeshError,
-		QueuedAt:       a.RemeshQueuedAt,
-		StartedAt:      a.RemeshStartedAt,
-		FinishedAt:     a.RemeshFinishedAt,
-		Stats:          stats,
+		Supported:             true,
+		Status:                status,
+		CanManualRetry:        canRetry,
+		ResultFileID:          resultID,
+		LastError:             a.RemeshError,
+		QueuedAt:              a.RemeshQueuedAt,
+		StartedAt:             a.RemeshStartedAt,
+		FinishedAt:            a.RemeshFinishedAt,
+		Stats:                 stats,
+		Algorithm:             a.RemeshAlgorithm,
+		ImplementationVersion: a.RemeshImplementationVersion,
+		ContractVersion:       a.RemeshContractVersion,
+		Parameters:            parameters,
+		ContentHash:           a.RemeshContentHash,
 	}
 }
 
 func assetFromDB(item DBAsset) Asset {
 	pointcloudColor := strings.ToLower(strings.TrimSpace(item.PointcloudColor))
 	return Asset{
-		ID:                 item.ID,
-		Type:               item.Type,
-		SourceName:         item.SourceName,
-		SourceSize:         item.SourceSize,
-		Status:             item.Status,
-		ErrorMessage:       item.ErrorMessage,
-		CreatedAt:          item.CreatedAt,
-		OwnerID:            item.OwnerID,
-		Dir:                item.Dir,
-		PointcloudColor:    pointcloudColor,
-		RemeshStatus:       item.RemeshStatus,
-		RemeshError:        item.RemeshError,
-		RemeshQueuedAt:     item.RemeshQueuedAt,
-		RemeshStartedAt:    item.RemeshStartedAt,
-		RemeshFinishedAt:   item.RemeshFinishedAt,
-		RemeshVertexBefore: item.RemeshVertexBefore,
-		RemeshFaceBefore:   item.RemeshFaceBefore,
-		RemeshVertexAfter:  item.RemeshVertexAfter,
-		RemeshFaceAfter:    item.RemeshFaceAfter,
+		ID:                          item.ID,
+		Type:                        item.Type,
+		SourceName:                  item.SourceName,
+		SourceSize:                  item.SourceSize,
+		Status:                      item.Status,
+		ErrorMessage:                item.ErrorMessage,
+		CreatedAt:                   item.CreatedAt,
+		OwnerID:                     item.OwnerID,
+		Dir:                         item.Dir,
+		PointcloudColor:             pointcloudColor,
+		RemeshStatus:                item.RemeshStatus,
+		RemeshError:                 item.RemeshError,
+		RemeshQueuedAt:              item.RemeshQueuedAt,
+		RemeshStartedAt:             item.RemeshStartedAt,
+		RemeshFinishedAt:            item.RemeshFinishedAt,
+		RemeshVertexBefore:          item.RemeshVertexBefore,
+		RemeshFaceBefore:            item.RemeshFaceBefore,
+		RemeshVertexAfter:           item.RemeshVertexAfter,
+		RemeshFaceAfter:             item.RemeshFaceAfter,
+		RemeshAlgorithm:             item.RemeshAlgorithm,
+		RemeshParamsJSON:            item.RemeshParamsJSON,
+		RemeshInputHash:             item.RemeshInputHash,
+		RemeshImplementationVersion: item.RemeshImplementationVersion,
+		RemeshContractVersion:       item.RemeshContractVersion,
+		RemeshFingerprint:           item.RemeshFingerprint,
+		RemeshContentHash:           item.RemeshContentHash,
 	}
 }
 
@@ -1642,24 +1660,77 @@ func (a *app) meshAsset(c *gin.Context) (Asset, bool) {
 	return asset, true
 }
 
-func (a *app) meshAlgorithms(c *gin.Context) {
+type legacyRemeshAlgorithmParam struct {
+	Key         string   `json:"key"`
+	Label       string   `json:"label"`
+	Type        string   `json:"type"`
+	Default     any      `json:"default"`
+	Min         *float64 `json:"min,omitempty"`
+	Max         *float64 `json:"max,omitempty"`
+	Tooltip     string   `json:"tooltip,omitempty"`
+	VisibleWhen any      `json:"visible_when,omitempty"`
+}
+
+type legacyRemeshAlgorithmDescriptor struct {
+	Name                  string                       `json:"name"`
+	Label                 string                       `json:"label"`
+	ImplementationVersion string                       `json:"implementationVersion"`
+	ContractVersion       string                       `json:"contractVersion"`
+	Params                []legacyRemeshAlgorithmParam `json:"params"`
+}
+
+type legacyRemeshIdentity struct {
+	Algorithm             string
+	ImplementationVersion string
+	ContractVersion       string
+	EffectiveParameters   map[string]any
+	ParamsJSON            string
+	InputHash             string
+	Fingerprint           string
+}
+
+type legacyRemeshOutput struct {
+	Stats       meshRemeshStats
+	Identity    legacyRemeshIdentity
+	ContentHash string
+}
+
+func (a *app) listLegacyRemeshAlgorithms(ctx context.Context) ([]legacyRemeshAlgorithmDescriptor, error) {
 	if a.cfg.MeshServiceURL == "" {
-		fail(c, http.StatusServiceUnavailable, "未配置网格处理服务，请设置 MESH_SERVICE_URL")
-		return
+		return nil, errors.New("未配置 MESH_SERVICE_URL")
 	}
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Get(a.cfg.MeshServiceURL + "/algorithms")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/algorithms", nil)
 	if err != nil {
-		fail(c, http.StatusBadGateway, fmt.Sprintf("调用网格处理服务失败: %v", err))
-		return
+		return nil, err
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("调用网格处理服务失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		fail(c, http.StatusBadGateway, "网格处理服务返回错误")
-		return
+		return nil, fmt.Errorf("网格处理服务返回 %d", resp.StatusCode)
 	}
-	var algorithms any
-	if err := json.NewDecoder(resp.Body).Decode(&algorithms); err != nil {
-		fail(c, http.StatusBadGateway, "解析网格算法列表失败")
+	var algorithms []legacyRemeshAlgorithmDescriptor
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&algorithms); err != nil {
+		return nil, fmt.Errorf("解析网格算法列表失败: %w", err)
+	}
+	for _, algorithm := range algorithms {
+		if strings.TrimSpace(algorithm.Name) == "" || strings.TrimSpace(algorithm.ImplementationVersion) == "" || strings.TrimSpace(algorithm.ContractVersion) == "" {
+			return nil, errors.New("网格算法缺少稳定版本身份")
+		}
+	}
+	return algorithms, nil
+}
+
+func (a *app) meshAlgorithms(c *gin.Context) {
+	algorithms, err := a.listLegacyRemeshAlgorithms(c.Request.Context())
+	if err != nil {
+		status := http.StatusBadGateway
+		if a.cfg.MeshServiceURL == "" {
+			status = http.StatusServiceUnavailable
+		}
+		fail(c, status, err.Error())
 		return
 	}
 	ok(c, algorithms)
@@ -1678,6 +1749,140 @@ const (
 	defaultRemeshRetryDelay = 3 * time.Second
 	defaultRemeshParamsJSON = `{"target_edge_length":0.1,"clean_tolerance":0.005,"use_decimation":true,"decimation_ratio":0.5,"subdivision_iterations":2,"subdivision_threshold_ratio":2.0,"adaptive":true,"crease_angle":60.0,"use_isotropic":true,"isotropic_iterations":5,"surface_dist_ratio":0.5,"isotropic_collapse":true,"sliver_merge_ratio":0.03,"sliver_relax_checksurfdist":true}`
 )
+
+func legacyRemeshDescriptor(algorithms []legacyRemeshAlgorithmDescriptor, name string) (legacyRemeshAlgorithmDescriptor, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "bim_preprocessor"
+	}
+	for _, algorithm := range algorithms {
+		if algorithm.Name == name {
+			return algorithm, nil
+		}
+	}
+	return legacyRemeshAlgorithmDescriptor{}, fmt.Errorf("不支持的网格均匀化算法: %s", name)
+}
+
+func effectiveLegacyRemeshParameters(descriptor legacyRemeshAlgorithmDescriptor, raw string) (map[string]any, string, error) {
+	supplied := map[string]any{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "{}"
+	}
+	if err := json.Unmarshal([]byte(raw), &supplied); err != nil {
+		return nil, "", fmt.Errorf("网格均匀化参数格式非法: %w", err)
+	}
+	parameters := make(map[string]any, len(descriptor.Params))
+	allowed := make(map[string]legacyRemeshAlgorithmParam, len(descriptor.Params))
+	for _, parameter := range descriptor.Params {
+		allowed[parameter.Key] = parameter
+		if parameter.Default != nil {
+			parameters[parameter.Key] = parameter.Default
+		}
+	}
+	for key, value := range supplied {
+		parameter, exists := allowed[key]
+		if !exists {
+			return nil, "", fmt.Errorf("网格均匀化参数未知: %s", key)
+		}
+		switch parameter.Type {
+		case "bool":
+			if _, ok := value.(bool); !ok {
+				return nil, "", fmt.Errorf("网格均匀化参数 %s 必须为布尔值", key)
+			}
+		case "int", "float":
+			number, ok := value.(float64)
+			if !ok || math.IsNaN(number) || math.IsInf(number, 0) {
+				return nil, "", fmt.Errorf("网格均匀化参数 %s 必须为数值", key)
+			}
+			if parameter.Type == "int" && number != math.Trunc(number) {
+				return nil, "", fmt.Errorf("网格均匀化参数 %s 必须为整数", key)
+			}
+			if parameter.Min != nil && number < *parameter.Min {
+				return nil, "", fmt.Errorf("网格均匀化参数 %s 不能小于 %g", key, *parameter.Min)
+			}
+			if parameter.Max != nil && number > *parameter.Max {
+				return nil, "", fmt.Errorf("网格均匀化参数 %s 不能大于 %g", key, *parameter.Max)
+			}
+		}
+		parameters[key] = value
+	}
+	canonical, err := canonicalJSON(parameters)
+	if err != nil {
+		return nil, "", err
+	}
+	return parameters, canonical, nil
+}
+
+func legacyRemeshFingerprint(inputHash, algorithm, implementationVersion, contractVersion string, parameters map[string]any) (string, error) {
+	payload, err := canonicalJSON(map[string]any{
+		"inputHash":             inputHash,
+		"algorithm":             algorithm,
+		"implementationVersion": implementationVersion,
+		"contractVersion":       contractVersion,
+		"effectiveParameters":   parameters,
+	})
+	if err != nil {
+		return "", err
+	}
+	return hashBytes([]byte(payload)), nil
+}
+
+func resolveLegacyRemeshIdentity(asset Asset, descriptor legacyRemeshAlgorithmDescriptor) (legacyRemeshIdentity, error) {
+	parameters, paramsJSON, err := effectiveLegacyRemeshParameters(descriptor, asset.RemeshParamsJSON)
+	if err != nil {
+		return legacyRemeshIdentity{}, err
+	}
+	inputHash, err := fileContentHash(filepath.Join(asset.Dir, "model.glb"))
+	if err != nil {
+		return legacyRemeshIdentity{}, fmt.Errorf("计算 BIM 网格输入哈希失败: %w", err)
+	}
+	fingerprint, err := legacyRemeshFingerprint(inputHash, descriptor.Name, descriptor.ImplementationVersion, descriptor.ContractVersion, parameters)
+	if err != nil {
+		return legacyRemeshIdentity{}, err
+	}
+	return legacyRemeshIdentity{
+		Algorithm: descriptor.Name, ImplementationVersion: descriptor.ImplementationVersion,
+		ContractVersion: descriptor.ContractVersion, EffectiveParameters: parameters,
+		ParamsJSON: paramsJSON, InputHash: inputHash, Fingerprint: fingerprint,
+	}, nil
+}
+
+func storedLegacyRemeshMetadataValid(asset Asset) bool {
+	if asset.RemeshAlgorithm == "" || asset.RemeshImplementationVersion == "" || asset.RemeshContractVersion == "" ||
+		!hex64(asset.RemeshInputHash) || !hex64(asset.RemeshFingerprint) || !hex64(asset.RemeshContentHash) {
+		return false
+	}
+	var parameters map[string]any
+	if json.Unmarshal([]byte(asset.RemeshParamsJSON), &parameters) != nil || parameters == nil {
+		return false
+	}
+	fingerprint, err := legacyRemeshFingerprint(asset.RemeshInputHash, asset.RemeshAlgorithm, asset.RemeshImplementationVersion, asset.RemeshContractVersion, parameters)
+	return err == nil && fingerprint == asset.RemeshFingerprint
+}
+
+func validateStoredLegacyRemeshArtifact(asset Asset, verifyContent bool) error {
+	if asset.RemeshStatus != "succeeded" || !storedLegacyRemeshMetadataValid(asset) {
+		return errors.New("网格均匀化产物缺少可验证的版本身份")
+	}
+	modelPath := filepath.Join(asset.Dir, "model.glb")
+	meshPath := filepath.Join(asset.Dir, "mesh_remesh.ply")
+	if !regularFileExists(modelPath) || !regularFileExists(meshPath) {
+		return errors.New("网格均匀化输入或结果文件缺失")
+	}
+	if !verifyContent {
+		return nil
+	}
+	inputHash, err := fileContentHash(modelPath)
+	if err != nil || inputHash != asset.RemeshInputHash {
+		return errors.New("BIM 网格源文件已变化")
+	}
+	contentHash, err := fileContentHash(meshPath)
+	if err != nil || contentHash != asset.RemeshContentHash {
+		return errors.New("网格均匀化结果内容校验失败")
+	}
+	return nil
+}
 
 func (a *app) queueRemeshAsset(ctx context.Context, assetID int64, algorithm, paramsJSON string, force bool) error {
 	if strings.TrimSpace(algorithm) == "" {
@@ -1733,25 +1938,36 @@ func (a *app) recoverRemeshJobs(ctx context.Context) error {
 	if err := a.db.Where("type = ? AND status = ?", "bim", "ready").Order("created_at ASC").Find(&assets).Error; err != nil {
 		return fmt.Errorf("读取网格均匀化任务失败: %w", err)
 	}
+	algorithms, descriptorErr := a.listLegacyRemeshAlgorithms(ctx)
 	for _, asset := range assets {
-		resultPath := filepath.Join(asset.Dir, "mesh_remesh.ply")
 		if asset.RemeshStatus == "" {
-			if _, err := os.Stat(resultPath); err == nil {
-				_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{
-					"remesh_status": "succeeded",
-					"remesh_error":  nil,
-				}).Error
-				continue
-			}
 			if err := a.queueRemeshAsset(ctx, asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); err != nil {
 				return err
 			}
 			continue
 		}
 		if asset.RemeshStatus == "succeeded" {
-			if _, err := os.Stat(resultPath); err != nil {
-				message := "均匀化结果文件缺失，请重新执行"
-				_ = a.finishRemeshJob(asset.ID, nil, "failed", &message, nil)
+			valid := validateStoredLegacyRemeshArtifact(assetFromDB(asset), true) == nil
+			if valid && descriptorErr == nil {
+				descriptor, err := legacyRemeshDescriptor(algorithms, asset.RemeshAlgorithm)
+				valid = err == nil && descriptor.ImplementationVersion == asset.RemeshImplementationVersion && descriptor.ContractVersion == asset.RemeshContractVersion
+			}
+			if valid {
+				if !a.enqueueAnalysisMesh(ctx, asset.ID) {
+					return ctx.Err()
+				}
+				continue
+			}
+			algorithm := asset.RemeshAlgorithm
+			if strings.TrimSpace(algorithm) == "" {
+				algorithm = "bim_preprocessor"
+			}
+			paramsJSON := asset.RemeshParamsJSON
+			if strings.TrimSpace(paramsJSON) == "" {
+				paramsJSON = defaultRemeshParamsJSON
+			}
+			if err := a.queueRemeshAsset(ctx, asset.ID, algorithm, paramsJSON, true); err != nil {
+				return err
 			}
 			continue
 		}
@@ -1760,6 +1976,9 @@ func (a *app) recoverRemeshJobs(ctx context.Context) error {
 				return ctx.Err()
 			}
 		}
+	}
+	if descriptorErr != nil {
+		log.Printf("读取网格算法版本失败，已保留通过内容校验的现有产物: %v", descriptorErr)
 	}
 	return nil
 }
@@ -1788,10 +2007,10 @@ func (a *app) processRemeshJob(parent context.Context, assetID int64) {
 
 	ctx, cancel := context.WithTimeout(parent, remeshTaskTimeout)
 	defer cancel()
-	stats, err := func() (meshRemeshStats, error) {
+	output, err := func() (legacyRemeshOutput, error) {
 		release, acquireErr := a.acquireMeshProvider(ctx)
 		if acquireErr != nil {
-			return meshRemeshStats{}, acquireErr
+			return legacyRemeshOutput{}, acquireErr
 		}
 		defer release()
 		return a.executeRemeshBIM(ctx, asset)
@@ -1815,26 +2034,34 @@ func (a *app) processRemeshJob(parent context.Context, assetID int64) {
 		log.Printf("BIM 资产 %d 网格均匀化失败: %v", assetID, err)
 		return
 	}
-	if err := a.finishRemeshJob(assetID, startedAt, "succeeded", nil, &stats); err != nil {
+	if err := a.finishRemeshJob(assetID, startedAt, "succeeded", nil, &output); err != nil {
 		log.Printf("BIM 资产 %d 保存网格均匀化状态失败: %v", assetID, err)
 		return
 	}
-	log.Printf("BIM 资产 %d 网格均匀化完成: vertices %d -> %d, faces %d -> %d", assetID, stats.VertexBefore, stats.VertexAfter, stats.FaceBefore, stats.FaceAfter)
-	// analysis-mesh derives from the original GLB, not the legacy merged PLY;
-	// startup recovery independently guarantees it for every ready BIM.
+	log.Printf("BIM 资产 %d 网格均匀化完成: vertices %d -> %d, faces %d -> %d", assetID, output.Stats.VertexBefore, output.Stats.VertexAfter, output.Stats.FaceBefore, output.Stats.FaceAfter)
+	// Build the component-aware derivative only after the legacy identity is
+	// durable, so both quick and analysis C2M consume the same effective profile.
+	a.processAnalysisMeshJob(parent, assetID)
 }
 
-func (a *app) finishRemeshJob(assetID int64, startedAt *time.Time, status string, message *string, stats *meshRemeshStats) error {
+func (a *app) finishRemeshJob(assetID int64, startedAt *time.Time, status string, message *string, output *legacyRemeshOutput) error {
 	updates := map[string]any{
 		"remesh_status":      status,
 		"remesh_error":       message,
 		"remesh_finished_at": time.Now(),
 	}
-	if stats != nil {
-		updates["remesh_vertex_before"] = stats.VertexBefore
-		updates["remesh_face_before"] = stats.FaceBefore
-		updates["remesh_vertex_after"] = stats.VertexAfter
-		updates["remesh_face_after"] = stats.FaceAfter
+	if output != nil {
+		updates["remesh_vertex_before"] = output.Stats.VertexBefore
+		updates["remesh_face_before"] = output.Stats.FaceBefore
+		updates["remesh_vertex_after"] = output.Stats.VertexAfter
+		updates["remesh_face_after"] = output.Stats.FaceAfter
+		updates["remesh_algorithm"] = output.Identity.Algorithm
+		updates["remesh_params_json"] = output.Identity.ParamsJSON
+		updates["remesh_input_hash"] = output.Identity.InputHash
+		updates["remesh_implementation_version"] = output.Identity.ImplementationVersion
+		updates["remesh_contract_version"] = output.Identity.ContractVersion
+		updates["remesh_fingerprint"] = output.Identity.Fingerprint
+		updates["remesh_content_hash"] = output.ContentHash
 	}
 	query := a.db.Model(&DBAsset{}).Where("id = ?", assetID)
 	if startedAt != nil {
@@ -1967,34 +2194,56 @@ func (a *app) callRemeshService(ctx context.Context, asset DBAsset) (*http.Respo
 	return nil, fmt.Errorf("调用网格处理服务失败: %w", lastErr)
 }
 
-func (a *app) executeRemeshBIM(ctx context.Context, asset DBAsset) (meshRemeshStats, error) {
-	resp, err := a.callRemeshService(ctx, asset)
+func (a *app) executeRemeshBIM(ctx context.Context, asset DBAsset) (legacyRemeshOutput, error) {
+	algorithms, err := a.listLegacyRemeshAlgorithms(ctx)
 	if err != nil {
-		return meshRemeshStats{}, err
+		return legacyRemeshOutput{}, err
+	}
+	descriptor, err := legacyRemeshDescriptor(algorithms, asset.RemeshAlgorithm)
+	if err != nil {
+		return legacyRemeshOutput{}, err
+	}
+	identity, err := resolveLegacyRemeshIdentity(assetFromDB(asset), descriptor)
+	if err != nil {
+		return legacyRemeshOutput{}, err
+	}
+	requestAsset := asset
+	requestAsset.RemeshAlgorithm = identity.Algorithm
+	requestAsset.RemeshParamsJSON = identity.ParamsJSON
+	resp, err := a.callRemeshService(ctx, requestAsset)
+	if err != nil {
+		return legacyRemeshOutput{}, err
 	}
 	defer resp.Body.Close()
 
 	tempOutput, err := os.CreateTemp(asset.Dir, ".mesh-remesh-*.ply")
 	if err != nil {
-		return meshRemeshStats{}, fmt.Errorf("创建均匀化结果临时文件失败: %w", err)
+		return legacyRemeshOutput{}, fmt.Errorf("创建均匀化结果临时文件失败: %w", err)
 	}
 	tempPath := tempOutput.Name()
 	defer os.Remove(tempPath)
 	if _, err := io.Copy(tempOutput, resp.Body); err != nil {
 		_ = tempOutput.Close()
-		return meshRemeshStats{}, fmt.Errorf("写入均匀化结果失败: %w", err)
+		return legacyRemeshOutput{}, fmt.Errorf("写入均匀化结果失败: %w", err)
 	}
 	if err := tempOutput.Close(); err != nil {
-		return meshRemeshStats{}, fmt.Errorf("关闭均匀化结果失败: %w", err)
+		return legacyRemeshOutput{}, fmt.Errorf("关闭均匀化结果失败: %w", err)
+	}
+	contentHash, err := fileContentHash(tempPath)
+	if err != nil {
+		return legacyRemeshOutput{}, fmt.Errorf("计算均匀化结果哈希失败: %w", err)
 	}
 	if err := os.Rename(tempPath, filepath.Join(asset.Dir, "mesh_remesh.ply")); err != nil {
-		return meshRemeshStats{}, fmt.Errorf("保存均匀化结果失败: %w", err)
+		return legacyRemeshOutput{}, fmt.Errorf("保存均匀化结果失败: %w", err)
 	}
-	return meshRemeshStats{
-		VertexBefore: headerInt(resp.Header.Get("X-Vertex-Before")),
-		FaceBefore:   headerInt(resp.Header.Get("X-Face-Before")),
-		VertexAfter:  headerInt(resp.Header.Get("X-Vertex-After")),
-		FaceAfter:    headerInt(resp.Header.Get("X-Face-After")),
+	return legacyRemeshOutput{
+		Stats: meshRemeshStats{
+			VertexBefore: headerInt(resp.Header.Get("X-Vertex-Before")),
+			FaceBefore:   headerInt(resp.Header.Get("X-Face-Before")),
+			VertexAfter:  headerInt(resp.Header.Get("X-Vertex-After")),
+			FaceAfter:    headerInt(resp.Header.Get("X-Face-After")),
+		},
+		Identity: identity, ContentHash: contentHash,
 	}, nil
 }
 
@@ -2081,26 +2330,14 @@ func (a *app) refreshRemeshState(asset *Asset) {
 		return
 	}
 
-	resultPath := filepath.Join(asset.Dir, "mesh_remesh.ply")
 	if asset.RemeshStatus == "" {
-		if _, err := os.Stat(resultPath); err == nil {
-			now := time.Now()
-			_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{
-				"remesh_status":      "succeeded",
-				"remesh_error":       nil,
-				"remesh_finished_at": &now,
-			}).Error
-			asset.RemeshStatus = "succeeded"
-			asset.RemeshError = nil
-			asset.RemeshFinishedAt = &now
-		}
 		return
 	}
 	if asset.RemeshStatus == "succeeded" {
-		if _, err := os.Stat(resultPath); err == nil {
+		if err := validateStoredLegacyRemeshArtifact(*asset, false); err == nil {
 			return
 		}
-		message := "均匀化结果文件缺失，请重新执行"
+		message := "均匀化结果缺少有效的输入、算法或内容身份，请重新执行"
 		now := time.Now()
 		_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{
 			"remesh_status":      "failed",
@@ -2143,6 +2380,12 @@ func (a *app) remeshLatest(c *gin.Context) {
 	case "succeeded":
 	default:
 		fail(c, http.StatusNotFound, "尚无网格均匀化结果")
+		return
+	}
+	if err := validateStoredLegacyRemeshArtifact(asset, true); err != nil {
+		message := err.Error() + "，请重新执行网格均匀化"
+		_ = a.finishRemeshJob(asset.ID, nil, "failed", &message, nil)
+		fail(c, http.StatusConflict, message)
 		return
 	}
 	path := filepath.Join(asset.Dir, "mesh_remesh.ply")
@@ -2832,6 +3075,7 @@ type c2mRequest struct {
 	ModelBimFileID          int64   `json:"modelBimFileId"`
 	Profile                 string  `json:"profile"`
 	VoxelSize               float64 `json:"voxelSize"`
+	DownsampleEnabled       *bool   `json:"downsampleEnabled"`
 	MaxColormapDistance     float64 `json:"maxColormapDistance"`
 	MaxHistogramDistance    float64 `json:"maxHistogramDistance"`
 	HistogramBins           int     `json:"histogramBins"`
@@ -2950,9 +3194,12 @@ func backendDataPath(dataDir, path, serviceStorageDir string) string {
 	return path
 }
 
-func c2mInputFingerprint(matrixJSON, scanPath, meshPath string) (string, error) {
+func c2mInputFingerprint(matrixJSON, scanPath, meshPath string, remeshIdentity ...string) (string, error) {
 	hash := sha256.New()
 	_, _ = io.WriteString(hash, strings.TrimSpace(matrixJSON))
+	for _, value := range remeshIdentity {
+		_, _ = fmt.Fprintf(hash, "\x00remesh-identity\x00%s", strings.TrimSpace(value))
+	}
 	for _, path := range []string{scanPath, meshPath} {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -2974,6 +3221,9 @@ func (a *app) currentC2MInputFingerprint(scanID, bimID, ownerID int64) (string, 
 	if bimRow.RemeshStatus != "succeeded" {
 		return "", errors.New("网格均匀化结果已失效或正在更新，请重新计算")
 	}
+	if err := validateStoredLegacyRemeshArtifact(assetFromDB(bimRow), true); err != nil {
+		return "", err
+	}
 	var alignment DBAlignment
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scanID, bimID, ownerID).First(&alignment).Error; err != nil {
 		return "", errors.New("配准结果不存在")
@@ -2983,7 +3233,7 @@ func (a *app) currentC2MInputFingerprint(scanID, bimID, ownerID int64) (string, 
 		return "", err
 	}
 	meshPath := filepath.Join(bimRow.Dir, "mesh_remesh.ply")
-	return c2mInputFingerprint(alignment.MatrixJSON, scanPath, meshPath)
+	return c2mInputFingerprint(alignment.MatrixJSON, scanPath, meshPath, bimRow.RemeshFingerprint)
 }
 
 func (a *app) c2mFreshness(row DBC2MResult) (bool, string) {
@@ -3302,9 +3552,14 @@ func resolveC2MResultProfile(requested, returned string) (string, error) {
 }
 
 func c2mServiceParams(req c2mRequest) map[string]any {
+	downsampleEnabled := true
+	if req.DownsampleEnabled != nil {
+		downsampleEnabled = *req.DownsampleEnabled
+	}
 	params := map[string]any{
 		"profile":                   normalizeC2MProfile(req.Profile),
 		"voxel_size":                req.VoxelSize,
+		"downsample_enabled":        downsampleEnabled,
 		"max_colormap_distance":     req.MaxColormapDistance,
 		"max_histogram_distance":    req.MaxHistogramDistance,
 		"histogram_bins":            req.HistogramBins,
@@ -3337,20 +3592,24 @@ func validateC2MVisualizationRanges(maxColormapDistance, maxHistogramDistance fl
 }
 
 func normalizeC2MRequest(req *c2mRequest) error {
+	if req.DownsampleEnabled == nil {
+		enabled := true
+		req.DownsampleEnabled = &enabled
+	}
 	if req.VoxelSize == 0 {
 		req.VoxelSize = 0.05
 	}
 	if req.MaxColormapDistance == 0 {
-		req.MaxColormapDistance = 0.10
+		req.MaxColormapDistance = 0.03
 	}
 	if req.MaxHistogramDistance == 0 {
-		req.MaxHistogramDistance = 0.10
+		req.MaxHistogramDistance = 0.03
 	}
 	if req.HistogramBins == 0 {
-		req.HistogramBins = 50
+		req.HistogramBins = 60
 	}
 	if req.ToleranceLimit == 0 {
-		req.ToleranceLimit = math.Min(0.05, req.MaxColormapDistance)
+		req.ToleranceLimit = math.Min(0.01, req.MaxColormapDistance)
 	}
 	if req.KnnK == 0 {
 		req.KnnK = 8
@@ -3529,9 +3788,22 @@ func regularFileExists(path string) bool {
 }
 
 func c2mResultData(row DBC2MResult) gin.H {
-	approximationFallback, _ := json.Marshal(map[string]any{"voxelSize": row.VoxelSize})
+	approximationFallback, _ := json.Marshal(map[string]any{"voxelSize": row.VoxelSize, "downsampleEnabled": true})
+	approximation := validRawJSON(row.ApproximationJSON, approximationFallback)
+	var approximationValues map[string]any
+	if json.Unmarshal(approximation, &approximationValues) == nil && approximationValues != nil {
+		if _, present := approximationValues["downsampleEnabled"]; !present {
+			approximationValues["downsampleEnabled"] = true
+			approximation, _ = json.Marshal(approximationValues)
+		}
+	} else {
+		approximation = approximationFallback
+	}
 	maxColormapDistance := row.MaxColormapDistance
 	if maxColormapDistance <= 0 {
+		// Rows created before the visualization contract was persisted were
+		// rendered with the original defaults. Keep their interpretation stable;
+		// normalizeC2MRequest applies the rebar-oriented defaults to new work.
 		maxColormapDistance = 0.10
 	}
 	maxHistogramDistance := row.MaxHistogramDistance
@@ -3552,7 +3824,7 @@ func c2mResultData(row DBC2MResult) gin.H {
 		"profile":          normalizeC2MProfile(row.Profile),
 		"algorithmVersion": row.AlgorithmVersion,
 		"metricDirection":  row.MetricDirection,
-		"approximation":    validRawJSON(row.ApproximationJSON, approximationFallback),
+		"approximation":    approximation,
 		"voxelSize":        row.VoxelSize,
 		"pointsBefore":     row.PointsBefore,
 		"pointsAfter":      row.PointsAfter,
@@ -3611,6 +3883,10 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusConflict, "请先完成 BIM 网格均匀化")
 		return
 	}
+	if err := validateStoredLegacyRemeshArtifact(bim, true); err != nil {
+		fail(c, http.StatusConflict, err.Error()+"，请重新执行网格均匀化")
+		return
+	}
 	meshPath := filepath.Join(bim.Dir, "mesh_remesh.ply")
 	if _, err := os.Stat(meshPath); err != nil {
 		fail(c, http.StatusConflict, "均匀化结果文件不存在，请重新执行")
@@ -3635,7 +3911,7 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	inputFingerprint, err := c2mInputFingerprint(alignment.MatrixJSON, scanPath, meshPath)
+	inputFingerprint, err := c2mInputFingerprint(alignment.MatrixJSON, scanPath, meshPath, bim.RemeshFingerprint)
 	if err != nil {
 		fail(c, http.StatusConflict, "C2M 输入文件不可用")
 		return
@@ -3666,6 +3942,8 @@ func (a *app) computeC2M(c *gin.Context) {
 		if resp.StatusCode == http.StatusTooManyRequests {
 			copyRetryAfter(c.Writer.Header(), resp)
 			status = http.StatusTooManyRequests
+		} else if resp.StatusCode == http.StatusRequestEntityTooLarge {
+			status = http.StatusRequestEntityTooLarge
 		} else if resp.StatusCode == http.StatusNotImplemented {
 			status = http.StatusNotImplemented
 		}
@@ -3865,6 +4143,10 @@ func (a *app) recolorC2M(c *gin.Context) {
 	var bim DBAsset
 	if err := a.db.Where("id = ? AND owner_id = ? AND type = ? AND status = ?", req.ModelBimFileID, userID(c), "bim", "ready").First(&bim).Error; err != nil {
 		fail(c, http.StatusNotFound, "BIM 资产不可用")
+		return
+	}
+	if err := validateStoredLegacyRemeshArtifact(assetFromDB(bim), true); err != nil {
+		fail(c, http.StatusConflict, err.Error()+"，请重新执行网格均匀化")
 		return
 	}
 	meshPath := filepath.Join(bim.Dir, "mesh_remesh.ply")
@@ -4176,6 +4458,8 @@ func main() {
 	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
 	r.GET("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
 	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
+	r.GET("/assets/:id/rebar-segmentation/versions/:version/features/*path", a.rebarResource)
+	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/features/*path", a.rebarResource)
 	r.GET("/assets/:id/:resource", a.resource)
 	r.HEAD("/assets/:id/:resource", a.resource)
 	r.DELETE("/measurements/:measurementId", a.deleteMeasurement)

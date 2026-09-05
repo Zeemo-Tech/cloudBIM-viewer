@@ -123,8 +123,15 @@ def build_artifact(stream: ComponentMeshStream, destination: str | Path, algorit
         normalization_center = (source_low + source_high) / 2.0
         (stage / "components.json").write_text(json.dumps({"schema": "analysis-mesh-components-v1", "tree": tree, "components": component_rows, "tiles": tile_rows}, indent=2), encoding="utf-8")
         (stage / "metrics.json").write_text(json.dumps({"schema": "analysis-mesh-metrics-v1", "components": metric_rows}, indent=2), encoding="utf-8")
-        tileset = {"asset": {"version": "1.1"}, "geometricError": 0,
-                   "root": {"boundingVolume": {"box": _box_from_bounds(root_low, root_high)}, "geometricError": 0,
+        # Tile GLBs and their bounding volumes are both authored in the model frame.
+        # Declare that frame explicitly so 3d-tiles-renderer does not apply its Y-up
+        # fallback rotation to content while leaving the bounding volumes untouched.
+        # The root has no content of its own, so it must have a positive error to
+        # force traversal into the renderable leaf tiles. With zero error the
+        # renderer can stop at the empty root and display no analysis mesh.
+        root_geometric_error = max(float(np.linalg.norm(root_high - root_low)), 1e-6)
+        tileset = {"asset": {"version": "1.1", "gltfUpAxis": "Z"}, "geometricError": root_geometric_error,
+                   "root": {"boundingVolume": {"box": _box_from_bounds(root_low, root_high)}, "geometricError": root_geometric_error,
                             "refine": "ADD", "children": [{"boundingVolume": t["boundingVolume"], "geometricError": 0, "extras": {"tileId": t["tileId"], "ifcGlobalId": t["ifcGlobalId"], "partId": t["partId"], "positionHash": t["positionHash"]}, "content": {"uri": t["uri"]}} for t in tile_rows]}}
         (stage / "tileset.json").write_text(json.dumps(tileset, indent=2), encoding="utf-8")
         files = {str(p.relative_to(stage)): {"sha256": _sha(p), "byteLength": p.stat().st_size} for p in stage.rglob("*") if p.is_file()}

@@ -14,6 +14,8 @@ export interface MeshAlgorithmParam {
 export interface MeshAlgorithm {
   name: string
   label: string
+  implementationVersion: string
+  contractVersion: string
   params: MeshAlgorithmParam[]
 }
 
@@ -34,6 +36,11 @@ export interface RemeshStatus {
   startedAt?: string | null
   finishedAt?: string | null
   stats?: RemeshStats | null
+  algorithm?: string
+  implementationVersion?: string
+  contractVersion?: string
+  parameters?: Record<string, unknown> | null
+  contentHash?: string
 }
 
 export function getMeshAlgorithms() {

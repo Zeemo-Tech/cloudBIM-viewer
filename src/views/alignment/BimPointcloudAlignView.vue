@@ -182,14 +182,15 @@ const meshError = ref('')
 const c2mRunning = ref(false)
 const c2mResult = ref<C2MResult | null>(null)
 const c2mVoxelSize = ref(0.05)
+const c2mDownsampleEnabled = ref(true)
 const c2mError = ref('')
 const c2mSceneLoaded = ref(false)
 const c2mSceneLoading = ref(false)
 const c2mRecoloring = ref(false)
-const c2mColorRangeMm = ref(100)
-const c2mHistogramRangeMm = ref(100)
-const c2mToleranceMm = ref(50)
-const c2mHistogramBins = ref(50)
+const c2mColorRangeMm = ref(30)
+const c2mHistogramRangeMm = ref(30)
+const c2mToleranceMm = ref(10)
+const c2mHistogramBins = ref(60)
 const c2mHistogramFollowsColor = ref(true)
 const c2mColorMode = ref<C2MColorMode>('continuous')
 const c2mBandCount = ref(7)
@@ -204,6 +205,7 @@ let c2mResultRequestId = 0
 let c2mDistancesRequestId = 0
 let c2mSceneLoadRequestId = 0
 let c2mAnalysisPollingTimer: number | null = null
+let bimVisibilityBeforeC2M: boolean | null = null
 const remeshLoading = ref(false)
 const remeshMeshLoaded = ref(false)
 const remeshRestoreAvailable = ref(false)
@@ -212,6 +214,8 @@ const remeshWireHidden = ref(false)
 const remeshWireAvailable = ref(true)
 let remeshSceneGroup: THREE.Group | null = null
 type RemeshSceneSnapshot = {
+  bimVisible: boolean
+  pointcloudVisible: boolean
   objects: Array<{
     object: THREE.Object3D
     visible: boolean
@@ -371,6 +375,8 @@ function onC2MHistogramFollowChange(follows: string | number | boolean) {
 }
 
 function syncC2MControls(result: C2MResult) {
+  c2mVoxelSize.value = Math.max(0.001, result.voxelSize || 0.05)
+  c2mDownsampleEnabled.value = result.approximation?.downsampleEnabled !== false
   const visualization = result.visualization
   if (!visualization) {
     setC2MColorRangeMm(c2mAutoRangeMm())
@@ -494,9 +500,19 @@ function createAnalysisC2MMaterial() {
     material.vertexColors = true
     material.side = THREE.DoubleSide
     material.toneMapped = false
+    material.polygonOffset = true
+    material.polygonOffsetFactor = -1
+    material.polygonOffsetUnits = -1
     return material
   }
-  return new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false })
+  return new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  })
 }
 
 function formatC2MDistance(value: number | undefined) {
@@ -525,6 +541,7 @@ async function runC2M() {
       modelBimFileId: props.bimAssetId,
       profile: 'quick',
       voxelSize: c2mVoxelSize.value,
+      downsampleEnabled: c2mDownsampleEnabled.value,
       ...c2mRequestedVisualization.value,
     })
     if (resultRequestId !== c2mResultRequestId) return
@@ -675,6 +692,7 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
         if (requestId !== c2mSceneLoadRequestId || c2mTileset !== nextTileset) return
         const previousMaterial = mesh.material
         mesh.material = c2mAnalysisMaterial!
+        mesh.renderOrder = 1
         if (Array.isArray(previousMaterial)) previousMaterial.forEach((item) => item.dispose())
         else previousMaterial.dispose()
 
@@ -718,9 +736,12 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
   })
 
   c2mSceneLoaded.value = true
+  showMeshWireframe.value = false
+  setC2MWireframe(false)
+  hideBimWhileC2MIsLoaded()
   statusText.value = manifest.global.unknownCount > 0
-    ? `C2M 已加载；${manifest.global.unknownCount.toLocaleString()} 个未覆盖顶点显示为灰色`
-    : 'C2M 分析网格已加载'
+    ? `C2M 已加载，原 BIM 已隐藏；${manifest.global.unknownCount.toLocaleString()} 个未覆盖顶点显示为灰色`
+    : 'C2M 分析网格已加载，原 BIM 已隐藏以避免叠面闪烁'
   requestRender()
   return true
 }
@@ -743,7 +764,9 @@ async function loadC2MToScene() {
     if (result.analysis?.status === 'ready') {
       try {
         if (await loadAnalysisC2MToScene(result, requestId)) {
-          if (requestId === c2mSceneLoadRequestId) ElMessage.success('逐构件 C2M 分析网格已加载到场景')
+          if (requestId === c2mSceneLoadRequestId) {
+            ElMessage.success('逐构件 C2M 分析网格已加载；原 BIM 已隐藏以避免叠面闪烁')
+          }
           return
         }
       } catch (error) {
@@ -783,7 +806,13 @@ async function loadC2MToScene() {
       }
       if (!geometry.attributes.normal) geometry.computeVertexNormals()
       geometry.computeBoundingBox()
-      const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
+      // The PLY is authored in the BIM source frame. Reuse the exact center used
+      // when the BIM pivot was normalized; centering from the result's own bounds
+      // drifts whenever remeshing changes extents.
+      const viewerCenter = bimPivot?.userData?.__viewerNormalizationCenter
+      const center = viewerCenter instanceof THREE.Vector3
+        ? viewerCenter
+        : geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
       geometry.translate(-center.x, -center.y, -center.z)
       clearC2MScene(false)
       const group = new THREE.Group()
@@ -794,20 +823,34 @@ async function loadC2MToScene() {
         bimPivot.getWorldQuaternion(group.quaternion)
         bimPivot.getWorldScale(group.scale)
       }
-      const material = new THREE.MeshBasicMaterial({ vertexColors: Boolean(geometry.attributes.color), side: THREE.DoubleSide })
-      group.add(new THREE.Mesh(geometry, material))
+      const material = new THREE.MeshBasicMaterial({
+        vertexColors: Boolean(geometry.attributes.color),
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      })
+      const mesh = new THREE.Mesh(geometry, material)
+      mesh.renderOrder = 1
+      group.add(mesh)
       scene.add(group)
       c2mSceneGroup = group
       c2mSceneLoaded.value = true
+      showMeshWireframe.value = false
+      setC2MWireframe(false)
+      hideBimWhileC2MIsLoaded()
       requestRender()
-      ElMessage.success('C2M 着色结果已加载到场景')
+      ElMessage.success('C2M 着色结果已加载；原 BIM 已隐藏以避免叠面闪烁')
     } finally { URL.revokeObjectURL(objectUrl) }
   } catch (error) {
     if (requestId === c2mSceneLoadRequestId) {
       ElMessage.error(error instanceof Error ? error.message : '加载 C2M 结果失败')
     }
   } finally {
-    if (requestId === c2mSceneLoadRequestId) c2mSceneLoading.value = false
+    if (requestId === c2mSceneLoadRequestId) {
+      if (!c2mSceneLoaded.value) restoreBimVisibilityAfterC2M()
+      c2mSceneLoading.value = false
+    }
   }
 }
 
@@ -829,7 +872,25 @@ function clearC2MScene(invalidateLoad = true) {
   if (c2mSceneGroup && !usedAnalysisTiles) disposeObject3D(c2mSceneGroup)
   c2mSceneGroup = null
   c2mSceneLoaded.value = false
+  if (invalidateLoad) restoreBimVisibilityAfterC2M()
+  syncWireframeStateFromCurrentMesh()
   requestRender()
+}
+
+function hideBimWhileC2MIsLoaded() {
+  if (!bimPivot) return
+  if (bimVisibilityBeforeC2M === null) {
+    bimVisibilityBeforeC2M = bimVisible.value
+  }
+  bimVisible.value = false
+  applySceneVisibility()
+}
+
+function restoreBimVisibilityAfterC2M() {
+  if (bimVisibilityBeforeC2M === null) return
+  bimVisible.value = bimVisibilityBeforeC2M
+  bimVisibilityBeforeC2M = null
+  applySceneVisibility()
 }
 
 async function applyC2MVisualization() {
@@ -878,6 +939,17 @@ const meshStatusText = computed(() => {
       return '尚未生成均匀化网格'
   }
 })
+const meshProvenanceText = computed(() => {
+  const status = meshStatus.value
+  if (status?.status !== 'succeeded' || !status.algorithm) return ''
+  const algorithmLabel = meshAlgorithms.value.find((item) => item.name === status.algorithm)?.label || status.algorithm
+  const version = status.implementationVersion ? `v${status.implementationVersion}` : '版本未知'
+  const targetEdgeLength = Number(status.parameters?.target_edge_length)
+  const target = Number.isFinite(targetEdgeLength) && targetEdgeLength > 0
+    ? ` · 目标边长 ${(targetEdgeLength * 1000).toFixed(1)} mm`
+    : ''
+  return `${algorithmLabel} · ${version}${target}`
+})
 const meshActionText = computed(() => {
   if (meshRunning.value) return '正在提交...'
   if (meshStatus.value?.status === 'queued') return '已排队'
@@ -914,6 +986,15 @@ async function refreshMeshStatus(showError = false) {
     const response = await getRemeshStatus(props.bimAssetId)
     meshStatus.value = response.data
     meshStats.value = response.data.stats || null
+    if (response.data.status === 'succeeded') {
+      if (response.data.algorithm && meshAlgorithms.value.some((item) => item.name === response.data.algorithm)) {
+        meshAlgorithm.value = response.data.algorithm
+      }
+      const persistedTargetEdgeLength = Number(response.data.parameters?.target_edge_length)
+      if (Number.isFinite(persistedTargetEdgeLength) && persistedTargetEdgeLength > 0) {
+        meshTargetEdgeLength.value = persistedTargetEdgeLength
+      }
+    }
     meshError.value = response.data.status === 'failed' ? response.data.lastError || '网格均匀化失败' : ''
     if (
       (response.data.status === 'queued' || response.data.status === 'processing') &&
@@ -958,8 +1039,7 @@ async function runMeshRemesh() {
   }
   meshRunning.value = true
   meshError.value = ''
-  remeshSceneSnapshot = null
-  remeshRestoreAvailable.value = false
+  restoreRemeshScene(false)
   clearLoadedRemeshMesh()
   try {
     const response = await remeshBimAsset(props.bimAssetId, {
@@ -997,8 +1077,9 @@ function clearLoadedRemeshMesh() {
 function captureRemeshSceneSnapshot() {
   if (remeshSceneSnapshot) return
   const objects = [bimPivot, pointcloudWrapper, pointcloudGroup].filter(Boolean) as THREE.Object3D[]
-  if (!objects.length) return
   remeshSceneSnapshot = {
+    bimVisible: bimVisible.value,
+    pointcloudVisible: pointcloudVisible.value,
     objects: objects.map((object) => ({
       object,
       visible: object.visible,
@@ -1009,10 +1090,11 @@ function captureRemeshSceneSnapshot() {
   }
 }
 
-function restoreRemeshScene() {
+function restoreRemeshScene(showMessage = true) {
   if (!remeshSceneSnapshot) return
   clearLoadedRemeshMesh()
-  remeshSceneSnapshot.objects.forEach(({ object, visible, position, quaternion, scale }) => {
+  const snapshot = remeshSceneSnapshot
+  snapshot.objects.forEach(({ object, visible, position, quaternion, scale }) => {
     if (!object.parent) return
     object.visible = visible
     object.position.copy(position)
@@ -1020,10 +1102,13 @@ function restoreRemeshScene() {
     object.scale.copy(scale)
     object.updateMatrixWorld(true)
   })
+  bimVisible.value = snapshot.bimVisible
+  pointcloudVisible.value = snapshot.pointcloudVisible
   remeshSceneSnapshot = null
   remeshRestoreAvailable.value = false
+  applySceneVisibility()
   requestRender()
-  ElMessage.success('已复原到加载均匀化结果之前的场景')
+  if (showMessage) ElMessage.success('已复原到加载均匀化结果之前的场景')
 }
 
 async function loadRemeshResult() {
@@ -1041,19 +1126,25 @@ async function loadRemeshResult() {
       if (!geometry.attributes.position) throw new Error('PLY 缺少顶点数据')
       if (!geometry.attributes.normal) geometry.computeVertexNormals()
       geometry.computeBoundingBox()
-      const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
+      const viewerCenter = bimPivot?.userData?.__viewerNormalizationCenter
+      const center = viewerCenter instanceof THREE.Vector3
+        ? viewerCenter
+        : geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
       geometry.translate(-center.x, -center.y, -center.z)
 
       const group = new THREE.Group()
       group.name = 'remesh-result'
       const position = new THREE.Vector3()
       const quaternion = new THREE.Quaternion()
+      const scale = new THREE.Vector3(1, 1, 1)
       if (bimPivot) {
         bimPivot.getWorldPosition(position)
         bimPivot.getWorldQuaternion(quaternion)
+        bimPivot.getWorldScale(scale)
       }
       group.position.copy(position)
       group.quaternion.copy(quaternion)
+      group.scale.copy(scale)
 
       const solidMaterial =
         rendererMode === 'webgpu'
@@ -1081,6 +1172,11 @@ async function loadRemeshResult() {
       remeshRestoreAvailable.value = Boolean(remeshSceneSnapshot)
       remeshSolidHidden.value = false
       remeshWireHidden.value = false
+      showMeshWireframe.value = Boolean(wire)
+      // The remesh result occupies the same surface as the source BIM. Keep the
+      // source hidden until the user explicitly restores the captured scene.
+      bimVisible.value = false
+      applySceneVisibility()
       requestRender()
       ElMessage.closeAll()
       ElMessage.success(`均匀化结果已加载（${geometry.attributes.position.count.toLocaleString()} 顶点）`)
@@ -1090,6 +1186,7 @@ async function loadRemeshResult() {
   } catch (error) {
     ElMessage.closeAll()
     meshError.value = error instanceof Error ? error.message : '加载均匀化结果失败'
+    restoreRemeshScene(false)
     ElMessage.error(meshError.value)
   } finally {
     remeshLoading.value = false
@@ -1109,12 +1206,19 @@ function toggleRemeshWire() {
   if (!wire) return
   remeshWireHidden.value = !remeshWireHidden.value
   wire.visible = !remeshWireHidden.value
+  showMeshWireframe.value = !remeshWireHidden.value
   requestRender()
 }
 const projectionMode = ref<ProjectionMode>('perspective')
 const materialMode = ref<MaterialMode>('unlit')
 const showGrid = ref(true)
 const showMeshWireframe = ref(false)
+const meshWireframeLabel = computed(() =>
+  c2mSceneLoaded.value || remeshMeshLoaded.value ? '当前结果线框' : '原 BIM 线框',
+)
+const meshWireframeTooltip = computed(() =>
+  `${showMeshWireframe.value ? '关闭' : '显示'}${meshWireframeLabel.value}`,
+)
 const showBounds = ref(false)
 const backgroundColor = ref('#0b1020')
 const pointcloudColor = ref('#86898D')
@@ -3990,7 +4094,9 @@ function clearPickedState() {
 
 function applySceneVisibility() {
   if (bimPivot) {
-    bimPivot.visible = bimVisible.value
+    // Both result variants occupy the BIM surface. Do not allow a generic
+    // visibility action to reintroduce coplanar source geometry and z-fighting.
+    bimPivot.visible = bimVisible.value && !c2mSceneLoaded.value && !remeshMeshLoaded.value
   }
   if (pointcloudWrapper) {
     pointcloudWrapper.visible = pointcloudVisible.value
@@ -4010,6 +4116,10 @@ function applySceneVisibility() {
 
 function toggleBimVisibility() {
   if (!bimPivot) return
+  if ((c2mSceneLoaded.value || remeshMeshLoaded.value) && !bimVisible.value) {
+    ElMessage.warning('当前结果网格与原 BIM 表面重合；请先清空 C2M 结果或复原均匀化场景，再显示原 BIM')
+    return
+  }
   bimVisible.value = !bimVisible.value
   applySceneVisibility()
 }
@@ -4027,10 +4137,21 @@ function toggleEdl() {
 }
 
 function toggleMeshWireframe() {
-  showMeshWireframe.value = !showMeshWireframe.value
-  if (!bimRoot) return
+  const next = !showMeshWireframe.value
+  if (c2mSceneLoaded.value) {
+    setC2MWireframe(next)
+  } else if (remeshMeshLoaded.value) {
+    setRemeshWireframe(next)
+  } else {
+    setObjectWireframe(bimRoot, next)
+  }
+  showMeshWireframe.value = next
+  requestRender()
+}
 
-  bimRoot.traverse((obj: any) => {
+function setObjectWireframe(root: THREE.Object3D | null, enabled: boolean) {
+  if (!root) return
+  root.traverse((obj: any) => {
     const material = obj?.material as THREE.Material | THREE.Material[] | undefined
     if (!material) return
     const materials = Array.isArray(material) ? material : [material]
@@ -4040,19 +4161,53 @@ function toggleMeshWireframe() {
         originalWireframeStore.set(item, Boolean(wireframeMaterial.wireframe))
       }
       if ('wireframe' in wireframeMaterial) {
-        wireframeMaterial.wireframe = showMeshWireframe.value
+        wireframeMaterial.wireframe = enabled
         wireframeMaterial.needsUpdate = true
       }
     })
   })
-  requestRender()
+}
+
+function setC2MWireframe(enabled: boolean) {
+  setObjectWireframe(c2mSceneGroup, enabled)
+  const material = c2mAnalysisMaterial as (THREE.Material & { wireframe?: boolean }) | null
+  if (material && 'wireframe' in material) {
+    material.wireframe = enabled
+    material.needsUpdate = true
+  }
+}
+
+function setRemeshWireframe(enabled: boolean) {
+  const wire = remeshSceneGroup?.children.find((child): child is THREE.LineSegments => child instanceof THREE.LineSegments)
+  if (!wire) {
+    showMeshWireframe.value = false
+    return
+  }
+  remeshWireHidden.value = !enabled
+  wire.visible = enabled
+}
+
+function syncWireframeStateFromCurrentMesh() {
+  if (c2mSceneLoaded.value) return
+  if (remeshMeshLoaded.value) {
+    showMeshWireframe.value = !remeshWireHidden.value && remeshWireAvailable.value
+    return
+  }
+  let wireframe = false
+  bimRoot?.traverse((obj: any) => {
+    if (wireframe) return
+    const material = obj?.material as (THREE.Material & { wireframe?: boolean }) | undefined
+    const first = Array.isArray(material) ? material[0] : material
+    wireframe = Boolean(first?.wireframe)
+  })
+  showMeshWireframe.value = wireframe
 }
 
 function toggleAllVisibility() {
   const shouldShowAll = !bimVisible.value && !pointcloudVisible.value
 
   if (bimPivot) {
-    bimVisible.value = shouldShowAll
+    bimVisible.value = (c2mSceneLoaded.value || remeshMeshLoaded.value) ? false : shouldShowAll
   }
   if (pointcloudWrapper) {
     pointcloudVisible.value = shouldShowAll
@@ -4063,7 +4218,7 @@ function toggleAllVisibility() {
 
 function resetView() {
   if (bimPivot) {
-    bimVisible.value = true
+    bimVisible.value = !c2mSceneLoaded.value && !remeshMeshLoaded.value
   }
   if (pointcloudWrapper) {
     pointcloudVisible.value = true
@@ -5206,7 +5361,7 @@ onBeforeUnmount(() => {
           </div>
         </el-tooltip>
 
-        <el-tooltip :content="showMeshWireframe ? '关闭线框' : '显示线框'" placement="right">
+        <el-tooltip :content="meshWireframeTooltip" placement="right">
           <div class="tool-item">
             <el-button
               class="tool-btn tool-btn--svg"
@@ -5626,6 +5781,7 @@ onBeforeUnmount(() => {
           <div class="mesh-remesh-status" :class="`mesh-remesh-status--${meshStatus?.status || 'idle'}`">
             {{ meshStatusText }}
           </div>
+          <div v-if="meshProvenanceText" class="mesh-remesh-provenance">{{ meshProvenanceText }}</div>
           <div class="control-row">
             <span class="label">算法</span>
             <el-select
@@ -5639,7 +5795,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="control-row">
             <span class="label">目标边长 (m)</span>
-            <el-input-number v-model="meshTargetEdgeLength" :min="0.05" :max="5" :step="0.05" :precision="3" size="small" :disabled="meshControlsDisabled" />
+            <el-input-number v-model="meshTargetEdgeLength" :min="0.005" :max="5" :step="0.005" :precision="3" size="small" :disabled="meshControlsDisabled" />
           </div>
           <el-button type="primary" size="small" style="width: 100%" :loading="meshRunning" :disabled="!bimAssetId || !meshAlgorithms.length || meshTaskActive" @click="runMeshRemesh">
             {{ meshActionText }}
@@ -5680,8 +5836,12 @@ onBeforeUnmount(() => {
         <div class="panel-section c2m-panel">
           <div class="section-title">Scan vs BIM 快速预估</div>
           <div class="control-row">
+            <span class="label">启用降采样</span>
+            <el-switch v-model="c2mDownsampleEnabled" size="small" :disabled="!canRunC2M" aria-label="启用 C2M 点云降采样" />
+          </div>
+          <div class="control-row">
             <span class="label">降采样 (m)</span>
-            <el-input-number v-model="c2mVoxelSize" :min="0.01" :max="1" :step="0.01" :precision="3" size="small" :disabled="!canRunC2M" />
+            <el-input-number v-model="c2mVoxelSize" :min="0.001" :max="1" :step="0.001" :precision="3" size="small" :disabled="!canRunC2M || !c2mDownsampleEnabled" />
           </div>
           <el-button type="primary" size="small" style="width: 100%" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">开始快速预估</el-button>
           <div class="c2m-range-presets" role="group" aria-label="C2M 配色色域预设，单位毫米">
@@ -5693,7 +5853,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="c2m-visualization-controls">
             <div class="control-row">
-              <span class="label">配色色域 C (mm)</span>
+              <span class="label">配色色域 ±C (mm)</span>
               <el-input-number
                 v-model="c2mColorRangeMm"
                 :min="10"
@@ -5710,7 +5870,7 @@ onBeforeUnmount(() => {
               <el-switch v-model="c2mHistogramFollowsColor" size="small" aria-label="直方图范围跟随配色色域" @change="onC2MHistogramFollowChange" />
             </div>
             <div class="control-row">
-              <span class="label">直方图 H (mm)</span>
+              <span class="label">直方图范围 ±H (mm)</span>
               <el-input-number
                 v-model="c2mHistogramRangeMm"
                 :min="10"
@@ -5723,7 +5883,7 @@ onBeforeUnmount(() => {
               />
             </div>
             <div class="control-row">
-              <span class="label">工程容差 T (mm)</span>
+              <span class="label">工程容差 ±T (mm)</span>
               <el-input-number
                 v-model="c2mToleranceMm"
                 :min="1"

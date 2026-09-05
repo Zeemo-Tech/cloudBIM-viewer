@@ -1,0 +1,21 @@
+{
+  "schema": "rebar-v5-raw-review-regions-v1",
+  "purpose": "Fixed raw-scan review regions selected before the V5 result run. The names describe review hypotheses, not ground truth or expected labels.",
+  "source": {
+    "path": "backend/data/assets/95b6b41c5857d9eb3407b155/source.las",
+    "sha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+    "pointCount": 9216369,
+    "headerBounds": {"min": [1.97303163, -2.64212972, 0.00363181], "max": [6.63987976, -0.82859245, 0.12031322]},
+    "worldUnits": "metres",
+    "selectionEvidence": "LAS header plus a deterministic 1/47 raw-point scatter sampled before V5 execution. The sample shows a long rectangular assembly from x about 2.0–6.6 and y about -2.6–-0.85, repeated horizontal/vertical structure, and elevated/end geometry."
+  },
+  "regions": [
+    {"id": "overall", "bounds": {"min": [1.97, -2.65, 0.003], "max": [6.65, -0.82, 0.121]}, "explanation": "Whole scan context; use to detect broad spatial drift or unexpected global class coverage."},
+    {"id": "planar_grid", "bounds": {"min": [2.30, -2.32, 0.004], "max": [6.20, -1.28, 0.105]}, "explanation": "Central repeated grid visible in the raw top-view sample; review planar bar separation without asserting each line is a bar."},
+    {"id": "table_edge", "bounds": {"min": [2.00, -2.58, 0.003], "max": [2.62, -2.12, 0.050]}, "explanation": "Low, left/lower boundary of the raw assembly; checks whether a support-surface edge stays observed rather than filled."},
+    {"id": "fixture_adjacent", "bounds": {"min": [2.18, -1.48, 0.004], "max": [2.76, -0.92, 0.121]}, "explanation": "Left-end elevated/post-like raw geometry adjacent to the grid; fixture candidate only, selected from raw elevation and footprint."},
+    {"id": "hook_candidate", "bounds": {"min": [6.02, -1.92, 0.004], "max": [6.53, -1.10, 0.121]}, "explanation": "Right-end dense/turning-looking raw structure; a hook or termination candidate, not an asserted hook."},
+    {"id": "web_candidate", "bounds": {"min": [3.22, -2.04, 0.030], "max": [4.30, -1.34, 0.121]}, "explanation": "Central elevated crossing/vertical-looking support in the raw side scatter; review web-candidate orientation."},
+    {"id": "upper_lower_overlap", "bounds": {"min": [4.34, -2.08, 0.028], "max": [5.48, -1.30, 0.121]}, "explanation": "Central-right region where raw top-view bands overlap while the side view spans several heights; review layer/instance ambiguity."}
+  ]
+}

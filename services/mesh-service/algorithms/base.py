@@ -21,6 +21,9 @@ class RemeshAlgorithm(abc.ABC):
 
     name: str = ""
     label: str = ""
+    # These are part of the public /algorithms identity, not just documentation.
+    implementation_version: str = "1.0.0"
+    contract_version: str = "1"
 
     @abc.abstractmethod
     def run(self, input_path: str, output_path: str, params: dict[str, Any]) -> RemeshResult:

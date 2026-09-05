@@ -30,12 +30,28 @@ class ArtifactTest(unittest.TestCase):
             self.assertEqual(manifest["entryPath"], "tileset.json")
             self.assertTrue(np.allclose(manifest["modelFrame"]["normalizationCenter"], [0.005, 0.0, 0.0]))
             self.assertEqual(len(manifest["contentHash"]), 64)
-            tiles = json.loads((destination / "tileset.json").read_text())["root"]["children"]
+            tileset = json.loads((destination / "tileset.json").read_text())
+            self.assertEqual(tileset["asset"]["gltfUpAxis"], "Z")
+            # The root is a grouping tile with no renderable content. A zero
+            # error tells 3D Tiles traversal that refinement is unnecessary,
+            # so none of its GLB-bearing children are ever selected.
+            self.assertNotIn("content", tileset["root"])
+            self.assertGreater(tileset["root"]["geometricError"], 0)
+            self.assertEqual(tileset["geometricError"], tileset["root"]["geometricError"])
+            tiles = tileset["root"]["children"]
             self.assertGreater(len(tiles), 2)
             components = json.loads((destination / "components.json").read_text())
             self.assertEqual(components["tree"], tree)
             self.assertEqual({tile["ifcGlobalId"] for tile in components["tiles"]}, {"A", "B"})
             self.assertTrue(all(len(tile["positionHash"]) == 64 for tile in components["tiles"]))
+            tiles_by_id = {tile["tileId"]: tile for tile in components["tiles"]}
+            for tile in tiles:
+                content = trimesh.load(destination / tile["content"]["uri"], force="scene")
+                low, high = content.bounds
+                box = tile["boundingVolume"]["box"]
+                self.assertTrue(np.allclose(box[:3], (low + high) / 2))
+                self.assertTrue(np.allclose([box[3], box[7], box[11]], (high - low) / 2))
+                self.assertEqual(tile["boundingVolume"], tiles_by_id[tile["extras"]["tileId"]]["boundingVolume"])
             for row in manifest["files"].values(): self.assertEqual(len(row["sha256"]), 64)
             for tile in (destination / "tiles").glob("*.glb"):
                 loaded = trimesh.load(tile, force="scene"); self.assertLessEqual(sum(len(g.faces) for g in loaded.geometry.values()), 10)

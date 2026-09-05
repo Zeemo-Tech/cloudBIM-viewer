@@ -24,6 +24,47 @@ import (
 
 const analysisMeshKind = "analysis-mesh"
 
+func analysisMeshParametersFromLegacy(asset DBAsset) (map[string]any, error) {
+	if err := validateStoredLegacyRemeshArtifact(assetFromDB(asset), false); err != nil {
+		return nil, err
+	}
+	var legacy map[string]any
+	if err := json.Unmarshal([]byte(asset.RemeshParamsJSON), &legacy); err != nil || legacy == nil {
+		return nil, errors.New("legacy remesh parameters are invalid")
+	}
+	keyMap := map[string]string{
+		"target_edge_length":          "targetEdgeLength",
+		"clean_tolerance":             "cleanTolerance",
+		"use_decimation":              "useDecimation",
+		"decimation_ratio":            "decimationRatio",
+		"subdivision_iterations":      "subdivisionIterations",
+		"subdivision_threshold_ratio": "subdivisionThresholdRatio",
+		"adaptive":                    "adaptive",
+		"crease_angle":                "featureAngleDegrees",
+		"use_isotropic":               "useIsotropic",
+		"isotropic_iterations":        "iterations",
+		"surface_dist_ratio":          "surfaceDistanceRatio",
+		"isotropic_collapse":          "isotropicCollapse",
+		"sliver_merge_ratio":          "sliverMergeRatio",
+		"sliver_relax_checksurfdist":  "sliverRelaxCheckSurfaceDistance",
+	}
+	parameters := make(map[string]any, len(keyMap))
+	for source, target := range keyMap {
+		if value, exists := legacy[source]; exists {
+			parameters[target] = value
+		}
+	}
+	if asset.RemeshAlgorithm == "bim_isotropic_only" {
+		parameters["subdivisionIterations"] = 0
+		parameters["useIsotropic"] = true
+		parameters["isotropicCollapse"] = true
+	}
+	if _, exists := parameters["targetEdgeLength"]; !exists {
+		return nil, errors.New("legacy remesh target edge length is missing")
+	}
+	return parameters, nil
+}
+
 type AnalysisMeshArtifactFile struct {
 	ContentHash string `json:"sha256"`
 	ByteSize    int64  `json:"byteLength"`
@@ -707,24 +748,6 @@ func (a *app) analysisMeshLatest(c *gin.Context) {
 	ok(c, a.analysisMeshResponse(asset, row, false))
 }
 
-func (a *app) recoverAnalysisMeshJobs(ctx context.Context) error {
-	if a.cfg.MeshServiceURL == "" {
-		return nil
-	}
-	var rows []DBAsset
-	if err := a.db.Where("type = ? AND status = ?", "bim", "ready").Order("created_at ASC").Find(&rows).Error; err != nil {
-		return fmt.Errorf("读取 analysis-mesh 恢复任务失败: %w", err)
-	}
-	for _, row := range rows {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case a.meshJobs <- meshBackgroundJob{Kind: meshJobAnalysisMesh, MeshAssetID: row.ID}:
-		}
-	}
-	return nil
-}
-
 func (a *app) processAnalysisMeshJob(parent context.Context, assetID int64) {
 	if a.cfg.MeshServiceURL == "" {
 		return
@@ -734,8 +757,13 @@ func (a *app) processAnalysisMeshJob(parent context.Context, assetID int64) {
 		return
 	}
 	asset := assetFromDB(row)
+	parameters, err := analysisMeshParametersFromLegacy(row)
+	if err != nil {
+		log.Printf("BIM 资产 %d analysis-mesh 跳过：legacy remesh 身份无效: %v", assetID, err)
+		return
+	}
 	for attempt := 0; attempt < 12; attempt++ {
-		_, _, err := a.ensureAnalysisMesh(parent, asset, "pymeshlab-isotropic-component-v1", nil, 250000, false)
+		_, _, err = a.ensureAnalysisMesh(parent, asset, "pymeshlab-isotropic-component-v1", parameters, 250000, false)
 		if err == nil {
 			log.Printf("BIM 资产 %d analysis-mesh 构建完成", assetID)
 			a.processAnalysisC2MForBIM(parent, assetID)

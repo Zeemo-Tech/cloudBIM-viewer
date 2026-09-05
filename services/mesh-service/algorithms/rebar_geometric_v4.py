@@ -30,6 +30,7 @@ from .rebar_v4_geometry import (
     table_mask,
     trace_primitive_graph,
 )
+from .rebar_v4_postprocess import refine_v4_evidence
 
 if TYPE_CHECKING:
     from .rebar_base import RebarInputContext
@@ -461,7 +462,7 @@ class GeometricV4Adapter(RebarAlgorithm):
         }
         return {
             "id": "geometric-v4",
-            "version": "4",
+            "version": "5",
             "name": "Geometric rebar v4 (experimental)",
             "analysisSchema": "rebar-analysis-v1",
             "capabilities": {
@@ -524,7 +525,7 @@ class GeometricV4Adapter(RebarAlgorithm):
             max_neighbours=p.feature_max_neighbors,
             min_neighbours=p.feature_min_neighbors,
         )
-        fixture_features = local_features(
+        fixture_local_features = local_features(
             residual,
             seed_step=p.feature_seed_step,
             radius=min(p.feature_radius, 0.018),
@@ -532,7 +533,7 @@ class GeometricV4Adapter(RebarAlgorithm):
             min_neighbours=min(p.feature_min_neighbors, 6),
         )
         fixture_surfaces = _detect_fixture_surfaces(
-            fixture_features, p, residual, plane.normal if plane is not None else None
+            fixture_local_features, p, residual, plane.normal if plane is not None else None
         )
         fixture_features = _surface_mask(features.points, fixture_surfaces)
         primitives = line_primitives(
@@ -549,12 +550,52 @@ class GeometricV4Adapter(RebarAlgorithm):
             min_radius=p.min_radius,
             max_radius=p.max_radius,
         )
+        # A separate, deliberately narrow pass recovers sparse, very linear
+        # observed candidates in every orientation.  Keeping this independent
+        # of the world Z axis is important for auxiliary bars that are diagonal
+        # in the table plane.  The pass is bounded more tightly than the main
+        # detector and is never used to extend endpoints.
+        recovery_rows = (
+            ~fixture_features
+            & (features.linearity >= max(0.72, p.min_linearity + 0.15))
+        )
+        recovery_candidates = line_primitives(
+            features.points[recovery_rows],
+            features.tangents[recovery_rows],
+            features.linearity[recovery_rows],
+            minimum_linearity=max(0.72, p.min_linearity + 0.15),
+            orientation_tolerance_degrees=min(8.0, p.orientation_tolerance_degrees),
+            minimum_votes=max(5, p.min_primitive_votes - 2),
+            maximum_modes=min(12, p.max_orientation_modes),
+            offset_cell=p.offset_cell_size,
+            axial_gap=min(0.050, p.axial_gap),
+            minimum_length=max(0.055, p.min_primitive_length * 0.75),
+            min_radius=p.min_radius,
+            max_radius=p.max_radius,
+        ) if np.any(recovery_rows) else []
+        # One bounded seam between primitive extraction and graph tracing.  It
+        # may reject line-like fixture evidence and records conservative
+        # recovery opportunities, but never creates unseen geometry.
+        refined = refine_v4_evidence(
+            fixture_surfaces,
+            primitives,
+            residual,
+            max_radius=p.max_radius,
+            recovery_candidates=recovery_candidates,
+            planar_support=fixture_local_features.points[
+                (fixture_local_features.planarity >= p.min_planarity)
+                & (fixture_local_features.linearity < 0.80)
+            ],
+        )
+        fixture_surfaces = list(refined.fixture_surfaces)
+        primitives = list(refined.primitives)
         traced = trace_primitive_graph(
             primitives,
             join_gap=p.join_gap,
             observed_join_gap=p.observed_join_gap,
             maximum_turn_degrees=p.max_turn_degrees,
             minimum_instance_length=p.min_instance_length,
+            join_overrides=refined.hook_join_overrides,
         )
         instances: list[dict[str, Any]] = []
         for ident, item in enumerate(
@@ -597,6 +638,7 @@ class GeometricV4Adapter(RebarAlgorithm):
             "fixtureSurfaceCount": len(fixture_surfaces),
             "linePrimitiveCount": len(primitives),
             "instanceCount": len(instances),
+            "postprocess": refined.diagnostics,
         }
         return RebarAnalysis(
             {
@@ -777,7 +819,10 @@ class GeometricV4Adapter(RebarAlgorithm):
             else np.zeros(len(points), dtype=bool)
         )
         fixture = _surface_mask(points, details.get("fixture", {}).get("surfaces", []))
-        matched = (projected.best_id > 0) & ~fixture
+        # Physical scene ownership wins over a projected tube: table and
+        # fixture points are always zero-labelled, so crossing/ambiguity flags
+        # remain meaningful only on matched rebar.
+        matched = (projected.best_id > 0) & ~table & ~fixture
         classes = np.zeros(len(points), np.uint8)
         classes[matched] = REBAR_STEEL
         classes[ambiguity & matched] = REBAR_AMBIGUOUS
@@ -799,9 +844,20 @@ class GeometricV4Adapter(RebarAlgorithm):
         points = np.asarray(points_xyz, dtype=np.float64)
         projected, ambiguity, _ = self._project(points, analysis)
         details = analysis.data["algorithmDetails"]
+        table = (
+            table_mask(
+                points, details["plane"], float(details["parameters"]["table_distance"])
+            )
+            if details.get("plane")
+            else np.zeros(len(points), dtype=bool)
+        )
         fixture = _surface_mask(points, details.get("fixture", {}).get("surfaces", []))
         rows = np.flatnonzero(
-            ambiguity & ~fixture & (projected.best_id > 0) & (projected.second_id > 0)
+            ambiguity
+            & ~table
+            & ~fixture
+            & (projected.best_id > 0)
+            & (projected.second_id > 0)
         ).astype(np.uint32)
         if len(rows) == 0:
             return {}

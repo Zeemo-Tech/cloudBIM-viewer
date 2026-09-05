@@ -169,6 +169,8 @@ def list_algorithms():
         result.append({
             "name": name,
             "label": algo.label,
+            "implementationVersion": algo.implementation_version,
+            "contractVersion": algo.contract_version,
             "params": algo.describe_params(),
         })
     return result
@@ -263,11 +265,12 @@ class C2MParams(BaseModel):
 
     profile: str = "quick"
     voxel_size: FiniteFloat = Field(default=0.05, ge=0.001, le=5.0)
-    max_colormap_distance: FiniteFloat = Field(default=0.10, ge=0.001, le=10.0)
-    max_histogram_distance: FiniteFloat = Field(default=0.10, ge=0.001, le=10.0)
-    histogram_bins: int = Field(default=50, ge=10, le=200)
+    downsample_enabled: bool = True
+    max_colormap_distance: FiniteFloat = Field(default=0.03, ge=0.001, le=10.0)
+    max_histogram_distance: FiniteFloat = Field(default=0.03, ge=0.001, le=10.0)
+    histogram_bins: int = Field(default=60, ge=10, le=200)
     # 合格界限：容差上下限（±X），青/黄颜色出现在此处
-    tolerance_limit: FiniteFloat = Field(default=0.05, ge=0.0001, le=10.0)
+    tolerance_limit: FiniteFloat = Field(default=0.01, ge=0.0001, le=10.0)
     # 当前对外契约统一使用 raw distances 做统计、直方图和着色。
     # 保留字段是为了与 Go 代理兼容；在定义可复核 benchmark 前不开放平滑。
     smoothing_iterations: Literal[0] = 0
@@ -296,7 +299,7 @@ class C2MRequest(BaseModel):
 
 
 C2M_OUTPUT_DIR = "/storage/c2m_results"
-C2M_QUICK_ALGORITHM_VERSION = "c2m-quick-v2"
+C2M_QUICK_ALGORITHM_VERSION = "c2m-quick-v3"
 
 
 def _is_c2m_artifact_name(name: str) -> bool:
@@ -450,6 +453,7 @@ def _c2m_compute_quick(req: C2MRequest):
         compute_signed_mesh_to_cloud_distances,
         compute_statistics,
         load_and_downsample_las,
+        RawPointLimitExceeded,
     )
 
     print(f"[C2M] 收到计算请求: scan_path={req.scan_path}, mesh_path={req.mesh_path}", flush=True)
@@ -468,7 +472,9 @@ def _c2m_compute_quick(req: C2MRequest):
         print(f"[C2M] 开始计算，对齐矩阵={req.alignment_matrix}", flush=True)
 
         # 1. 读取 LAS + 降采样
-        pcd, points_before, scan_bbox_raw = load_and_downsample_las(req.scan_path, p.voxel_size)
+        pcd, points_before, scan_bbox_raw = load_and_downsample_las(
+            req.scan_path, p.voxel_size, downsample_enabled=p.downsample_enabled,
+        )
         points_after = len(pcd.points)
         if points_after == 0:
             return JSONResponse(status_code=400, content={"code": 400, "msg": "LAS 点云为空"})
@@ -540,7 +546,7 @@ def _c2m_compute_quick(req: C2MRequest):
         return {
             "profile": "quick",
             "algorithmVersion": C2M_QUICK_ALGORITHM_VERSION,
-            "approximation": {"voxelSize": p.voxel_size},
+            "approximation": {"voxelSize": p.voxel_size, "downsampleEnabled": p.downsample_enabled},
             "metricDirection": "mesh-vertices-to-scan-points",
             "pointsBefore": points_before,
             "pointsAfter": points_after,
@@ -558,6 +564,13 @@ def _c2m_compute_quick(req: C2MRequest):
             "distancesSize": dist_size,
             "visualization": _c2m_visualization(p),
         }
+    except RawPointLimitExceeded as exc:
+        for output_path in created_outputs:
+            try:
+                os.remove(output_path)
+            except FileNotFoundError:
+                pass
+        return JSONResponse(status_code=413, content={"code": 413, "msg": str(exc)})
     except Exception:
         for output_path in created_outputs:
             try:
@@ -574,10 +587,10 @@ class C2MRecolorRequest(BaseModel):
 
     distances_path: str = Field(min_length=1)  # 已存储的 float32 raw distances 文件路径
     mesh_path: str = Field(min_length=1)        # 与 distances 顶点顺序一致的 remeshed PLY
-    max_colormap_distance: FiniteFloat = Field(default=0.10, ge=0.001, le=10.0)
-    max_histogram_distance: FiniteFloat = Field(default=0.10, ge=0.001, le=10.0)
-    histogram_bins: int = Field(default=50, ge=10, le=200)
-    tolerance_limit: FiniteFloat = Field(default=0.05, ge=0.0001, le=10.0)
+    max_colormap_distance: FiniteFloat = Field(default=0.03, ge=0.001, le=10.0)
+    max_histogram_distance: FiniteFloat = Field(default=0.03, ge=0.001, le=10.0)
+    histogram_bins: int = Field(default=60, ge=10, le=200)
+    tolerance_limit: FiniteFloat = Field(default=0.01, ge=0.0001, le=10.0)
     smoothing_iterations: Literal[0] = 0
     smoothing_strength: Literal[0.5] = 0.5
 

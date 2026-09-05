@@ -112,6 +112,7 @@ class PntsRewriteTests(unittest.TestCase):
             root=Path(d); source=root/"source"; source.mkdir(); (source/"tileset.json").write_text("{}")
             _write(source/"bad.pnts", {"POINTS_LENGTH": 1}, b"")
             output=root/"artifact"
+            (root/"x.ply").write_text("ply\nformat ascii 1.0\nelement vertex 2\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n1 0 0\n")
             loaded=LoadedPointCloud(np.zeros((2,3)),np.array([0,1]),{})
             with mock.patch("algorithms.REBAR_ALGORITHM_REGISTRY.get", return_value=Fake()), mock.patch("rebar_poc.load_point_cloud", return_value=loaded):
                 with self.assertRaises(PntsError): compute_rebar_artifact(point_cloud_path=str(root/"x.ply"),point_cloud_format="ply",source_tileset_path=str(source),output_directory=str(output),artifact_version="1",algorithm="fake",input_options={},parameters={},storage_root=str(root))
@@ -129,6 +130,7 @@ class PntsRewriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); source=root/"source"; source.mkdir(); (source/"tileset.json").write_text("{}")
             _write(source/"ok.pnts", {"POINTS_LENGTH":2,"POSITION":{"byteOffset":0}}, np.zeros((2,3),"<f4").tobytes())
+            (root/"x.ply").write_text("ply\nformat ascii 1.0\nelement vertex 2\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n1 0 0\n")
             loaded=LoadedPointCloud(np.zeros((2,3)),np.array([0,1]),{})
             with mock.patch("algorithms.REBAR_ALGORITHM_REGISTRY.get", return_value=Fake()), mock.patch("rebar_poc.load_point_cloud", return_value=loaded):
                 manifest=compute_rebar_artifact(point_cloud_path=str(root/"x.ply"),point_cloud_format="ply",source_tileset_path=str(source),output_directory=str(root/"artifact"),artifact_version="v1",algorithm="fake",input_options={},parameters={},storage_root=str(root))
@@ -167,6 +169,7 @@ class PntsRewriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); source=root/"source"; source.mkdir(); (source/"tileset.json").write_text("{}")
             (source/"outside-link").symlink_to(root / "elsewhere")
+            (root/"x.ply").write_text("ply\nformat ascii 1.0\nelement vertex 2\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n1 0 0\n")
             loaded=LoadedPointCloud(np.zeros((2,3)),np.array([0,1]),{})
             with mock.patch("algorithms.REBAR_ALGORITHM_REGISTRY.get", return_value=Fake()), mock.patch("rebar_poc.load_point_cloud", return_value=loaded):
                 with self.assertRaisesRegex(Exception, "must not contain symlinks"):
@@ -179,6 +182,7 @@ class PntsRewriteTests(unittest.TestCase):
             def analyze(self, sample, parameters): return RebarAnalysis({"algorithmDetails":{}})
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); source=root/"source"; source.mkdir(); (source/"tileset.json").write_text('{"root":{"transform":[1]}}')
+            (root/"x.ply").write_text("ply\nformat ascii 1.0\nelement vertex 2\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n1 0 0\n")
             loaded=LoadedPointCloud(np.zeros((2,3)),np.array([0,1]),{})
             with mock.patch("algorithms.REBAR_ALGORITHM_REGISTRY.get", return_value=Fake()), mock.patch("rebar_poc.load_point_cloud", return_value=loaded):
                 with self.assertRaisesRegex(Exception,"tileset transform is unsupported"):

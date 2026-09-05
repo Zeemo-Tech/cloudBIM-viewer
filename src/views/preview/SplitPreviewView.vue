@@ -437,7 +437,7 @@ function handleBimLoadedChange(value: boolean) {
     bimWorldPose.value = bimPanelRef.value?.getModelWorldPose?.() ?? null
     requestAnimationFrame(() => {
       // C2M may have completed before BIM; propagate the pose once it exists.
-      consistencyPanelRef.value?.applyBimWorldPose?.()
+      consistencyPanelRef.value?.applyBimWorldPose?.(bimWorldPose.value)
       // Re-apply the point-cloud camera after the companion mesh receives its
       // final calibrated world position. This keeps the result centered even
       // when the C2M download wins the loading race.

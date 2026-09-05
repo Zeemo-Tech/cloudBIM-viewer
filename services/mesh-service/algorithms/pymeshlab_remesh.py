@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import pymeshlab
@@ -42,6 +43,93 @@ def _repair_after_qem(ms: pymeshlab.MeshSet) -> None:
     ms.meshing_repair_non_manifold_vertices(vertdispratio=0.0)
 
 
+@dataclass(frozen=True)
+class BIMPreprocessorConfig:
+    """Resolved settings for the shared legacy/component remesh pipeline."""
+
+    target_edge_length: float
+    clean_tolerance: float
+    use_decimation: bool
+    decimation_ratio: float
+    subdivision_iterations: int
+    subdivision_threshold_ratio: float
+    adaptive: bool
+    crease_angle: float
+    use_isotropic: bool
+    isotropic_iterations: int
+    surface_dist_ratio: float
+    isotropic_collapse: bool
+    sliver_merge_ratio: float
+    sliver_relax_checksurfdist: bool
+
+
+def resolve_bim_preprocessor_config(params: dict[str, Any]) -> BIMPreprocessorConfig:
+    """Resolve legacy snake_case settings, including all safety clamps, once."""
+    return BIMPreprocessorConfig(
+        target_edge_length=_clamp_float(float(params.get("target_edge_length", 0.1)), 0.001, 1e6),
+        clean_tolerance=_clamp_float(float(params.get("clean_tolerance", 0.005)), 0.0, 1e6),
+        use_decimation=bool(params.get("use_decimation", True)),
+        decimation_ratio=_clamp_float(float(params.get("decimation_ratio", 0.5)), 0.05, 0.95),
+        subdivision_iterations=_clamp_int(int(params.get("subdivision_iterations", 2)), 0, 10),
+        subdivision_threshold_ratio=_clamp_float(float(params.get("subdivision_threshold_ratio", 2.0)), 1.0, 4.0),
+        adaptive=bool(params.get("adaptive", True)),
+        crease_angle=_clamp_float(float(params.get("crease_angle", 60.0)), 0.0, 90.0),
+        use_isotropic=bool(params.get("use_isotropic", True)),
+        isotropic_iterations=_clamp_int(int(params.get("isotropic_iterations", 5)), 1, 20),
+        surface_dist_ratio=_clamp_float(float(params.get("surface_dist_ratio", 0.5)), 0.01, 2.0),
+        isotropic_collapse=bool(params.get("isotropic_collapse", True)),
+        sliver_merge_ratio=_clamp_float(float(params.get("sliver_merge_ratio", 0.03)), 0.0, 0.1),
+        sliver_relax_checksurfdist=bool(params.get("sliver_relax_checksurfdist", True)),
+    )
+
+
+def run_bim_preprocessor_core(ms: pymeshlab.MeshSet, config: BIMPreprocessorConfig, *, face_count_before: int | None = None) -> None:
+    """Run the exact legacy clean→QEM→midpoint→isotropic→sliver pipeline."""
+    f_before = face_count_before if face_count_before is not None else ms.current_mesh().face_number()
+    _common_clean_and_repair(ms, config.clean_tolerance)
+    did_decimate = False
+    if config.use_decimation and f_before > 30000:
+        target_faces = max(1000, int(f_before * config.decimation_ratio))
+        if target_faces < f_before:
+            ms.meshing_decimation_quadric_edge_collapse(
+                targetfacenum=target_faces, preserveboundary=True, preservenormal=True,
+                preservetopology=True, optimalplacement=True,
+            )
+            did_decimate = True
+    if did_decimate:
+        _repair_after_qem(ms)
+    if config.subdivision_iterations > 0:
+        ms.meshing_surface_subdivision_midpoint(
+            iterations=config.subdivision_iterations,
+            threshold=_abs_value(config.target_edge_length * config.subdivision_threshold_ratio),
+        )
+    if config.use_isotropic:
+        effective_collapse = config.isotropic_collapse and config.subdivision_threshold_ratio >= 2.0
+        ms.meshing_isotropic_explicit_remeshing(
+            iterations=config.isotropic_iterations, adaptive=config.adaptive,
+            featuredeg=config.crease_angle, checksurfdist=True,
+            collapseflag=effective_collapse, splitflag=True, swapflag=True,
+            smoothflag=True, reprojectflag=True,
+            targetlen=_abs_value(config.target_edge_length),
+            maxsurfdist=_abs_value(config.target_edge_length * config.surface_dist_ratio),
+        )
+    sliver_merge_threshold = config.target_edge_length * config.sliver_merge_ratio
+    if config.clean_tolerance > 0:
+        sliver_merge_threshold = min(sliver_merge_threshold, config.clean_tolerance)
+    ms.meshing_merge_close_vertices(threshold=_abs_value(sliver_merge_threshold))
+    ms.meshing_remove_null_faces()
+    ms.meshing_remove_unreferenced_vertices()
+    ms.meshing_isotropic_explicit_remeshing(
+        iterations=1, adaptive=False, featuredeg=config.crease_angle,
+        checksurfdist=config.sliver_relax_checksurfdist, collapseflag=False,
+        splitflag=False, swapflag=True, smoothflag=True, reprojectflag=False,
+        targetlen=_abs_value(config.target_edge_length),
+        maxsurfdist=_abs_value(config.target_edge_length * config.surface_dist_ratio),
+    )
+    ms.compute_normal_per_face()
+    ms.compute_normal_per_vertex()
+
+
 @register
 class PyMeshLabBIMPreprocessor(RemeshAlgorithm):
     """BIM 网格预处理流水线 v4（细分 + 全功能 Isotropic，边长收敛均匀）。
@@ -61,6 +149,8 @@ class PyMeshLabBIMPreprocessor(RemeshAlgorithm):
 
     name = "bim_preprocessor"
     label = "细分 + Isotropic（均匀收敛）"
+    implementation_version = "2.0.0"
+    contract_version = "1"
 
     def run(self, input_path: str, output_path: str, params: dict[str, Any]) -> RemeshResult:
         ms = pymeshlab.MeshSet()
@@ -72,107 +162,8 @@ class PyMeshLabBIMPreprocessor(RemeshAlgorithm):
         v_before = ms.current_mesh().vertex_number()
         f_before = ms.current_mesh().face_number()
 
-        target_edge_length    = _clamp_float(float(params.get("target_edge_length", 0.1)), 0.001, 1e6)
-        clean_tolerance       = _clamp_float(float(params.get("clean_tolerance", 0.005)), 0.0, 1e6)
-        use_decimation        = bool(params.get("use_decimation", True))
-        decimation_ratio      = _clamp_float(float(params.get("decimation_ratio", 0.5)), 0.05, 0.95)
-        # 性能优化：细分默认 2 轮（2 轮已可将 10m 大面边长降至 <=2.5m），避免 3 轮导致面片数 64 倍指数膨胀
-        subdivision_iters     = _clamp_int(int(params.get("subdivision_iterations", 2)), 0, 10)
-        # 关键参数：细分阈值系数 ≥ 2.0 时细分后最短边 ≥ t，不触发 Isotropic collapse（0.8t 下限）
-        subdivision_thr_ratio = _clamp_float(float(params.get("subdivision_threshold_ratio", 2.0)), 1.0, 4.0)
-        adaptive              = bool(params.get("adaptive", True))
-        crease_angle          = _clamp_float(float(params.get("crease_angle", 60.0)), 0.0, 90.0)
-        use_isotropic         = bool(params.get("use_isotropic", True))
-        # 性能优化：基准测试证实 5 轮即可达到 >66% 的理想边长收敛，默认 5 轮大幅缩短耗时
-        isotropic_iters       = _clamp_int(int(params.get("isotropic_iterations", 5)), 1, 20)
-        surface_dist_ratio    = _clamp_float(float(params.get("surface_dist_ratio", 0.5)), 0.01, 2.0)
-        # collapseflag 恢复 True：配合 thr_ratio≥2.0 可消除短边碎片，使边长收敛至 [0.8t, 1.33t]
-        isotropic_collapse    = bool(params.get("isotropic_collapse", True))
-        sliver_merge_ratio    = _clamp_float(float(params.get("sliver_merge_ratio", 0.03)), 0.0, 0.1)
-        sliver_relax_checksurfdist = bool(params.get("sliver_relax_checksurfdist", True))
-        # 约束闭环：仅当细分阈值系数 >= 2.0 时才允许 collapse，避免细分-塌缩互相对抗。
-        effective_isotropic_collapse = isotropic_collapse and subdivision_thr_ratio >= 2.0
-
-        # ── 阶段 0：几何清理 + 非流形修复（QEM 前）────────────────────────
-        _common_clean_and_repair(ms, clean_tolerance)
-
-        # ── 阶段 1：QEM 瘦身 ────────────────────────────────────────────
-        # 性能优化：仅当原始网格面数较大（> 30,000）且设置了 decimation 时才执行减面；
-        # 小于 30,000 面的 BIM 模型跳过 QEM，节省 15-30s 计算时间并避免细小构件退化
-        did_decimate = False
-        if use_decimation and f_before > 30000:
-            target_faces = max(1000, int(f_before * decimation_ratio))
-            if target_faces < f_before:
-                ms.meshing_decimation_quadric_edge_collapse(
-                    targetfacenum=target_faces,
-                    preserveboundary=True,
-                    preservenormal=True,
-                    preservetopology=True,
-                    optimalplacement=True,
-                )
-                did_decimate = True
-
-        # ── 阶段 2：非流形修复（仅在做过 QEM 后才需再次扫描修复）─────────
-        if did_decimate:
-            _repair_after_qem(ms)
-
-        # ── 阶段 3：中点细分（打碎超长边）──────────────────────────────
-        # thr_ratio 默认 2.0：仅切割 > 2t 的边，产生 [t, 2t) 长的半边。
-        # 这些半边 ≥ t > 0.8t，不触发 Isotropic collapse，两步不再对抗。
-        if subdivision_iters > 0:
-            ms.meshing_surface_subdivision_midpoint(
-                iterations=subdivision_iters,
-                threshold=_abs_value(target_edge_length * subdivision_thr_ratio),
-            )
-
-        # ── 阶段 4：Isotropic 重网格化 ──────────────────────────────────
-        # 全功能开启（split/collapse/swap/smooth/reproject）。
-        # collapse 阈值约 0.8t：thr_ratio≥2.0 确保细分后无 <t 的边，故 collapse 不破坏细分结果。
-        # 5 次迭代足以让边长收敛至 [0.8t, 1.33t]（平均 ~t）。
-        if use_isotropic:
-            remesh_kwargs: dict[str, Any] = {
-                "iterations":    isotropic_iters,
-                "adaptive":      adaptive,
-                "featuredeg":    crease_angle,
-                "checksurfdist": True,
-                "collapseflag":  effective_isotropic_collapse,
-                "splitflag":     True,
-                "swapflag":      True,
-                "smoothflag":    True,
-                "reprojectflag": True,
-            }
-            remesh_kwargs["targetlen"]   = _abs_value(target_edge_length)
-            remesh_kwargs["maxsurfdist"] = _abs_value(target_edge_length * surface_dist_ratio)
-            ms.meshing_isotropic_explicit_remeshing(**remesh_kwargs)
-
-        # ── 阶段 5：薄片三角形后处理 ─────────────────────────────────────
-        # 薄片（sliver）产生原因：checksurfdist 在特征边附近阻止了边翻转，
-        # 导致两顶点极近但第三顶点很远的三角形被冻结。
-        # 步骤 1：更保守地合并极短边，默认 0.03t 且不超过 clean_tolerance，降低误焊细节风险
-        sliver_merge_threshold = target_edge_length * sliver_merge_ratio
-        if clean_tolerance > 0:
-            sliver_merge_threshold = min(sliver_merge_threshold, clean_tolerance)
-        ms.meshing_merge_close_vertices(threshold=_abs_value(sliver_merge_threshold))
-        ms.meshing_remove_null_faces()
-        ms.meshing_remove_unreferenced_vertices()
-        # 步骤 2：仅翻边 + 平滑（不增减顶点），1 轮即可完成拓扑微调，并关闭 reproject 节省空间树查询
-        ms.meshing_isotropic_explicit_remeshing(
-            iterations=1,
-            adaptive=False,
-            featuredeg=crease_angle,
-            checksurfdist=sliver_relax_checksurfdist,
-            collapseflag=False,
-            splitflag=False,
-            swapflag=True,
-            smoothflag=True,
-            reprojectflag=False,
-            targetlen=_abs_value(target_edge_length),
-            maxsurfdist=_abs_value(target_edge_length * surface_dist_ratio),
-        )
-
-        # ── 法线重算 ────────────────────────────────────────────────────
-        ms.compute_normal_per_face()
-        ms.compute_normal_per_vertex()
+        config = resolve_bim_preprocessor_config(params)
+        run_bim_preprocessor_core(ms, config, face_count_before=f_before)
 
         ms.save_current_mesh(
             output_path,
@@ -340,6 +331,8 @@ class PyMeshLabBIMIsotropicOnly(RemeshAlgorithm):
 
     name = "bim_isotropic_only"
     label = "纯 Isotropic（无细分，慢但更均匀）"
+    implementation_version = "2.0.0"
+    contract_version = "1"
 
     def run(self, input_path: str, output_path: str, params: dict[str, Any]) -> RemeshResult:
         ms = pymeshlab.MeshSet()
@@ -351,76 +344,17 @@ class PyMeshLabBIMIsotropicOnly(RemeshAlgorithm):
         v_before = ms.current_mesh().vertex_number()
         f_before = ms.current_mesh().face_number()
 
-        target_edge_length = _clamp_float(float(params.get("target_edge_length", 0.1)), 0.001, 1e6)
-        clean_tolerance    = _clamp_float(float(params.get("clean_tolerance", 0.005)), 0.0, 1e6)
-        use_decimation     = bool(params.get("use_decimation", True))
-        decimation_ratio   = _clamp_float(float(params.get("decimation_ratio", 0.5)), 0.05, 0.95)
-        adaptive           = bool(params.get("adaptive", True))
-        crease_angle       = _clamp_float(float(params.get("crease_angle", 60.0)), 0.0, 90.0)
-        isotropic_iters    = _clamp_int(int(params.get("isotropic_iterations", 15)), 1, 20)
-        surface_dist_ratio = _clamp_float(float(params.get("surface_dist_ratio", 0.5)), 0.01, 2.0)
-        sliver_merge_ratio = _clamp_float(float(params.get("sliver_merge_ratio", 0.03)), 0.0, 0.1)
-        sliver_relax_checksurfdist = bool(params.get("sliver_relax_checksurfdist", True))
-
-        # ── 阶段 0：几何清理 + 非流形修复 ─────────────────────────────
-        _common_clean_and_repair(ms, clean_tolerance)
-
-        # ── 阶段 1：QEM 瘦身 ────────────────────────────────────────────
-        if use_decimation:
-            target_faces = max(100, int(f_before * decimation_ratio))
-            ms.meshing_decimation_quadric_edge_collapse(
-                targetfacenum=target_faces,
-                preserveboundary=True,
-                preservenormal=True,
-                preservetopology=True,
-                optimalplacement=True,
-            )
-
-        # ── 阶段 2：非流形修复（QEM 后）────────────────────────────────
-        _repair_after_qem(ms)
-
-        # ── 阶段 3：全功能 Isotropic 重网格化 ──────────────────────────
-        # 无细分预处理：Isotropic 的 split 操作每轮将 >1.33t 的边一分为二，
-        # 迭代 log(L_max / t) / log(1.33) 轮后方可收敛。对 BIM 模型 10 轮通常足够。
-        remesh_kwargs: dict[str, Any] = {
-            "iterations":    isotropic_iters,
-            "adaptive":      adaptive,
-            "featuredeg":    crease_angle,
-            "checksurfdist": True,
-            "collapseflag":  True,
-            "splitflag":     True,
-            "swapflag":      True,
-            "smoothflag":    True,
-            "reprojectflag": True,
-        }
-        remesh_kwargs["targetlen"]   = _abs_value(target_edge_length)
-        remesh_kwargs["maxsurfdist"] = _abs_value(target_edge_length * surface_dist_ratio)
-        ms.meshing_isotropic_explicit_remeshing(**remesh_kwargs)
-
-        # ── 薄片三角形后处理 ─────────────────────────────────────────────
-        sliver_merge_threshold = target_edge_length * sliver_merge_ratio
-        if clean_tolerance > 0:
-            sliver_merge_threshold = min(sliver_merge_threshold, clean_tolerance)
-        ms.meshing_merge_close_vertices(threshold=_abs_value(sliver_merge_threshold))
-        ms.meshing_remove_null_faces()
-        ms.meshing_remove_unreferenced_vertices()
-        ms.meshing_isotropic_explicit_remeshing(
-            iterations=3,
-            adaptive=False,
-            featuredeg=crease_angle,
-            checksurfdist=sliver_relax_checksurfdist,
-            collapseflag=False,
-            splitflag=False,
-            swapflag=True,
-            smoothflag=True,
-            reprojectflag=True,
-            targetlen=_abs_value(target_edge_length),
-            maxsurfdist=_abs_value(target_edge_length * surface_dist_ratio),
-        )
-
-        # ── 法线重算 ────────────────────────────────────────────────────
-        ms.compute_normal_per_face()
-        ms.compute_normal_per_vertex()
+        # Keep this algorithm's public profile, but execute it through the same
+        # core used by the legacy PLY and component-aware analysis-mesh paths.
+        shared_params = dict(params)
+        shared_params.update({
+            "subdivision_iterations": 0,
+            "use_isotropic": True,
+            "isotropic_collapse": True,
+        })
+        shared_params.setdefault("isotropic_iterations", 15)
+        config = resolve_bim_preprocessor_config(shared_params)
+        run_bim_preprocessor_core(ms, config, face_count_before=f_before)
 
         ms.save_current_mesh(
             output_path,

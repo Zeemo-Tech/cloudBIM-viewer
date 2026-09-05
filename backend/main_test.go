@@ -167,12 +167,16 @@ func TestC2MProfileAndServiceParams(t *testing.T) {
 	if got := normalizeC2MProfile(" Reference "); got != "reference" {
 		t.Fatalf("reference profile = %q", got)
 	}
-	params := c2mServiceParams(c2mRequest{Profile: "reference", VoxelSize: 0.01, ToleranceLimit: 0.02})
+	disabled := false
+	params := c2mServiceParams(c2mRequest{Profile: "reference", VoxelSize: 0.01, DownsampleEnabled: &disabled, ToleranceLimit: 0.02})
 	if params["profile"] != "reference" {
 		t.Fatalf("service profile = %#v", params["profile"])
 	}
 	if params["voxel_size"] != 0.01 || params["tolerance_limit"] != 0.02 {
 		t.Fatalf("service params = %#v", params)
+	}
+	if params["downsample_enabled"] != false {
+		t.Fatalf("downsample flag = %#v", params["downsample_enabled"])
 	}
 	if got, err := resolveC2MResultProfile("", ""); err != nil || got != "quick" {
 		t.Fatalf("legacy quick result profile = %q, %v", got, err)
@@ -251,6 +255,9 @@ func TestC2MResultDataPreservesMetadataAndDefaultsLegacyProfile(t *testing.T) {
 	if decoded.Approximation["voxelSize"] != 0.05 {
 		t.Fatalf("legacy approximation = %+v", decoded.Approximation)
 	}
+	if decoded.Approximation["downsampleEnabled"] != true {
+		t.Fatalf("legacy downsample metadata = %+v", decoded.Approximation)
+	}
 	if decoded.Stats.MeanAbs != 0.03 || decoded.Stats.RMSE != 0.04 || decoded.Stats.P95Abs != 0.16 || decoded.Stats.WithinToleranceRatio != 0.8 {
 		t.Fatalf("result stats = %+v", decoded.Stats)
 	}
@@ -286,13 +293,27 @@ func TestNormalizeC2MRequestRejectsToleranceOutsideColorRange(t *testing.T) {
 	}
 }
 
-func TestNormalizeC2MRequestUsesCentimeterScaleHistogramDefault(t *testing.T) {
+func TestNormalizeC2MRequestUsesRebarDefaultsAndLegacyDownsampling(t *testing.T) {
 	req := c2mRequest{}
 	if err := normalizeC2MRequest(&req); err != nil {
 		t.Fatal(err)
 	}
-	if req.MaxHistogramDistance != 0.10 || req.HistogramBins != 50 {
-		t.Fatalf("histogram defaults = range %v bins %d", req.MaxHistogramDistance, req.HistogramBins)
+	if req.MaxColormapDistance != 0.03 || req.MaxHistogramDistance != 0.03 || req.HistogramBins != 60 || req.ToleranceLimit != 0.01 {
+		t.Fatalf("visualization defaults = %+v", req)
+	}
+	if req.DownsampleEnabled == nil || !*req.DownsampleEnabled {
+		t.Fatalf("legacy downsample default = %#v", req.DownsampleEnabled)
+	}
+}
+
+func TestNormalizeC2MRequestPreservesDisabledDownsamplingAndOneMillimeterVoxel(t *testing.T) {
+	disabled := false
+	req := c2mRequest{VoxelSize: 0.001, DownsampleEnabled: &disabled}
+	if err := normalizeC2MRequest(&req); err != nil {
+		t.Fatal(err)
+	}
+	if req.DownsampleEnabled == nil || *req.DownsampleEnabled || req.VoxelSize != 0.001 {
+		t.Fatalf("normalized request = %+v", req)
 	}
 }
 
@@ -316,6 +337,14 @@ func TestC2MInputFingerprintChangesWithInputs(t *testing.T) {
 	}
 	if first == second {
 		t.Fatal("alignment matrix change did not invalidate fingerprint")
+	}
+	withRemeshV1, err := c2mInputFingerprint("[1,0,0,0]", scanPath, meshPath, "remesh-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withRemeshV2, err := c2mInputFingerprint("[1,0,0,0]", scanPath, meshPath, "remesh-v2")
+	if err != nil || withRemeshV1 == withRemeshV2 {
+		t.Fatalf("remesh identity did not invalidate fingerprint: %q %q %v", withRemeshV1, withRemeshV2, err)
 	}
 }
 
@@ -641,19 +670,127 @@ func TestMeshRemeshSummaryPreservesTaskState(t *testing.T) {
 	}
 }
 
-func TestMeshRemeshSummaryPrefersReadyArtifact(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("ply"), 0644); err != nil {
+func verifiedLegacyRemeshAsset(t *testing.T, dir string) Asset {
+	t.Helper()
+	modelPath := filepath.Join(dir, "model.glb")
+	meshPath := filepath.Join(dir, "mesh_remesh.ply")
+	if err := os.WriteFile(modelPath, []byte("model"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	asset := Asset{
-		ID:                 9,
-		Type:               "bim",
-		Status:             "ready",
-		Dir:                dir,
-		RemeshVertexBefore: 20,
-		RemeshVertexAfter:  10,
+	if err := os.WriteFile(meshPath, []byte("ply"), 0644); err != nil {
+		t.Fatal(err)
 	}
+	parameters := map[string]any{"target_edge_length": 0.01}
+	paramsJSON, err := canonicalJSON(parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputHash, err := fileContentHash(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentHash, err := fileContentHash(meshPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := legacyRemeshFingerprint(inputHash, "bim_preprocessor", "2.0.0", "1", parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Asset{
+		Type: "bim", Status: "ready", Dir: dir, RemeshStatus: "succeeded",
+		RemeshAlgorithm: "bim_preprocessor", RemeshParamsJSON: paramsJSON,
+		RemeshInputHash: inputHash, RemeshImplementationVersion: "2.0.0",
+		RemeshContractVersion: "1", RemeshFingerprint: fingerprint,
+		RemeshContentHash: contentHash,
+	}
+}
+
+func TestLegacyRemeshFingerprintTracksInputsVersionAndParameters(t *testing.T) {
+	base := map[string]any{"target_edge_length": 0.01, "adaptive": false}
+	fingerprint, err := legacyRemeshFingerprint(strings.Repeat("a", 64), "bim_preprocessor", "2.0.0", "1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reordered := map[string]any{"adaptive": false, "target_edge_length": 0.01}
+	same, err := legacyRemeshFingerprint(strings.Repeat("a", 64), "bim_preprocessor", "2.0.0", "1", reordered)
+	if err != nil || same != fingerprint {
+		t.Fatalf("canonical fingerprint mismatch: %q %q %v", fingerprint, same, err)
+	}
+	for name, candidate := range map[string]struct {
+		input, version string
+		parameters     map[string]any
+	}{
+		"input":      {input: strings.Repeat("b", 64), version: "2.0.0", parameters: base},
+		"version":    {input: strings.Repeat("a", 64), version: "2.0.1", parameters: base},
+		"parameters": {input: strings.Repeat("a", 64), version: "2.0.0", parameters: map[string]any{"target_edge_length": 0.02, "adaptive": false}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := legacyRemeshFingerprint(candidate.input, "bim_preprocessor", candidate.version, "1", candidate.parameters)
+			if err != nil || got == fingerprint {
+				t.Fatalf("fingerprint did not change: %q %v", got, err)
+			}
+		})
+	}
+}
+
+func TestEffectiveLegacyRemeshParametersAreCanonicalAndWithinDescriptorBounds(t *testing.T) {
+	minTarget, maxTarget := 0.001, 1.0
+	minIterations, maxIterations := 1.0, 20.0
+	descriptor := legacyRemeshAlgorithmDescriptor{Params: []legacyRemeshAlgorithmParam{
+		{Key: "target_edge_length", Type: "float", Default: 0.1, Min: &minTarget, Max: &maxTarget},
+		{Key: "isotropic_iterations", Type: "int", Default: float64(5), Min: &minIterations, Max: &maxIterations},
+		{Key: "adaptive", Type: "bool", Default: true},
+	}}
+	effective, canonical, err := effectiveLegacyRemeshParameters(descriptor, `{"target_edge_length":0.01}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective["target_edge_length"] != 0.01 || effective["isotropic_iterations"] != float64(5) || effective["adaptive"] != true {
+		t.Fatalf("effective parameters = %#v", effective)
+	}
+	if canonical != `{"adaptive":true,"isotropic_iterations":5,"target_edge_length":0.01}` {
+		t.Fatalf("canonical parameters = %s", canonical)
+	}
+	for name, raw := range map[string]string{
+		"below minimum":  `{"target_edge_length":0.0001}`,
+		"above maximum":  `{"target_edge_length":2}`,
+		"fractional int": `{"isotropic_iterations":2.5}`,
+		"unknown":        `{"not_a_parameter":1}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := effectiveLegacyRemeshParameters(descriptor, raw); err == nil {
+				t.Fatalf("invalid parameters were accepted: %s", raw)
+			}
+		})
+	}
+}
+
+func TestStoredLegacyRemeshArtifactRejectsMissingIdentityAndTampering(t *testing.T) {
+	dir := t.TempDir()
+	asset := verifiedLegacyRemeshAsset(t, dir)
+	if err := validateStoredLegacyRemeshArtifact(asset, true); err != nil {
+		t.Fatalf("valid artifact rejected: %v", err)
+	}
+	withoutIdentity := asset
+	withoutIdentity.RemeshFingerprint = ""
+	if err := validateStoredLegacyRemeshArtifact(withoutIdentity, false); err == nil {
+		t.Fatal("identity-less legacy artifact was accepted")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("tampered"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateStoredLegacyRemeshArtifact(asset, true); err == nil {
+		t.Fatal("tampered remesh artifact was accepted")
+	}
+}
+
+func TestMeshRemeshSummaryPrefersReadyArtifact(t *testing.T) {
+	dir := t.TempDir()
+	asset := verifiedLegacyRemeshAsset(t, dir)
+	asset.ID = 9
+	asset.RemeshVertexBefore = 20
+	asset.RemeshVertexAfter = 10
 	summary := meshRemeshSummary(asset)
 	if summary.Status != "succeeded" || summary.ResultFileID == nil || *summary.ResultFileID != asset.ID {
 		t.Fatalf("artifact was not treated as succeeded: %+v", summary)
@@ -765,10 +902,10 @@ func TestServeAssetFileHTTPValidatorsAndRange(t *testing.T) {
 
 func TestLegacyAssetRepresentations(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("ply"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	bim := legacyAssetRepresentations(Asset{ID: 4, Type: "bim", Status: "ready", SourceSize: 42, Dir: dir, RemeshStatus: "succeeded"})
+	asset := verifiedLegacyRemeshAsset(t, dir)
+	asset.ID = 4
+	asset.SourceSize = 42
+	bim := legacyAssetRepresentations(asset)
 	if len(bim) != 3 {
 		t.Fatalf("BIM representations = %+v", bim)
 	}

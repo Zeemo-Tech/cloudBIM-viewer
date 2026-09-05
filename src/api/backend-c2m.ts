@@ -8,6 +8,7 @@ export type C2MMetricDirection =
 
 export interface C2MApproximation {
   voxelSize?: number
+  downsampleEnabled?: boolean
   [key: string]: number | string | boolean | null | undefined
 }
 
@@ -83,6 +84,7 @@ export interface C2MParams {
   modelBimFileId: number
   profile: C2MProfile
   voxelSize?: number
+  downsampleEnabled?: boolean
   maxColormapDistance?: number
   maxHistogramDistance?: number
   histogramBins?: number

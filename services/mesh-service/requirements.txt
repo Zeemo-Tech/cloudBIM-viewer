@@ -8,5 +8,6 @@ open3d==0.18.0
 laspy[lazrs,laszip]==2.5.4
 matplotlib==3.9.3
 scipy==1.13.1
+threadpoolctl==3.6.0
 ifcopenshell==0.8.5
 networkx==3.4.2

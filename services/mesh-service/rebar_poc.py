@@ -647,13 +647,63 @@ def normalize_rebar_input_options(
     return {"maxInputPoints": max_points, "voxelSize": voxel_size}
 
 
-def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | None,
+def _check_decoded_budget(path, file_format, limit=2_000_000):
+    """Parse declarations, never comments, before whole-file Open3D decode."""
+    count = None
+    with Path(path).open('rb') as stream:
+        consumed = 0
+        while consumed < 1024 * 1024:
+            line = stream.readline(65537)
+            consumed += len(line)
+            if not line or len(line) > 65536:
+                break
+            fields = line.decode('ascii', errors='replace').strip().split()
+            if not fields:
+                continue
+            if (file_format == 'ply' and fields[0] == 'comment') or fields[0].startswith('#'):
+                continue
+            declaration = fields[:2] == ['element', 'vertex'] if file_format == 'ply' else fields[0].upper() == 'POINTS'
+            if declaration:
+                position = 2 if file_format == 'ply' else 1
+                if count is not None or len(fields) != position + 1:
+                    raise PointCloudInputError('duplicate or malformed point-count declaration')
+                try: count = int(fields[position])
+                except ValueError as exc: raise PointCloudInputError('invalid point count') from exc
+                if not 3 <= count <= limit:
+                    raise PointCloudInputError('V5 PLY/PCD decoder budget exceeded; use LAS/LAZ')
+            terminal = fields == ['end_header'] if file_format == 'ply' else fields[0].upper() == 'DATA'
+            if terminal and count is not None:
+                return
+    raise PointCloudInputError('point-count header unavailable within V5 header budget')
+
+
+def compute_rebar_artifact(**kwargs):
+    """Pin source identity across bootstrap and full-source streaming passes."""
+    path = resolve_point_cloud_path(kwargs['point_cloud_path'], storage_root=kwargs['storage_root'], point_cloud_format=kwargs.get('point_cloud_format'))
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        def identity(value):
+            return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+        original = identity(os.fstat(descriptor))
+        def verify_source():
+            if identity(os.fstat(descriptor)) != original or identity(path.stat()) != original or path.is_symlink():
+                raise PointCloudInputError('source changed during analysis; result was not published')
+        verify_source()
+        kwargs['point_cloud_path'] = str(path)
+        kwargs['point_cloud_format'] = (kwargs.get('point_cloud_format') or path.suffix).lower().lstrip('.')
+        return _compute_rebar_artifact(**kwargs, _stable_reader=f'/proc/self/fd/{descriptor}', _verify_source=verify_source)
+    finally:
+        os.close(descriptor)
+
+
+def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | None,
                            source_tileset_path: str, output_directory: str,
                            artifact_version: str, algorithm: str,
                            input_options: Mapping[str, Any] | None,
                            parameters: Mapping[str, Any] | None,
                            storage_root: str,
-                           bim_prior: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                           bim_prior: Mapping[str, Any] | None = None,
+                           _stable_reader=None, _verify_source=lambda: None) -> dict[str, Any]:
     """Create a complete derived tileset in staging, then atomically publish it."""
     from algorithms import REBAR_ALGORITHM_REGISTRY
     from rebar_tiles import rewrite_pnts
@@ -662,8 +712,14 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
     voxel_size = opts["voxelSize"]
     algo = REBAR_ALGORITHM_REGISTRY.get(algorithm)
     effective = dict(algo.normalize_parameters(parameters))
+    if algorithm == "geometric-v5" and (point_cloud_format or Path(point_cloud_path).suffix.lstrip('.')).lower() in ('ply', 'pcd'):
+        # The existing Open3D decoder materializes these formats. Bound its
+        # advertised point count before decoding; LAS/LAZ remains streaming.
+        checked_path = resolve_point_cloud_path(point_cloud_path, storage_root=storage_root, point_cloud_format=point_cloud_format)
+        _check_decoded_budget(checked_path, point_cloud_format.lower())
     loaded = load_point_cloud(point_cloud_path, max_input_points=max_points, voxel_size=voxel_size,
                               storage_root=storage_root, point_cloud_format=point_cloud_format)
+    _verify_source()
     from algorithms.rebar_base import RebarInputContext
     from rebar_stream import iter_source_chunks, write_raw_labels
     prior = None
@@ -692,10 +748,10 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
             raise InvalidBimPriorError("BIM geometry or alignment is unusable") from exc
         prior["fingerprint"] = bim_prior.get("fingerprint", "")
     context = RebarInputContext(loaded.points,
-        lambda: iter_source_chunks(point_cloud_path, point_cloud_format), prior)
-    analyze_source = getattr(algo, "analyze_source", None)
-    analysis = analyze_source(context, effective) if analyze_source else algo.analyze(loaded.points, effective)
+        lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format), prior)
     output = _confined_output_directory(output_directory, storage_root)
+    if algorithm == 'geometric-v5' and output.exists():
+        raise PointCloudInputError('V5 artifact versions are immutable; use a new output directory')
     source_candidate = Path(source_tileset_path).expanduser()
     if source_candidate.is_symlink():
         raise StoragePathViolationError("source tileset path must not be a symlink")
@@ -715,7 +771,12 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
     # The mesh service commonly runs as container root while the Go backend
     # validates and serves the bind-mounted artifact as the host user.
     stage.chmod(0o2770)
+    analysis = None
     try:
+        analyze_source = getattr(algo, "analyze_source", None)
+        analysis = analyze_source(context, effective) if analyze_source else algo.analyze(loaded.points, effective)
+        is_v5 = algo.descriptor.get("analysisSchema") == "rebar-analysis-v2"
+        raw_summary = algo.export_sidecars(stage, analysis) if is_v5 else None
         shutil.copytree(source_dir, stage / "tiles", dirs_exist_ok=True)
         tile_root = stage / "tiles"
         total = 0
@@ -755,7 +816,18 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
                             "intersectionPointCount": intersection_total})
             if algo.descriptor.get("visualization", {}).get("schema") == "rebar-visualization-v2":
                 summary["sceneClassCounts"]["fixture_formwork"] = int(scene_counts[4])
-        if algo.descriptor.get("capabilities", {}).get("rawLabels", False):
+        if is_v5:
+            summary.pop("intersectionPointCount", None)
+            summary["intersectionCount"] = len(analysis.data.get("intersections", []))
+            summary["instanceCount"] = len(analysis.data.get("instances", []))
+            summary["rawSource"] = raw_summary
+            summary["source"] = raw_summary
+            summary["display"] = {"totalPointCount": total, "rebarPointCount": rebar_total,
+                "sceneClassCounts": dict(zip(("unknown", "table", "rebar", "noise", "fixture"), map(int, scene_counts)))}
+            summary["sceneClassCounts"] = summary["display"]["sceneClassCounts"]
+            summary["rawLabelsPath"] = "labels/manifest.json"
+            summary["featuresPath"] = "features/manifest.json"
+        elif algo.descriptor.get("capabilities", {}).get("rawLabels", False):
             summary["rawSource"] = write_raw_labels(stage / "labels", context, algo, analysis)
             summary["rawLabelsPath"] = "labels/manifest.json"
         if prior is not None:
@@ -768,7 +840,7 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
                 "id": algo.descriptor["id"],
                 "version": algo.descriptor["version"],
             },
-            "analysisSchema": "rebar-analysis-v1",
+            "analysisSchema": algo.descriptor.get("analysisSchema", "rebar-analysis-v1"),
             "capabilities": algo.descriptor["capabilities"],
             "inputOptions": opts,
             "effectiveParameters": effective,
@@ -780,7 +852,7 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
         # implementation-specific analysis belongs in the separately served
         # result document and is covered by the artifact hash below.
         result = {
-            "schema": "rebar-analysis-v1",
+            "schema": artifact_metadata["analysisSchema"],
             **artifact_metadata,
             "input": loaded.report,
             "analysis": analysis.data,
@@ -790,16 +862,19 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
         for artifact in sorted((p for p in stage.rglob("*") if p.is_file()), key=lambda p: p.relative_to(stage).as_posix()):
             hasher.update(artifact.relative_to(stage).as_posix().encode("utf-8"))
             hasher.update(b"\0")
-            hasher.update(artifact.read_bytes())
+            with artifact.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(block)
         digest = hasher.hexdigest()
         manifest = {
-            "schema": "rebar-artifact-manifest-v1",
+            "schema": "rebar-artifact-manifest-v2" if is_v5 else "rebar-artifact-manifest-v1",
             **artifact_metadata,
             "resultPath": "result.json",
             "tilesetPath": "tiles/tileset.json",
             "manifestPath": "manifest.json",
             "contentHash": digest,
             "byteSize": 0,
+            **({"featuresPath": "features/manifest.json"} if is_v5 else {}),
         }
         # Include the manifest itself in byteSize; repeat until the encoded
         # decimal field reaches a stable length.
@@ -812,6 +887,12 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
         # files are now owned by the container user. The shared setgid group
         # lets the separate Go process validate, serve, and retire the tree.
         _publish_shared_artifact_permissions(stage)
+        _verify_source()
+        if is_v5:
+            if output.exists():
+                raise PointCloudInputError('V5 artifact version already exists')
+            stage.rename(output)
+            return manifest
         # Publish by rename.  A prior consumable artifact is retained until the
         # replacement is fully built; restore it if the final rename fails.
         backup: Path | None = None
@@ -829,6 +910,9 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
     except Exception:
         shutil.rmtree(stage, ignore_errors=True)
         raise
+    finally:
+        if analysis is not None and hasattr(algo, "close"):
+            algo.close(analysis)
 
 
 def write_json_atomically(

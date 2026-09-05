@@ -205,18 +205,20 @@ function handlePointcloudColorStats(stats: {
 
 function handleRebarResult(result: RebarSegmentationResult | null) {
   rebarResult.value = result
+  rebarInspection.value = null
   if (!result && String(pointcloudControls.colorMode).startsWith('rebar-')) {
     pointcloudControls.colorMode = 'rgb'
   }
 }
 
 function handleRebarMode(mode: PointcloudColorMode) {
+  if (pointcloudControls.colorMode === mode) return
   pointcloudControls.colorMode = mode
-  pointcloudPanelRef.value?.setPointcloudColorDisplay?.(
-    mode,
-    pointcloudColorRamp.value,
-    pointcloudColorRange.value,
-  )
+}
+
+function handleRebarIntersectionSelect(id: number | null) {
+  if (!rebarInspection.value || rebarInspection.value.selectedIntersectionId === id) return
+  rebarInspection.value = { ...rebarInspection.value, selectedIntersectionId: id }
 }
 
 function togglePointcloudEdl() {
@@ -413,6 +415,7 @@ watch(
     analysisMode.value = 'none'
     pointcloudIntensityHistogram.value = []
     rebarResult.value = null
+    rebarInspection.value = null
     void loadMeasurements()
   },
 )
@@ -481,11 +484,13 @@ watch(
         @analysis-delete="removeAnalysisById($event.kind, $event.id)"
         @analysis-mode-exit="handleAnalysisModeExit"
         @pointcloud-source-fallback="handleRebarMode('rgb')"
+        @rebar-intersection-select="handleRebarIntersectionSelect"
       />
 
       <RebarSegmentationPanel
         :asset-id="assetId"
         :mode="rebarPanelMode"
+        :selected-intersection-id="rebarInspection?.selectedIntersectionId ?? null"
         @result-change="handleRebarResult"
         @mode-change="handleRebarMode"
         @inspection-change="rebarInspection = $event"

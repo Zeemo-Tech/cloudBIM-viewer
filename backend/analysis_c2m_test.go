@@ -28,6 +28,23 @@ func TestAnalysisC2MFingerprint(t *testing.T) {
 		t.Fatal("algorithm implementation version omitted")
 	}
 }
+
+func TestAnalysisC2MFingerprintIncludesDownsamplingMode(t *testing.T) {
+	h := strings.Repeat("a", 64)
+	base := map[string]any{"voxelSize": 0.001, "downsampleEnabled": true}
+	disabled := map[string]any{"voxelSize": 0.001, "downsampleEnabled": false}
+	a, err := AnalysisC2MFingerprint(h, h, make([]float64, 16), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := AnalysisC2MFingerprint(h, h, make([]float64, 16), disabled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b {
+		t.Fatal("downsample mode omitted from analysis C2M fingerprint")
+	}
+}
 func TestAnalysisC2MPublish(t *testing.T) {
 	r := t.TempDir()
 	s := filepath.Join(r, "stage")

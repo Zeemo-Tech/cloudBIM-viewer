@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -10,10 +11,18 @@ from algorithms.rebar_geometric_v4 import (
     FLAG_AMBIGUOUS,
     FLAG_CROSSING,
     GeometricV4Adapter,
+    _Params,
     SCENE_FIXTURE,
     SCENE_REBAR,
+    SCENE_TABLE,
 )
-from algorithms.rebar_v4_geometry import LinePrimitive, trace_primitive_graph
+from algorithms.rebar_v4_geometry import (
+    LinePrimitive,
+    LocalFeatures,
+    PlaneModel,
+    trace_primitive_graph,
+)
+from algorithms.rebar_v4_postprocess import refine_v4_evidence
 from rebar_validation import run
 
 
@@ -52,6 +61,7 @@ class GeometricV4ProtocolTests(unittest.TestCase):
     def test_descriptor_exposes_fixture_and_legacy_palette(self):
         descriptor = self.algorithm.descriptor
         self.assertIn("experimental", descriptor["name"])
+        self.assertEqual(descriptor["version"], "5")
         self.assertTrue(descriptor["capabilities"]["rawLabels"])
         self.assertTrue(descriptor["capabilities"]["bimPrior"])
         self.assertFalse(descriptor["capabilities"]["confidence"])
@@ -97,6 +107,168 @@ class GeometricV4ProtocolTests(unittest.TestCase):
         self.assertEqual(int(attributes.scene_class[0]), SCENE_REBAR)
         self.assertEqual(int(attributes.rebar_instance[0]), 1)
         self.assertEqual(int(attributes.rebar_flags[0]), FLAG_CROSSING)
+
+    def test_table_and_fixture_points_have_no_rebar_labels_or_flags(self):
+        entries = [_entry(1, [[0, 0, 0], [1, 0, 0]], direction=1)]
+        fixture = {
+            "origin": [0.5, 0, 0], "normal": [0, 0, 1],
+            "axes": [[1, 0, 0], [0, 1, 0]], "halfExtent": [0.1, 0.1],
+            "distance": 0.01,
+        }
+        analysis = _analysis(entries, surfaces=[fixture])
+        analysis.data["algorithmDetails"]["plane"] = {
+            "origin": [0, 0, 0], "normal": [0, 0, 1],
+            "axes": [[1, 0, 0], [0, 1, 0]], "hull": [[-2, -2], [2, -2], [2, 2]],
+        }
+        attrs = self.algorithm.project_points(np.array([[0.1, 0, 0], [0.5, 0, 0]]), analysis)
+        for row in (0, 1):
+            self.assertEqual(int(attrs.rebar_class[row]), 0)
+            self.assertEqual(int(attrs.rebar_direction[row]), 0)
+            self.assertEqual(int(attrs.rebar_instance[row]), 0)
+            self.assertEqual(int(attrs.rebar_flags[row]), 0)
+        self.assertEqual(int(attrs.scene_class[0]), SCENE_TABLE)
+        self.assertEqual(int(attrs.scene_class[1]), SCENE_FIXTURE)
+
+
+    # The pure post-processing seam remains public enough for deterministic
+    # geometry tests while adapter tests above cover its output contract.
+    @staticmethod
+    def primitive(a, b, *, votes=12, score=1.0):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        return LinePrimitive(a, b, (b - a) / np.linalg.norm(b - a), 0.004, votes, score)
+
+    def test_postprocess_preserves_initial_fixture_evidence_without_support(self):
+        retained = {"origin": [0, 0, 0.04], "normal": [0, 0, 1], "axes": [[1, 0, 0], [0, 1, 0]], "halfExtent": [0.20, 0.02], "distance": 0.006, "supportCount": 20, "coverage": 0.75}
+        edge = {**retained, "halfExtent": [0.20, 0.004]}
+        result = refine_v4_evidence([retained, edge], [], np.empty((0, 3)), max_radius=0.012)
+        self.assertEqual(result.fixture_surfaces, (retained, edge))
+        self.assertEqual(result.diagnostics["fixtureCompleted"], 0)
+
+    def test_sparse_3d_diagonal_candidate_requires_observed_support(self):
+        # Deliberately diagonal only in the table plane: recovery must not be
+        # coupled to the world's Z axis.
+        diagonal = self.primitive([0, 0, 0.02], [0.08, 0.08, 0.02], votes=6, score=0.95)
+        support = np.linspace(diagonal.start, diagonal.end, 8)
+        accepted = refine_v4_evidence([], [], support, max_radius=0.012, recovery_candidates=[diagonal])
+        self.assertEqual(accepted.primitives, (diagonal,))
+        rejected = refine_v4_evidence([], [], support[:3], max_radius=0.012, recovery_candidates=[diagonal])
+        self.assertEqual(rejected.primitives, ())
+        self.assertEqual(rejected.diagnostics["diagonalRecoveryRejectedUnsupported"], 1)
+
+    def test_hook_join_requires_unique_locally_supported_continuation(self):
+        first = self.primitive([0, 0, 0], [0.10, 0, 0])
+        second = self.primitive([0.125, 0.01, 0], [0.20, 0.06, 0])
+        supported = np.vstack((np.linspace(first.start, first.end, 8), np.linspace(second.start, second.end, 8)))
+        unique = refine_v4_evidence([], [first, second], supported, max_radius=0.012)
+        self.assertEqual(unique.diagnostics["hookJoinCandidates"], 1)
+        self.assertEqual(unique.diagnostics["hookJoinAccepted"], 1)
+        trace_options = dict(join_gap=0.09, observed_join_gap=0.04, maximum_turn_degrees=32, minimum_instance_length=0.08)
+        self.assertEqual(
+            len(trace_primitive_graph(list(unique.primitives), join_overrides=unique.hook_join_overrides, **trace_options)),
+            1,
+        )
+        competing = self.primitive([0.125, -0.01, 0], [0.20, -0.06, 0])
+        blocked = refine_v4_evidence([], [first, second, competing], supported, max_radius=0.012)
+        self.assertEqual(blocked.diagnostics["hookJoinAccepted"], 0)
+        self.assertEqual(
+            len(trace_primitive_graph(list(blocked.primitives), join_overrides=blocked.hook_join_overrides, **trace_options)),
+            3,
+        )
+        crossing = self.primitive([0.10, -0.05, 0], [0.10, 0.05, 0])
+        blocked_crossing = refine_v4_evidence([], [first, second, crossing], supported, max_radius=0.012)
+        self.assertEqual(blocked_crossing.diagnostics["hookJoinAccepted"], 0)
+        self.assertEqual(
+            len(trace_primitive_graph(list(blocked_crossing.primitives), join_overrides=blocked_crossing.hook_join_overrides, **trace_options)),
+            3,
+        )
+
+    def test_hook_join_allows_a_unique_three_fragment_chain(self):
+        first = self.primitive([0, 0, 0], [0.10, 0, 0])
+        middle = self.primitive([0.12, 0.01, 0], [0.18, 0.07, 0])
+        last = self.primitive([0.19, 0.095, 0], [0.19, 0.18, 0])
+        support = np.vstack(
+            [np.linspace(item.start, item.end, 8) for item in (first, middle, last)]
+        )
+        refined = refine_v4_evidence([], [first, middle, last], support, max_radius=0.012)
+        self.assertEqual(refined.diagnostics["hookJoinCandidates"], 2)
+        self.assertEqual(refined.diagnostics["hookJoinAccepted"], 2)
+        traced = trace_primitive_graph(
+            list(refined.primitives),
+            join_gap=0.09,
+            observed_join_gap=0.04,
+            maximum_turn_degrees=32,
+            minimum_instance_length=0.08,
+            join_overrides=refined.hook_join_overrides,
+        )
+        self.assertEqual(len(traced), 1)
+
+    @staticmethod
+    def _features(points, tangent=(1, 0, 0), *, linearity=0.9, planarity=0.05):
+        points = np.asarray(points, float)
+        count = len(points)
+        return LocalFeatures(
+            points, np.arange(count), np.tile(tangent, (count, 1)),
+            np.full(count, linearity), np.full(count, planarity),
+            np.tile([0, 0, 1], (count, 1)), np.full(count, 12, np.int32),
+        )
+
+    @staticmethod
+    def _off_table_plane():
+        return PlaneModel(
+            np.zeros(3), np.array([0, 0, 1.0]), np.eye(3)[:2],
+            np.arange(3), np.array([[-2, -2], [2, -2], [2, 2], [-2, 2]]), 0.0,
+        )
+
+    def test_adapter_recovers_supported_sparse_3d_diagonal_candidate(self):
+        diagonal = self.primitive([0, 0, 0.03], [0.10, 0.10, 0.03], votes=6, score=0.95)
+        points = np.linspace(diagonal.start, diagonal.end, 8)
+        features = self._features(points, diagonal.tangent)
+        with patch("algorithms.rebar_geometric_v4.local_features", return_value=features), patch(
+            "algorithms.rebar_geometric_v4._detect_fixture_surfaces", return_value=[]
+        ), patch("algorithms.rebar_geometric_v4.line_primitives", side_effect=[[], [diagonal]]):
+            result = self.algorithm._analyze_points(
+                points, _Params(), self._off_table_plane()
+            )
+        self.assertEqual(len(result.data["instances"]), 1)
+        self.assertEqual(result.data["diagnostics"]["postprocess"]["diagonalRecoveryAccepted"], 1)
+
+    def test_adapter_deduplicates_recovery_against_existing_primitive(self):
+        diagonal = self.primitive([0, 0, 0.03], [0.10, 0, 0.13], votes=8, score=0.95)
+        points = np.linspace(diagonal.start, diagonal.end, 8)
+        features = self._features(points, diagonal.tangent)
+        with patch("algorithms.rebar_geometric_v4.local_features", return_value=features), patch(
+            "algorithms.rebar_geometric_v4._detect_fixture_surfaces", return_value=[]
+        ), patch("algorithms.rebar_geometric_v4.line_primitives", side_effect=[[diagonal], [diagonal]]):
+            result = self.algorithm._analyze_points(points, _Params(), self._off_table_plane())
+        self.assertEqual(len(result.data["instances"]), 1)
+        self.assertEqual(result.data["diagnostics"]["postprocess"]["diagonalRecoveryRejectedDuplicate"], 1)
+
+    def test_adapter_hook_override_joins_only_unique_supported_continuation(self):
+        first = self.primitive([0, 0, 0.03], [0.10, 0, 0.03])
+        second = self.primitive([0.125, 0.01, 0.03], [0.20, 0.06, 0.03])
+        points = np.vstack((np.linspace(first.start, first.end, 8), np.linspace(second.start, second.end, 8)))
+        features = self._features(points)
+        with patch("algorithms.rebar_geometric_v4.local_features", return_value=features), patch(
+            "algorithms.rebar_geometric_v4._detect_fixture_surfaces", return_value=[]
+        ), patch("algorithms.rebar_geometric_v4.line_primitives", side_effect=[[first, second], []]):
+            result = self.algorithm._analyze_points(points, _Params(), self._off_table_plane())
+        self.assertEqual(len(result.data["instances"]), 1)
+
+    def test_adapter_fixture_completion_suppresses_edge_primitive_not_adjacent_cylinder(self):
+        surface = {"origin": [0.1, 0, 0.03], "normal": [0, 0, 1], "axes": [[1, 0, 0], [0, 1, 0]], "halfExtent": [0.11, 0.02], "distance": 0.006, "supportCount": 30, "coverage": 0.9}
+        edge = self.primitive([0, 0.032, 0.03], [0.20, 0.032, 0.03])
+        adjacent = self.primitive([0, 0.070, 0.03], [0.20, 0.070, 0.03])
+        plane_support = np.array(
+            [[x, y, .03] for x in np.linspace(0, .20, 4) for y in (.022, .027, .032)]
+        )
+        points = np.vstack((plane_support, np.linspace(adjacent.start, adjacent.end, 8)))
+        features = self._features(points, linearity=0.1, planarity=0.9)
+        with patch("algorithms.rebar_geometric_v4.local_features", return_value=features), patch(
+            "algorithms.rebar_geometric_v4._detect_fixture_surfaces", return_value=[surface]
+        ), patch("algorithms.rebar_geometric_v4.line_primitives", side_effect=[[edge, adjacent], []]):
+            result = self.algorithm._analyze_points(points, _Params(), self._off_table_plane())
+        self.assertEqual(len(result.data["instances"]), 1)
+        self.assertEqual(result.data["diagnostics"]["postprocess"]["fixtureCompleted"], 1)
 
     def test_all_table_source_returns_an_empty_valid_analysis(self):
         xy = np.stack(

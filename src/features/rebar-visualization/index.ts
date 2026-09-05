@@ -16,11 +16,19 @@ const hex = /^#[0-9a-f]{6}$/i
 export function validateVisualization(value: unknown): RebarVisualizationMetadata | null {
   if (!value || typeof value !== 'object') return null
   const v = value as Partial<RebarVisualizationMetadata>
-  if (!['rebar-visualization-v1', 'rebar-visualization-v2'].includes(v.schema ?? '') || v.defaultMode !== 'rebar-class' ||
+  if (!['rebar-visualization-v1', 'rebar-visualization-v2', 'rebar-visualization-v3'].includes(v.schema ?? '') || v.defaultMode !== 'rebar-class' ||
     v.instanceStrategy !== 'golden-angle-v1' || !v.colors || typeof v.colors !== 'object') return null
-  for (const key of Object.keys(V3_COLORS)) if (!hex.test((v.colors as Record<string, string>)[key] ?? '')) return null
+  const requiredColors = v.schema === 'rebar-visualization-v3'
+    ? ['unknown', 'table', 'rebar', 'noise', 'fixture', 'directionA', 'directionB']
+    : Object.keys(V3_COLORS)
+  for (const key of requiredColors) if (!hex.test((v.colors as Record<string, string>)[key] ?? '')) return null
   if (!v.attributes || !v.values) return null
-  if (v.schema === 'rebar-visualization-v2') {
+  if (v.schema === 'rebar-visualization-v3') {
+    const scenes = v.values.sceneClass as Record<string, unknown> | undefined
+    if (!scenes || scenes.unknown !== 0 || scenes.table !== 1 || scenes.rebar !== 2 || scenes.noise !== 3 || scenes.fixture !== 4) return null
+    if (v.values.rebarClass && (v.values.rebarClass as Record<string, unknown>).nonRebar !== 0) return null
+    for (const color of Object.values(v.colors)) if (!hex.test(color)) return null
+  } else if (v.schema === 'rebar-visualization-v2') {
     const scenes = v.values.sceneClass as Record<string, unknown> | undefined
     if (!scenes || scenes.table !== 1 || scenes.rebar !== 2 || (scenes.fixture_formwork ?? scenes.fixture) !== 4) return null
     for (const color of Object.values(v.colors)) if (!hex.test(color)) return null
@@ -73,7 +81,7 @@ export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
   }
 
   let sceneColors: Map<number, Rgb> | null = null
-  if (metadata.schema === 'rebar-visualization-v2') {
+  if (metadata.schema === 'rebar-visualization-v2' || metadata.schema === 'rebar-visualization-v3') {
     const names = metadata.values.sceneClass as Record<string, number>
     sceneColors = new Map()
     for (const name in names) {
@@ -84,12 +92,14 @@ export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
 
   return (mode: RebarVisualizationMode, point: RebarPoint): Rgb => {
     if (sceneColors) {
-      // V2: bit 1 is a crossing and wins if both bits are present; bit 2 only
-      // accents uncertain ownership in instance mode, preserving category/direction meaning.
+      // V5 does not assign intersection points. Bit 1 is instance ambiguity;
+      // bit 0 is deliberately ignored because it is never emitted by V5.
       const scene = sceneColors.get(point.sceneClass) ?? clutter
       if (point.sceneClass !== 2) return mode === 'rebar-class' ? scene : inactive
-      if ((point.flags & 1) !== 0 || point.direction === 65535) return intersection
-      const ambiguous = (point.flags & 2) !== 0 || point.instance === 0xffffffff
+      if (metadata.schema === 'rebar-visualization-v2' && ((point.flags & 1) !== 0 || point.direction === 65535)) return intersection
+      const ambiguous = metadata.schema === 'rebar-visualization-v3'
+        ? (point.flags & 2) !== 0 || point.instance === 0
+        : (point.flags & 2) !== 0 || point.instance === 0xffffffff
       if (mode === 'rebar-instance') {
         if (ambiguous) return ambiguity
         if (point.instance > 0) return instanceColor(point.instance)
@@ -119,6 +129,17 @@ export function legendItems(mode: RebarVisualizationMode, visualization: unknown
   if (!metadata) return []
   const c = { ...V3_COLORS, ...metadata.colors }
   const item = (label: string, color: keyof typeof V3_COLORS) => ({ label, color: hexRgb(c[color]) })
+  if (metadata.schema === 'rebar-visualization-v3') {
+    const scenes = metadata.values.sceneClass as Record<string, number>
+    const labels: Record<string, string> = { unknown: '未知', table: '台面', rebar: '钢筋', noise: '噪声', fixture: '夹具／围挡' }
+    const entries = Object.entries(scenes).sort((a, b) => a[1] - b[1]).map(([key, id]) => ({
+      label: labels[key] ?? key,
+      color: hexRgb(metadata.colors[key] ?? V3_COLORS.clutter),
+    }))
+    if (mode === 'rebar-class') return entries
+    if (mode === 'rebar-direction') return [item('方向 A', 'directionA'), item('方向 B', 'directionB'), { label: '非钢筋', color: hexRgb(INACTIVE_COLOR) }]
+    return [item(`单根实例（${summary?.instanceCount ?? 0}）`, 'rebar'), { label: '归属待确认', color: hexRgb(metadata.colors.ambiguity ?? AMBIGUITY_COLOR) }, { label: '非钢筋', color: hexRgb(INACTIVE_COLOR) }]
+  }
   if (metadata.schema === 'rebar-visualization-v2') {
     const scenes = metadata.values.sceneClass as Record<string, number>
     const labels: Record<string, string> = { clutter: '其他', table: '台面', rebar: '钢筋', noise: '噪声', statisticalNoise: '噪声', fixture: '夹具／围挡', fixture_formwork: '夹具／围挡' }

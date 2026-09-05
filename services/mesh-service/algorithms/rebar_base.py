@@ -20,6 +20,7 @@ class UnknownRebarAlgorithmError(RebarAlgorithmError):
 class RebarAnalysis:
     """Canonical result plus implementation-private details."""
     data: dict[str, Any]
+    resources: Any = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ class RebarPointAttributes:
     rebar_instance: np.ndarray
     scene_class: np.ndarray | None = None
     rebar_flags: np.ndarray | None = None
+    class_confidence: np.ndarray | None = None
+    instance_confidence: np.ndarray | None = None
 
     def validate(self, count: int) -> None:
         for name, value, dtype in (("REBAR_CLASS", self.rebar_class, np.uint8),
@@ -52,6 +55,9 @@ class RebarPointAttributes:
         for name, value in (("SCENE_CLASS", self.scene_class), ("REBAR_FLAGS", self.rebar_flags)):
             if value is not None and (not isinstance(value, np.ndarray) or value.shape != (count,) or value.dtype != np.dtype(np.uint8)):
                 raise RebarAlgorithmError(f"{name} must be a uint8 array of length {count}")
+        for name, value in (("CLASS_CONFIDENCE", self.class_confidence), ("INSTANCE_CONFIDENCE", self.instance_confidence)):
+            if value is not None and (not isinstance(value, np.ndarray) or value.shape != (count,) or value.dtype != np.float32 or not np.isfinite(value).all() or np.any((value < 0) | (value > 1))):
+                raise RebarAlgorithmError(f"{name} must contain {count} finite float32 scores in [0,1]")
 
 
 class RebarAlgorithm(ABC):

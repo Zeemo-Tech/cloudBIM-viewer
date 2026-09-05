@@ -40,7 +40,7 @@ import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from
 import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
 import { createRebarColorizer, validateVisualization } from '@/features/rebar-visualization'
 import { buildRebarOverlay, disposeRebarOverlay } from '@/features/rebar-visualization/inspection'
-import type { RebarInspection } from '@/api/backend-rebar'
+import type { RebarInspection, RebarIntersection } from '@/api/backend-rebar'
 
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
 export type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
@@ -144,6 +144,7 @@ const emit = defineEmits<{
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
   (event: 'pointcloud-source-fallback'): void
+  (event: 'rebar-intersection-select', id: number | null): void
   (event: 'pointcloud-color-stats', payload: {
     histogram: number[]
     hasIntensity: boolean
@@ -199,20 +200,28 @@ let resizeObserver: ResizeObserver | null = null
 let bimRoot: THREE.Object3D | null = null
 let pointcloudWrapper: THREE.Group | null = null
 let rebarOverlay: THREE.Group | null = null
+const rebarIntersectionPick = ref<RebarIntersection | null>(null)
+let locallySelectedIntersectionId: number | null = null
+
+function inspectedRebar() {
+  if (!props.rebarInspection) return null
+  return { ...props.rebarInspection, selectedIntersectionId: locallySelectedIntersectionId ?? props.rebarInspection.selectedIntersectionId }
+}
 
 function updateRebarInspection(focus = false, refreshFixtureFilter = true) {
   disposeRebarOverlay(rebarOverlay)
   rebarOverlay = null
   if (!pointcloudWrapper) return
-  if (!props.rebarInspection) {
+  const inspection = inspectedRebar()
+  if (!inspection) {
     if (refreshFixtureFilter) refreshLoadedPointcloudMaterials()
     return
   }
-  rebarOverlay = buildRebarOverlay(props.rebarInspection)
+  rebarOverlay = buildRebarOverlay(inspection)
   pointcloudWrapper.add(rebarOverlay)
   if (refreshFixtureFilter) refreshLoadedPointcloudMaterials()
-  if (focus && props.rebarInspection.selectedId) {
-    const selected = props.rebarInspection.instances.find((item) => item.id === props.rebarInspection?.selectedId)
+  if (focus && inspection.selectedId) {
+    const selected = inspection.instances.find((item) => item.id === inspection.selectedId)
     if (selected) {
       pointcloudWrapper.updateMatrixWorld(true)
       const points = selected.observedSegments?.flatMap((segment) => segment.points) ?? selected.centerline
@@ -305,6 +314,7 @@ let analysisDistanceEndMarker: THREE.Sprite | null = null
 let analysisDistanceHoverMarker: THREE.Sprite | null = null
 let analysisPointerDown: { x: number; y: number } | null = null
 let c2mPointerDown: { x: number; y: number } | null = null
+let rebarPointerDown: { x: number; y: number } | null = null
 let measurementModelDiagonal = 10
 const archivedAnalysisGroups: THREE.Group[] = []
 const archivedAnalysisById = new Map<string, THREE.Group>()
@@ -1233,7 +1243,9 @@ function handleAnalysisPointerDown(event: PointerEvent) {
     c2mPointerDown = { x: event.clientX, y: event.clientY }
     return
   }
-  if (props.analysisMode === 'none' || event.button !== 0) return
+  if (event.button !== 0) return
+  rebarPointerDown = { x: event.clientX, y: event.clientY }
+  if (props.analysisMode === 'none') return
   analysisPointerDown = { x: event.clientX, y: event.clientY }
 }
 
@@ -1259,10 +1271,31 @@ function handleAnalysisPointerUp(event: PointerEvent) {
   }
   const pointerDown = analysisPointerDown
   analysisPointerDown = null
+  const rebarDown = rebarPointerDown
+  rebarPointerDown = null
+  if (rebarDown && Math.hypot(event.clientX - rebarDown.x, event.clientY - rebarDown.y) <= 6 && pickRebarIntersection(event)) return
   if (!pointerDown || props.analysisMode === 'none') return
   if (Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 6) return
   const hitPoint = pickAnalysisPoint(event)
   if (hitPoint) commitAnalysisPoint(hitPoint)
+}
+
+function pickRebarIntersection(event: PointerEvent) {
+  if (!camera || !rebarOverlay || !viewportEl.value || !props.rebarInspection) return false
+  const rect = viewportEl.value.getBoundingClientRect()
+  const pointer = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1)
+  const picker = raycaster ?? new THREE.Raycaster()
+  picker.setFromCamera(pointer, camera)
+  const hit = picker.intersectObject(rebarOverlay, true).find((entry) => typeof entry.object.userData.rebarIntersectionId === 'number')
+  if (!hit) return false
+  const id = hit.object.userData.rebarIntersectionId as number
+  const intersection = props.rebarInspection.intersections.find((item) => item.id === id)
+  if (!intersection) return false
+  locallySelectedIntersectionId = id
+  rebarIntersectionPick.value = intersection
+  updateRebarInspection(false, false)
+  emit('rebar-intersection-select', id)
+  return true
 }
 
 function pickC2MDeviation(event: PointerEvent) {
@@ -1319,6 +1352,8 @@ function cancelActiveAnalysis() {
 function cleanCurrentSceneModels() {
   disposeRebarOverlay(rebarOverlay)
   rebarOverlay = null
+  rebarIntersectionPick.value = null
+  locallySelectedIntersectionId = null
   if (bimRoot && scene) {
     scene.remove(bimRoot)
     bimRoot.traverse((c: any) => {
@@ -1568,6 +1603,8 @@ function attachPointcloudBatchAttributes(root: THREE.Object3D & { batchTable?: a
     { source: 'REBAR_FLAGS', target: 'rebar_flags', kind: 'uint8' },
     { source: 'REBAR_DIRECTION', target: 'rebar_direction', kind: 'uint16' },
     { source: 'REBAR_INSTANCE', target: 'rebar_instance', kind: 'uint32' },
+    { source: 'CLASS_CONFIDENCE', target: 'class_confidence', kind: 'float32' },
+    { source: 'INSTANCE_CONFIDENCE', target: 'instance_confidence', kind: 'float32' },
     { source: 'REBAR_CONFIDENCE', target: 'rebar_confidence', kind: 'uint8' },
   ] as const
   const values = definitions
@@ -1871,6 +1908,16 @@ function applyPointcloudColoring(obj: THREE.Points, material: THREE.PointsMateri
   material.color.set(0xffffff)
   material.vertexColors = Boolean(original)
   material.needsUpdate = true
+}
+
+function applyPointcloudSize(root: THREE.Object3D) {
+  root.traverse((obj: any) => {
+    if (!obj.isPoints || !obj.material) return
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material]
+    for (const material of materials) {
+      if (material) material.size = pointSize
+    }
+  })
 }
 
 // 核心：100% 对齐校准页点云材质（sizeAttenuation=false, 2.5px圆点，禁用色调映射）
@@ -2473,6 +2520,7 @@ function setWireframe(wireframe: boolean) {
 }
 
 function setPointColor(color: string | null) {
+  if (pointColorOverride === color) return
   pointColorOverride = color
   refreshLoadedPointcloudMaterials()
 }
@@ -2482,21 +2530,29 @@ function setPointcloudColorDisplay(
   ramp: PointcloudColorRamp,
   range: PointcloudColorRange,
 ) {
-  pointColorOverride = null
-  pointcloudColorMode = mode
-  pointcloudColorRamp = ramp
-  pointcloudColorRange = {
+  const nextRange = {
     min: THREE.MathUtils.clamp(range.min, 0, 1),
     max: THREE.MathUtils.clamp(range.max, 0, 1),
   }
+  if (
+    pointColorOverride === null &&
+    pointcloudColorMode === mode &&
+    pointcloudColorRamp === ramp &&
+    pointcloudColorRange.min === nextRange.min &&
+    pointcloudColorRange.max === nextRange.max
+  ) return
+  pointColorOverride = null
+  pointcloudColorMode = mode
+  pointcloudColorRamp = ramp
+  pointcloudColorRange = nextRange
   refreshLoadedPointcloudMaterials()
 }
 
 function setPointSize(size: number) {
-  pointSize = Math.min(5, Math.max(1, size))
-  if (tileset?.group) {
-    applyPointcloudMaterial(tileset.group)
-  }
+  const nextSize = Math.min(5, Math.max(1, size))
+  if (pointSize === nextSize) return
+  pointSize = nextSize
+  forEachLoadedPointcloudModel(applyPointcloudSize)
 }
 
 function setStandardView(view: StandardView) {
@@ -2637,7 +2693,7 @@ function getModelWorldPose() {
 function applyBimWorldPose(
   pose?: { position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3 } | null,
 ) {
-  const targetPose = pose || props.bimWorldPose
+  const targetPose = pose === undefined ? props.bimWorldPose : pose
   if (!c2mMeshRoot) return
   if (targetPose) {
     c2mMeshRoot.matrixAutoUpdate = true
@@ -2738,6 +2794,10 @@ defineExpose({
 
 // 监听 Prop 变化
 watch(() => props.rebarInspection, (next, previous) => {
+  if (next?.selectedIntersectionId !== previous?.selectedIntersectionId) {
+    locallySelectedIntersectionId = next?.selectedIntersectionId ?? null
+    rebarIntersectionPick.value = next?.intersections.find((item) => item.id === locallySelectedIntersectionId) ?? null
+  }
   updateRebarInspection(
     next?.selectedId !== previous?.selectedId,
     next?.hideFixtures !== previous?.hideFixtures,
@@ -2841,6 +2901,13 @@ onBeforeUnmount(() => {
 <template>
   <div class="unified-viewer-3d">
     <div ref="viewportEl" class="unified-viewer-viewport" />
+
+    <div v-if="rebarIntersectionPick" class="rebar-intersection-popover" role="status">
+      <strong>交点 {{ rebarIntersectionPick.id }}</strong>
+      <span>位置 {{ rebarIntersectionPick.position.map((value) => value.toFixed(3)).join(', ') }}</span>
+      <span>关联钢筋 {{ rebarIntersectionPick.instanceIds.join(', ') }} · 线段 {{ rebarIntersectionPick.segmentRefs.map((ref) => `${ref.instanceId}:${ref.segmentIndex}.${ref.edgeIndex}`).join(', ') }}</span>
+      <span>角度 {{ rebarIntersectionPick.angleDegrees.toFixed(2) }}° · 残差 {{ rebarIntersectionPick.residual.toFixed(4) }}</span>
+    </div>
 
     <div
       v-if="c2mPick"
@@ -2947,6 +3014,21 @@ onBeforeUnmount(() => {
   transform: translate(-50%, calc(-100% - 10px));
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+.rebar-intersection-popover {
+  position: absolute;
+  z-index: 24;
+  left: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 3px;
+  max-width: min(360px, calc(100% - 32px));
+  padding: 9px 11px;
+  border: 1px solid rgb(250 204 21 / 60%);
+  border-radius: 8px;
+  color: #fef3c7;
+  background: rgb(15 23 42 / 90%);
+  font-size: 12px;
 }
 
 .c2m-pick-popover strong {

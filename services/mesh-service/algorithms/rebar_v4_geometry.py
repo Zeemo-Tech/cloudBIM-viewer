@@ -901,6 +901,7 @@ def trace_primitive_graph(
     observed_join_gap: float,
     maximum_turn_degrees: float,
     minimum_instance_length: float,
+    join_overrides: tuple[tuple[int, int], ...] = (),
 ) -> list[TracedInstance]:
     """Match endpoints one-to-one so welded crossings cannot fuse a network."""
     if not primitives:
@@ -908,12 +909,14 @@ def trace_primitive_graph(
     endpoints = np.vstack([(item.start, item.end) for item in primitives])
     pairs = cKDTree(endpoints).query_pairs(join_gap, output_type="ndarray")
     candidates: list[tuple[float, int, int]] = []
+    overrides = {tuple(sorted(pair)) for pair in join_overrides}
     max_turn = np.deg2rad(maximum_turn_degrees)
     for left, right in pairs:
         a, b = int(left // 2), int(right // 2)
         if a == b:
             continue
         pa, pb = primitives[a], primitives[b]
+        override = tuple(sorted((int(left), int(right)))) in overrides
         # Each primitive tangent is canonical rather than oriented along the
         # prospective chain.  At an endpoint the outward tangent therefore
         # depends on whether it is the start or end.  A valid continuation has
@@ -924,11 +927,11 @@ def trace_primitive_graph(
         angle = float(
             np.arccos(np.clip(float(-left_outward @ right_outward), -1.0, 1.0))
         )
-        if angle > max_turn:
+        if angle > max_turn and not override:
             continue
         delta = endpoints[right] - endpoints[left]
         distance = float(np.linalg.norm(delta))
-        if distance > EPS:
+        if distance > EPS and not override:
             advance = delta / distance
             # Segments can overlap: the endpoint displacement then points
             # backwards even though the two outward tangents oppose correctly.

@@ -11,6 +11,7 @@ from unittest import mock
 
 import numpy as np
 import open3d as o3d
+import laspy
 from pydantic import ValidationError
 
 import main as mesh_main
@@ -19,7 +20,9 @@ from algorithms.c2m_distance import (
     colorize_mesh_by_signed_distance,
     compute_signed_scan_to_mesh_distances,
     compute_statistics,
+    load_and_downsample_las,
 )
+import algorithms.c2m_distance as c2m_distance
 from main import (
     C2MParams,
     C2MRecolorRequest,
@@ -148,19 +151,23 @@ class ColorContractTests(unittest.TestCase):
 
 
 class VisualizationContractTests(unittest.TestCase):
-    def test_default_histogram_matches_default_color_range(self):
+    def test_rebar_defaults_and_legacy_downsampling(self):
         params = C2MParams()
 
-        self.assertEqual(params.max_colormap_distance, 0.10)
-        self.assertEqual(params.max_histogram_distance, 0.10)
+        self.assertEqual(params.max_colormap_distance, 0.03)
+        self.assertEqual(params.max_histogram_distance, 0.03)
+        self.assertEqual(params.histogram_bins, 60)
+        self.assertEqual(params.tolerance_limit, 0.01)
+        self.assertTrue(params.downsample_enabled)
+        self.assertEqual(C2MParams(voxel_size=0.001).voxel_size, 0.001)
         self.assertEqual(params.smoothing_iterations, 0)
         self.assertFalse(params.normal_constraint_enabled)
         self.assertTrue(params.normal_half_space_only)
         self.assertEqual(_c2m_visualization(params), {
-            "maxColormapDistance": 0.10,
-            "maxHistogramDistance": 0.10,
-            "histogramBins": 50,
-            "toleranceLimit": 0.05,
+            "maxColormapDistance": 0.03,
+            "maxHistogramDistance": 0.03,
+            "histogramBins": 60,
+            "toleranceLimit": 0.01,
             "colorDistanceField": "raw",
             "smoothingIterations": 0,
             "smoothingStrength": 0.5,
@@ -178,6 +185,71 @@ class VisualizationContractTests(unittest.TestCase):
     def test_histogram_bins_are_bounded(self):
         with self.assertRaises(ValidationError):
             C2MParams(histogram_bins=1000)
+
+    def test_downsampling_can_be_explicitly_disabled(self):
+        self.assertFalse(C2MParams(downsample_enabled=False).downsample_enabled)
+
+    def test_disabled_chunked_loader_preserves_every_point(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            las_path = f"{temp_dir}/scan.las"
+            header = laspy.LasHeader(point_format=3, version="1.2")
+            las = laspy.LasData(header)
+            points = np.array([
+                [0.0, 0.0, 0.0],
+                [0.001, 0.0, 0.0],
+                [1.0, 2.0, 3.0],
+            ])
+            las.x, las.y, las.z = points.T
+            las.write(las_path)
+
+            previous_threshold = c2m_distance.CHUNKED_READ_THRESHOLD
+            previous_chunk_size = c2m_distance.CHUNK_SIZE
+            c2m_distance.CHUNKED_READ_THRESHOLD = 0
+            c2m_distance.CHUNK_SIZE = 1
+            try:
+                pcd, points_before, _ = load_and_downsample_las(
+                    las_path, 0.001, downsample_enabled=False,
+                )
+            finally:
+                c2m_distance.CHUNKED_READ_THRESHOLD = previous_threshold
+                c2m_distance.CHUNK_SIZE = previous_chunk_size
+
+            self.assertEqual(points_before, len(points))
+            self.assertEqual(len(pcd.points), len(points))
+
+    def test_loader_preserves_millimeter_precision_at_projected_coordinates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            las_path = f"{temp_dir}/large-coordinates.las"
+            header = laspy.LasHeader(point_format=3, version="1.2")
+            header.scales = np.array([0.001, 0.001, 0.001])
+            header.offsets = np.array([500_000.0, 4_000_000.0, 100.0])
+            las = laspy.LasData(header)
+            points = np.array([
+                [500_000.001, 4_000_000.001, 100.001],
+                [500_000.002, 4_000_000.002, 100.002],
+            ], dtype=np.float64)
+            las.x, las.y, las.z = points.T
+            las.write(las_path)
+
+            pcd, points_before, _ = load_and_downsample_las(
+                las_path, 0.001, downsample_enabled=False,
+            )
+
+            self.assertEqual(points_before, len(points))
+            self.assertTrue(np.allclose(np.asarray(pcd.points), points, atol=0.0005))
+
+    def test_disabled_loader_rejects_unsafe_raw_point_count(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            las_path = f"{temp_dir}/scan.las"
+            las = laspy.create(point_format=3, file_version="1.2")
+            las.x, las.y, las.z = [0.0, 1.0], [0.0, 1.0], [0.0, 1.0]
+            las.write(las_path)
+
+            with mock.patch.object(c2m_distance, "MAX_UNDOWNSAMPLED_POINTS", 1):
+                with self.assertRaises(c2m_distance.RawPointLimitExceeded):
+                    load_and_downsample_las(
+                        las_path, 0.001, downsample_enabled=False,
+                    )
 
     def test_non_finite_and_unsafe_dormant_parameters_are_rejected(self):
         for kwargs in (

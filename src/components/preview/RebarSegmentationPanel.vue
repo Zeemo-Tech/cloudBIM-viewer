@@ -10,16 +10,19 @@ import {
   type RebarAlgorithmDescriptor,
   type RebarParameterProperty,
   type RebarSegmentationResult,
+  type RebarIntersection,
+  isRebarV5Result,
 } from '@/api/backend-rebar'
 import type { PointcloudColorMode } from './UnifiedViewer3D.vue'
 import { legendItems, validateVisualization } from '@/features/rebar-visualization'
-import { getScanCalibration } from '@/api/backend-alignment'
 
 const props = withDefaults(defineProps<{
   assetId: number
   mode?: PointcloudColorMode
+  selectedIntersectionId?: number | null
 }>(), {
   mode: 'rgb',
+  selectedIntersectionId: null,
 })
 
 const emit = defineEmits<{
@@ -29,7 +32,7 @@ const emit = defineEmits<{
 }>()
 
 const algorithms = ref<RebarAlgorithmDescriptor[]>([])
-const selectedAlgorithmId = ref('geometric-v3')
+const selectedAlgorithmId = ref('geometric-v5')
 const latest = ref<RebarSegmentationResult | null>(null)
 const loading = ref(false)
 const computing = ref(false)
@@ -39,12 +42,13 @@ const voxelSizeMm = ref<number | null>(null)
 const parameterValues = reactive<Record<string, number | string | boolean>>({})
 const persistedParameterBaseline = ref<Record<string, unknown>>({})
 const selectedMode = ref<PointcloudColorMode>('rgb')
-const linkedBimId = ref<number | null>(null)
-const useBim = ref(true)
 const instances = ref<RebarInstance[]>([])
 const selectedInstance = ref<number | null>(null)
 const showCenterlines = ref(false)
+const showIntersections = ref(true)
 const hideFixtures = ref(false)
+const intersections = ref<RebarIntersection[]>([])
+const selectedIntersection = ref<number | null>(null)
 const detailError = ref('')
 let detailToken = 0
 let loadToken = 0
@@ -140,8 +144,7 @@ function initializeParameters() {
 
 function applyPersistedSettings(value: RebarSegmentationResult) {
   const selectedId = selectedAlgorithm.value?.id
-  const compatibleV2Upgrade = selectedId === 'geometric-v3' && value.algorithm.id === 'geometric-v2'
-  if (value.algorithm.id !== selectedId && !compatibleV2Upgrade) return
+  if (value.algorithm.id !== selectedId) return
   const properties = selectedAlgorithm.value?.parameterSchema?.properties ?? {}
   persistedParameterBaseline.value = Object.fromEntries(
     Object.entries(value.effectiveParameters).filter(([name]) => properties[name]),
@@ -161,15 +164,21 @@ function applyPersistedSettings(value: RebarSegmentationResult) {
 }
 
 function emitLatest(value: RebarSegmentationResult | null) {
+  // A pre-V5 artifact has incompatible point semantics. Keep it visible as a
+  // persisted record, but never pass its tiles or metadata into the V5 viewer.
   latest.value = value
-  emit('result-change', value)
+  emit('result-change', isRebarV5Result(value) ? value : null)
   instances.value = []
+  intersections.value = []
   selectedInstance.value = null
+  selectedIntersection.value = null
   detailError.value = ''
   const token = ++detailToken
-  if (value?.visualization?.schema === 'rebar-visualization-v2') {
+  if (isRebarV5Result(value)) {
     getRebarAnalysis(value.resultUrl).then((detail) => {
-      if (token === detailToken) instances.value = detail.analysis.instances ?? []
+      if (token !== detailToken) return
+      instances.value = detail.analysis.instances ?? []
+      intersections.value = detail.analysis.intersections ?? []
     }).catch(() => { if (token === detailToken) detailError.value = '实例详情读取失败，可重新加载结果' })
   }
 }
@@ -182,12 +191,9 @@ function setMode(mode: PointcloudColorMode) {
 
 async function loadState() {
   const token = ++loadToken
+  emitLatest(null)
   loading.value = true
   errorMessage.value = ''
-  linkedBimId.value = null
-  getScanCalibration(props.assetId).then((state) => {
-    if (token === loadToken) linkedBimId.value = state.data.bimFileId
-  }).catch(() => {})
   try {
     const [algorithmState, latestState] = await Promise.allSettled([
       listRebarAlgorithms(),
@@ -199,18 +205,17 @@ async function loadState() {
     if (token !== loadToken) return
     const persisted = latestState.status === 'fulfilled' ? latestState.value?.data ?? null : null
     emitLatest(persisted)
-    if (persisted) setMode(persisted.capabilities.class ? 'rebar-class' : 'rgb')
+    if (isRebarV5Result(persisted)) setMode('rebar-class')
+    else if (persisted) errorMessage.value = '已保存结果不是 V5 格式，请重新计算后查看。'
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []
-      if (persisted?.algorithm.id === 'geometric-v4' && algorithms.value.some((item) => item.id === 'geometric-v4')) {
-        selectedAlgorithmId.value = 'geometric-v4'
-      } else if (algorithms.value.some((item) => item.id === 'geometric-v3')) {
-        selectedAlgorithmId.value = 'geometric-v3'
+      if (algorithms.value.some((item) => item.id === 'geometric-v5')) {
+        selectedAlgorithmId.value = 'geometric-v5'
       } else if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
       } else if (!algorithms.value.some((item) => item.id === selectedAlgorithmId.value)) {
-        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v3'
+        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v5'
       }
       initializeParameters()
       if (persisted) applyPersistedSettings(persisted)
@@ -244,6 +249,7 @@ async function compute(force = false) {
   if (computing.value) return
   computing.value = true
   errorMessage.value = ''
+  emitLatest(null)
   try {
     const response = await computeRebarSegmentation(
       props.assetId,
@@ -256,13 +262,11 @@ async function compute(force = false) {
             : {}),
         },
         parameters: buildParameters(),
-        ...(selectedAlgorithmId.value === 'geometric-v4' && useBim.value && linkedBimId.value
-          ? { bimPrior: { bimAssetId: linkedBimId.value } } : {}),
       },
       { force },
     )
     emitLatest(response.data)
-    setMode(response.data.capabilities.class ? 'rebar-class' : 'rgb')
+    setMode(isRebarV5Result(response.data) ? 'rebar-class' : 'rgb')
   } catch (error) {
     errorMessage.value = errorText(error)
   } finally {
@@ -273,9 +277,13 @@ async function compute(force = false) {
 watch(selectedAlgorithmId, initializeParameters, { flush: 'sync' })
 watch(() => props.mode, (mode) => { selectedMode.value = mode })
 watch(() => props.assetId, loadState)
-watch([instances, selectedInstance, showCenterlines, hideFixtures], () => {
-  emit('inspection-change', { instances: instances.value, selectedId: selectedInstance.value,
-    showCenterlines: showCenterlines.value, hideFixtures: hideFixtures.value })
+watch(() => props.selectedIntersectionId, (id) => {
+  selectedIntersection.value = id ?? null
+})
+watch([instances, intersections, selectedInstance, selectedIntersection, showCenterlines, showIntersections, hideFixtures], () => {
+  emit('inspection-change', { instances: instances.value, intersections: intersections.value,
+    selectedId: selectedInstance.value, selectedIntersectionId: selectedIntersection.value,
+    showCenterlines: showCenterlines.value, showIntersections: showIntersections.value, hideFixtures: hideFixtures.value })
 })
 onMounted(loadState)
 onBeforeUnmount(() => { ++loadToken; ++detailToken })
@@ -297,8 +305,9 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
     <div v-else-if="errorMessage" class="rebar-panel__error">{{ errorMessage }}</div>
 
     <div v-if="latest" class="rebar-panel__summary">
-      <span><strong>{{ latest.summary.rawSource?.instanceCount ?? latest.summary.instanceCount }}</strong> {{ latest.algorithm.id === 'geometric-v4' ? '个候选实例' : '个实例' }}</span>
+      <span><strong>{{ latest.summary.rawSource?.instanceCount ?? latest.summary.instanceCount }}</strong> 个实例</span>
       <span><strong>{{ latest.summary.directionCount }}</strong> 个方向</span>
+      <span v-if="isRebarV5Result(latest)"><strong>{{ latest.summary.intersectionCount ?? intersections.length }}</strong> 个交点</span>
       <span v-if="rebarRatio !== null"><strong>{{ rebarRatio.toFixed(1) }}%</strong> 钢筋点</span>
     </div>
 
@@ -306,8 +315,9 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
       原始点 {{ latest.summary.rawSource.finitePointCount.toLocaleString() }} ·
       待确认 {{ latest.summary.rawSource.ambiguousPointCount.toLocaleString() }}
     </p>
-    <div v-if="latest?.visualization?.schema === 'rebar-visualization-v2'" class="rebar-panel__inspection">
+    <div v-if="isRebarV5Result(latest)" class="rebar-panel__inspection">
       <label><input v-model="showCenterlines" type="checkbox" /> 显示中心线</label>
+      <label><input v-model="showIntersections" type="checkbox" /> 显示交点</label>
       <label><input v-model="hideFixtures" type="checkbox" /> 隐藏夹具／围挡</label>
       <label>聚焦单根钢筋
         <select v-model="selectedInstance">
@@ -315,13 +325,18 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
           <option v-for="instance in instances" :key="instance.id" :value="instance.id">钢筋 {{ instance.id }}{{ instance.designId ? ' · BIM 已关联' : '' }}</option>
         </select>
       </label>
+      <label>交点详情
+        <select v-model="selectedIntersection">
+          <option :value="null">未选择</option>
+          <option v-for="intersection in intersections" :key="intersection.id" :value="intersection.id">交点 {{ intersection.id }} · {{ intersection.angleDegrees.toFixed(1) }}°</option>
+        </select>
+      </label>
+      <p v-if="selectedIntersection !== null && intersections.find((item) => item.id === selectedIntersection)" class="rebar-panel__intersection-detail">
+        交点 {{ selectedIntersection }} · 角度 {{ intersections.find((item) => item.id === selectedIntersection)?.angleDegrees.toFixed(2) }}° · 残差 {{ intersections.find((item) => item.id === selectedIntersection)?.residual.toFixed(4) }}
+      </p>
       <small>虚线表示推断连接，不代表扫描已观测到。</small>
       <small v-if="detailError">{{ detailError }}</small>
     </div>
-    <label v-if="selectedAlgorithmId === 'geometric-v4' && linkedBimId" class="rebar-panel__hint">
-      <input v-model="useBim" type="checkbox" :disabled="computing" /> 参考已配准的 BIM（{{ linkedBimId }}）
-    </label>
-    <p v-else-if="selectedAlgorithmId === 'geometric-v4'" class="rebar-panel__hint">当前没有已关联的 BIM，使用点云几何识别。</p>
 
     <div v-if="latest" class="rebar-panel__modes" role="group" aria-label="钢筋结果着色">
       <button
@@ -352,11 +367,11 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
           </option>
         </select>
       </label>
-      <label>
+      <label v-if="selectedAlgorithmId !== 'geometric-v5'">
         <span>最大检测点数</span>
         <input v-model.number="maxInputPoints" type="number" min="1000" step="1000" :disabled="computing" />
       </label>
-      <label>
+      <label v-if="selectedAlgorithmId !== 'geometric-v5'">
         <span>体素尺寸</span>
         <span class="rebar-panel__input">
           <input v-model.number="voxelSizeMm" type="number" min="0.001" step="0.1" placeholder="自动" :disabled="computing" />
@@ -461,6 +476,7 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
 .rebar-panel__inspection label { display: flex; align-items: center; gap: 7px; }
 .rebar-panel__inspection select { min-width: 0; max-width: 200px; }
 .rebar-panel__inspection small { color: #94a3b8; }
+.rebar-panel__intersection-detail { margin: 0; color: #fde68a; font-size: 11px; }
 
 @media (max-width: 760px) {
   .rebar-panel { top: 10px; right: 10px; max-height: calc(100% - 20px); overflow: auto; }

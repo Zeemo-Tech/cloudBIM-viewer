@@ -14,7 +14,7 @@ export interface RebarCapabilities {
 }
 
 export interface RebarVisualizationMetadata {
-  schema: 'rebar-visualization-v1' | 'rebar-visualization-v2'
+  schema: 'rebar-visualization-v1' | 'rebar-visualization-v2' | 'rebar-visualization-v3'
   defaultMode: 'rebar-class'
   attributes: Record<string, unknown>
   values: Record<string, unknown>
@@ -61,7 +61,8 @@ export interface RebarSegmentationSummary {
   instanceCount: number
   sceneClassCounts?: Record<string, number>
   directionPointCounts?: Record<string, number>
-  intersectionPointCount?: number
+  /** V5 counts reconstructed intersections, rather than assigning points to one. */
+  intersectionCount?: number
   diagnostics?: Record<string, unknown>
   rawSource?: { finitePointCount: number; ambiguousPointCount: number; instanceCount?: number; sceneClassCounts: Record<string, number> }
   rawLabelsPath?: string
@@ -98,19 +99,48 @@ export interface RebarInstance {
   directionId?: number
   designId?: string
   evidence?: string
-  inferredSegments?: unknown[]
+  role?: 'planar' | 'web' | 'unresolved'
+  layerId?: number
+  inferredSegments?: { points?: number[][]; centerline?: number[][] }[]
   observedSegments?: { points: number[][] }[]
+}
+
+export interface RebarIntersection {
+  id: number
+  position: [number, number, number]
+  instanceIds: number[]
+  segmentRefs: Array<{ instanceId: number; segmentIndex: number; edgeIndex: number }>
+  angleDegrees: number
+  residual: number
+  evidence: 'observed-finite-centerlines'
+}
+
+export interface RebarAnalysisV2 {
+  instances: RebarInstance[]
+  connections?: unknown[]
+  intersections: RebarIntersection[]
+  diagnostics?: Record<string, unknown>
 }
 
 export interface RebarInspection {
   instances: RebarInstance[]
+  intersections: RebarIntersection[]
   selectedId: number | null
+  selectedIntersectionId?: number | null
   showCenterlines: boolean
+  showIntersections: boolean
   hideFixtures: boolean
 }
 
 export function getRebarAnalysis(resultUrl: string) {
-  return backendRequest<{ analysis: { instances?: RebarInstance[]; diagnostics?: Record<string, unknown> } }>(resultUrl, { method: 'GET' })
+  return backendRequest<{ analysis: RebarAnalysisV2 }>(resultUrl, { method: 'GET' })
+}
+
+export function isRebarV5Result(value: RebarSegmentationResult | null | undefined): value is RebarSegmentationResult {
+  return value?.algorithm.id === 'geometric-v5' &&
+    value.algorithm.version === '1' &&
+    value.analysisSchema === 'rebar-analysis-v2' &&
+    value.visualization?.schema === 'rebar-visualization-v3'
 }
 
 export function listRebarAlgorithms() {
@@ -138,7 +168,7 @@ export function computeRebarSegmentation(
       method: 'POST',
       params: { force: options.force ? 'true' : undefined },
       data: request,
-      timeout: 15 * 60_000,
+      timeout: 32 * 60_000,
     },
   )
 }

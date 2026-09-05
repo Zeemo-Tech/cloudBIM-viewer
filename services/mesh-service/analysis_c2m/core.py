@@ -20,8 +20,8 @@ from analysis_mesh.contracts import ContractError, mesh_position_hash, normalize
 from artifact_permissions import publish_shared_artifact_permissions
 
 SCHEMA = "analysis-c2m-result-v1"
-ALGORITHM = {"id": "c2m-tile-nearest-v1", "label": "C2M nearest scan points per analysis tile", "implementationVersion": "1.1.0", "contractVersion": "1", "capabilities": ["tile-streaming", "unknown-nan", "input-hash-binding", "source-model-frame"]}
-DEFAULTS = {"voxelSize": 0.02, "coverageMaxDistance": 0.2, "knnK": 1}
+ALGORITHM = {"id": "c2m-tile-nearest-v1", "label": "C2M nearest scan points per analysis tile", "implementationVersion": "1.2.0", "contractVersion": "1", "capabilities": ["tile-streaming", "unknown-nan", "input-hash-binding", "source-model-frame", "optional-downsampling"]}
+DEFAULTS = {"voxelSize": 0.02, "downsampleEnabled": True, "coverageMaxDistance": 0.2, "knnK": 1}
 _SAFE_TILE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -34,6 +34,8 @@ def effective_parameters(value: dict[str, Any] | None) -> dict[str, Any]:
     result = {**DEFAULTS, **value}
     if any(isinstance(result[k], bool) or not isinstance(result[k], (int, float)) or result[k] <= 0 for k in ("voxelSize", "coverageMaxDistance")):
         raise C2MContractError("voxelSize and coverageMaxDistance must be positive numbers")
+    if not isinstance(result["downsampleEnabled"], bool):
+        raise C2MContractError("downsampleEnabled must be a boolean")
     if isinstance(result["knnK"], bool) or not isinstance(result["knnK"], int) or not 1 <= result["knnK"] <= 64:
         raise C2MContractError("knnK must be an integer from 1 to 64")
     return result
@@ -163,7 +165,11 @@ def build_c2m_artifact(scan_path: str | Path, analysis_mesh_path: str | Path, ou
     if output.exists() or output.is_symlink(): raise FileExistsError("outputPath already exists")
     output.parent.mkdir(parents=True, exist_ok=True); stage = output.parent / f".{output.name}.staging-{uuid.uuid4().hex}"; stage.mkdir(mode=0o750)
     try:
-        scan, points_before, _bbox = load_and_downsample_las(str(scan_path), params["voxelSize"])
+        scan, points_before, _bbox = load_and_downsample_las(
+            str(scan_path),
+            params["voxelSize"],
+            downsample_enabled=params["downsampleEnabled"],
+        )
         apply_transform(scan, column_major_to_matrix4(transform))
         scan_points = np.asarray(scan.points, dtype=np.float64)
         if len(scan_points) == 0: raise C2MContractError("scan contains no points after downsampling")

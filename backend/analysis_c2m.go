@@ -381,7 +381,14 @@ func (a *app) ensureAnalysisC2M(parent context.Context, result DBC2MResult, forc
 	if voxelSize <= 0 {
 		voxelSize = 0.02
 	}
-	parameters := map[string]any{"voxelSize": voxelSize, "coverageMaxDistance": 0.2, "knnK": 1}
+	downsampleEnabled := true
+	var approximation struct {
+		DownsampleEnabled *bool `json:"downsampleEnabled"`
+	}
+	if json.Unmarshal([]byte(result.ApproximationJSON), &approximation) == nil && approximation.DownsampleEnabled != nil {
+		downsampleEnabled = *approximation.DownsampleEnabled
+	}
+	parameters := map[string]any{"voxelSize": voxelSize, "downsampleEnabled": downsampleEnabled, "coverageMaxDistance": 0.2, "knnK": 1}
 	algorithms, err := a.analysisC2MProvider.ListAlgorithms(parent)
 	if err != nil {
 		return AnalysisC2MManifest{}, result, false, err

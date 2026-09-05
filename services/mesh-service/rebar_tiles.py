@@ -58,6 +58,9 @@ def rewrite_pnts(path: Path, project: Callable[[np.ndarray], RebarPointAttribute
         additions.append(("SCENE_CLASS", attrs.scene_class, "UNSIGNED_BYTE", 1))
     if attrs.rebar_flags is not None:
         additions.append(("REBAR_FLAGS", attrs.rebar_flags, "UNSIGNED_BYTE", 1))
+    for name, values in (("CLASS_CONFIDENCE", attrs.class_confidence), ("INSTANCE_CONFIDENCE", attrs.instance_confidence)):
+        if values is not None:
+            additions.append((name, values.astype("<f4"), "FLOAT", 4))
     new_binary = bytearray(old_btb)
     for name, values, component, alignment in additions:
         if name in batch: raise PntsError(f"PNTS already contains {name}")

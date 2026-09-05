@@ -32,7 +32,7 @@ def iter_source_chunks(path: str, file_format: str | None = None,
     # Open3D's PLY/PCD decoder is materializing, as in the legacy reader. The
     # processing interface remains bounded, and the limitation is reported.
     import open3d as o3d
-    cloud = o3d.io.read_point_cloud(str(path))
+    cloud = o3d.io.read_point_cloud(str(path), format=fmt)
     points = np.asarray(cloud.points)
     for start in range(0, len(points), chunk_size):
         xyz = np.asarray(points[start:start + chunk_size], dtype=np.float64)

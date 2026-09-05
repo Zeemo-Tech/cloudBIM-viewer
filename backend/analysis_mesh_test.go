@@ -231,6 +231,51 @@ func TestAnalysisMeshFingerprintAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestAnalysisMeshParametersFollowVerifiedLegacyProfile(t *testing.T) {
+	dir := t.TempDir()
+	asset := verifiedLegacyRemeshAsset(t, dir)
+	legacy := map[string]any{
+		"target_edge_length": 0.01, "clean_tolerance": 0.001,
+		"use_decimation": false, "decimation_ratio": 0.7,
+		"subdivision_iterations": 3, "subdivision_threshold_ratio": 2.0,
+		"adaptive": false, "crease_angle": 45.0, "use_isotropic": true,
+		"isotropic_iterations": 8, "surface_dist_ratio": 0.4,
+		"isotropic_collapse": true, "sliver_merge_ratio": 0.02,
+		"sliver_relax_checksurfdist": false,
+	}
+	paramsJSON, err := canonicalJSON(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := legacyRemeshFingerprint(asset.RemeshInputHash, asset.RemeshAlgorithm, asset.RemeshImplementationVersion, asset.RemeshContractVersion, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := DBAsset{
+		Type: "bim", Status: "ready", Dir: dir, RemeshStatus: "succeeded",
+		RemeshAlgorithm: asset.RemeshAlgorithm, RemeshParamsJSON: paramsJSON,
+		RemeshInputHash: asset.RemeshInputHash, RemeshImplementationVersion: asset.RemeshImplementationVersion,
+		RemeshContractVersion: asset.RemeshContractVersion, RemeshFingerprint: fingerprint,
+		RemeshContentHash: asset.RemeshContentHash,
+	}
+	parameters, err := analysisMeshParametersFromLegacy(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"targetEdgeLength": 0.01, "cleanTolerance": 0.001,
+		"useDecimation": false, "decimationRatio": 0.7,
+		"subdivisionIterations": float64(3), "subdivisionThresholdRatio": 2.0,
+		"adaptive": false, "featureAngleDegrees": 45.0, "useIsotropic": true,
+		"iterations": float64(8), "surfaceDistanceRatio": 0.4,
+		"isotropicCollapse": true, "sliverMergeRatio": 0.02,
+		"sliverRelaxCheckSurfaceDistance": false,
+	}
+	if !sameJSON(parameters, want) {
+		t.Fatalf("analysis parameters = %#v, want %#v", parameters, want)
+	}
+}
+
 func TestAnalysisMeshDerivativeAndJobTransitions(t *testing.T) {
 	m := AnalysisMeshArtifactManifest{ArtifactVersion: "analysis-mesh-artifact-v1", EntryPath: "tileset.json", ContentHash: "hash"}
 	m.Algorithm.ID, m.Algorithm.ImplementationVersion, m.Algorithm.ContractVersion = "ifc-v1", "1", "v1"

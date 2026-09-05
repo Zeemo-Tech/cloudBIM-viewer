@@ -30,11 +30,13 @@ class AnalysisC2ME2E(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); self._source_artifact(root); self._scan(root / "scan.las")
             identity_col_major = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
-            manifest = build_c2m_artifact(root / "scan.las", root / "analysis", root / "result", identity_col_major, {"voxelSize": 0.001, "coverageMaxDistance": 1.0, "knnK": 1})
+            manifest = build_c2m_artifact(root / "scan.las", root / "analysis", root / "result", identity_col_major, {"voxelSize": 0.001, "downsampleEnabled": False, "coverageMaxDistance": 1.0, "knnK": 1})
             self.assertEqual(manifest["schema"], "analysis-c2m-result-v1"); self.assertEqual(manifest["unknownEncoding"]["value"], "NaN")
             self.assertGreater(len(manifest["tiles"]), 2)
             self.assertEqual({r["ifcGlobalId"] for r in manifest["components"]}, {"A", "B"})
             self.assertGreater(manifest["global"]["unknownCount"], 0)
+            self.assertFalse(manifest["algorithm"]["effectiveParameters"]["downsampleEnabled"])
+            self.assertEqual(manifest["scan"]["pointsBefore"], manifest["scan"]["pointsAfter"])
             self.assertEqual(next(r for r in manifest["components"] if r["ifcGlobalId"] == "B")["stats"]["knownCount"], 0)
             for tile in manifest["tiles"]:
                 payload = (root / "result" / tile["distancePath"]).read_bytes()
