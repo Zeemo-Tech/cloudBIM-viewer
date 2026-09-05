@@ -2,8 +2,142 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from heapq import merge
+from itertools import groupby
 
 import numpy as np
+
+
+def _ownership_key(item):
+    """Stable tie-breaker independent of detector/candidate iteration order."""
+    line = np.asarray(item.get("centerline", ()), dtype=float)
+    if line.ndim != 2 or line.shape[1:] != (3,) or not len(line):
+        line = np.empty((0, 3))
+    return (str(item.get("role", "")), int(item.get("id", 0)),
+            float(item.get("radius", 0.)), tuple(np.round(line.ravel(), 7)))
+
+
+def _source_records(runtime, item, p):
+    """Re-read a candidate's bounded verified source records for comparison."""
+    queried, records, accumulated = set(), [], 0
+    for path in item.get("observedSegments", []):
+        points = np.asarray(path.get("points", ()), dtype=float)
+        if points.ndim != 2 or points.shape[1:] != (3,) or len(points) < 2:
+            continue
+        for start, end in zip(points[:-1], points[1:]):
+            rows, _, _ = _raw_tube(runtime, start, end, float(item["radius"]), p, queried)
+            if len(rows):
+                accumulated += len(rows)
+                if accumulated > 2*p.neighbourhood_point_limit:
+                    raise ValueError('V5 stripe verification neighbourhood exceeds memory budget')
+                records.append(rows)
+    if not records:
+        return np.empty(0, dtype=[("source_index", "<u8"), ("xyz", "<f8", (3,))])
+    combined = np.concatenate(records)
+    _, first = np.unique(combined["source_index"], return_index=True)
+    combined = combined[first]
+    support = item["_rawSupportIndices"]
+    positions = np.searchsorted(support, combined["source_index"])
+    return combined[(positions < len(support)) &
+                    (support[np.minimum(positions, len(support)-1)] == combined["source_index"])]
+
+
+def _plausible_owner(stripe, owner, p):
+    """Cheap finite-segment prefilter before re-reading any raw stripe points."""
+    lateral = float(stripe["radius"]) + float(owner["radius"]) + p.support_distance
+    for stripe_path in stripe.get("observedSegments", []):
+        stripe_points = np.asarray(stripe_path.get("points", ()), dtype=float)
+        if stripe_points.ndim != 2 or stripe_points.shape[1:] != (3, ) or len(stripe_points) < 2:
+            continue
+        for a, b in zip(stripe_points[:-1], stripe_points[1:]):
+            direction = b-a; length = float(np.linalg.norm(direction))
+            if length <= 1e-10: continue
+            direction /= length
+            for owner_path in owner.get("observedSegments", []):
+                owner_points = np.asarray(owner_path.get("points", ()), dtype=float)
+                if owner_points.ndim != 2 or owner_points.shape[1:] != (3, ) or len(owner_points) < 2:
+                    continue
+                for c, d in zip(owner_points[:-1], owner_points[1:]):
+                    axis = d-c; owner_length = float(np.linalg.norm(axis))
+                    if owner_length <= 1e-10: continue
+                    axis /= owner_length
+                    if abs(float(direction @ axis)) < np.cos(np.deg2rad(8.)): continue
+                    projected = (np.vstack((a, b))-c) @ axis
+                    overlap = min(owner_length, max(projected))-max(0., min(projected))
+                    if overlap < min(p.min_primitive_length, .25*length): continue
+                    offset = np.linalg.norm((a-c)-float((a-c) @ axis)*axis)
+                    if offset <= lateral: return True
+    return False
+
+
+def _supported_by_owner(records, owner, p):
+    """Return finite measured extension evidence for the best owner edge."""
+    if not len(records):
+        return None
+    tolerance = max(.002, .60*p.support_distance)
+    best = None
+    for path_index, path in enumerate(owner.get("observedSegments", [])):
+        points = np.asarray(path.get("points", ()), dtype=float)
+        if points.ndim != 2 or points.shape[1:] != (3,) or len(points) < 2:
+            continue
+        for edge_index, (start, end) in enumerate(zip(points[:-1], points[1:])):
+            axis = end-start
+            length = float(np.linalg.norm(axis))
+            if length <= 1e-10:
+                continue
+            direction = axis/length
+            delta = records["xyz"]-start
+            axial = delta @ direction
+            radial = np.linalg.norm(delta-axial[:, None]*direction, axis=1)
+            accepted = np.abs(radial-float(owner["radius"])) <= tolerance
+            if float(np.mean(accepted)) < .98:
+                continue
+            values = axial[accepted]; lo, hi = float(values.min()), float(values.max())
+            overlap = max(0., min(length, hi)-max(0., lo))
+            if overlap < min(p.min_primitive_length, .25*(hi-lo)):
+                continue
+            count = int(accepted.sum())
+            if best is None or count > best[0]:
+                best = (count, path_index, edge_index,
+                        records["source_index"][accepted], axial[accepted],
+                        np.abs(radial[accepted]-float(owner["radius"])), start, direction, length)
+    return best
+
+
+def _append_transferred_support(runtime, owner, evidence, p):
+    """Extend an owner only along its own axis and actual raw-supported bounds."""
+    if not evidence:
+        return
+    _, path_index, edge_index, source_ids, axial, residuals, start, direction, length = evidence
+    lo, hi = min(0., float(axial.min())), max(length, float(axial.max()))
+    if lo == 0. and hi == length:
+        return source_ids
+    # Reuse the raw verifier on the proposed parent-axis extent. It enforces
+    # point count, measured interval length and gaps, including a tail group
+    # crossing the previous endpoint; the proposal alone is never observed.
+    observed, inferred, records, _ = _verified_segments(
+        runtime, start+lo*direction, start+hi*direction, float(owner['radius']), p, set())
+    if not observed:
+        return np.empty(0, np.uint64)
+    paths = owner['observedSegments']
+    original = paths[path_index]['points']
+    replacement = []
+    if edge_index:
+        replacement.append({'points': original[:edge_index+1]})
+    replacement.extend(observed)
+    if edge_index+2 < len(original):
+        replacement.append({'points': original[edge_index+1:]})
+    owner['observedSegments'] = paths[:path_index]+replacement+paths[path_index+1:]
+    owner["inferredSegments"] = [*owner.get("inferredSegments", []), *inferred]
+    from .ownership import _observed_length, _stitch
+    lines = [np.asarray(path['points']) for path in owner['observedSegments']]
+    owner['centerline'], pending = _stitch(lines, owner['inferredSegments'], p)
+    if pending:
+        owner['associationPending'] = True
+    owner['length'] = _observed_length(lines, p)
+    # The extended model is supported by the whole reverified parent surface,
+    # not just the biased stripe that proposed this extension.
+    return records['source_index']
 
 
 def _pieces(a, b, p):
@@ -60,7 +194,7 @@ def _verified_segments(runtime, a, b, radius, p, queried, connected_terminal=Fal
     differences=np.diff(axial[order]);positive=differences[differences>1e-9]
     observed_gap=min(p.axial_gap,max(4*radius,3*float(np.quantile(positive,.95)) if len(positive) else 0))
     groups = np.split(order, np.flatnonzero(differences > observed_gap)+1)
-    observed, inferred = [], []
+    observed, inferred, accepted = [], [], []
     previous = None
     residuals = []
     for group in groups:
@@ -78,8 +212,10 @@ def _verified_segments(runtime, a, b, radius, p, queried, connected_terminal=Fal
         if previous is not None and np.linalg.norm(start-previous) > observed_gap:
             inferred.append({"points": [previous.tolist(), start.tolist()], "source": "raw-support-gap"})
         observed.append({"points": [start.tolist(), end.tolist()]})
+        accepted.append(group)
         previous = end
         residuals.extend(residual[group].tolist())
+    records = records[np.concatenate(accepted)] if accepted else records[:0]
     return observed, inferred, records, float(np.quantile(residuals, .8)) if residuals else None
 
 
@@ -140,6 +276,55 @@ def verify_raw_instances(runtime, instances, p, *, preserve_association=False):
     # Remove only candidates with no material unique support.  This does not
     # use scene labels, does not choose between nearby rods, and deliberately
     # evaluates the union once so the two 16 mm bars cannot erase each other.
+    # Select local physical parents before evaluating unique source ownership.
+    # Only shorter, locally plausible stripes are re-read, keeping this extra
+    # evidence check bounded and letting the raw surface test make the decision.
+    dominated_by: dict[int, int] = {}
+    ranked = sorted(range(len(verified)), key=lambda index: (
+        -len(verified[index]['_rawSupportIndices']), -float(verified[index].get('length', 0.)),
+        _ownership_key(verified[index])))
+    rank = {index: position for position, index in enumerate(ranked)}
+    for index in ranked:
+        stripe = verified[index]
+        choices = []
+        for position, owner in enumerate(verified):
+            if rank[position] >= rank[index] or position in dominated_by or owner.get("role") != stripe.get("role"):
+                continue
+            owner_count = len(owner["_rawSupportIndices"])
+            owner_length = float(owner.get("length", 0.))
+            if not _plausible_owner(stripe, owner, p):
+                continue
+            choices.append((position, owner_count, owner_length, _ownership_key(owner)))
+        if not choices:
+            continue
+        records = _source_records(runtime, stripe, p)
+        if len(records) < .98*len(stripe["_rawSupportIndices"]):
+            continue
+        for parent, _, _, _ in sorted(choices, key=lambda value: (-value[1], -value[2], value[3])):
+            evidence = _supported_by_owner(records, verified[parent], p)
+            if evidence is None:
+                continue
+            evidence_bytes = sum(value.nbytes for value in evidence if isinstance(value, np.ndarray))
+            if support_bytes + evidence_bytes > 512*1024**2:
+                raise ValueError('V5 raw candidate support exceeds 512 MiB evidence budget')
+            # Publish measured support to this already-ranked physical root
+            # immediately. Later tails may overlap only the newly verified
+            # extension, not the original shorter proposal.
+            owner = verified[parent]
+            accepted_ids = _append_transferred_support(runtime, owner, evidence, p)
+            old_support = owner['_rawSupportIndices']
+            if support_bytes + evidence_bytes + old_support.nbytes + 3*accepted_ids.nbytes > 512*1024**2:
+                raise ValueError('V5 raw candidate support exceeds 512 MiB evidence budget')
+            sources = merge(old_support, np.sort(accepted_ids))
+            new_support = np.fromiter((source for source, _ in groupby(sources)), dtype=np.uint64)
+            support_bytes += new_support.nbytes-old_support.nbytes
+            owner['_rawSupportIndices'] = new_support
+            owner['rawSupportCount'] = int(len(new_support))
+            # A prior residual summary is not one extra raw observation. Keep
+            # that fit-quality evidence instead of biasing it toward the tail.
+            dominated_by[index] = parent
+            break
+
     retained = []
     for index, item in enumerate(verified):
         support = item["_rawSupportIndices"]
@@ -147,10 +332,19 @@ def verify_raw_instances(runtime, instances, p, *, preserve_association=False):
         residual = float(residual) if residual is not None else np.inf
         # Source ownership goes to a materially more precise fit.  Stable
         # ordering retains one exact duplicate instead of deleting both.
-        owners = [candidate["_rawSupportIndices"] for position, candidate in enumerate(verified)
-                  if position != index and candidate.get("role") == item.get("role") and
-                  ((float(candidate["rawSupportResidual"]) if candidate.get("rawSupportResidual") is not None else np.inf) < residual*.80 or
-                   (position < index and (float(candidate["rawSupportResidual"]) if candidate.get("rawSupportResidual") is not None else np.inf) <= residual*1.02))]
+        owners = []
+        for position, candidate in enumerate(verified):
+            # A physically dominated stripe cannot erase its own parent (or
+            # another physical owner) through a better aggregate residual.
+            if position == index or position in dominated_by or candidate.get("role") != item.get("role"):
+                continue
+            candidate_residual = float(candidate["rawSupportResidual"]) if candidate.get("rawSupportResidual") is not None else np.inf
+            materially_precise = candidate_residual < residual*.80
+            earlier = (_ownership_key(candidate) < _ownership_key(item) or
+                       (_ownership_key(candidate) == _ownership_key(item) and position < index))
+            stable_near_tie = earlier and candidate_residual <= residual*1.02
+            if materially_precise or stable_near_tie or dominated_by.get(index) == position:
+                owners.append(candidate["_rawSupportIndices"])
         unique=np.ones(len(support),bool)
         for owner in owners:
             if not len(owner) or not len(support) or owner[-1]<support[0] or support[-1]<owner[0]:continue

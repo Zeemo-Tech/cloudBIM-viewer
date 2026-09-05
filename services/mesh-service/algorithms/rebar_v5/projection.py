@@ -1,11 +1,17 @@
 """V5 observed surface ownership; centreline tubes are only lookup bounds."""
+from dataclasses import dataclass
 import numpy as np
 from ..rebar_v4_geometry import SegmentIndex, ProjectionResult, EPS
 
 
+@dataclass(frozen=True)
+class SurfaceProjectionResult(ProjectionResult):
+    best_normal: np.ndarray
+
+
 def project_surface_top2(
     points: np.ndarray, index: SegmentIndex, tolerance: float, neighbours: int = 20
-) -> ProjectionResult:
+) -> SurfaceProjectionResult:
     """Compete by cylindrical surface residual, with bounded finite-segment lookup."""
     points = np.asarray(points, dtype=np.float64)
     n = len(points)
@@ -17,10 +23,10 @@ def project_surface_top2(
             project_surface_top2(points[start : start + batch_size], index, tolerance, neighbours)
             for start in range(0, n, batch_size)
         ]
-        return ProjectionResult(
+        return SurfaceProjectionResult(
             *(
                 np.concatenate([getattr(batch, name) for batch in batches])
-                for name in ProjectionResult.__dataclass_fields__
+                for name in SurfaceProjectionResult.__dataclass_fields__
             )
         )
     best_distance = np.full(n, np.inf)
@@ -29,9 +35,10 @@ def project_surface_top2(
     second_id = np.zeros(n, np.uint32)
     best_direction = np.zeros(n, np.uint16)
     best_tangent = np.zeros((n, 3), np.float64)
+    best_normal = np.zeros((n, 3), np.float64)
     second_tangent = np.zeros((n, 3), np.float64)
     if index.tree is None or len(index.starts) == 0 or n == 0:
-        return ProjectionResult(
+        return SurfaceProjectionResult(
             best_distance,
             best_id,
             best_direction,
@@ -39,6 +46,7 @@ def project_surface_top2(
             second_distance,
             second_id,
             second_tangent,
+            best_normal,
         )
     midpoint_distance, candidates = index.tree.query(
         points, k=k, distance_upper_bound=index.reach, workers=1
@@ -54,9 +62,9 @@ def project_surface_top2(
     t = np.clip(
         np.einsum("nki,nki->nk", rel, vectors) / np.maximum(length2, EPS), 0.0, 1.0
     )
-    distance = np.linalg.norm(
-        points[:, None, :] - (starts + t[..., None] * vectors), axis=2
-    )
+    radial = points[:, None, :] - (starts + t[..., None] * vectors)
+    distance = np.linalg.norm(radial, axis=2)
+    radial_normal = np.divide(radial,distance[...,None],out=np.zeros_like(radial),where=distance[...,None]>EPS)
     distance[~valid] = np.inf
     candidate_ids = index.instance_ids[safe]
     candidate_directions = index.direction_ids[safe]
@@ -69,10 +77,12 @@ def project_surface_top2(
         ident = candidate_ids[:, column]
         direction = candidate_directions[:, column]
         tangent = index.tangents[safe[:, column]]
+        normal = radial_normal[:, column]
         finite = np.isfinite(value) & (ident > 0)
         same_best = finite & (ident == best_id) & (value < best_distance)
         best_distance[same_best] = value[same_best]
         best_tangent[same_best] = tangent[same_best]
+        best_normal[same_best] = normal[same_best]
         new_best = finite & (ident != best_id) & (value < best_distance)
         if np.any(new_best):
             second_distance[new_best] = best_distance[new_best]
@@ -82,11 +92,12 @@ def project_surface_top2(
             best_id[new_best] = ident[new_best]
             best_direction[new_best] = direction[new_best]
             best_tangent[new_best] = tangent[new_best]
+            best_normal[new_best] = normal[new_best]
         second = finite & (ident != best_id) & (value < second_distance)
         second_distance[second] = value[second]
         second_id[second] = ident[second]
         second_tangent[second] = tangent[second]
-    result = ProjectionResult(
+    result = SurfaceProjectionResult(
         best_distance,
         best_id,
         best_direction,
@@ -94,6 +105,7 @@ def project_surface_top2(
         second_distance,
         second_id,
         second_tangent,
+        best_normal,
     )
     # Twenty nearby pieces can all belong to one bent or overlapping instance.
     # Exhaust saturated neighborhoods before declaring a unique membership.
@@ -103,7 +115,6 @@ def project_surface_top2(
             expanded = project_surface_top2(
                 points[saturated], index, tolerance, min(2 * k, len(index.starts))
             )
-            for name in ProjectionResult.__dataclass_fields__:
+            for name in SurfaceProjectionResult.__dataclass_fields__:
                 getattr(result, name)[saturated] = getattr(expanded, name)
     return result
-

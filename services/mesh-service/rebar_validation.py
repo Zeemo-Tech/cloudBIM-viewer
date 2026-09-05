@@ -380,6 +380,7 @@ V5_ACCEPTANCE_THRESHOLDS = {
     "iou50PrecisionMin": 0.90,
     "iou50RecallMin": 0.90,
     "hookParentConsistencyMin": 0.95,
+    "instanceMergesMax": 0,
 }
 
 
@@ -398,6 +399,7 @@ def v5_acceptance(result: dict[str, Any]) -> dict[str, Any]:
         "iou50PrecisionMin": instances["iou50Precision"],
         "iou50RecallMin": instances["iou50Recall"],
         "hookParentConsistencyMin": result["hookParentConsistency"],
+        "instanceMergesMax": instances["merged"],
     }
     checks = {
         name: {

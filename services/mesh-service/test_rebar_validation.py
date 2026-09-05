@@ -107,6 +107,17 @@ if __name__ == "__main__":
     unittest.main()
 
 class V5AcceptanceTests(unittest.TestCase):
+    def test_v5_rejects_merge_even_when_aggregate_iou_passes(self):
+        t = make_truth_scene()
+        ids = t.instance.copy()
+        ids[ids == 4] = 3
+        result = evaluate_v5(t, attrs(t.scene, ids),
+                            type('Analysis', (), {'data': {'intersections': []}})(), 0)
+        self.assertTrue(result['acceptance']['checks']['iou50RecallMin']['passed'])
+        self.assertTrue(result['acceptance']['checks']['iou50PrecisionMin']['passed'])
+        self.assertFalse(result['acceptance']['checks']['instanceMergesMax']['passed'])
+        self.assertFalse(result['acceptance']['passed'])
+
     def test_fixture_only_predicted_instance_counts_as_false_positive(self):
         t=truth()
         scene=t.scene.copy();scene[t.scene==FIXTURE]=REBAR

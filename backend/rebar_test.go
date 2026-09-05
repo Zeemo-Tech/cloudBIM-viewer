@@ -38,7 +38,10 @@ func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDes
 	if version == "" {
 		version = "5"
 	}
-	return []RebarAlgorithmDescriptor{{ID: "geometric-v5", Version: version, AnalysisSchema: "rebar-analysis-v2", Capabilities: map[string]any{"bimPrior": false}, ParameterSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"radius": map[string]any{"type": "number", "default": 0.02}}}, InputOptionSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"maxInputPoints": map[string]any{"type": "integer", "default": 1000}}}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}}, nil
+	v5 := RebarAlgorithmDescriptor{ID: "geometric-v5", Version: version, AnalysisSchema: "rebar-analysis-v2", Capabilities: map[string]any{"bimPrior": false}, ParameterSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"radius": map[string]any{"type": "number", "default": 0.02}}}, InputOptionSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"maxInputPoints": map[string]any{"type": "integer", "default": 1000}}}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}
+	v3 := v5
+	v3.ID = "geometric-v3"
+	return []RebarAlgorithmDescriptor{v5, v3}, nil
 }
 func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (RebarArtifactManifest, error) {
 	p.calls++
@@ -64,7 +67,7 @@ func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (R
 	m.Schema = "rebar-artifact-manifest-v2"
 	m.ArtifactVersion = r.ArtifactVersion
 	m.AnalysisSchema = "rebar-analysis-v2"
-	m.Algorithm.ID, m.Algorithm.Version = "geometric-v5", "5"
+	m.Algorithm.ID, m.Algorithm.Version = r.Algorithm, "5"
 	m.Capabilities = map[string]any{"bimPrior": false}
 	m.InputOptions = r.InputOptions
 	m.EffectiveParameters = r.Parameters
@@ -122,7 +125,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 		if force {
 			q = "?force=true"
 		}
-		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation"+q, `{}`, 7)
+		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation"+q, `{"algorithm":"geometric-v5"}`, 7)
 		a.rebarCompute(c)
 		return w
 	}
@@ -252,6 +255,9 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	if w := post(`{}`); w.Code != 200 || fake.calls != 1 {
 		t.Fatalf("defaults=%d %s", w.Code, w.Body.String())
 	}
+	if fake.request.Algorithm != "geometric-v3" {
+		t.Fatalf("unaccepted V5 became default: %q", fake.request.Algorithm)
+	}
 	if got := fake.request.Parameters["radius"]; got != float64(0.02) {
 		t.Fatalf("parameter defaults were not sent: %#v", fake.request.Parameters)
 	}
@@ -262,7 +268,7 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	if w := post(`{}`); w.Code != 200 || fake.calls != 2 {
 		t.Fatalf("descriptor cache invalidation=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
 	}
-	if w := post(`{"bimPrior":{"bimAssetId":999}}`); w.Code != 422 || fake.calls != 2 || !bytes.Contains(w.Body.Bytes(), []byte("selected_algorithm_does_not_support_bim")) {
+	if w := post(`{"algorithm":"geometric-v5","bimPrior":{"bimAssetId":999}}`); w.Code != 422 || fake.calls != 2 || !bytes.Contains(w.Body.Bytes(), []byte("selected_algorithm_does_not_support_bim")) {
 		t.Fatalf("v5 BIM=%d %s", w.Code, w.Body.String())
 	}
 }

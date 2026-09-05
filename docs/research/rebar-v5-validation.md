@@ -56,6 +56,13 @@ acceptable way to make the suite pass.
 | Instance IoU >= 0.5 precision | >= 0.90 |
 | Instance IoU >= 0.5 recall | >= 0.90 |
 | Hook predicted-parent consistency | >= 0.95 |
+| Merged physical instances | 0 |
+
+The merge gate uses the existing instance evaluator's overlap definition (one
+prediction has IoU >= 0.1 with more than one physical truth instance). This is
+an independent veto: aggregate IoU precision/recall cannot waive a neighboring
+bar or web/planar identity merge. It does not replace the focused geometry
+regressions that inspect the finite observed segments themselves.
 
 The command emits `passed` per scenario and for the suite. Current algorithm
 work is still in progress: do not infer a pass from this document, and do not

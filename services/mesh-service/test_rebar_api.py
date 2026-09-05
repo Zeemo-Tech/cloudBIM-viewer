@@ -516,7 +516,7 @@ class RebarApiTests(unittest.TestCase):
 
     def test_compute_input_options_are_normalized_and_reject_invalid_values(self):
         request = RebarComputeRequest.model_validate({"point_cloud_path":"/a.ply", "source_tileset_path":"/s", "output_directory":"/o", "input_options":{"max_input_points":8,"voxelSize":.1}})
-        self.assertEqual(request.algorithm, "geometric-v5")
+        self.assertEqual(request.algorithm, "geometric-v3")
         self.assertEqual(request.input_options, {"maxInputPoints":8,"voxelSize":.1})
         for options in ({"unknown": 1}, {"maxInputPoints": True}, {"maxInputPoints": "8"}, {"voxelSize": True}, {"voxelSize": 6}):
             with self.assertRaises(Exception):

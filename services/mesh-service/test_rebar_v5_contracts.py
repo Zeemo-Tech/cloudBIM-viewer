@@ -57,6 +57,24 @@ class V5ContractTests(unittest.TestCase):
         result=project_surface_top2(np.array([[.5,.004,0],[.5,.008,0]]),build_segment_index(entries),.002)
         self.assertEqual(result.best_id.tolist(),[1,2])
 
+    def test_surface_projection_exposes_best_cylinder_radial_normal(self):
+        entries=[{'id':1,'directionId':1,'radius':.006,'observedSegments':[{'points':[[-.08,0,0],[.08,0,0]]}]}]
+        result=project_surface_top2(np.array([[-.04,.004,0]]),build_segment_index(entries),.002)
+        np.testing.assert_allclose(result.best_normal, [[0,1,0]], atol=1e-12)
+
+    def test_surface_projection_normal_survives_expansion_and_same_instance_piece_change(self):
+        entries=[{'id':1,'directionId':1,'radius':.006,'observedSegments':[
+            {'points':[[.45,.001,0],[.55,.001,0]]},
+            {'points':[[.496,-.5,0],[.496,.5,0]]},
+        ]}]
+        index=build_segment_index(entries)
+        for neighbours in (1, 20):
+            result=project_surface_top2(np.array([[.5,.004,0]]),index,.002,neighbours)
+            np.testing.assert_allclose(result.best_normal, [[1,0,0]], atol=1e-12)
+            self.assertEqual(result.best_id.tolist(), [1])
+        empty=project_surface_top2(np.empty((0,3)),index,.002)
+        self.assertEqual(empty.best_normal.shape,(0,3))
+
     def test_all_intersection_edge_cases_and_point_arrays_are_immutable(self):
         a={'id':1,'observedSegments':[{'points':[[0,0,0],[1,0,0]]}]}
         labels={name:np.array([0,1,2,3,4],dtype=dtype) for name,dtype in (('scene',np.uint8),('instance',np.uint32),('direction',np.uint16))}

@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 from algorithms.rebar_v5.contracts import Params, REBAR, TABLE, FIXTURE
+from algorithms.rebar_v5 import GeometricV5Adapter
 from algorithms.rebar_v5.features import multiscale
-from algorithms.rebar_v5.scene import detect_fixtures, detect_table, fixture_mask, table_mask
+from algorithms.rebar_v5.scene import _accepted_fixture_faces, detect_fixtures, detect_table, fixture_mask, refine_fixture_faces, table_mask
 from rebar_validation import make_truth_scene, _with_density
 
 
@@ -69,6 +71,21 @@ class SceneTests(unittest.TestCase):
         self.assertTrue(fixtures)
         self.assertTrue(all(item["kind"] == "plate" for item in fixtures))
 
+    def test_duplicate_suppression_preserves_close_parallel_distinct_faces(self):
+        def face(z):
+            return {"origin": [0, 0, z], "normal": [0, 0, 1], "axes": [[1, 0, 0], [0, 1, 0]],
+                    "halfExtent": [.06, .02], "distance": self.p.fixture_surface_distance,
+                    "supportCount": 40, "coverage": 1., "confidence": 1., "kind": "plate",
+                    "occupiedCells": [[0, 0]], "gridSize": self.p.fixture_grid_cell}
+        faces = _accepted_fixture_faces([face(0), face(.02)], np.empty((0, 3)), self.p)
+        self.assertEqual(len(faces), 2)
+
+    def test_raw_refinement_fits_each_exact_canonical_normal_once(self):
+        proposals = [{"normal": [0, 0, 1]}, {"normal": [0, 0, -1]}, {"normal": [1, 0, 0]}]
+        with patch("algorithms.rebar_v5.scene._fixture_face", return_value=[]) as fitted:
+            refine_fixture_faces(np.empty((0, 3)), proposals, self.p)
+        self.assertEqual(fitted.call_count, 2)
+
     def test_separated_small_plates_remain_separate_patches(self):
         first = plane(np.arange(-.08, .09, .01), np.arange(-.04, .05, .01), .08)
         second = first + np.array([.5, 0, 0])
@@ -111,6 +128,23 @@ class SceneTests(unittest.TestCase):
         square = truth.case_labels == "fixture_square_tube"
         self.assertGreaterEqual(masked[square].mean(), .99)
         self.assertEqual(int(masked[truth.scene == REBAR].sum()), 0)
+
+    def test_pipeline_refines_half_density_fixture_faces_from_raw_support(self):
+        truth = _with_density(make_truth_scene(seed=20260905, top_arcs=True), .5, 20260905)
+        adapter = GeometricV5Adapter()
+        analysis = adapter.analyze(truth.points, adapter.normalize_parameters({}))
+        try:
+            p = Params.from_value()
+            fixtures = analysis.data["algorithmDetails"]["fixture"]["surfaces"]
+            masked = fixture_mask(truth.points, fixtures, p)
+            square = truth.case_labels == "fixture_square_tube"
+            attrs = adapter.project_points(truth.points, analysis)
+            self.assertGreaterEqual(masked[square].mean(), .98)
+            self.assertEqual(int(masked[truth.scene == REBAR].sum()), 0)
+            self.assertEqual(int(np.count_nonzero(square & (attrs.scene_class == REBAR))), 0)
+            self.assertLessEqual(int(np.count_nonzero(square & (attrs.scene_class == 0))), 12)
+        finally:
+            adapter.close(analysis)
 
 
 if __name__ == "__main__":

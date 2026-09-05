@@ -323,6 +323,59 @@ def _square_tube_companions(support, faces, p):
     return result
 
 
+def _accepted_fixture_faces(result, support, p):
+    unique = []
+    for surface in sorted(result, key=lambda item: -item["supportCount"]):
+        normal = np.asarray(surface["normal"], dtype=float)
+        origin = np.asarray(surface["origin"], dtype=float)
+        if any(
+            abs(float(normal @ np.asarray(other["normal"]))) >= .999
+            and np.linalg.norm(origin - np.asarray(other["origin"])) <= 2 * p.fixture_grid_cell
+            and abs(float((origin - np.asarray(other["origin"])) @ normal)) <= p.fixture_fit_distance
+            for other in unique
+        ):
+            continue
+        unique.append(surface)
+    result = unique
+    accepted = []
+    for surface in result:
+        n = np.asarray(surface["normal"])
+        origin = np.asarray(surface["origin"])
+        extent = np.asarray(surface["halfExtent"])
+        paired = any(
+            abs(float(n @ np.asarray(other["normal"]))) < .20
+            and np.linalg.norm(origin - np.asarray(other["origin"])) <= 1.5 * (np.linalg.norm(extent) + np.linalg.norm(np.asarray(other["halfExtent"]))) + p.fixture_grid_cell
+            and .4 <= np.linalg.norm(extent) / max(np.linalg.norm(np.asarray(other["halfExtent"])), 1e-9) <= 2.5
+            for other in result if other is not surface
+        )
+        if paired:
+            surface["kind"] = "square-tube-face"
+            surface["confidence"] = min(1., surface["confidence"] + .15)
+        if paired or surface["supportCount"] >= 4 * p.fixture_min_points:
+            accepted.append(surface)
+    return accepted + _square_tube_companions(support, accepted, p)
+
+
+def refine_fixture_faces(support, proposals, p):
+    """Refit finite fixture proposals from bounded raw support only."""
+    support = np.asarray(support, dtype=np.float64)
+    result = []
+    modes = set()
+    for proposal in proposals:
+        try:
+            normal = np.asarray(proposal["normal"], dtype=float)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if np.isfinite(normal).all() and np.linalg.norm(normal) > 1e-12:
+            normal = canonical_direction(normal)
+            key = tuple(normal.tolist())
+            if key in modes:
+                continue
+            modes.add(key)
+            result.extend(_fixture_face(support, normal, p))
+    return _accepted_fixture_faces(result, support, p)
+
+
 def detect_fixtures(points, features, p, table=None):
     """Return finite observed planar fixture faces; cylinders are not fixtures."""
     points = np.asarray(points, dtype=np.float64)
@@ -346,28 +399,7 @@ def detect_fixtures(points, features, p, table=None):
     for mode, _ in modes:
         seed_rows = np.abs(normal[rows] @ mode) >= math.cos(math.radians(p.fixture_normal_tolerance_degrees))
         result.extend(_fixture_face(support, mode, p, seeds[seed_rows]))
-    # Compatible perpendicular faces provide stronger square-tube evidence.
-    accepted = []
-    for surface in result:
-        n = np.asarray(surface["normal"])
-        origin = np.asarray(surface["origin"])
-        extent = np.asarray(surface["halfExtent"])
-        paired = any(
-            abs(float(n @ np.asarray(other["normal"]))) < .20
-            and np.linalg.norm(origin - np.asarray(other["origin"])) <= 1.5 * (np.linalg.norm(extent) + np.linalg.norm(np.asarray(other["halfExtent"]))) + p.fixture_grid_cell
-            and .4 <= np.linalg.norm(extent) / max(np.linalg.norm(np.asarray(other["halfExtent"])), 1e-9) <= 2.5
-            for other in result if other is not surface
-        )
-        # A fragmented cylinder cap can satisfy a local plane fit. Small faces
-        # therefore need observed perpendicular-face support; a true standalone
-        # plate needs substantially more than the minimum RANSAC sample.
-        if paired:
-            surface["kind"] = "square-tube-face"
-            surface["confidence"] = min(1., surface["confidence"] + .15)
-        if paired or surface["supportCount"] >= 4 * p.fixture_min_points:
-            accepted.append(surface)
-    companions = _square_tube_companions(support, accepted, p)
-    return accepted + companions
+    return _accepted_fixture_faces(result, support, p)
 
 
 def fixture_mask(points, fixtures, p):

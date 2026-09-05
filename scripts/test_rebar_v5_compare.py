@@ -40,7 +40,42 @@ def write_artifact(root, groups, *, changed=False):
     (root / "manifest.json").write_text(json.dumps({"schema":"rebar-artifact-manifest-v2","algorithm":{"id":"geometric-v5","version":"1"},"analysisSchema":"rebar-analysis-v2","featuresPath":"features/manifest.json","resultPath":"result.json"}))
 
 
+def write_boundary(root, groups, value=.8):
+    chunks = []
+    for ordinal, rows in enumerate(groups):
+        path = root / 'features' / f'updates-{ordinal}.npz'
+        np.savez_compressed(path, fixture_source_index=np.asarray(rows, np.uint64),
+                            fixture_axis_linearity=np.full(len(rows), value, np.float32))
+        chunks.append({'path': path.name, 'sha256': sha(path)})
+    path = root / 'features/manifest.json'
+    manifest = json.loads(path.read_text())
+    manifest['boundaryUpdates'] = {'encoding': 'sparse-source-index',
+                                   'applyOrder': ['table', 'fixture'], 'chunks': chunks}
+    path.write_text(json.dumps(manifest))
+
+
 class CompareTest(unittest.TestCase):
+    def test_boundary_updates_are_joined_and_compared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp)/"a", Path(tmp)/"b"
+            write_artifact(first, [[2, 9, 50]])
+            write_artifact(second, [[2, 9, 50]])
+            write_boundary(first, [[2, 50]])
+            write_boundary(second, [[50], [2]])
+            self.assertTrue(compare.compare(first, second)['equal'])
+            write_boundary(second, [[50], [2]], value=.2)
+            self.assertFalse(compare.compare(first, second)['equal'])
+
+    def test_unsigned_source_indices_preserve_full_contract_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp)/"a", Path(tmp)/"b"
+            write_artifact(first, [[2, 2**63 + 1], [2**64 - 1]])
+            write_artifact(second, [[2**64 - 1, 2], [2**63 + 1]])
+            self.assertTrue(compare.compare(first, second)["equal"])
+
+    def test_geometry_integer_ids_are_compared_exactly(self):
+        self.assertFalse(compare._json_equal({"id": 1000000}, {"id": 1000001}))
+
     def test_source_index_join_accepts_different_chunking_and_duplicate_xyz(self):
         with tempfile.TemporaryDirectory() as tmp:
             first, second = Path(tmp)/"a", Path(tmp)/"b"

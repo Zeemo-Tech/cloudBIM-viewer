@@ -32,7 +32,7 @@ const emit = defineEmits<{
 }>()
 
 const algorithms = ref<RebarAlgorithmDescriptor[]>([])
-const selectedAlgorithmId = ref('geometric-v5')
+const selectedAlgorithmId = ref('geometric-v3')
 const latest = ref<RebarSegmentationResult | null>(null)
 const loading = ref(false)
 const computing = ref(false)
@@ -164,21 +164,19 @@ function applyPersistedSettings(value: RebarSegmentationResult) {
 }
 
 function emitLatest(value: RebarSegmentationResult | null) {
-  // A pre-V5 artifact has incompatible point semantics. Keep it visible as a
-  // persisted record, but never pass its tiles or metadata into the V5 viewer.
   latest.value = value
-  emit('result-change', isRebarV5Result(value) ? value : null)
+  emit('result-change', value)
   instances.value = []
   intersections.value = []
   selectedInstance.value = null
   selectedIntersection.value = null
   detailError.value = ''
   const token = ++detailToken
-  if (isRebarV5Result(value)) {
+  if (value && ['rebar-visualization-v2', 'rebar-visualization-v3'].includes(value.visualization?.schema ?? '')) {
     getRebarAnalysis(value.resultUrl).then((detail) => {
       if (token !== detailToken) return
       instances.value = detail.analysis.instances ?? []
-      intersections.value = detail.analysis.intersections ?? []
+      intersections.value = isRebarV5Result(value) ? detail.analysis.intersections ?? [] : []
     }).catch(() => { if (token === detailToken) detailError.value = '实例详情读取失败，可重新加载结果' })
   }
 }
@@ -205,17 +203,16 @@ async function loadState() {
     if (token !== loadToken) return
     const persisted = latestState.status === 'fulfilled' ? latestState.value?.data ?? null : null
     emitLatest(persisted)
-    if (isRebarV5Result(persisted)) setMode('rebar-class')
-    else if (persisted) errorMessage.value = '已保存结果不是 V5 格式，请重新计算后查看。'
+    if (persisted) setMode(persisted.capabilities.class ? 'rebar-class' : 'rgb')
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []
-      if (algorithms.value.some((item) => item.id === 'geometric-v5')) {
-        selectedAlgorithmId.value = 'geometric-v5'
-      } else if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
+      if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
+      } else if (algorithms.value.some((item) => item.id === 'geometric-v3')) {
+        selectedAlgorithmId.value = 'geometric-v3'
       } else if (!algorithms.value.some((item) => item.id === selectedAlgorithmId.value)) {
-        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v5'
+        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v3'
       }
       initializeParameters()
       if (persisted) applyPersistedSettings(persisted)
@@ -266,7 +263,7 @@ async function compute(force = false) {
       { force },
     )
     emitLatest(response.data)
-    setMode(isRebarV5Result(response.data) ? 'rebar-class' : 'rgb')
+    setMode(response.data.capabilities.class ? 'rebar-class' : 'rgb')
   } catch (error) {
     errorMessage.value = errorText(error)
   } finally {
@@ -315,9 +312,9 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
       原始点 {{ latest.summary.rawSource.finitePointCount.toLocaleString() }} ·
       待确认 {{ latest.summary.rawSource.ambiguousPointCount.toLocaleString() }}
     </p>
-    <div v-if="isRebarV5Result(latest)" class="rebar-panel__inspection">
+    <div v-if="latest && ['rebar-visualization-v2', 'rebar-visualization-v3'].includes(latest.visualization?.schema ?? '')" class="rebar-panel__inspection">
       <label><input v-model="showCenterlines" type="checkbox" /> 显示中心线</label>
-      <label><input v-model="showIntersections" type="checkbox" /> 显示交点</label>
+      <label v-if="isRebarV5Result(latest)"><input v-model="showIntersections" type="checkbox" /> 显示交点</label>
       <label><input v-model="hideFixtures" type="checkbox" /> 隐藏夹具／围挡</label>
       <label>聚焦单根钢筋
         <select v-model="selectedInstance">
@@ -325,7 +322,7 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
           <option v-for="instance in instances" :key="instance.id" :value="instance.id">钢筋 {{ instance.id }}{{ instance.designId ? ' · BIM 已关联' : '' }}</option>
         </select>
       </label>
-      <label>交点详情
+      <label v-if="isRebarV5Result(latest)">交点详情
         <select v-model="selectedIntersection">
           <option :value="null">未选择</option>
           <option v-for="intersection in intersections" :key="intersection.id" :value="intersection.id">交点 {{ intersection.id }} · {{ intersection.angleDegrees.toFixed(1) }}°</option>

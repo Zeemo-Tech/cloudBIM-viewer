@@ -68,20 +68,23 @@ def _candidate_map(payload: Any, count: int) -> list[tuple[int, ...]]:
     return result
 
 
-def _rows(path: Path, kind: str):
+def _rows(path: Path, kind: str, stage: str | None = None):
     with np.load(path, allow_pickle=False) as payload:
-        if "source_index" not in payload.files:
+        prefix = f"{stage}_" if stage else ""
+        index_key = prefix + "source_index"
+        if stage and index_key not in payload.files:
+            return
+        if index_key not in payload.files:
             raise ValueError(f"{path}: missing source_index")
-        indices = np.asarray(payload["source_index"], dtype=np.uint64)
+        indices = np.asarray(payload[index_key], dtype=np.uint64)
         candidates = _candidate_map(payload, len(indices)) if kind == "labels" else [tuple()] * len(indices)
-        fields = [name for name in payload.files if name not in {"source_index", "candidate_point_indices", "candidate_offsets", "candidate_instance_ids"}]
+        fields = [name for name in payload.files if name.startswith(prefix) and name not in {index_key, "candidate_point_indices", "candidate_offsets", "candidate_instance_ids"}]
+        arrays = {name: payload[name] for name in fields}
         for name in fields:
-            if len(payload[name]) != len(indices):
+            if len(arrays[name]) != len(indices):
                 raise ValueError(f"{path}: {name} length differs from source_index")
         for row, source in enumerate(indices):
-            if int(source) > 0x7FFF_FFFF_FFFF_FFFF:
-                raise ValueError(f"{path}: source_index exceeds SQLite signed range")
-            values = {name: np.asarray(payload[name][row]) for name in fields}
+            values = {name.removeprefix(prefix): np.asarray(arrays[name][row]) for name in fields}
             if kind == "labels":
                 values["__candidates__"] = candidates[row]
             yield int(source), values
@@ -114,7 +117,7 @@ def _compare_values(first: dict[str, Any], second: dict[str, Any]) -> str | None
     return None
 
 
-def _write_runs(root: Path, folder: str, manifest: dict[str, Any], report: dict[str, Any], temporary: Path, prefix: str) -> list[Path]:
+def _write_runs(root: Path, folder: str, manifest: dict[str, Any], report: dict[str, Any], temporary: Path, prefix: str, stage: str | None = None) -> list[Path]:
     """External-sort each input chunk without allocating by maximum source_index.
 
     Memory is bounded by one NPZ chunk. Each emitted record is uint64 source index
@@ -124,7 +127,7 @@ def _write_runs(root: Path, folder: str, manifest: dict[str, Any], report: dict[
     _check_chunks(root, folder, manifest, report)
     runs: list[Path] = []
     for ordinal, chunk in enumerate(manifest["chunks"]):
-        records = list(_rows(root / folder / chunk["path"], folder))
+        records = list(_rows(root / folder / chunk["path"], folder, stage))
         records.sort(key=lambda item: item[0])
         run = temporary / f"{prefix}-{folder}-{ordinal:06d}.run"
         with run.open("wb") as handle:
@@ -209,6 +212,8 @@ def _strip_runtime(value: Any) -> Any:
 
 
 def _json_equal(first: Any, second: Any) -> bool:
+    if isinstance(first, (int, bool)) or isinstance(second, (int, bool)):
+        return type(first) is type(second) and first == second
     if isinstance(first, (int, float)) and isinstance(second, (int, float)):
         return bool(np.isclose(first, second, rtol=RTOL, atol=ATOL, equal_nan=True))
     if type(first) is not type(second):
@@ -232,6 +237,15 @@ def compare(first_root: Path, second_root: Path) -> dict[str, Any]:
             first_runs = _write_runs(first_root, folder, first_sidecar, report, temporary, "first")
             second_runs = _write_runs(second_root, folder, second_sidecar, report, temporary, "second")
             _compare_streams(_merged_runs(first_runs), _merged_runs(second_runs), folder, report)
+        first_updates = first_features.get('boundaryUpdates', {'chunks': []})
+        second_updates = second_features.get('boundaryUpdates', {'chunks': []})
+        for key in ('encoding', 'applyOrder', 'attributes'):
+            if first_updates.get(key) != second_updates.get(key):
+                report['mismatches'].append({'kind': 'boundaryUpdates', 'reason': f'{key} differs'})
+        for stage in ('table', 'fixture'):
+            first_runs = _write_runs(first_root, 'features', first_updates, report, temporary, f'first-{stage}', stage)
+            second_runs = _write_runs(second_root, 'features', second_updates, report, temporary, f'second-{stage}', stage)
+            _compare_streams(_merged_runs(first_runs), _merged_runs(second_runs), f'boundaryUpdates.{stage}', report)
     first_result = _strip_runtime(_load_json(first_root / first_manifest.get("resultPath", "result.json")).get("analysis", {}))
     second_result = _strip_runtime(_load_json(second_root / second_manifest.get("resultPath", "result.json")).get("analysis", {}))
     if not _json_equal(first_result, second_result):

@@ -172,7 +172,7 @@ class RebarComputeRequest(BaseModel):
     source_tileset_path: str = Field(min_length=1, max_length=4096)
     output_directory: str = Field(min_length=1, max_length=4096)
     artifact_version: str = Field(default="1", min_length=1, max_length=128)
-    algorithm: str = Field(default="geometric-v5", min_length=1, max_length=128)
+    algorithm: str = Field(default="geometric-v3", min_length=1, max_length=128)
     input_options: dict[str, Any] = Field(default_factory=dict)
     parameters: dict[str, Any] = Field(default_factory=dict)
     bim_prior: RebarBimPriorRequest | None = None

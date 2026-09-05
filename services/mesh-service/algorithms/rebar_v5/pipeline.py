@@ -18,7 +18,7 @@ from ..rebar_v4_geometry import build_segment_index
 from .contracts import Params, UNKNOWN, TABLE, REBAR, NOISE, FIXTURE, AMBIGUOUS, VERSION
 from .features import denoise, multiscale
 from .spatial import SpatialStore
-from .scene import detect_table, table_mask, detect_fixtures, fixture_mask
+from .scene import detect_table, table_mask, detect_fixtures, fixture_mask, refine_fixture_faces
 from .bolts import detect_bolts, bolt_mask
 from .rods import planar_bars, web_bars, distance_to_paths, finalize_instances
 from .intersections import compute_intersections
@@ -135,12 +135,49 @@ def prepare(context,p):
         runtime.close();raise
 
 
+def refine_fixture_support(runtime, plane, proposals, p):
+    """Re-fit detected finite faces from coalesced bounded raw-store regions."""
+    regions=[]
+    for face in proposals:
+        try:
+            origin,normal,axes,extent=(np.asarray(face[key],dtype=float) for key in ("origin","normal","axes","halfExtent"))
+        except (KeyError,TypeError,ValueError):
+            continue
+        if axes.shape != (2,3) or extent.shape != (2,) or not np.isfinite(np.r_[origin,normal,axes.ravel(),extent]).all():continue
+        reach=np.abs(axes).T@extent+np.abs(normal)*(p.fixture_surface_distance+p.fixture_offset_gap)
+        lo,hi=origin-reach,origin+reach
+        overlaps=[index for index,(lower,upper,_) in enumerate(regions) if np.all(lo<=upper)&np.all(hi>=lower)]
+        if not overlaps:
+            regions.append([lo,hi,[face]]);continue
+        lower=np.minimum.reduce([lo]+[regions[index][0] for index in overlaps])
+        upper=np.maximum.reduce([hi]+[regions[index][1] for index in overlaps])
+        grouped=[face]
+        for index in reversed(overlaps):
+            grouped.extend(regions.pop(index)[2])
+        regions.append([lower,upper,grouped])
+    refined=[]
+    for lo,hi,faces in regions:
+        records=runtime.store.query(lo,hi)
+        valid=~runtime.masks(records)
+        valid&=~table_mask(records["xyz"],plane,p)
+        refined.extend(refine_fixture_faces(records["xyz"][valid],faces,p))
+    return refined
+
+
 def projection_entries(instances,p):
     entries=[]
     for item in instances:
         entries.append({"id":item["id"],"instance":item["id"],"directionId":item.get("directionId",0),
             "radius":item["radius"]+p.support_distance,"observedSegments":item["observedSegments"],"centerline":item["centerline"]})
     return entries
+
+
+def _canonical_face_normal(value):
+    normal=np.asarray(value,dtype=float);length=np.linalg.norm(normal)
+    if not np.isfinite(length) or length<=0:return np.zeros(3)
+    normal=normal/length
+    pivot=np.flatnonzero(np.abs(normal)>1e-12)
+    return -normal if len(pivot) and normal[pivot[0]]<0 else normal
 
 
 def classify(points,analysis,features=None,noise=None):
@@ -156,12 +193,24 @@ def classify(points,analysis,features=None,noise=None):
     table=table_mask(points,details.get("plane"),p)
     surfaces=details.get("fixture",{}).get("surfaces",[])
     fixture=np.zeros(len(points),bool);fixture_conf=np.zeros(len(points))
+    if features is not None:
+        planar=(features["surface_planarity"]>=p.min_planarity)&features["surface_valid"].astype(bool)
+        normals=np.asarray(features.get("surface_normal",np.zeros((len(points),3))),dtype=float)
+        normal_length=np.linalg.norm(normals,axis=1)
+        normal_valid=np.asarray(features.get("surface_normal_valid",features["surface_valid"]),bool)&(normal_length>.9)
+        normals=np.divide(normals,normal_length[:,None],out=np.zeros_like(normals),where=normal_length[:,None]>0)
+    else:
+        planar=np.zeros(len(points),bool);normal_valid=np.zeros(len(points),bool);normals=np.zeros((len(points),3))
     for face in surfaces:
         support=fixture_mask(points,[face],p)
         if not support.any():continue
+        normal=_canonical_face_normal(face['normal'])
         residual=np.abs((points[support]-np.asarray(face['origin']))@np.asarray(face['normal']))
         evidence=.65+.33*face.get('confidence',.8)*np.exp(-.5*(residual/p.fixture_fit_distance)**2)
-        fixture_conf[support]=np.maximum(fixture_conf[support],evidence)
+        rows=np.flatnonzero(support);aligned=np.abs(normals[rows]@normal)
+        evidence*=np.where(planar[rows]&normal_valid[rows],.75+.25*aligned,1.)
+        # Max over complete per-face evidence is independent of face order.
+        fixture_conf[rows]=np.maximum(fixture_conf[rows],evidence)
         fixture|=support
     for model in details.get('fixture',{}).get('bolts',[]):
         support=bolt_mask(points,[model],p)
@@ -170,11 +219,13 @@ def classify(points,analysis,features=None,noise=None):
     steel=projected.best_id>0
     table_conf=np.where(table,.95,0.)
     if features is not None:
-        planar=(features["surface_planarity"]>=p.min_planarity)&features["surface_valid"].astype(bool)
         linear=(features["axis_linearity"]>=p.min_linearity)&features["axis_valid"].astype(bool)
         table_conf*=np.where(planar,1.,.65)
         tangent=np.abs(np.einsum("ij,ij->i",features["axis_tangent"],projected.best_tangent))
-        bar_conf=np.where(steel, .65+.30*np.clip(features["axis_linearity"],0,1)*tangent,0.)
+        cylinder_fit=np.clip(1.-projected.best_distance,0.,1.)
+        bar_conf=np.where(steel, (.65+.30*np.clip(features["axis_linearity"],0,1)*tangent)*(.70+.30*cylinder_fit),0.)
+        radial_alignment=np.abs(np.einsum('ij,ij->i',normals,projected.best_normal))
+        bar_conf*=np.where(planar&normal_valid,.75+.25*radial_alignment,1.)
         bar_conf[steel&~linear]*=.85
     else:bar_conf=np.where(steel,.8,0.)
     scene=np.zeros(len(points),np.uint8)
@@ -339,21 +390,27 @@ def transfer_labels(points,analysis):
 def finalize_raw_ownership(analysis):
     """Remove models with no actual semantic support; retain ambiguous evidence."""
     runtime=analysis.resources;p=runtime.p;items=analysis.data["instances"]
-    counts=np.zeros(len(items)+1,np.int64)
-    for ordinal in range(len(runtime.feature_chunks)):
-        labels=raw_chunk(ordinal,analysis)
-        counts+=np.bincount(labels["rebar_instance"],minlength=len(counts))[:len(counts)]
-        counts+=np.bincount(labels["candidate_instance_ids"],minlength=len(counts))[:len(counts)]
-        if ordinal%32==0:
-            logging.getLogger(__name__).info('V5 raw ownership: %d/%d spatial cores',ordinal+1,len(runtime.feature_chunks))
+    def ownership_counts(count):
+        confirmed=np.zeros(count,np.int64);candidate=np.zeros(count,np.int64)
+        for ordinal in range(len(runtime.feature_chunks)):
+            labels=raw_chunk(ordinal,analysis)
+            confirmed+=np.bincount(labels["rebar_instance"],minlength=count)[:count]
+            candidate+=np.bincount(labels["candidate_instance_ids"],minlength=count)[:count]
+            if ordinal%32==0:
+                logging.getLogger(__name__).info('V5 raw ownership: %d/%d spatial cores',ordinal+1,len(runtime.feature_chunks))
+        return confirmed,candidate
+
+    confirmed,candidate=ownership_counts(len(items)+1);counts=confirmed+candidate
     # A cylinder fitted mainly to a confirmed fixture corner can retain a few
     # boundary outliers. Those outliers are not sufficient semantic support
     # for the entire physical model, regardless of its absolute point count.
     retained=[item for item in items if counts[item["id"]]>=p.min_primitive_votes
               and counts[item['id']]/max(item.get('rawSupportCount',0),1)>=.20]
-    for item in retained:item["semanticSupportCount"]=int(counts[item["id"]])
     removed=len(items)-len(retained)
-    if not removed:return {"removedInstanceCount":0,"rawPointCount":runtime.store.count}
+    if not removed:
+        for item in retained:
+            ident=item["id"];item["confirmedSupportCount"]=int(confirmed[ident]);item["candidateSupportCount"]=int(candidate[ident]);item["semanticSupportCount"]=int(counts[ident])
+        return {"removedInstanceCount":0,"rawPointCount":runtime.store.count}
     # finalize_instances uses geometry sort; establish the ID mapping via a
     # temporary internal identity removed before writing the JSON contract.
     for item in retained:item['_previousId']=item['id']
@@ -390,6 +447,9 @@ def finalize_raw_ownership(analysis):
         labels['candidate_offsets']=np.asarray(new_offsets,np.uint64)
         labels['candidate_instance_ids']=np.asarray(new_ids,np.uint32)
         np.savez_compressed(path,**labels)
+    confirmed,candidate=ownership_counts(len(finalized)+1)
+    for item in finalized:
+        ident=item["id"];item["confirmedSupportCount"]=int(confirmed[ident]);item["candidateSupportCount"]=int(candidate[ident]);item["semanticSupportCount"]=int(confirmed[ident]+candidate[ident])
     return {"removedInstanceCount":removed,"rawPointCount":runtime.store.count}
 
 
@@ -408,6 +468,7 @@ def analyze(context,p):
             updated=multiscale(residual,residual[near],p)
             for key,value in updated.items():f[key][near]=value
         surfaces=detect_fixtures(residual,f,p,plane)
+        surfaces=refine_fixture_support(runtime,plane,surfaces,p)
         bolts,bolt_diagnostic=detect_bolts(residual,f,surfaces,p)
         fixture=fixture_mask(residual,surfaces,p)|bolt_mask(residual,bolts,p)
         stages.append({"name":"fixtures","inputPointCount":len(residual),"confirmedPointCount":int(fixture.sum()),"candidateCount":len(surfaces),

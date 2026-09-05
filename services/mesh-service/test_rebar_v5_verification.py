@@ -36,6 +36,124 @@ def surface(x):
 class VerificationTests(unittest.TestCase):
     def setUp(self): self.p = Params.from_value({"min_primitive_votes": 4, "min_primitive_length": .02, "axial_gap": .05, "block_size": .1})
 
+    def test_dominated_precise_stripe_cannot_erase_its_parent(self):
+        parent = candidate()
+        parent.update(id=1, role='planar', length=1.,
+                      observedSegments=[{'points': [[0., 0, 0], [1., 0, 0]]}])
+        stripe = candidate()
+        stripe.update(id=2, role='planar', radius=.0095, length=.96,
+                      observedSegments=[{'points': [[.02, 0, 0], [.98, 0, 0]]}])
+        observations = surface(np.linspace(0., 1., 251))
+        observations[:, 1:] *= .0095/.008
+        for candidates in ([parent, stripe], [stripe, parent]):
+            for preserve in (False, True):
+                kept, diagnostics = verify_raw_instances(Runtime(observations), candidates, self.p,
+                                                          preserve_association=preserve)
+                physical = [item for item in kept if not item.get('_associationOnly')]
+                self.assertEqual([item['id'] for item in physical], [1])
+                self.assertEqual(diagnostics['verifiedCount'], 1)
+
+    def test_surface_stripe_transfers_continuous_tail_to_parent_in_both_orders(self):
+        parent = candidate()
+        parent.update(id=1, role='planar', length=1., centerline=[[0., 0, 0], [1., 0, 0]],
+                      observedSegments=[{'points': [[0., 0, 0], [1., 0, 0]]}])
+        stripe = candidate()
+        stripe.update(id=2, role='planar', length=.35, centerline=[[-.25, 0, 0], [.1, 0, 0]],
+                      observedSegments=[{'points': [[-.25, 0, 0], [.1, 0, 0]]}])
+        observations = surface(np.linspace(-.25, 1., 251))
+        for candidates in ([parent, stripe], [stripe, parent]):
+            kept, _ = verify_raw_instances(Runtime(observations), candidates, self.p)
+            self.assertEqual(len(kept), 1)
+            self.assertEqual(kept[0]['id'], 1)
+            points = np.vstack([path['points'] for path in kept[0]['observedSegments']])
+            self.assertAlmostEqual(points[:, 0].min(), -.25)
+            self.assertEqual(kept[0]['rawSupportCount'], len(observations))
+            self.assertTrue(np.allclose(points[:, 1:], 0))
+
+    def test_surface_stripe_tail_gap_remains_inferred(self):
+        parent = candidate()
+        parent.update(id=1, role='planar', length=1., observedSegments=[{'points': [[0., 0, 0], [1., 0, 0]]}])
+        stripe = candidate()
+        stripe.update(id=2, role='planar', length=.4, observedSegments=[{'points': [[-.3, 0, 0], [.1, 0, 0]]}])
+        observations = surface(np.r_[np.linspace(-.3, -.2, 30), np.linspace(-.05, 1., 211)])
+        kept, _ = verify_raw_instances(Runtime(observations), [parent, stripe], self.p)
+        self.assertEqual(len(kept), 1)
+        self.assertAlmostEqual(min(p['points'][0][0] for p in kept[0]['observedSegments']), -.3)
+        for path in kept[0]['observedSegments']:
+            ends = np.asarray(path['points'])[:, 0]
+            self.assertFalse(ends.min() < -.1 < ends.max())
+        self.assertTrue(any(np.min(np.asarray(p['points'])[:, 0]) < -.1 < np.max(np.asarray(p['points'])[:, 0])
+                            for p in kept[0]['inferredSegments']))
+
+    def test_biased_stripe_tail_counts_all_reverified_parent_surface_records(self):
+        parent = candidate()
+        parent.update(id=1, role='planar', length=1.,
+                      observedSegments=[{'points': [[0., 0, 0], [1., 0, 0]]}])
+        stripe = candidate()
+        stripe.update(id=2, role='planar', radius=.004, length=.35,
+                      observedSegments=[{'points': [[-.25, 0, .004], [.1, 0, .004]]}])
+        observations = np.asarray([[x, .008*np.cos(a), .008*np.sin(a)]
+                                   for x in np.linspace(-.25, 1., 251)
+                                   for a in np.linspace(0, 2*np.pi, 12, endpoint=False)])
+        for candidates in ([parent, stripe], [stripe, parent]):
+            kept, _ = verify_raw_instances(Runtime(observations), candidates, self.p)
+            self.assertEqual(len(kept), 1)
+            points = np.vstack([path['points'] for path in kept[0]['observedSegments']])
+            self.assertAlmostEqual(points[:, 0].min(), -.25)
+            self.assertTrue(np.allclose(points[:, 1:], 0))
+            self.assertEqual(kept[0]['rawSupportCount'], len(observations))
+
+    def test_three_level_tail_support_reaches_root_before_next_candidate(self):
+        from itertools import permutations
+        items=[]
+        for ident, lo, hi in ((1, .15, 1.), (2, -.1, .4), (3, -.3, .05)):
+            item=candidate()
+            item.update(id=ident,role='planar',length=hi-lo,
+                        observedSegments=[{'points':[[lo,0,0],[hi,0,0]]}])
+            items.append(item)
+        observations=surface(np.linspace(-.3,1.,261))
+        for ordered in permutations(items):
+            for preserve in (False, True):
+                kept,diagnostic=verify_raw_instances(Runtime(observations),list(ordered),self.p,
+                                                     preserve_association=preserve)
+                physical=[item for item in kept if not item.get('_associationOnly')]
+                self.assertEqual([item['id'] for item in physical],[1])
+                self.assertEqual(physical[0]['rawSupportCount'],len(observations))
+                self.assertAlmostEqual(min(path['points'][0][0] for path in physical[0]['observedSegments']),-.3)
+                self.assertEqual(diagnostic['verifiedCount'],1)
+
+    def test_root_extension_does_not_absorb_a_later_tail_on_another_axis(self):
+        from itertools import permutations
+        items=[]
+        for ident, lo, hi, y in ((1,.15,1.,0.), (2,-.1,.4,0.), (3,-.3,-.15,.012)):
+            item=candidate()
+            item.update(id=ident,role='planar',length=hi-lo,
+                        observedSegments=[{'points':[[lo,y,0],[hi,y,0]]}])
+            items.append(item)
+        observations=np.vstack((surface(np.linspace(-.1,1.,221)),
+                                surface(np.linspace(-.3,-.15,31))+[0,.012,0]))
+        for ordered in permutations(items):
+            kept,_=verify_raw_instances(Runtime(observations),list(ordered),self.p)
+            self.assertEqual(sorted(item['id'] for item in kept),[1,3])
+            leaf=next(item for item in kept if item['id']==3)
+            self.assertTrue(np.allclose(np.vstack([path['points'] for path in leaf['observedSegments']])[:,1],.012))
+
+    def test_hook_local_arm_suppresses_biased_stripe_without_changing_curve(self):
+        parent = candidate()
+        parent.update(id=1, role='planar', length=2., observedSegments=[{'points': [[0., 0, 0], [1., 0, 0], [1., 1., 0]]}])
+        stripe = candidate()
+        stripe.update(id=2, role='planar', radius=.004, length=.6,
+                      observedSegments=[{'points': [[.2, 0, .004], [.8, 0, .004]]}])
+        straight = surface(np.linspace(0., 1., 151))
+        turn = surface(np.linspace(0., 1., 151))[:, [1, 0, 2]]+[1., 0, 0]
+        for candidates in ([parent, stripe], [stripe, parent]):
+            kept, _ = verify_raw_instances(Runtime(np.vstack((straight, turn))), candidates, self.p)
+            self.assertEqual(len(kept), 1)
+            self.assertEqual(kept[0]['id'], 1)
+            paths = np.vstack([p['points'] for p in kept[0]['observedSegments']])
+            self.assertTrue(np.allclose(paths[:, 2], 0))
+            self.assertGreater(paths[:, 1].max(), .99)
+
     def test_absent_raw_evidence_discards_candidate(self):
         items, diagnostics = verify_raw_instances(Runtime(np.empty((0, 3))), [candidate()], self.p)
         self.assertEqual(items, []); self.assertEqual(diagnostics["discardedCount"], 1)
@@ -83,6 +201,18 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["rawSupportUniqueRatio"], 1.0)
         self.assertEqual(diagnostics["discardedCount"], 1)
+
+    def test_duplicate_owner_selection_is_independent_of_candidate_order(self):
+        precise = candidate(); precise["id"] = 10
+        broad = candidate(); broad["id"] = 20; broad["radius"] = .010
+        points = surface(np.linspace(-.2, .2, 24))
+        signatures = []
+        for candidates in ((precise, broad), (broad, precise)):
+            kept, _ = verify_raw_instances(Runtime(points), candidates, self.p, preserve_association=True)
+            retained = [item for item in kept if not item.get("_associationOnly")]
+            self.assertEqual(len(retained), 1)
+            signatures.append((retained[0]["id"], retained[0]["rawSupportCount"]))
+        self.assertEqual(signatures[0], signatures[1])
 
     def test_short_observed_terminal_of_supported_parent_is_retained(self):
         item=candidate()

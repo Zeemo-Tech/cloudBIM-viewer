@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from heapq import merge
+from itertools import groupby
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -23,6 +25,44 @@ def _compatible(a, b):
         return False
     ar, br = float(a["radius"]), float(b["radius"])
     return abs(ar-br) <= max(.0015, .35*min(ar, br))
+
+
+def _distinct_parallel_axes(a, b):
+    first, second = _line(a), _line(b)
+    if first is None or second is None: return False
+    tolerance = max(.0025, .45*(float(a["radius"])+float(b["radius"])))
+    for x0, x1, xd, xl in _segments(first):
+        for y0, y1, yd, yl in _segments(second):
+            if abs(float(xd @ yd)) < np.cos(np.deg2rad(8.)): continue
+            ya, yb = float((y0-x0) @ xd), float((y1-x0) @ xd)
+            lo, hi = max(0., min(ya, yb)), min(xl, max(ya, yb))
+            if hi-lo < .30*min(xl, yl): continue
+            probes = x0+np.asarray([lo, (lo+hi)/2, hi])[:, None]*xd
+            fraction = ((probes-x0) @ xd-ya)/(yb-ya)
+            other = y0+fraction[:, None]*(y1-y0)
+            if np.linalg.norm(probes-other, axis=1).max() > tolerance: return True
+    return False
+
+
+def _observed_paths_connected(item, p):
+    """Observed finite paths must connect without borrowing inferred gaps."""
+    paths = [np.asarray(path.get("points", ()), dtype=float)
+             for path in item.get("observedSegments", ())]
+    paths = [path for path in paths if path.ndim == 2 and path.shape[1:] == (3,) and len(path) >= 2 and np.isfinite(path).all()]
+    if len(paths) < 2:
+        return True
+    parent = list(range(len(paths)))
+    def find(value):
+        while parent[value] != value:
+            parent[value] = parent[parent[value]]; value = parent[value]
+        return value
+    endpoints = np.asarray([point for path in paths for point in (path[0], path[-1])])
+    for left, right in cKDTree(endpoints).query_pairs(p.join_gap, output_type="ndarray"):
+        a, b = int(left//2), int(right//2)
+        if a != b:
+            a, b = find(a), find(b)
+            if a != b: parent[b] = a
+    return len({find(index) for index in range(len(paths))}) == 1
 
 
 def _segments(points):
@@ -89,6 +129,18 @@ def _support_overlap(first, second):
     return float(common/min(len(left), len(right)))
 
 
+def _raw_support_union_count(instances, indices):
+    """Count verified source records once; legacy callers may lack private IDs."""
+    evidence = [np.asarray(instances[index].get("_rawSupportIndices", ()), dtype=np.uint64)
+                for index in indices]
+    if evidence and all(len(values) for values in evidence):
+        return sum(1 for _ in groupby(merge(*(iter(values) for values in evidence))))
+    # ``merge_fragments`` is also a small public test seam. Production callers
+    # always arrive from verification with source IDs; retain old semantics for
+    # synthetic/legacy inputs where an exact union cannot be reconstructed.
+    return max(int(instances[index].get("rawSupportCount", 0)) for index in indices)
+
+
 def _endpoint_links(instances, lines, p):
     endpoints, outward = [], []
     for points in lines:
@@ -129,6 +181,25 @@ def _endpoint_links(instances, lines, p):
 
 def _path_length(points):
     return float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+
+
+def _geometry_key(value):
+    """Stable geometric ordering key; never changes emitted path direction."""
+    points = np.asarray(value, dtype=float)
+    if points.ndim != 2 or points.shape[1:] != (3,):
+        return ()
+    forward = tuple(np.round(points.ravel(), 8))
+    backward = tuple(np.round(points[::-1].ravel(), 8))
+    return min(forward, backward)
+
+
+def _path_key(path):
+    return (str(path.get("source", "")), _geometry_key(path.get("points", ())))
+
+
+def _item_key(item):
+    return (_geometry_key(_line(item)), str(item.get("role", "")),
+            float(item.get("radius", 0.)), int(item.get("id", 0)))
 
 
 def _collinear_union(first, second, p):
@@ -204,7 +275,7 @@ def _merge_observed(paths, p):
 
 def _straight_union_lines(lines, p):
     """Display/measure straight overlap unions without altering observations."""
-    remaining = list(lines)
+    remaining = sorted(lines, key=_geometry_key)
     result = []
     while remaining:
         first = remaining.pop(0)
@@ -223,7 +294,7 @@ def _straight_union_lines(lines, p):
                     changed = True
                     break
         result.append(merged)
-    return result
+    return sorted(result, key=_geometry_key)
 
 
 def _observed_length(lines, p):
@@ -235,6 +306,8 @@ def _stitch(lines, bridges, p):
     """Stitch exactly one unbranched path, otherwise leave evidence separate."""
     if not lines:
         return [], True
+    lines = sorted(lines, key=_geometry_key)
+    bridges = sorted(bridges, key=_path_key)
     endpoints = np.asarray([point for line in lines for point in (line[0], line[-1])])
     outward = []
     for line in lines:
@@ -272,15 +345,15 @@ def _stitch(lines, bridges, p):
         options.sort()
         # A branch/crossing is not a valid single centreline.
         if len(options) > 1 and options[1][0]-options[0][0] <= .002:
-            return max(lines, key=_path_length).tolist(), True
+            return max(lines, key=lambda line: (_path_length(line), _geometry_key(line))).tolist(), True
         choices[endpoint] = options[0]
     links = {endpoint: option for endpoint, option in choices.items()
              if choices.get(option[1], (None, None, None))[1] == endpoint}
     if len(links) != len(choices):
-        return max(lines, key=_path_length).tolist(), True
+        return max(lines, key=lambda line: (_path_length(line), _geometry_key(line))).tolist(), True
     starts = [i for i in range(len(endpoints)) if i not in links]
     if len(starts) != 2:
-        return max(lines, key=_path_length).tolist(), True
+        return max(lines, key=lambda line: (_path_length(line), _geometry_key(line))).tolist(), True
     current = starts[0]
     used, result = set(), []
     while current//2 not in used:
@@ -297,7 +370,7 @@ def _stitch(lines, bridges, p):
         _, target, _ = links[exit_endpoint]
         current = target
     if len(used) != len(lines):
-        return max(lines, key=_path_length).tolist(), True
+        return max(lines, key=lambda line: (_path_length(line), _geometry_key(line))).tolist(), True
     return np.asarray(result).tolist(), False
 
 
@@ -316,36 +389,77 @@ def merge_fragments(instances, p):
     valid = [i for i, line in enumerate(lines) if line is not None]
     union = _Union(len(instances))
     endpoint_pairs = []
-    for at, left in enumerate(valid):
-        for right in valid[at+1:]:
+    association_only = [i for i in valid if instances[i].get("_associationOnly")]
+    ordinary = [i for i in valid if i not in association_only]
+    # Establish finite ordinary continuity before evaluating overlap identity.
+    # A hook's turn is therefore proven by endpoint evidence, not by a broad
+    # overlapping surface stripe.
+    if len(ordinary) > 1:
+        local = [instances[i] for i in ordinary]
+        local_lines = [lines[i] for i in ordinary]
+        for left, right in _endpoint_links(local, local_lines, p):
+            global_left, global_right = ordinary[left//2], ordinary[right//2]
+            union.join(global_left, global_right)
+            endpoint_pairs.append((global_left, left % 2, global_right, right % 2))
+    # Association-only candidates are support-transfer evidence, never direct
+    # geometry edges. In particular, a stripe crossing two close rods must not
+    # join them before its stricter association evidence is considered.
+    endpoint_component = {item: union.find(item) for item in ordinary}
+    overlap_pairs = []
+    targets = {item: [] for item in ordinary}
+    for at, left in enumerate(ordinary):
+        for right in ordinary[at+1:]:
             if _compatible(instances[left], instances[right]) and _overlap_same_axis(instances[left], instances[right]):
-                union.join(left, right)
+                overlap_pairs.append((left, right)); targets[left].append(right); targets[right].append(left)
+    allowed_components = {}
+    for item, neighbours in targets.items():
+        # A connected measured path can be a hook even when the global
+        # endpoint matcher has not selected its turn. Only disconnected raw
+        # observations need protection from an inferred bridge joining rods.
+        if _observed_paths_connected(instances[item], p):
+            continue
+        components = {endpoint_component[other] for other in neighbours}
+        conflicting = any(_distinct_parallel_axes(instances[left], instances[right])
+                          for left in neighbours for right in neighbours
+                          if endpoint_component[left] != endpoint_component[right])
+        if len(components) > 1 and conflicting:
+            choices = [(int(instances[other].get("rawSupportCount", 0)), float(instances[other].get("length", 0.)),
+                        _item_key(instances[other]), endpoint_component[other]) for other in neighbours]
+            allowed_components[item] = min(choices, key=lambda value: (-value[0], -value[1], value[2]))[-1]
+    for left, right in overlap_pairs:
+        if (left in allowed_components and endpoint_component[right] != allowed_components[left]) or \
+           (right in allowed_components and endpoint_component[left] != allowed_components[right]):
+            continue
+        union.join(left, right)
+    # A disconnected candidate that spans incompatible endpoint components is
+    # identity-only evidence. It may attach to its deterministic component for
+    # bookkeeping, but neither raw count nor observed/inferred geometry may
+    # leak into that physical parent.
+    output_suppressed = set(allowed_components)
     # Verification can retain a low-unique candidate solely as a bridge.  Its
     # raw observations may establish parent ownership, but its stripe geometry
     # must never be emitted as observed support on the final instance.
-    association_only = [i for i in valid if instances[i].get("_associationOnly")]
-    ordinary = [i for i in valid if i not in association_only]
     for bridge in association_only:
+        targets = []
         for item in ordinary:
             if not _compatible(instances[bridge], instances[item]):
                 continue
-            if _support_overlap(instances[bridge], instances[item]) < .50:
+            overlap = _support_overlap(instances[bridge], instances[item])
+            if overlap < .50:
                 continue
             if _overlap_same_axis(instances[bridge], instances[item]):
-                union.join(bridge, item)
-    if len(valid) > 1:
-        local = [instances[i] for i in valid]
-        local_lines = [lines[i] for i in valid]
-        for left, right in _endpoint_links(local, local_lines, p):
-            global_left, global_right = valid[left//2], valid[right//2]
-            union.join(global_left, global_right)
-            endpoint_pairs.append((global_left, left % 2, global_right, right % 2))
+                geometry = tuple(np.round(np.asarray(lines[item], dtype=float).ravel(), 7))
+                targets.append((overlap, int(instances[item].get("rawSupportCount", 0)),
+                                float(instances[item].get("length", 0.)), geometry, item))
+        if targets:
+            target = min(targets, key=lambda value: (-value[0], -value[1], -value[2], value[3]))[-1]
+            union.join(bridge, target)
     groups = {}
     for index in range(len(instances)):
         groups.setdefault(union.find(index), []).append(index)
     result = []
     for indices in groups.values():
-        output_indices = [i for i in indices if not instances[i].get("_associationOnly")]
+        output_indices = [i for i in indices if not instances[i].get("_associationOnly") and i not in output_suppressed]
         if not output_indices:
             continue
         if len(output_indices) == 1:
@@ -353,23 +467,29 @@ def merge_fragments(instances, p):
             item.pop("_associationOnly", None); item.pop("_rawSupportIndices", None)
             result.append(item)
             continue
-        primary = max(output_indices, key=lambda i: (int(instances[i].get("rawSupportCount", 0)), float(instances[i].get("length", 0))))
+        primary = min(output_indices, key=lambda i: (-int(instances[i].get("rawSupportCount", 0)),
+                                                     -float(instances[i].get("length", 0)), _item_key(instances[i])))
         combined = deepcopy(instances[primary])
-        observed_lines = _merge_observed([path for i in output_indices for path in instances[i].get("observedSegments", [])], p)
+        observed_lines = sorted(_merge_observed([path for i in output_indices for path in instances[i].get("observedSegments", [])], p), key=_geometry_key)
         observed = [{"points": line.tolist()} for line in observed_lines]
-        inferred = [deepcopy(path) for i in indices for path in instances[i].get("inferredSegments", [])]
+        inferred = [deepcopy(path) for i in output_indices for path in instances[i].get("inferredSegments", [])]
         association_links = []
-        for left, left_end, right, right_end in endpoint_pairs:
-            if left not in indices or right not in indices:
+        for left, left_end, right, right_end in sorted(endpoint_pairs, key=lambda pair: (
+                _geometry_key(lines[pair[0]][[0, -1][pair[1]]][None, :]),
+                _geometry_key(lines[pair[2]][[0, -1][pair[3]]][None, :]))):
+            if left not in output_indices or right not in output_indices:
                 continue
             a, b = lines[left][[0, -1][left_end]], lines[right][[0, -1][right_end]]
+            if tuple(a) > tuple(b): a, b = b, a
             association_links.append({"points": [a.tolist(), b.tolist()], "source": "unique-fragment-association"})
             if np.linalg.norm(a-b) > p.observed_join_gap:
                 inferred.append({"points": [a.tolist(), b.tolist()], "source": "unique-fragment-association"})
         weights = np.asarray([max(float(instances[i].get("length", 0)), 1e-9) for i in output_indices])
         radii = np.asarray([float(instances[i]["radius"]) for i in output_indices])
         confidence = np.asarray([float(instances[i].get("confidence", .5)) for i in output_indices])
-        raw_count = max(int(instances[i].get("rawSupportCount", 0)) for i in output_indices)
+        raw_count = _raw_support_union_count(instances, output_indices)
+        inferred = sorted(inferred, key=_path_key)
+        association_links = sorted(association_links, key=_path_key)
         centreline, pending = _stitch(_straight_union_lines(observed_lines, p), inferred+association_links, p)
         combined.update(observedSegments=observed, inferredSegments=inferred, centerline=centreline,
                         length=_observed_length(observed_lines, p),
