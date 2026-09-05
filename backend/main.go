@@ -232,14 +232,22 @@ type DBC2MResult struct {
 	RMSE                 float64
 	P95Abs               float64
 	WithinToleranceRatio float64
-	Profile              string `gorm:"size:32"`
-	AlgorithmVersion     string `gorm:"size:128"`
-	MetricDirection      string `gorm:"size:128"`
-	ApproximationJSON    string `gorm:"type:text"`
-	HistogramJSON        string `gorm:"type:text"`
-	DiagnosticsJSON      string `gorm:"type:text"`
-	ColoredPlyPath       string `gorm:"size:2048"`
-	DistancesPath        string `gorm:"size:2048"`
+	Profile              string  `gorm:"size:32"`
+	AlgorithmVersion     string  `gorm:"size:128"`
+	MetricDirection      string  `gorm:"size:128"`
+	ApproximationJSON    string  `gorm:"type:text"`
+	HistogramJSON        string  `gorm:"type:text"`
+	DiagnosticsJSON      string  `gorm:"type:text"`
+	ColoredPlyPath       string  `gorm:"size:2048"`
+	DistancesPath        string  `gorm:"size:2048"`
+	AnalysisStatus       string  `gorm:"size:32;index"`
+	AnalysisVersion      string  `gorm:"size:128"`
+	AnalysisRelativePath string  `gorm:"size:2048"`
+	AnalysisContentHash  string  `gorm:"size:64"`
+	AnalysisMeshHash     string  `gorm:"size:64"`
+	AnalysisFingerprint  string  `gorm:"size:64;index"`
+	AnalysisMetadataJSON string  `gorm:"type:text"`
+	AnalysisError        *string `gorm:"type:text"`
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -391,19 +399,38 @@ func parseJWTDuration(value string) (time.Duration, error) {
 }
 
 type app struct {
-	mu                  sync.RWMutex
-	uploadMu            sync.Mutex
-	c2mMutationMu       sync.Mutex
-	c2mOperationLocksMu sync.Mutex
-	c2mOperationLocks   map[string]*c2mOperationLock
-	rebarLocksMu        sync.Mutex
-	rebarLocks          map[int64]*sync.Mutex
-	rebarProvider       RebarComputeProvider
-	db                  *gorm.DB
-	cfg                 config
-	jobs                chan string
-	remeshJobs          chan int64
-	workerWG            sync.WaitGroup
+	mu                   sync.RWMutex
+	uploadMu             sync.Mutex
+	c2mMutationMu        sync.Mutex
+	c2mOperationLocksMu  sync.Mutex
+	c2mOperationLocks    map[string]*c2mOperationLock
+	rebarLocksMu         sync.Mutex
+	rebarLocks           map[int64]*sync.Mutex
+	rebarProvider        RebarComputeProvider
+	analysisMeshLocksMu  sync.Mutex
+	analysisMeshLocks    map[int64]*sync.Mutex
+	analysisMeshProvider AnalysisMeshProvider
+	analysisC2MProvider  AnalysisC2MProvider
+	meshProviderGate     chan struct{}
+	db                   *gorm.DB
+	cfg                  config
+	jobs                 chan string
+	meshJobs             chan meshBackgroundJob
+	workerWG             sync.WaitGroup
+}
+
+type meshJobKind string
+
+const (
+	meshJobLegacyRemesh meshJobKind = "legacy-remesh"
+	meshJobAnalysisMesh meshJobKind = "analysis-mesh"
+	meshJobAnalysisC2M  meshJobKind = "analysis-c2m"
+)
+
+type meshBackgroundJob struct {
+	Kind        meshJobKind
+	MeshAssetID int64
+	C2M         analysisC2MJob
 }
 
 type c2mOperationLock struct {
@@ -413,12 +440,30 @@ type c2mOperationLock struct {
 
 func newApp(cfg config) *app {
 	a := &app{
-		cfg:        cfg,
-		jobs:       make(chan string, cfg.WorkerCount*4),
-		remeshJobs: make(chan int64, cfg.WorkerCount*4),
+		cfg:              cfg,
+		jobs:             make(chan string, cfg.WorkerCount*4),
+		meshJobs:         make(chan meshBackgroundJob, cfg.WorkerCount*16),
+		meshProviderGate: make(chan struct{}, 1),
 	}
 	a.rebarProvider = MeshServiceRebarComputeProvider{BaseURL: cfg.MeshServiceURL}
+	a.analysisMeshProvider = MeshServiceAnalysisMeshProvider{BaseURL: cfg.MeshServiceURL}
+	a.analysisC2MProvider = MeshServiceAnalysisC2MProvider{BaseURL: cfg.MeshServiceURL}
 	return a
+}
+
+// acquireMeshProvider serializes memory-intensive mesh-service builds across
+// background jobs and synchronous API requests. The returned release function
+// is idempotent so error paths cannot leak or double-release the permit.
+func (a *app) acquireMeshProvider(ctx context.Context) (func(), error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case a.meshProviderGate <- struct{}{}:
+		var once sync.Once
+		return func() {
+			once.Do(func() { <-a.meshProviderGate })
+		}, nil
+	}
 }
 func env(k, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -1031,8 +1076,11 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 			log.Printf("更新上传 %s 就绪状态失败: %v", uploadID, updateErr)
 		}
 		if asset.Type == "bim" {
-			if queueErr := a.queueRemeshAsset(asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); queueErr != nil {
+			if queueErr := a.queueRemeshAsset(ctx, asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); queueErr != nil {
 				log.Printf("BIM 资产 %d 自动网格均匀化入队失败: %v", asset.ID, queueErr)
+			}
+			if !a.enqueueAnalysisMesh(ctx, asset.ID) {
+				log.Printf("BIM 资产 %d analysis-mesh 入队取消: %v", asset.ID, ctx.Err())
 			}
 		}
 	}
@@ -1042,8 +1090,21 @@ func (a *app) enqueue(uploadID string) {
 	a.jobs <- uploadID
 }
 
-func (a *app) enqueueRemesh(assetID int64) {
-	a.remeshJobs <- assetID
+func (a *app) enqueueMeshJob(ctx context.Context, job meshBackgroundJob) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case a.meshJobs <- job:
+		return true
+	}
+}
+
+func (a *app) enqueueRemesh(ctx context.Context, assetID int64) bool {
+	return a.enqueueMeshJob(ctx, meshBackgroundJob{Kind: meshJobLegacyRemesh, MeshAssetID: assetID})
+}
+
+func (a *app) enqueueAnalysisMesh(ctx context.Context, assetID int64) bool {
+	return a.enqueueMeshJob(ctx, meshBackgroundJob{Kind: meshJobAnalysisMesh, MeshAssetID: assetID})
 }
 
 func (a *app) startWorkers(ctx context.Context) error {
@@ -1068,8 +1129,17 @@ func (a *app) startWorkers(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return
-			case assetID := <-a.remeshJobs:
-				a.processRemeshJob(ctx, assetID)
+			case job := <-a.meshJobs:
+				switch job.Kind {
+				case meshJobLegacyRemesh:
+					a.processRemeshJob(ctx, job.MeshAssetID)
+				case meshJobAnalysisC2M:
+					a.processAnalysisC2MJob(ctx, job.C2M)
+				case meshJobAnalysisMesh:
+					a.processAnalysisMeshJob(ctx, job.MeshAssetID)
+				default:
+					log.Printf("忽略未知 mesh 后台任务类型: %q", job.Kind)
+				}
 			}
 		}
 	}()
@@ -1088,7 +1158,23 @@ func (a *app) startWorkers(ctx context.Context) error {
 	for _, up := range pending {
 		a.enqueue(up.ID)
 	}
-	return a.recoverRemeshJobs()
+	// Recovery can enqueue more work than the bounded channel can hold. Dispatch
+	// it asynchronously so a large installation never blocks HTTP startup while
+	// the single mesh worker drains durable database-backed jobs.
+	a.workerWG.Add(2)
+	go func() {
+		defer a.workerWG.Done()
+		if err := a.recoverRemeshJobs(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("恢复网格均匀化任务失败: %v", err)
+		}
+	}()
+	go func() {
+		defer a.workerWG.Done()
+		if err := a.recoverAnalysisMeshJobs(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("恢复 analysis-mesh 任务失败: %v", err)
+		}
+	}()
+	return nil
 }
 
 func (a *app) waitWorkers() {
@@ -1446,7 +1532,23 @@ func (a *app) derivativeResource(c *gin.Context) {
 		fail(c, http.StatusNotFound, "派生物资源不存在")
 		return
 	}
-	path, err := derivativeResourcePath(assetFromDB(assetRow), row, c.Param("path"))
+	asset := assetFromDB(assetRow)
+	if row.Kind == analysisMeshKind {
+		root, rootErr := safeJoin(asset.Dir, row.RelativePath)
+		relative := strings.TrimPrefix(c.Param("path"), "/")
+		if rootErr != nil || !analysisMeshResourceDeclared(root, row, relative) {
+			fail(c, http.StatusNotFound, "派生物资源不存在")
+			return
+		}
+		path, _, fileErr := analysisMeshArtifactFile(root, relative)
+		if fileErr != nil {
+			fail(c, http.StatusNotFound, "派生物资源不存在")
+			return
+		}
+		serveAssetFile(c.Writer, c.Request, path)
+		return
+	}
+	path, err := derivativeResourcePath(asset, row, c.Param("path"))
 	if err != nil {
 		fail(c, http.StatusNotFound, "派生物资源不存在")
 		return
@@ -1577,7 +1679,7 @@ const (
 	defaultRemeshParamsJSON = `{"target_edge_length":0.1,"clean_tolerance":0.005,"use_decimation":true,"decimation_ratio":0.5,"subdivision_iterations":2,"subdivision_threshold_ratio":2.0,"adaptive":true,"crease_angle":60.0,"use_isotropic":true,"isotropic_iterations":5,"surface_dist_ratio":0.5,"isotropic_collapse":true,"sliver_merge_ratio":0.03,"sliver_relax_checksurfdist":true}`
 )
 
-func (a *app) queueRemeshAsset(assetID int64, algorithm, paramsJSON string, force bool) error {
+func (a *app) queueRemeshAsset(ctx context.Context, assetID int64, algorithm, paramsJSON string, force bool) error {
 	if strings.TrimSpace(algorithm) == "" {
 		algorithm = "bim_preprocessor"
 	}
@@ -1607,11 +1709,13 @@ func (a *app) queueRemeshAsset(assetID int64, algorithm, paramsJSON string, forc
 	if result.RowsAffected != 1 {
 		return errors.New("BIM 资产不存在、尚未就绪或已有网格任务")
 	}
-	a.enqueueRemesh(assetID)
+	if !a.enqueueRemesh(ctx, assetID) {
+		return ctx.Err()
+	}
 	return nil
 }
 
-func (a *app) recoverRemeshJobs() error {
+func (a *app) recoverRemeshJobs(ctx context.Context) error {
 	now := time.Now()
 	if err := a.db.Model(&DBAsset{}).
 		Where("type = ? AND remesh_status = ?", "bim", "processing").
@@ -1639,7 +1743,7 @@ func (a *app) recoverRemeshJobs() error {
 				}).Error
 				continue
 			}
-			if err := a.queueRemeshAsset(asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); err != nil {
+			if err := a.queueRemeshAsset(ctx, asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); err != nil {
 				return err
 			}
 			continue
@@ -1652,7 +1756,9 @@ func (a *app) recoverRemeshJobs() error {
 			continue
 		}
 		if asset.RemeshStatus == "queued" {
-			a.enqueueRemesh(asset.ID)
+			if !a.enqueueRemesh(ctx, asset.ID) {
+				return ctx.Err()
+			}
 		}
 	}
 	return nil
@@ -1682,7 +1788,14 @@ func (a *app) processRemeshJob(parent context.Context, assetID int64) {
 
 	ctx, cancel := context.WithTimeout(parent, remeshTaskTimeout)
 	defer cancel()
-	stats, err := a.executeRemeshBIM(ctx, asset)
+	stats, err := func() (meshRemeshStats, error) {
+		release, acquireErr := a.acquireMeshProvider(ctx)
+		if acquireErr != nil {
+			return meshRemeshStats{}, acquireErr
+		}
+		defer release()
+		return a.executeRemeshBIM(ctx, asset)
+	}()
 	if err != nil {
 		if parent.Err() != nil {
 			requeuedAt := time.Now()
@@ -1707,6 +1820,8 @@ func (a *app) processRemeshJob(parent context.Context, assetID int64) {
 		return
 	}
 	log.Printf("BIM 资产 %d 网格均匀化完成: vertices %d -> %d, faces %d -> %d", assetID, stats.VertexBefore, stats.VertexAfter, stats.FaceBefore, stats.FaceAfter)
+	// analysis-mesh derives from the original GLB, not the legacy merged PLY;
+	// startup recovery independently guarantees it for every ready BIM.
 }
 
 func (a *app) finishRemeshJob(assetID int64, startedAt *time.Time, status string, message *string, stats *meshRemeshStats) error {
@@ -1922,7 +2037,7 @@ func (a *app) remeshAsset(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "网格均匀化参数格式非法")
 		return
 	}
-	if err := a.queueRemeshAsset(asset.ID, req.Algorithm, string(paramsJSON), req.Force); err != nil {
+	if err := a.queueRemeshAsset(c.Request.Context(), asset.ID, req.Algorithm, string(paramsJSON), req.Force); err != nil {
 		fail(c, http.StatusConflict, err.Error())
 		return
 	}
@@ -3148,6 +3263,18 @@ func (a *app) c2mResultResponse(row DBC2MResult) gin.H {
 	if reason != "" {
 		data["staleReason"] = reason
 	}
+	if row.AnalysisStatus == "ready" {
+		var bimRow DBAsset
+		var meshRow DBAssetDerivative
+		if a.db.Where("id = ? AND owner_id = ?", row.BimID, row.OwnerID).First(&bimRow).Error == nil && a.db.Where("asset_id = ? AND kind = ?", row.BimID, analysisMeshKind).First(&meshRow).Error == nil && meshRow.ContentHash == row.AnalysisMeshHash && a.validAnalysisMeshRow(assetFromDB(bimRow), meshRow) {
+			meshRepresentation := AnalysisMeshRepresentation(assetFromDB(bimRow), meshRow)
+			if analysis, ok := data["analysis"].(gin.H); ok {
+				analysis["analysisMeshBaseUrl"] = meshRepresentation.BaseURL
+				analysis["analysisMeshTilesetUrl"] = meshRepresentation.URL
+				analysis["analysisMeshComponentsUrl"] = meshRepresentation.BaseURL + "components.json"
+			}
+		}
+	}
 	return data
 }
 
@@ -3419,7 +3546,7 @@ func c2mResultData(row DBC2MResult) gin.H {
 	if toleranceLimit <= 0 {
 		toleranceLimit = 0.05
 	}
-	return gin.H{
+	data := gin.H{
 		"modelScanFileId":  row.ScanID,
 		"modelBimFileId":   row.BimID,
 		"profile":          normalizeC2MProfile(row.Profile),
@@ -3447,6 +3574,22 @@ func c2mResultData(row DBC2MResult) gin.H {
 		"createdAt":        row.CreatedAt,
 		"updatedAt":        row.UpdatedAt,
 	}
+	if row.AnalysisStatus != "" {
+		analysis := gin.H{
+			"status":                  row.AnalysisStatus,
+			"version":                 row.AnalysisVersion,
+			"contentHash":             row.AnalysisContentHash,
+			"analysisMeshContentHash": row.AnalysisMeshHash,
+			"error":                   row.AnalysisError,
+		}
+		if row.AnalysisStatus == "ready" && row.AnalysisVersion != "" {
+			base := fmt.Sprintf("/alignments/bim/analysis-c2m/%d/%d/%s/", row.ScanID, row.BimID, url.PathEscape(row.AnalysisVersion))
+			analysis["baseUrl"] = base
+			analysis["manifestUrl"] = base + "manifest.json"
+		}
+		data["analysis"] = analysis
+	}
+	return data
 }
 
 func (a *app) computeC2M(c *gin.Context) {
@@ -3573,7 +3716,7 @@ func (a *app) computeC2M(c *gin.Context) {
 	serviceParams["smoothing_iterations"] = visualization.SmoothingIterations
 	serviceParams["smoothing_strength"] = visualization.SmoothingStrength
 	paramsJSON, _ := json.Marshal(serviceParams)
-	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MaxColormapDistance: visualization.MaxColormapDistance, MaxHistogramDistance: visualization.MaxHistogramDistance, HistogramBins: visualization.HistogramBins, ToleranceLimit: visualization.ToleranceLimit, InputFingerprint: inputFingerprint, ParamsJSON: string(paramsJSON), MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
+	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MaxColormapDistance: visualization.MaxColormapDistance, MaxHistogramDistance: visualization.MaxHistogramDistance, HistogramBins: visualization.HistogramBins, ToleranceLimit: visualization.ToleranceLimit, InputFingerprint: inputFingerprint, ParamsJSON: string(paramsJSON), MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath, AnalysisStatus: "queued"}
 	previous, err := a.replaceC2MResult(&row, inputFingerprint)
 	if err != nil {
 		a.removeUnreferencedC2MArtifact(coloredPath)
@@ -3592,6 +3735,12 @@ func (a *app) computeC2M(c *gin.Context) {
 		if previous.DistancesPath != distancesPath {
 			a.removeUnreferencedC2MArtifact(previous.DistancesPath)
 		}
+	}
+	if !a.enqueueAnalysisC2M(c.Request.Context(), analysisC2MJob{ScanID: row.ScanID, BimID: row.BimID, OwnerID: row.OwnerID}) {
+		message := "analysis C2M queue canceled before enqueue"
+		row.AnalysisStatus = "failed"
+		row.AnalysisError = &message
+		_ = a.db.Model(&DBC2MResult{}).Where("id = ?", row.ID).Updates(map[string]any{"analysis_status": row.AnalysisStatus, "analysis_error": message}).Error
 	}
 	ok(c, a.c2mResultResponse(row))
 }
@@ -4029,6 +4178,9 @@ func main() {
 	r.HEAD("/assets/:id/:resource", a.resource)
 	r.DELETE("/measurements/:measurementId", a.deleteMeasurement)
 	r.GET("/mesh/algorithms", a.meshAlgorithms)
+	r.GET("/analysis-mesh/algorithms", a.analysisMeshAlgorithms)
+	r.POST("/assets/:id/analysis-mesh", a.analysisMeshBuild)
+	r.GET("/assets/:id/analysis-mesh/latest", a.analysisMeshLatest)
 	r.POST("/assets/:id/mesh/remesh", a.remeshAsset)
 	r.GET("/assets/:id/mesh/remesh/status", a.remeshStatus)
 	r.GET("/assets/:id/mesh/remesh/latest", a.remeshLatest)
@@ -4040,6 +4192,10 @@ func main() {
 	r.GET("/alignments/bim", a.getAlignment)
 	r.POST("/alignments/bim/fine", a.fineAlignment)
 	r.POST("/alignments/bim/c2m", a.computeC2M)
+	r.POST("/alignments/bim/analysis-c2m", a.analysisC2MBuild)
+	r.GET("/alignments/bim/analysis-c2m/latest", a.analysisC2MLatest)
+	r.GET("/alignments/bim/analysis-c2m/:scanId/:bimId/:version/*path", a.analysisC2MResource)
+	r.HEAD("/alignments/bim/analysis-c2m/:scanId/:bimId/:version/*path", a.analysisC2MResource)
 	r.POST("/alignments/bim/c2m/recolor", a.recolorC2M)
 	r.GET("/alignments/bim/c2m/latest", a.getC2MLatest)
 	r.GET("/alignments/bim/c2m/colored-ply", a.c2mColoredPly)

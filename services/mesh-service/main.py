@@ -34,6 +34,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from algorithms import ALGORITHM_REGISTRY
+from analysis_c2m_api import include_analysis_c2m_router
+from analysis_mesh_api import include_analysis_mesh_router
 from rebar_api import include_rebar_router
 
 
@@ -108,6 +110,8 @@ def _single_heavy_task(task_name: str):
 
 
 include_rebar_router(app, heavy_task=_single_heavy_task)
+include_analysis_mesh_router(app, heavy_task=_single_heavy_task)
+include_analysis_c2m_router(app, heavy_task=_single_heavy_task)
 
 
 def _normalize_ply_to_float32(ply_path: str) -> None:

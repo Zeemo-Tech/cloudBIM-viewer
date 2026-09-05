@@ -25,6 +25,17 @@ import {
 import { backendRequest } from '@/api/backend-http'
 import { applyC2MVertexColors, parseC2MDistances } from '@/utils/c2mColormap'
 import { sampleC2MDeviationAtPick } from '@/utils/c2mPick'
+import {
+  AnalysisMeshSession,
+  C2MShaderMaterial,
+  parseAnalysisC2MManifest,
+  parseC2MDistances as parseAnalysisC2MDistances,
+  resolveAnalysisArtifactURL,
+  verifyPayloadHash,
+  verifyPositionStreamHash,
+  type C2MColorMode,
+  type TileRendererEvents,
+} from '@/features/analysis-mesh'
 import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
 import { validateVisualization, v3ColorWithMetadata } from '@/features/rebar-visualization'
@@ -89,6 +100,8 @@ export interface UnifiedViewerProps {
   analysisDistances?: AnalysisDistance[]
   analysisAreas?: AnalysisArea[]
   c2mResult?: C2MResult | null
+  c2mColorMode?: C2MColorMode
+  c2mBandCount?: number
   edlEnabled?: boolean
   edlStrength?: number
   showEdlControl?: boolean
@@ -112,6 +125,8 @@ const props = withDefaults(defineProps<UnifiedViewerProps>(), {
   analysisDistances: () => [],
   analysisAreas: () => [],
   c2mResult: null,
+  c2mColorMode: 'continuous',
+  c2mBandCount: 7,
   edlEnabled: true,
   edlStrength: 1.0,
   showEdlControl: true,
@@ -182,6 +197,9 @@ let bimRoot: THREE.Object3D | null = null
 let pointcloudWrapper: THREE.Group | null = null
 let tileset: TilesRenderer | null = null
 let c2mMeshRoot: THREE.Object3D | null = null
+let analysisMeshSession: AnalysisMeshSession | null = null
+let analysisC2MMaterial: C2MShaderMaterial | null = null
+let c2mUsesAnalysisTiles = false
 
 let bimSourceMatrix = new THREE.Matrix4()
 let bimSourceCenter = new THREE.Vector3()
@@ -1260,6 +1278,8 @@ function cleanCurrentSceneModels() {
     scene.remove(pointcloudWrapper)
     pointcloudWrapper = null
   }
+  analysisMeshSession?.dispose()
+  analysisMeshSession = null
   if (tileset) {
     tileset.dispose()
     tileset = null
@@ -1766,6 +1786,147 @@ function applyPointcloudMaterial(root: THREE.Object3D) {
   })
 }
 
+async function loadAnalysisC2MModel(result: C2MResult, expectedToken: number) {
+  const analysis = result.analysis
+  if (
+    analysis?.status !== 'ready' ||
+    !analysis.manifestUrl ||
+    !analysis.baseUrl ||
+    !analysis.analysisMeshTilesetUrl
+  ) {
+    return false
+  }
+  const manifest = parseAnalysisC2MManifest(
+    await backendRequest<unknown>(getBimGlbUrl(analysis.manifestUrl)),
+  )
+  if (
+    manifest.contentHash !== analysis.contentHash ||
+    manifest.inputAnalysisMesh.contentHash !== analysis.analysisMeshContentHash
+  ) {
+    throw new Error('C2M 分片与 analysis-mesh 版本不匹配')
+  }
+  if (expectedToken !== loadToken) return true
+
+  const bindings = new Map(manifest.tiles.map((tile) => [tile.tileId, tile]))
+  const nextTileset = new TilesRenderer(getBimGlbUrl(analysis.analysisMeshTilesetUrl))
+  nextTileset.displayActiveTiles = true
+  nextTileset.errorTarget = 16
+  nextTileset.downloadQueue.maxJobs = 8
+  nextTileset.parseQueue.maxJobs = 2
+  nextTileset.fetchOptions = { headers: createUploadHeaders({ Accept: '*/*' }) }
+  const dracoLoader = new DRACOLoader(nextTileset.manager)
+  dracoLoader.setDecoderPath('/draco/')
+  dracoLoader.preload()
+  nextTileset.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }))
+  if (camera) nextTileset.setCamera(camera)
+  if (renderer && camera) nextTileset.setResolutionFromRenderer?.(camera, renderer)
+
+  const wrapper = new THREE.Group()
+  wrapper.name = 'analysis-c2m-tileset-wrapper'
+  const normalized = new THREE.Group()
+  normalized.name = 'analysis-c2m-normalized'
+  const [centerX, centerY, centerZ] = manifest.inputAnalysisMesh.modelFrame.normalizationCenter
+  normalized.position.set(-centerX, -centerY, -centerZ)
+  normalized.add(nextTileset.group)
+  wrapper.add(normalized)
+  scene?.add(wrapper)
+  tileset = nextTileset
+  c2mMeshRoot = wrapper
+  c2mUsesAnalysisTiles = true
+  analysisMeshSession = new AnalysisMeshSession(nextTileset as unknown as TileRendererEvents)
+  analysisC2MMaterial = new C2MShaderMaterial()
+  analysisC2MMaterial.setMode(props.c2mColorMode)
+  const tolerance = result.visualization?.toleranceLimit ?? 0.05
+  const colorRange = Math.max(result.visualization?.maxColormapDistance ?? 0.1, tolerance + 1e-6)
+  analysisC2MMaterial.setThresholds(tolerance, colorRange, props.c2mBandCount)
+  applyBimWorldPose()
+
+  let pendingDistances = 0
+  let initialTilesComplete = false
+  const finishInitialLoad = () => {
+    if (
+      expectedToken !== loadToken ||
+      tileset !== nextTileset ||
+      !initialTilesComplete ||
+      pendingDistances !== 0 ||
+      loaded.value
+    ) return
+    loaded.value = true
+    statusText.value = manifest.global.unknownCount > 0
+      ? `未覆盖区域以灰色显示（${manifest.global.unknownCount.toLocaleString()} 个顶点）`
+      : ''
+    loadError.value = ''
+    emit('loaded-change', true)
+  }
+
+  nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
+    if (!tileScene || expectedToken !== loadToken) return
+    tileScene.traverse((object: any) => {
+      if (!object.isMesh || !object.geometry) return
+      const tileId = object.userData?.tileId
+      const positionHash = object.userData?.positionHash
+      const binding = typeof tileId === 'string' ? bindings.get(tileId) : undefined
+      const positions = object.geometry.getAttribute('position')
+      if (!binding || binding.positionHash !== positionHash || positions?.count !== binding.vertexCount) {
+        console.warn('[C2MViewer] analysis tile identity mismatch', { tileId, positionHash })
+        return
+      }
+      pendingDistances += 1
+      const attachDistances = async () => {
+        await verifyPositionStreamHash(object.geometry, binding.positionHash)
+        if (expectedToken !== loadToken || tileset !== nextTileset) return
+        const unknown = new Float32Array(binding.vertexCount).fill(Number.NaN)
+        object.geometry.setAttribute('distance', new THREE.BufferAttribute(unknown, 1))
+        analysisC2MMaterial?.setDistances(object.geometry, unknown)
+        object.material = analysisC2MMaterial
+        const distanceUrl = resolveAnalysisArtifactURL(
+          getBimGlbUrl(analysis.baseUrl!),
+          binding.distancePath,
+        )
+        const buffer = await backendRequest<ArrayBuffer>(distanceUrl, { method: 'GET', responseType: 'arraybuffer' })
+        await verifyPayloadHash(buffer, binding.sha256)
+          if (expectedToken !== loadToken || tileset !== nextTileset) return
+          const currentPositions = object.geometry.getAttribute('position')
+          if (currentPositions?.count !== binding.vertexCount || object.userData?.positionHash !== binding.positionHash) return
+          const distances = parseAnalysisC2MDistances(buffer, binding)
+          object.geometry.setAttribute('distance', new THREE.BufferAttribute(distances, 1))
+          analysisC2MMaterial?.setDistances(object.geometry, distances)
+      }
+      void attachDistances().catch((error) => {
+        console.warn(`[C2MViewer] 偏差分片 ${binding.tileId} 校验或加载失败，保持未知灰色`, error)
+      })
+        .finally(() => {
+          pendingDistances = Math.max(0, pendingDistances - 1)
+          finishInitialLoad()
+        })
+    })
+  })
+  nextTileset.addEventListener('tiles-load-end', () => {
+    initialTilesComplete = true
+    finishInitialLoad()
+  })
+  nextTileset.addEventListener('load-root-tileset', () => {
+    if (!camera || !controls || tileset !== nextTileset) return
+    const sphere = new THREE.Sphere()
+    if (nextTileset.getBoundingSphere(sphere)) {
+      wrapper.updateMatrixWorld(true)
+      nextTileset.group.updateMatrixWorld(true)
+      sphere.center.applyMatrix4(nextTileset.group.matrixWorld)
+      fitCameraToRadius(sphere.radius, sphere.center)
+      setSectionState({
+        box: new THREE.Box3().setFromCenterAndSize(
+          sphere.center,
+          new THREE.Vector3(sphere.radius * 2, sphere.radius * 2, sphere.radius * 2),
+        ),
+      })
+    }
+  })
+  nextTileset.addEventListener('load-error', ({ error }: any) => {
+    if (tileset === nextTileset) loadError.value = `analysis-mesh 加载失败: ${error?.message || error}`
+  })
+  return true
+}
+
 async function loadC2MModel(expectedToken: number) {
   loaded.value = false
   emit('loaded-change', false)
@@ -1780,8 +1941,31 @@ async function loadC2MModel(expectedToken: number) {
     return
   }
   if (result.coloredPlyAvailable === false) {
-    loadError.value = 'C2M 着色结果尚不可用'
-    return
+    if (result.analysis?.status !== 'ready') {
+      loadError.value = 'C2M 着色结果尚不可用'
+      return
+    }
+  }
+
+  if (result.analysis?.status === 'ready') {
+    try {
+      if (await loadAnalysisC2MModel(result, expectedToken)) return
+    } catch (error) {
+      console.warn('[C2MViewer] analysis C2M 加载失败，回退兼容 PLY', error)
+      if (c2mUsesAnalysisTiles) {
+        analysisMeshSession?.dispose()
+        analysisMeshSession = null
+        tileset?.dispose()
+        tileset = null
+        if (c2mMeshRoot && scene) scene.remove(c2mMeshRoot)
+        c2mMeshRoot = null
+        c2mUsesAnalysisTiles = false
+      }
+      if (result.coloredPlyAvailable === false) {
+        loadError.value = 'analysis C2M 与兼容 PLY 均不可用'
+        return
+      }
+    }
   }
 
   let plyUrl = ''
@@ -2318,7 +2502,7 @@ function applyBimWorldPose(
     c2mMeshRoot.updateMatrixWorld(true)
   } else {
     c2mMeshRoot.position.set(0, 0, 0)
-    c2mMeshRoot.rotation.set(-Math.PI / 2, 0, 0)
+    c2mMeshRoot.rotation.set(c2mUsesAnalysisTiles ? 0 : -Math.PI / 2, 0, 0)
     c2mMeshRoot.scale.set(1, 1, 1)
     c2mMeshRoot.updateMatrixWorld(true)
   }
@@ -2327,6 +2511,12 @@ function applyBimWorldPose(
 function clearC2MResult(invalidateLoad = true) {
   if (invalidateLoad) loadToken += 1
   c2mPick.value = null
+  analysisMeshSession?.dispose()
+  analysisMeshSession = null
+  if (c2mUsesAnalysisTiles && tileset) {
+    tileset.dispose()
+    tileset = null
+  }
   if (c2mMeshRoot && scene) {
     scene.remove(c2mMeshRoot)
     c2mMeshRoot.traverse((child: any) => {
@@ -2336,9 +2526,30 @@ function clearC2MResult(invalidateLoad = true) {
     })
   }
   c2mMeshRoot = null
+  analysisC2MMaterial?.dispose()
+  analysisC2MMaterial = null
+  c2mUsesAnalysisTiles = false
   loaded.value = false
   statusText.value = ''
   emit('loaded-change', false)
+}
+
+function setC2MColorMode(mode: C2MColorMode) {
+  analysisC2MMaterial?.setMode(mode)
+}
+
+function setC2MColorThresholds(tolerance: number, colorRange: number, bandCount = props.c2mBandCount) {
+  analysisC2MMaterial?.setThresholds(tolerance, colorRange, bandCount)
+}
+
+function setAnalysisComponentVisible(ifcGlobalId: string, visible: boolean) {
+  analysisMeshSession?.setComponentVisible(ifcGlobalId, visible)
+}
+
+function focusAnalysisComponent(ifcGlobalId: string) {
+  const bounds = analysisMeshSession?.queryBounds(ifcGlobalId)
+  if (bounds) fitCameraToBox(bounds)
+  return Boolean(bounds)
 }
 
 defineExpose({
@@ -2371,6 +2582,10 @@ defineExpose({
   getModelWorldPose,
   applyBimWorldPose,
   clearC2MResult,
+  setC2MColorMode,
+  setC2MColorThresholds,
+  setAnalysisComponentVisible,
+  focusAnalysisComponent,
   cancelAnalysis: cancelActiveAnalysis,
   removeAnalysisVisual,
   clearAnalysis: clearAnalysisVisuals,
@@ -2400,6 +2615,19 @@ watch(
     if (isMountedReady && props.type === 'c2m') reload()
   },
   { deep: true },
+)
+
+watch(
+  () => [props.c2mColorMode, props.c2mBandCount] as const,
+  ([mode, bands]) => {
+    analysisC2MMaterial?.setMode(mode)
+    const tolerance = props.c2mResult?.visualization?.toleranceLimit ?? 0.05
+    const colorRange = Math.max(
+      props.c2mResult?.visualization?.maxColormapDistance ?? 0.1,
+      tolerance + 1e-6,
+    )
+    analysisC2MMaterial?.setThresholds(tolerance, colorRange, bands)
+  },
 )
 
 watch(

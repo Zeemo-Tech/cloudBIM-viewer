@@ -64,6 +64,18 @@ export interface C2MResult {
   resultVersion?: string
   createdAt?: string
   updatedAt?: string
+  analysis?: {
+    status: 'queued' | 'processing' | 'ready' | 'failed'
+    version?: string
+    contentHash?: string
+    analysisMeshContentHash?: string
+    baseUrl?: string
+    manifestUrl?: string
+    analysisMeshBaseUrl?: string
+    analysisMeshTilesetUrl?: string
+    analysisMeshComponentsUrl?: string
+    error?: string | null
+  }
 }
 
 export interface C2MParams {

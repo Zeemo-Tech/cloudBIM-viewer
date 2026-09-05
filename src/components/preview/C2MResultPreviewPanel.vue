@@ -5,6 +5,7 @@ import UnifiedViewer3D from './UnifiedViewer3D.vue'
 import C2MHistogramLegend from './C2MHistogramLegend.vue'
 import { getLatestC2M } from '@/api/backend-c2m'
 import type { C2MResult } from '@/api/backend-c2m'
+import type { C2MColorMode } from '@/features/analysis-mesh'
 import type { CameraPose, CameraRotation, PreviewBackgroundTheme } from './UnifiedViewer3D.vue'
 
 const props = defineProps<{
@@ -26,6 +27,8 @@ const emit = defineEmits<{
 
 const viewerRef = ref<InstanceType<typeof UnifiedViewer3D> | null>(null)
 const localResult = ref<C2MResult | null>(props.result ?? null)
+const colorMode = ref<C2MColorMode>('continuous')
+const bandCount = ref(7)
 let resultRequestId = 0
 
 async function refreshResult() {
@@ -81,6 +84,10 @@ defineExpose({
   syncFromCameraDistance: (scale: number) => viewerRef.value?.syncFromCameraDistance(scale),
   applyBimWorldPose: (pose: { position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3 } | null) =>
     viewerRef.value?.applyBimWorldPose(pose),
+  setAnalysisComponentVisible: (ifcGlobalId: string, visible: boolean) =>
+    viewerRef.value?.setAnalysisComponentVisible(ifcGlobalId, visible),
+  focusAnalysisComponent: (ifcGlobalId: string) =>
+    viewerRef.value?.focusAnalysisComponent(ifcGlobalId),
 })
 </script>
 
@@ -92,11 +99,21 @@ defineExpose({
       :scan-asset-id="scanAssetId"
       :bim-asset-id="bimAssetId"
       :c2m-result="localResult"
+      :c2m-color-mode="colorMode"
+      :c2m-band-count="bandCount"
       :calibration="calibration"
       :bim-world-pose="bimWorldPose"
       @loaded-change="emit('loaded-change', $event)"
       @camera-change="emit('camera-change', $event)"
     />
+    <div v-if="localResult?.analysis?.status === 'ready'" class="c2m-result-preview__mode">
+      <button :class="{ active: colorMode === 'continuous' }" @click="colorMode = 'continuous'">连续渐变</button>
+      <button :class="{ active: colorMode === 'discrete' }" @click="colorMode = 'discrete'">离散色带</button>
+      <label v-if="colorMode === 'discrete'">
+        <span>分区</span>
+        <input v-model.number="bandCount" type="number" min="2" max="20" />
+      </label>
+    </div>
     <C2MHistogramLegend
       v-if="localResult"
       class="c2m-result-preview__legend"
@@ -122,6 +139,52 @@ defineExpose({
   z-index: 5;
   width: auto;
   max-width: 520px;
+}
+
+.c2m-result-preview__mode {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 5px;
+  border: 1px solid rgb(148 163 184 / 30%);
+  border-radius: 7px;
+  color: #cbd5e1;
+  background: rgb(8 17 29 / 88%);
+  font-size: 12px;
+}
+
+.c2m-result-preview__mode button,
+.c2m-result-preview__mode input {
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 4px;
+  color: inherit;
+  background: rgb(30 41 59 / 80%);
+}
+
+.c2m-result-preview__mode button {
+  padding: 4px 7px;
+  cursor: pointer;
+}
+
+.c2m-result-preview__mode button.active {
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
+
+.c2m-result-preview__mode label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding-left: 4px;
+}
+
+.c2m-result-preview__mode input {
+  width: 42px;
+  padding: 3px 4px;
 }
 
 @media (max-width: 640px) {
