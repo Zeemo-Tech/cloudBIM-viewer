@@ -32,6 +32,7 @@ const errorMessage = ref('')
 const maxInputPoints = ref(200_000)
 const voxelSizeMm = ref<number | null>(null)
 const parameterValues = reactive<Record<string, number | string | boolean>>({})
+const persistedParameterBaseline = ref<Record<string, unknown>>({})
 const selectedMode = ref<PointcloudColorMode>('rgb')
 let loadToken = 0
 
@@ -107,6 +108,7 @@ function fieldUnit(name: string, property: RebarParameterProperty) {
 }
 
 function initializeParameters() {
+  persistedParameterBaseline.value = {}
   Object.keys(parameterValues).forEach((key) => delete parameterValues[key])
   advancedFields.value.forEach(({ name, property }) => {
     if (typeof property.default === 'number') {
@@ -123,7 +125,13 @@ function initializeParameters() {
 }
 
 function applyPersistedSettings(value: RebarSegmentationResult) {
-  if (value.algorithm.id !== selectedAlgorithm.value?.id) return
+  const selectedId = selectedAlgorithm.value?.id
+  const compatibleV2Upgrade = selectedId === 'geometric-v3' && value.algorithm.id === 'geometric-v2'
+  if (value.algorithm.id !== selectedId && !compatibleV2Upgrade) return
+  const properties = selectedAlgorithm.value?.parameterSchema?.properties ?? {}
+  persistedParameterBaseline.value = Object.fromEntries(
+    Object.entries(value.effectiveParameters).filter(([name]) => properties[name]),
+  )
   const persistedMaxPoints = value.inputOptions?.maxInputPoints
   const persistedVoxelSize = value.inputOptions?.voxelSize
   if (typeof persistedMaxPoints === 'number') maxInputPoints.value = persistedMaxPoints
@@ -168,7 +176,9 @@ async function loadState() {
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []
-      if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
+      if (algorithms.value.some((item) => item.id === 'geometric-v3')) {
+        selectedAlgorithmId.value = 'geometric-v3'
+      } else if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
       } else if (!algorithms.value.some((item) => item.id === selectedAlgorithmId.value)) {
         selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v3'
@@ -189,7 +199,7 @@ async function loadState() {
 }
 
 function buildParameters() {
-  const result: Record<string, unknown> = {}
+  const result: Record<string, unknown> = { ...persistedParameterBaseline.value }
   advancedFields.value.forEach(({ name, property }) => {
     const value = parameterValues[name]
     if (typeof value === 'number' && Number.isFinite(value)) {
