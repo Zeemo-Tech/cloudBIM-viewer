@@ -22,6 +22,16 @@ def _read(path):
 def _attrs(points): return RebarPointAttributes(np.array([1,0],np.uint8),np.array([3,0],np.uint16),np.array([9,0],np.uint32))
 
 class PntsRewriteTests(unittest.TestCase):
+    def test_optional_v3_properties_are_typed_and_aligned(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"v3.pnts"; _write(p,{"POINTS_LENGTH":2,"POSITION":{"byteOffset":0}},np.zeros((2,3),"<f4").tobytes())
+            attrs=RebarPointAttributes(np.array([2,0],np.uint8),np.array([65535,0],np.uint16),np.array([0xffffffff,0],np.uint32),np.array([2,3],np.uint8),np.array([1,0],np.uint8))
+            rewrite_pnts(p,lambda _: attrs); _, _, batch, binary=_read(p)
+            self.assertEqual(batch["SCENE_CLASS"]["componentType"], "UNSIGNED_BYTE")
+            self.assertEqual(batch["REBAR_FLAGS"]["componentType"], "UNSIGNED_BYTE")
+            self.assertEqual(np.frombuffer(binary,np.uint8,count=2,offset=batch["SCENE_CLASS"]["byteOffset"]).tolist(),[2,3])
+            self.assertEqual(np.frombuffer(binary,np.uint8,count=2,offset=batch["REBAR_FLAGS"]["byteOffset"]).tolist(),[1,0])
+
     def test_raw_preserves_feature_properties_and_writes_typed_attributes(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/"raw.pnts"; positions=np.array([[0,0,0],[1,0,0]],"<f4").tobytes(); rgb=b"\x01\x02\x03\x04\x05\x06"; intensity=np.array([4,5],"<u2").tobytes(); classification=b"\x02\x03"
@@ -109,11 +119,13 @@ class PntsRewriteTests(unittest.TestCase):
 
     def test_compute_manifest_is_camel_case_and_paths_are_relative(self):
         class Fake:
-            descriptor={"id":"fake","version":"1","capabilities":{"class":True,"direction":True,"instance":True,"confidence":False}}
+            descriptor={"id":"fake","version":"1","capabilities":{"class":True,"direction":True,"instance":True,"confidence":False},
+                        "visualization":{"schema":"rebar-visualization-v1"}}
             def normalize_parameters(self, raw): return {"normal": True}
             def analyze(self, sample, parameters): return RebarAnalysis({"algorithmDetails":{"diagnostics":{},"directions":[],"instances":[]}})
             def project_points(self, points, analysis):
-                return RebarPointAttributes(np.array([1,0],np.uint8),np.array([1,0],np.uint16),np.array([1,0],np.uint32))
+                return RebarPointAttributes(np.array([1,0],np.uint8),np.array([1,0],np.uint16),np.array([1,0],np.uint32),
+                                            np.array([2,3],np.uint8),np.array([0,0],np.uint8))
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); source=root/"source"; source.mkdir(); (source/"tileset.json").write_text("{}")
             _write(source/"ok.pnts", {"POINTS_LENGTH":2,"POSITION":{"byteOffset":0}}, np.zeros((2,3),"<f4").tobytes())
@@ -126,11 +138,17 @@ class PntsRewriteTests(unittest.TestCase):
             self.assertEqual(manifest["summary"]["rebarPointCount"], 1)
             self.assertEqual(manifest["summary"]["directionCount"], 1)
             self.assertEqual(manifest["summary"]["instanceCount"], 1)
+            self.assertEqual(manifest["summary"]["sceneClassCounts"]["rebar"], 1)
+            self.assertEqual(manifest["summary"]["sceneClassCounts"]["statisticalNoise"], 1)
+            self.assertEqual(manifest["summary"]["directionPointCounts"]["directionA"], 1)
+            self.assertEqual(manifest["summary"]["intersectionPointCount"], 0)
+            self.assertEqual(manifest["visualization"], {"schema":"rebar-visualization-v1"})
             self.assertEqual(manifest["inputOptions"], {"maxInputPoints": 200000, "voxelSize": None})
             self.assertNotIn("analysis", manifest)
             result = json.loads((root/"artifact"/"result.json").read_text())
             self.assertEqual(result["schema"], "rebar-analysis-v1")
             self.assertIn("analysis", result)
+            self.assertEqual(result["input"], {})
             self.assertEqual((root/"artifact").stat().st_mode & 0o7777, 0o2770)
             self.assertEqual((root/"artifact"/"tiles").stat().st_mode & 0o7777, 0o2770)
             self.assertEqual((root/"artifact"/"tiles"/"ok.pnts").stat().st_mode & 0o777, 0o660)

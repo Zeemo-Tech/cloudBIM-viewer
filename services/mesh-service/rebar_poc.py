@@ -685,14 +685,22 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
         tile_root = stage / "tiles"
         total = 0
         rebar_total = 0
+        intersection_total = 0
+        scene_counts = np.zeros(4, dtype=np.int64)
+        direction_point_counts = {"directionA": 0, "directionB": 0}
         direction_ids: set[int] = set()
         instance_ids: set[int] = set()
         for pnts in tile_root.rglob("*.pnts"):
             def project_and_count(points: np.ndarray):
-                nonlocal rebar_total
+                nonlocal rebar_total, intersection_total
                 attrs = algo.project_points(points, analysis)
                 attrs.validate(len(points))
                 rebar_total += int(np.count_nonzero((attrs.rebar_class == 1) | (attrs.rebar_class == 2)))
+                intersection_total += int(np.count_nonzero(attrs.rebar_class == 2))
+                direction_point_counts["directionA"] += int(np.count_nonzero(attrs.rebar_direction == 1))
+                direction_point_counts["directionB"] += int(np.count_nonzero(attrs.rebar_direction == 2))
+                if attrs.scene_class is not None:
+                    scene_counts[:] += np.bincount(attrs.scene_class, minlength=4)[:4]
                 direction_ids.update(int(value) for value in np.unique(attrs.rebar_direction)
                                      if value not in (0, np.uint16(65535)))
                 instance_ids.update(int(value) for value in np.unique(attrs.rebar_instance)
@@ -703,6 +711,11 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
         summary = {"totalPointCount": total, "rebarPointCount": rebar_total,
                    "directionCount": len(direction_ids), "instanceCount": len(instance_ids),
                    "diagnostics": diagnostics}
+        if any(scene_counts):
+            summary.update({"sceneClassCounts": {"clutter": int(scene_counts[0]), "table": int(scene_counts[1]),
+                            "rebar": int(scene_counts[2]), "statisticalNoise": int(scene_counts[3])},
+                            "directionPointCounts": direction_point_counts,
+                            "intersectionPointCount": intersection_total})
         artifact_metadata = {
             "artifactVersion": artifact_version,
             "algorithm": {
@@ -715,12 +728,15 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
             "effectiveParameters": effective,
             "summary": summary,
         }
+        if "visualization" in algo.descriptor:
+            artifact_metadata["visualization"] = algo.descriptor["visualization"]
         # Keep the root manifest compact: the potentially multi-megabyte,
         # implementation-specific analysis belongs in the separately served
         # result document and is covered by the artifact hash below.
         result = {
             "schema": "rebar-analysis-v1",
             **artifact_metadata,
+            "input": loaded.report,
             "analysis": analysis.data,
         }
         (stage / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")

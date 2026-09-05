@@ -51,11 +51,15 @@ def rewrite_pnts(path: Path, project: Callable[[np.ndarray], RebarPointAttribute
     attrs = project(points); attrs.validate(count)
     # Existing batch table data is copied byte-for-byte; additions are typed binary properties.
     old_btb = raw[28+ftj+ftb+btj:]
-    additions = (("REBAR_CLASS", attrs.rebar_class, "UNSIGNED_BYTE"), ("REBAR_DIRECTION", attrs.rebar_direction.astype("<u2"), "UNSIGNED_SHORT"), ("REBAR_INSTANCE", attrs.rebar_instance.astype("<u4"), "UNSIGNED_INT"))
+    additions = [("REBAR_CLASS", attrs.rebar_class, "UNSIGNED_BYTE", 1),
+                 ("REBAR_DIRECTION", attrs.rebar_direction.astype("<u2"), "UNSIGNED_SHORT", 2),
+                 ("REBAR_INSTANCE", attrs.rebar_instance.astype("<u4"), "UNSIGNED_INT", 4)]
+    if attrs.scene_class is not None:
+        additions.append(("SCENE_CLASS", attrs.scene_class, "UNSIGNED_BYTE", 1))
+    if attrs.rebar_flags is not None:
+        additions.append(("REBAR_FLAGS", attrs.rebar_flags, "UNSIGNED_BYTE", 1))
     new_binary = bytearray(old_btb)
-    for name, values, component, alignment in ((additions[0][0], additions[0][1], additions[0][2], 1),
-                                                (additions[1][0], additions[1][1], additions[1][2], 2),
-                                                (additions[2][0], additions[2][1], additions[2][2], 4)):
+    for name, values, component, alignment in additions:
         if name in batch: raise PntsError(f"PNTS already contains {name}")
         _binary_pad(new_binary, alignment)
         batch[name] = {"byteOffset": len(new_binary), "componentType": component, "type": "SCALAR"}
