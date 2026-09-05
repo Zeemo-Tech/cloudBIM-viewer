@@ -38,7 +38,7 @@ import {
 } from '@/features/analysis-mesh'
 import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
-import { validateVisualization, v3ColorWithMetadata } from '@/features/rebar-visualization'
+import { createRebarColorizer, validateVisualization } from '@/features/rebar-visualization'
 import { buildRebarOverlay, disposeRebarOverlay } from '@/features/rebar-visualization/inspection'
 import type { RebarInspection } from '@/api/backend-rebar'
 
@@ -305,6 +305,18 @@ const measurementBadges = ref<Array<{
 // 材质存储
 const originalMaterialStore = new WeakMap<THREE.Object3D, any>()
 const originalPointColors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute | null>()
+type RebarSourceAttribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute
+type RebarColorCacheEntry = {
+  signature: string
+  attribute: THREE.BufferAttribute
+  sources: readonly RebarSourceAttribute[]
+  versions: readonly number[]
+  count: number
+}
+const rebarColorCache = new WeakMap<
+  THREE.BufferGeometry,
+  WeakMap<RebarVisualizationMetadata, Map<'rebar-class' | 'rebar-direction' | 'rebar-instance', RebarColorCacheEntry>>
+>()
 
 // ---------------------------
 // 基础渲染流程（平滑 60FPS 连续渲染环，对齐校准页机制）
@@ -1662,6 +1674,70 @@ function deterministicPointColor(value: number): [number, number, number] {
   return [color.r, color.g, color.b]
 }
 
+function rebarVisualizationSignature(metadata: RebarVisualizationMetadata) {
+  return JSON.stringify([
+    metadata.schema,
+    metadata.instanceStrategy,
+    metadata.attributes,
+    metadata.values,
+    metadata.colors,
+  ])
+}
+
+function rebarAttributeVersion(attribute: RebarSourceAttribute) {
+  return attribute instanceof THREE.InterleavedBufferAttribute
+    ? attribute.data.version
+    : attribute.version
+}
+
+function cachedRebarColors(
+  geometry: THREE.BufferGeometry,
+  metadata: RebarVisualizationMetadata,
+  mode: 'rebar-class' | 'rebar-direction' | 'rebar-instance',
+  sceneClass: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  flags: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  direction: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  instance: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  count: number,
+) {
+  const signature = rebarVisualizationSignature(metadata)
+  const sources = [sceneClass, flags, direction, instance] as const
+  const versions = sources.map(rebarAttributeVersion)
+  let byVisualization = rebarColorCache.get(geometry)
+  if (!byVisualization) {
+    byVisualization = new WeakMap()
+    rebarColorCache.set(geometry, byVisualization)
+  }
+  let byMode = byVisualization.get(metadata)
+  if (!byMode) {
+    byMode = new Map()
+    byVisualization.set(metadata, byMode)
+  }
+  const cached = byMode.get(mode)
+  if (
+    cached?.signature === signature &&
+    cached.count === count &&
+    cached.sources.every((source, index) => source === sources[index]) &&
+    cached.versions.every((version, index) => version === versions[index])
+  ) return cached.attribute
+
+  const colorize = createRebarColorizer(metadata)
+  const colors = new Uint8Array(count * 3)
+  for (let index = 0; index < count; index += 1) {
+    const rgb = colorize(mode, {
+      sceneClass: sceneClass.getX(index), flags: flags.getX(index),
+      direction: direction.getX(index), instance: instance.getX(index),
+    })
+    const offset = index * 3
+    colors[offset] = Math.round(rgb[0] * 255)
+    colors[offset + 1] = Math.round(rgb[1] * 255)
+    colors[offset + 2] = Math.round(rgb[2] * 255)
+  }
+  const attribute = new THREE.Uint8BufferAttribute(colors, 3, true)
+  byMode.set(mode, { signature, attribute, sources, versions, count })
+  return attribute
+}
+
 function applyRebarColoring(
   geometry: THREE.BufferGeometry,
   material: THREE.PointsMaterial,
@@ -1685,15 +1761,16 @@ function applyRebarColoring(
   if (visualization && sceneClass && flags && direction && instance && position &&
     sceneClass.count === position.count && flags.count === position.count &&
     direction.count === position.count && instance.count === position.count) {
-    const colors = new Float32Array(position.count * 3)
-    for (let index = 0; index < position.count; index += 1) {
-      const rgb = v3ColorWithMetadata(pointcloudColorMode, visualization, {
-        sceneClass: sceneClass.getX(index), flags: flags.getX(index),
-        direction: direction.getX(index), instance: instance.getX(index),
-      })
-      colors.set(rgb, index * 3)
-    }
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geometry.setAttribute('color', cachedRebarColors(
+      geometry,
+      visualization,
+      pointcloudColorMode,
+      sceneClass,
+      flags,
+      direction,
+      instance,
+      position.count,
+    ))
     material.color.set(0xffffff); material.vertexColors = true; material.needsUpdate = true
     return true
   }
@@ -2642,6 +2719,9 @@ defineExpose({
 // 监听 Prop 变化
 watch(() => props.rebarInspection, (next, previous) => {
   updateRebarInspection(next?.selectedId !== previous?.selectedId)
+}, { deep: true })
+watch(() => props.rebarVisualization, () => {
+  if (isMountedReady && tileset?.group) applyPointcloudMaterial(tileset.group)
 }, { deep: true })
 watch(
   () => [props.assetId, props.bimAssetId, props.scanAssetId, props.pointcloudAssetId, props.type] as const,
