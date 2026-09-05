@@ -18,7 +18,7 @@ import PointcloudColorRangeBar, {
   type PointcloudColorRange,
 } from '@/components/preview/PointcloudColorRangeBar.vue'
 import type { CameraPose, PointcloudColorMode } from '@/components/preview/UnifiedViewer3D.vue'
-import type { RebarSegmentationResult } from '@/api/backend-rebar'
+import type { RebarSegmentationResult, RebarInspection } from '@/api/backend-rebar'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisArea,
@@ -66,6 +66,7 @@ const pointcloudColorRamp = ref<PointcloudColorRamp>('grayscale')
 const pointcloudColorRange = ref<PointcloudColorRange>({ min: 0, max: 1 })
 const pointcloudIntensityHistogram = ref<number[]>([])
 const rebarResult = ref<RebarSegmentationResult | null>(null)
+const rebarInspection = ref<RebarInspection | null>(null)
 const measurementBackendIds = new Map<string, number>()
 let measurementLoadToken = 0
 
@@ -464,6 +465,7 @@ watch(
         :asset-id="assetId"
         :tileset-url="rebarTilesetUrl"
         :rebar-visualization="rebarVisualization"
+        :rebar-inspection="rebarInspection"
         :analysis-mode="analysisMode"
         :analysis-points="analysisPoints"
         :analysis-distances="analysisDistances"
@@ -486,6 +488,7 @@ watch(
         :mode="rebarPanelMode"
         @result-change="handleRebarResult"
         @mode-change="handleRebarMode"
+        @inspection-change="rebarInspection = $event"
       />
 
       <ViewerAnalysisOverlay

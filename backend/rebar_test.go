@@ -162,6 +162,22 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("head tile=%d %s", w.Code, w.Body.String())
 	}
+	// Exercise the registered route: FullPath distinguishes labels from tiles.
+	labelDir := filepath.Join(dir, row.RelativePath, "labels")
+	if err := os.MkdirAll(labelDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(labelDir, "manifest.json"), []byte(`{"finitePointCount":2}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("userID", int64(7)) })
+	router.GET("/assets/:id/rebar-segmentation/versions/:version/labels/*path", a.rebarResource)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/1/rebar-segmentation/versions/"+row.Version+"/labels/manifest.json", nil))
+	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("finitePointCount")) {
+		t.Fatalf("labels=%d %s", w.Code, w.Body.String())
+	}
 	// A corrupt latest manifest must neither be served as latest nor hit cache.
 	if err := os.Remove(filepath.Join(dir, row.RelativePath, "manifest.json")); err != nil {
 		t.Fatal(err)

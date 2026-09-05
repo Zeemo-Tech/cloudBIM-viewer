@@ -247,9 +247,10 @@ func (a *app) rebarResponse(id int64, r DBAssetDerivative, cached bool) gin.H {
 }
 func (a *app) rebarCompute(c *gin.Context) {
 	var b struct {
-		Algorithm    string         `json:"algorithm"`
-		InputOptions map[string]any `json:"inputOptions"`
-		Parameters   map[string]any `json:"parameters"`
+		Algorithm    string             `json:"algorithm"`
+		InputOptions map[string]any     `json:"inputOptions"`
+		Parameters   map[string]any     `json:"parameters"`
+		BimPrior     *rebarBimSelection `json:"bimPrior,omitempty"`
 	}
 	if c.ShouldBindJSON(&b) != nil {
 		fail(c, 400, "invalid_parameters")
@@ -267,7 +268,34 @@ func (a *app) rebarCompute(c *gin.Context) {
 	if b.Algorithm == "" {
 		b.Algorithm = "geometric-v3"
 	}
+	prior, priorErr := a.resolveRebarBimPrior(asset.ID, userID(c), b.BimPrior)
+	if priorErr != nil {
+		fail(c, 422, "bim_prior_unavailable")
+		return
+	}
 	params, _ := canonicalJSON(b)
+	if b.Algorithm == "geometric-v4" {
+		descriptors, err := a.rebarProvider.ListAlgorithms(c.Request.Context())
+		if err != nil {
+			fail(c, 502, "provider_failed")
+			return
+		}
+		var descriptor *RebarAlgorithmDescriptor
+		for i := range descriptors {
+			if descriptors[i].ID == b.Algorithm {
+				descriptor = &descriptors[i]
+				break
+			}
+		}
+		if descriptor == nil {
+			fail(c, 422, "unsupported_algorithm")
+			return
+		}
+		params, _ = canonicalJSON(map[string]any{"request": b, "descriptor": descriptor, "bimSnapshot": prior})
+	} else if prior != nil {
+		fail(c, 422, "selected_algorithm_does_not_support_bim")
+		return
+	}
 	lock := a.rebarLock(asset.ID)
 	if !lock.TryLock() {
 		fail(c, 409, "provider_busy")
@@ -306,7 +334,10 @@ func (a *app) rebarCompute(c *gin.Context) {
 	defer os.RemoveAll(stage)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
 	defer cancel()
-	m, e := a.rebarProvider.Compute(ctx, RebarComputeRequest{meshServicePath(a.cfg.DataDir, source, a.cfg.MeshServiceStorageDir), rebarFormat(*asset), meshServicePath(a.cfg.DataDir, tiles, a.cfg.MeshServiceStorageDir), meshServicePath(a.cfg.DataDir, stage, a.cfg.MeshServiceStorageDir), version, b.Algorithm, b.InputOptions, b.Parameters})
+	m, e := a.rebarProvider.Compute(ctx, RebarComputeRequest{
+		PointCloudPath: meshServicePath(a.cfg.DataDir, source, a.cfg.MeshServiceStorageDir), PointCloudFormat: rebarFormat(*asset),
+		SourceTilesetPath: meshServicePath(a.cfg.DataDir, tiles, a.cfg.MeshServiceStorageDir), OutputDirectory: meshServicePath(a.cfg.DataDir, stage, a.cfg.MeshServiceStorageDir),
+		ArtifactVersion: version, Algorithm: b.Algorithm, InputOptions: b.InputOptions, Parameters: b.Parameters, BimPrior: prior})
 	if e != nil {
 		if errors.Is(e, context.DeadlineExceeded) {
 			fail(c, http.StatusGatewayTimeout, "provider_timeout")
@@ -324,7 +355,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 					c.Header("Retry-After", pe.RetryAfter)
 				}
 				fail(c, 409, code)
-			} else if code == "invalid_parameters" || code == "unsupported_input" || code == "insufficient_evidence" {
+			} else if code == "invalid_parameters" || code == "unsupported_input" || code == "insufficient_evidence" || code == "bim_prior_unavailable" {
 				fail(c, 422, code)
 			} else if code == "artifact_invalid" {
 				fail(c, 502, code)
@@ -408,6 +439,8 @@ func (a *app) rebarResource(c *gin.Context) {
 			return
 		}
 		rel = m.ResultPath
+	} else if strings.Contains(c.FullPath(), "/labels/") {
+		rel = filepath.Join("labels", rel)
 	} else {
 		rel = filepath.Join("tiles", rel)
 	}

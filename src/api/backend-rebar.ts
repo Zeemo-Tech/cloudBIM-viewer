@@ -12,7 +12,7 @@ export interface RebarCapabilities {
 }
 
 export interface RebarVisualizationMetadata {
-  schema: 'rebar-visualization-v1'
+  schema: 'rebar-visualization-v1' | 'rebar-visualization-v2'
   defaultMode: 'rebar-class'
   attributes: Record<string, unknown>
   values: Record<string, unknown>
@@ -61,6 +61,9 @@ export interface RebarSegmentationSummary {
   directionPointCounts?: Record<string, number>
   intersectionPointCount?: number
   diagnostics?: Record<string, unknown>
+  rawSource?: { finitePointCount: number; ambiguousPointCount: number; sceneClassCounts: Record<string, number> }
+  rawLabelsPath?: string
+  bimPrior?: { designBarCount: number; diagnostics: Record<string, unknown> }
 }
 
 export interface RebarSegmentationResult {
@@ -83,6 +86,29 @@ export interface ComputeRebarSegmentationRequest {
   algorithm?: string
   inputOptions?: Record<string, unknown>
   parameters?: Record<string, unknown>
+  bimPrior?: { bimAssetId: number }
+}
+
+export interface RebarInstance {
+  id: number
+  centerline: number[][]
+  radius: number
+  directionId?: number
+  designId?: string
+  evidence?: string
+  inferredSegments?: unknown[]
+  observedSegments?: { points: number[][] }[]
+}
+
+export interface RebarInspection {
+  instances: RebarInstance[]
+  selectedId: number | null
+  showCenterlines: boolean
+  hideFixtures: boolean
+}
+
+export function getRebarAnalysis(resultUrl: string) {
+  return backendRequest<{ analysis: { instances?: RebarInstance[]; diagnostics?: Record<string, unknown> } }>(resultUrl, { method: 'GET' })
 }
 
 export function listRebarAlgorithms() {

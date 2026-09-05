@@ -39,6 +39,8 @@ import {
 import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
 import { validateVisualization, v3ColorWithMetadata } from '@/features/rebar-visualization'
+import { buildRebarOverlay, disposeRebarOverlay } from '@/features/rebar-visualization/inspection'
+import type { RebarInspection } from '@/api/backend-rebar'
 
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
 export type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
@@ -86,6 +88,7 @@ export interface UnifiedViewerProps {
   pointcloudAssetId?: number | null
   pointcloudTilesetUrl?: string | null
   rebarVisualization?: RebarVisualizationMetadata | null
+  rebarInspection?: RebarInspection | null
   displayName?: string
   minimal?: boolean
   calibration?: { modelMatrix: number[] } | null
@@ -195,6 +198,24 @@ let resizeObserver: ResizeObserver | null = null
 // 场景模型根节点
 let bimRoot: THREE.Object3D | null = null
 let pointcloudWrapper: THREE.Group | null = null
+let rebarOverlay: THREE.Group | null = null
+
+function updateRebarInspection(focus = false) {
+  disposeRebarOverlay(rebarOverlay)
+  rebarOverlay = null
+  if (!pointcloudWrapper || !props.rebarInspection) return
+  rebarOverlay = buildRebarOverlay(props.rebarInspection)
+  pointcloudWrapper.add(rebarOverlay)
+  if (tileset?.group) applyPointcloudMaterial(tileset.group)
+  if (focus && props.rebarInspection.selectedId) {
+    const selected = props.rebarInspection.instances.find((item) => item.id === props.rebarInspection?.selectedId)
+    if (selected) {
+      pointcloudWrapper.updateMatrixWorld(true)
+      const box = new THREE.Box3().setFromPoints(selected.centerline.map((p) => new THREE.Vector3(p[0], p[1], p[2]).applyMatrix4(pointcloudWrapper!.matrixWorld)))
+      fitCameraToBox(box.expandByScalar(0.03))
+    }
+  }
+}
 let tileset: TilesRenderer | null = null
 let c2mMeshRoot: THREE.Object3D | null = null
 let analysisMeshSession: AnalysisMeshSession | null = null
@@ -1265,6 +1286,8 @@ function cancelActiveAnalysis() {
 // 资源加载：BIM / 点云 / C2M
 // ---------------------------
 function cleanCurrentSceneModels() {
+  disposeRebarOverlay(rebarOverlay)
+  rebarOverlay = null
   if (bimRoot && scene) {
     scene.remove(bimRoot)
     bimRoot.traverse((c: any) => {
@@ -1408,6 +1431,7 @@ async function loadPointcloudModel(assetId: number) {
 
   tileset = nextTileset
   pointcloudWrapper = wrapper
+  updateRebarInspection()
 
   tileset.addEventListener('tiles-load-start', () => {
     tilesLoadingCount++
@@ -1767,6 +1791,29 @@ function applyPointcloudMaterial(root: THREE.Object3D) {
         mat.size = pointSize
 
         applyPointcloudColoring(obj as THREE.Points, mat as THREE.PointsMaterial)
+        const geometry = obj.geometry as THREE.BufferGeometry
+        const scenes = getPointAttribute(geometry, ['scene_class', 'sceneclass'])
+        if (scenes) {
+          let state = geometry.userData.rebarFixtureFilter as {
+            original: THREE.BufferAttribute | null; applied: THREE.BufferAttribute | null;
+            scenes: THREE.BufferAttribute | THREE.InterleavedBufferAttribute; hidden: boolean;
+          } | undefined
+          if (!state || state.applied !== geometry.index || state.scenes !== scenes) {
+            state = { original: geometry.index, applied: geometry.index, scenes, hidden: false }
+            geometry.userData.rebarFixtureFilter = state
+          }
+          const hide = !!props.rebarInspection?.hideFixtures
+          if (hide && !state.hidden) {
+            const indices: number[] = []
+            for (let index = 0; index < (state.original?.count ?? scenes.count); index++) {
+              const point = state.original ? state.original.getX(index) : index
+              if (scenes.getX(point) !== 4) indices.push(point)
+            }
+            geometry.setIndex(indices)
+          } else if (!hide && state.hidden) geometry.setIndex(state.original)
+          state.hidden = hide
+          state.applied = geometry.index
+        }
         mat.clippingPlanes = sectionEnabled ? clipPlanes : []
 
         if (!mat.userData?.roundPointsHooked) {
@@ -2592,6 +2639,9 @@ defineExpose({
 })
 
 // 监听 Prop 变化
+watch(() => props.rebarInspection, (next, previous) => {
+  updateRebarInspection(next?.selectedId !== previous?.selectedId)
+}, { deep: true })
 watch(
   () => [props.assetId, props.bimAssetId, props.scanAssetId, props.pointcloudAssetId, props.type] as const,
   () => {

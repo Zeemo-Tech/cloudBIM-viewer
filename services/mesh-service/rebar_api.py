@@ -31,6 +31,7 @@ from algorithms import REBAR_ALGORITHM_REGISTRY
 from rebar_poc import (
     DEFAULT_MAX_INPUT_POINTS,
     InvalidRebarInputOptionsError,
+    InvalidBimPriorError,
     PointCloudInputError,
     StoragePathViolationError,
     UnsupportedPointCloudFormatError,
@@ -154,6 +155,15 @@ class RebarSegmentRequest(BaseModel):
         return self
 
 
+class RebarBimPriorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ifc_path: str | None = Field(default=None, min_length=1, max_length=4096)
+    model_path: str | None = Field(default=None, min_length=1, max_length=4096)
+    metadata_path: str | None = Field(default=None, min_length=1, max_length=4096)
+    scan_to_bim: list[FiniteFloat] = Field(min_length=16, max_length=16)
+    fingerprint: str = Field(default="", max_length=128)
+
+
 class RebarComputeRequest(BaseModel):
     """Snake-case service DTO for a derived rebar tiles artifact."""
     model_config = ConfigDict(extra="forbid")
@@ -165,6 +175,7 @@ class RebarComputeRequest(BaseModel):
     algorithm: str = Field(default="geometric-v3", min_length=1, max_length=128)
     input_options: dict[str, Any] = Field(default_factory=dict)
     parameters: dict[str, Any] = Field(default_factory=dict)
+    bim_prior: RebarBimPriorRequest | None = None
 
     @field_validator("input_options")
     @classmethod
@@ -249,11 +260,14 @@ def create_rebar_router(
                 point_cloud_format=request.point_cloud_format, source_tileset_path=request.source_tileset_path,
                 output_directory=request.output_directory, artifact_version=request.artifact_version,
                 algorithm=request.algorithm, input_options=request.input_options, parameters=request.parameters,
-                storage_root=effective_storage_root)
+                storage_root=effective_storage_root,
+                bim_prior=request.bim_prior.model_dump() if request.bim_prior else None)
         except StoragePathViolationError as exc:
             return JSONResponse(status_code=403, content={"code":403,"errorCode":"artifact_invalid","msg":str(exc)})
         except (InvalidRebarInputOptionsError, RebarAlgorithmError) as exc:
             return JSONResponse(status_code=400, content={"code":400,"errorCode":"invalid_parameters","msg":str(exc)})
+        except InvalidBimPriorError as exc:
+            return JSONResponse(status_code=422, content={"code":422,"errorCode":"bim_prior_unavailable","msg":str(exc)})
         except (PointCloudInputError, UnsupportedPointCloudFormatError) as exc:
             return JSONResponse(status_code=422, content={"code":422,"errorCode":"unsupported_input","msg":str(exc)})
         except RebarSegmentationError as exc:

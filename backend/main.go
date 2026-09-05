@@ -4171,6 +4171,8 @@ func main() {
 	r.POST("/assets/:id/rebar-segmentation", a.rebarCompute)
 	r.GET("/assets/:id/rebar-segmentation/latest", a.rebarLatest)
 	r.GET("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
+	r.GET("/assets/:id/rebar-segmentation/versions/:version/labels/*path", a.rebarResource)
+	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/labels/*path", a.rebarResource)
 	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
 	r.GET("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
 	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)

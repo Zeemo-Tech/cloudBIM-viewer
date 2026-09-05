@@ -522,6 +522,14 @@ class RebarApiTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 RebarComputeRequest.model_validate({"point_cloud_path":"/a.ply", "source_tileset_path":"/s", "output_directory":"/o", "input_options":options})
 
+    def test_invalid_bim_is_a_client_error_and_preserves_error_code(self):
+        with mock.patch('rebar_api.compute_rebar_artifact',side_effect=rebar_poc.InvalidBimPriorError('bad alignment')):
+            response=asyncio.run(_asgi_post(self._app(),'/rebar/compute',{
+                'point_cloud_path':str(self.source), 'source_tileset_path':str(self.source),
+                'output_directory':str(self.storage_root/'out'), 'algorithm':'geometric-v4'}))
+        self.assertEqual(response.status_code,422)
+        self.assertEqual(response.json()['errorCode'],'bim_prior_unavailable')
+
 
 if __name__ == "__main__":
     unittest.main()

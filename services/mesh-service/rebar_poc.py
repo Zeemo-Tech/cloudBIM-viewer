@@ -60,6 +60,10 @@ class InvalidRebarInputOptionsError(PointCloudInputError):
     """Pipeline-level sampling options are invalid or unsupported."""
 
 
+class InvalidBimPriorError(PointCloudInputError):
+    """Requested design geometry or saved alignment is unusable."""
+
+
 @dataclass(frozen=True)
 class LoadedPointCloud:
     """Bounded detection points plus their source-reader record indices."""
@@ -648,7 +652,8 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
                            artifact_version: str, algorithm: str,
                            input_options: Mapping[str, Any] | None,
                            parameters: Mapping[str, Any] | None,
-                           storage_root: str) -> dict[str, Any]:
+                           storage_root: str,
+                           bim_prior: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Create a complete derived tileset in staging, then atomically publish it."""
     from algorithms import REBAR_ALGORITHM_REGISTRY
     from rebar_tiles import rewrite_pnts
@@ -659,7 +664,37 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
     effective = dict(algo.normalize_parameters(parameters))
     loaded = load_point_cloud(point_cloud_path, max_input_points=max_points, voxel_size=voxel_size,
                               storage_root=storage_root, point_cloud_format=point_cloud_format)
-    analysis = algo.analyze(loaded.points, effective)
+    from algorithms.rebar_base import RebarInputContext
+    from rebar_stream import iter_source_chunks, write_raw_labels
+    prior = None
+    if bim_prior is not None:
+        if not algo.descriptor.get("capabilities", {}).get("bimPrior", False):
+            raise InvalidRebarInputOptionsError("selected algorithm does not support BIM priors")
+        from rebar_bim import load_bim_prior
+        paths = {}
+        boundary = Path(storage_root).resolve(strict=True)
+        for key in ("ifc_path", "model_path", "metadata_path"):
+            value = bim_prior.get(key)
+            if not value:
+                paths[key] = None
+                continue
+            candidate = Path(str(value))
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise InvalidBimPriorError("BIM input file is unavailable") from exc
+            if candidate.is_symlink() or not resolved.is_relative_to(boundary) or not resolved.is_file():
+                raise StoragePathViolationError("BIM inputs must be regular files inside shared storage")
+            paths[key] = str(resolved)
+        try:
+            prior = load_bim_prior(**paths, scan_to_bim=list(bim_prior["scan_to_bim"]))
+        except (ValueError, OSError, KeyError) as exc:
+            raise InvalidBimPriorError("BIM geometry or alignment is unusable") from exc
+        prior["fingerprint"] = bim_prior.get("fingerprint", "")
+    context = RebarInputContext(loaded.points,
+        lambda: iter_source_chunks(point_cloud_path, point_cloud_format), prior)
+    analyze_source = getattr(algo, "analyze_source", None)
+    analysis = analyze_source(context, effective) if analyze_source else algo.analyze(loaded.points, effective)
     output = _confined_output_directory(output_directory, storage_root)
     source_candidate = Path(source_tileset_path).expanduser()
     if source_candidate.is_symlink():
@@ -686,7 +721,7 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
         total = 0
         rebar_total = 0
         intersection_total = 0
-        scene_counts = np.zeros(4, dtype=np.int64)
+        scene_counts = np.zeros(5, dtype=np.int64)
         direction_point_counts = {"directionA": 0, "directionB": 0}
         direction_ids: set[int] = set()
         instance_ids: set[int] = set()
@@ -700,7 +735,8 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
                 direction_point_counts["directionA"] += int(np.count_nonzero(attrs.rebar_direction == 1))
                 direction_point_counts["directionB"] += int(np.count_nonzero(attrs.rebar_direction == 2))
                 if attrs.scene_class is not None:
-                    scene_counts[:] += np.bincount(attrs.scene_class, minlength=4)[:4]
+                    if np.any(attrs.scene_class > 4): raise ValueError("unrecognized scene class")
+                    scene_counts[:] += np.bincount(attrs.scene_class, minlength=5)
                 direction_ids.update(int(value) for value in np.unique(attrs.rebar_direction)
                                      if value not in (0, np.uint16(65535)))
                 instance_ids.update(int(value) for value in np.unique(attrs.rebar_instance)
@@ -716,6 +752,15 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
                             "rebar": int(scene_counts[2]), "statisticalNoise": int(scene_counts[3])},
                             "directionPointCounts": direction_point_counts,
                             "intersectionPointCount": intersection_total})
+            if algo.descriptor.get("visualization", {}).get("schema") == "rebar-visualization-v2":
+                summary["sceneClassCounts"]["fixture_formwork"] = int(scene_counts[4])
+        if algo.descriptor.get("capabilities", {}).get("rawLabels", False):
+            summary["rawSource"] = write_raw_labels(stage / "labels", context, algo, analysis)
+            summary["rawLabelsPath"] = "labels/manifest.json"
+        if prior is not None:
+            summary["bimPrior"] = {"fingerprint": prior.get("fingerprint"),
+                                   "diagnostics": prior.get("diagnostics", {}),
+                                   "designBarCount": len(prior.get("bars", []))}
         artifact_metadata = {
             "artifactVersion": artifact_version,
             "algorithm": {

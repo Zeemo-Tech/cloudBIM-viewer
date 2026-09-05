@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   computeRebarSegmentation,
   getLatestRebarSegmentation,
   listRebarAlgorithms,
+  getRebarAnalysis,
+  type RebarInstance,
+  type RebarInspection,
   type RebarAlgorithmDescriptor,
   type RebarParameterProperty,
   type RebarSegmentationResult,
 } from '@/api/backend-rebar'
 import type { PointcloudColorMode } from './UnifiedViewer3D.vue'
 import { legendItems, validateVisualization } from '@/features/rebar-visualization'
+import { getScanCalibration } from '@/api/backend-alignment'
 
 const props = withDefaults(defineProps<{
   assetId: number
@@ -21,6 +25,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'result-change', value: RebarSegmentationResult | null): void
   (event: 'mode-change', value: PointcloudColorMode): void
+  (event: 'inspection-change', value: RebarInspection): void
 }>()
 
 const algorithms = ref<RebarAlgorithmDescriptor[]>([])
@@ -34,6 +39,14 @@ const voxelSizeMm = ref<number | null>(null)
 const parameterValues = reactive<Record<string, number | string | boolean>>({})
 const persistedParameterBaseline = ref<Record<string, unknown>>({})
 const selectedMode = ref<PointcloudColorMode>('rgb')
+const linkedBimId = ref<number | null>(null)
+const useBim = ref(true)
+const instances = ref<RebarInstance[]>([])
+const selectedInstance = ref<number | null>(null)
+const showCenterlines = ref(false)
+const hideFixtures = ref(false)
+const detailError = ref('')
+let detailToken = 0
 let loadToken = 0
 
 const selectedAlgorithm = computed(() =>
@@ -149,6 +162,15 @@ function applyPersistedSettings(value: RebarSegmentationResult) {
 function emitLatest(value: RebarSegmentationResult | null) {
   latest.value = value
   emit('result-change', value)
+  instances.value = []
+  selectedInstance.value = null
+  detailError.value = ''
+  const token = ++detailToken
+  if (value?.visualization?.schema === 'rebar-visualization-v2') {
+    getRebarAnalysis(value.resultUrl).then((detail) => {
+      if (token === detailToken) instances.value = detail.analysis.instances ?? []
+    }).catch(() => { if (token === detailToken) detailError.value = '实例详情读取失败，可重新加载结果' })
+  }
 }
 
 function setMode(mode: PointcloudColorMode) {
@@ -161,6 +183,10 @@ async function loadState() {
   const token = ++loadToken
   loading.value = true
   errorMessage.value = ''
+  linkedBimId.value = null
+  getScanCalibration(props.assetId).then((state) => {
+    if (token === loadToken) linkedBimId.value = state.data.bimFileId
+  }).catch(() => {})
   try {
     const [algorithmState, latestState] = await Promise.allSettled([
       listRebarAlgorithms(),
@@ -176,7 +202,9 @@ async function loadState() {
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []
-      if (algorithms.value.some((item) => item.id === 'geometric-v3')) {
+      if (persisted?.algorithm.id === 'geometric-v4' && algorithms.value.some((item) => item.id === 'geometric-v4')) {
+        selectedAlgorithmId.value = 'geometric-v4'
+      } else if (algorithms.value.some((item) => item.id === 'geometric-v3')) {
         selectedAlgorithmId.value = 'geometric-v3'
       } else if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
@@ -227,6 +255,8 @@ async function compute(force = false) {
             : {}),
         },
         parameters: buildParameters(),
+        ...(selectedAlgorithmId.value === 'geometric-v4' && useBim.value && linkedBimId.value
+          ? { bimPrior: { bimAssetId: linkedBimId.value } } : {}),
       },
       { force },
     )
@@ -242,7 +272,12 @@ async function compute(force = false) {
 watch(selectedAlgorithmId, initializeParameters, { flush: 'sync' })
 watch(() => props.mode, (mode) => { selectedMode.value = mode })
 watch(() => props.assetId, loadState)
+watch([instances, selectedInstance, showCenterlines, hideFixtures], () => {
+  emit('inspection-change', { instances: instances.value, selectedId: selectedInstance.value,
+    showCenterlines: showCenterlines.value, hideFixtures: hideFixtures.value })
+})
 onMounted(loadState)
+onBeforeUnmount(() => { ++loadToken; ++detailToken })
 </script>
 
 <template>
@@ -265,6 +300,27 @@ onMounted(loadState)
       <span><strong>{{ latest.summary.directionCount }}</strong> 个方向</span>
       <span v-if="rebarRatio !== null"><strong>{{ rebarRatio.toFixed(1) }}%</strong> 钢筋点</span>
     </div>
+
+    <p v-if="latest?.summary.rawSource" class="rebar-panel__hint">
+      原始点 {{ latest.summary.rawSource.finitePointCount.toLocaleString() }} ·
+      待确认 {{ latest.summary.rawSource.ambiguousPointCount.toLocaleString() }}
+    </p>
+    <div v-if="latest?.visualization?.schema === 'rebar-visualization-v2'" class="rebar-panel__inspection">
+      <label><input v-model="showCenterlines" type="checkbox" /> 显示中心线</label>
+      <label><input v-model="hideFixtures" type="checkbox" /> 隐藏夹具／围挡</label>
+      <label>聚焦单根钢筋
+        <select v-model="selectedInstance">
+          <option :value="null">全部实例</option>
+          <option v-for="instance in instances" :key="instance.id" :value="instance.id">钢筋 {{ instance.id }}{{ instance.designId ? ' · BIM 已关联' : '' }}</option>
+        </select>
+      </label>
+      <small>虚线表示设计推断，不代表扫描已观测到。</small>
+      <small v-if="detailError">{{ detailError }}</small>
+    </div>
+    <label v-if="selectedAlgorithmId === 'geometric-v4' && linkedBimId" class="rebar-panel__hint">
+      <input v-model="useBim" type="checkbox" :disabled="computing" /> 参考已配准的 BIM（{{ linkedBimId }}）
+    </label>
+    <p v-else-if="selectedAlgorithmId === 'geometric-v4'" class="rebar-panel__hint">当前没有已关联的 BIM，使用点云几何识别。</p>
 
     <div v-if="latest" class="rebar-panel__modes" role="group" aria-label="钢筋结果着色">
       <button
@@ -400,6 +456,10 @@ onMounted(loadState)
 .rebar-panel__input input[type='checkbox'] { width: 20px; min-height: 20px; }
 .rebar-panel__input small { width: 26px; color: #94a3b8; }
 .rebar-panel__actions { gap: 8px; margin-top: 12px; }
+.rebar-panel__inspection { display: grid; gap: 8px; margin: 12px 0; font-size: 12px; }
+.rebar-panel__inspection label { display: flex; align-items: center; gap: 7px; }
+.rebar-panel__inspection select { min-width: 0; max-width: 200px; }
+.rebar-panel__inspection small { color: #94a3b8; }
 
 @media (max-width: 760px) {
   .rebar-panel { top: 10px; right: 10px; max-height: calc(100% - 20px); overflow: auto; }

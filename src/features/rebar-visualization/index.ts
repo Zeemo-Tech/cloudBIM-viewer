@@ -12,10 +12,15 @@ const hex = /^#[0-9a-f]{6}$/i
 export function validateVisualization(value: unknown): RebarVisualizationMetadata | null {
   if (!value || typeof value !== 'object') return null
   const v = value as Partial<RebarVisualizationMetadata>
-  if (v.schema !== 'rebar-visualization-v1' || v.defaultMode !== 'rebar-class' ||
+  if (!['rebar-visualization-v1', 'rebar-visualization-v2'].includes(v.schema ?? '') || v.defaultMode !== 'rebar-class' ||
     v.instanceStrategy !== 'golden-angle-v1' || !v.colors || typeof v.colors !== 'object') return null
   for (const key of Object.keys(V3_COLORS)) if (!hex.test((v.colors as Record<string, string>)[key] ?? '')) return null
   if (!v.attributes || !v.values) return null
+  if (v.schema === 'rebar-visualization-v2') {
+    const scenes = v.values.sceneClass as Record<string, unknown> | undefined
+    if (!scenes || scenes.table !== 1 || scenes.rebar !== 2 || (scenes.fixture_formwork ?? scenes.fixture) !== 4) return null
+    for (const color of Object.values(v.colors)) if (!hex.test(color)) return null
+  }
   return v as RebarVisualizationMetadata
 }
 
@@ -51,6 +56,17 @@ export function v3ColorWithMetadata(mode: RebarVisualizationMode, metadata: Reba
 }): Rgb {
   const colors = { ...V3_COLORS, ...metadata.colors }
   const named = (name: keyof typeof V3_COLORS) => hexRgb(colors[name])
+  if (metadata.schema === 'rebar-visualization-v2') {
+    const names = metadata.values.sceneClass as Record<string, number>
+    const key = Object.keys(names).find((name) => names[name] === point.sceneClass) ?? 'clutter'
+    const scene = hexRgb(metadata.colors[key] ?? (point.sceneClass === 4 ? '#10b981' : colors.clutter))
+    const hasInstance = point.instance > 0 && point.instance !== 0xffffffff
+    if (mode === 'rebar-instance' && hasInstance) return instanceColor(point.instance)
+    if (point.sceneClass !== 2) return scene
+    if ((point.flags & 2) !== 0 || point.instance === 0xffffffff) return named('intersection')
+    if (mode === 'rebar-direction' && point.direction > 0 && point.direction !== 65535) return instanceColor(point.direction)
+    return named('rebar')
+  }
   const intersection = (point.flags & 1) !== 0 || point.direction === 65535 || point.instance === 0xffffffff
   const scene = point.sceneClass === 1 ? named('table') : point.sceneClass === 3 ? named('noise') : point.sceneClass === 2 ? named('rebar') : named('clutter')
   if (intersection) return named('intersection')
@@ -65,6 +81,15 @@ export function legendItems(mode: RebarVisualizationMode, visualization: unknown
   if (!metadata) return []
   const c = { ...V3_COLORS, ...metadata.colors }
   const item = (label: string, color: keyof typeof V3_COLORS) => ({ label, color: hexRgb(c[color]) })
+  if (metadata.schema === 'rebar-visualization-v2') {
+    const scenes = metadata.values.sceneClass as Record<string, number>
+    const labels: Record<string, string> = { clutter: '其他', table: '台面', rebar: '钢筋', noise: '噪声', statisticalNoise: '噪声', fixture: '夹具／围挡', fixture_formwork: '夹具／围挡' }
+    const entries = Object.entries(scenes).filter(([, id]) => typeof id === 'number').sort((a, b) => a[1] - b[1]).map(([key, id]) => ({ label: labels[key] ?? key, color: hexRgb(metadata.colors[key] ?? (id === 4 ? '#10b981' : c.clutter)) }))
+    if (mode === 'rebar-instance') entries.push(item(`单根实例（${summary?.instanceCount ?? 0}）`, 'rebar'))
+    if (mode === 'rebar-direction') entries.push(item('三维方向（不同颜色）', 'directionA'))
+    entries.push(item('归属待确认', 'intersection'))
+    return entries
+  }
   if (mode === 'rebar-instance') return [item(`实例（${summary?.instanceCount ?? 0}，golden-angle-v1）`, 'rebar'), item('交叉', 'intersection'), item('台面', 'table'), item('杂物', 'clutter'), item('噪声', 'noise')]
   if (mode === 'rebar-direction') return [item('方向 A', 'directionA'), item('方向 B', 'directionB'), item('交叉', 'intersection'), item('非钢筋', 'clutter')]
   return [item('台面', 'table'), item('杂物', 'clutter'), item('噪声', 'noise'), item('方向 A', 'directionA'), item('方向 B', 'directionB'), item('交叉', 'intersection')]

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Callable, Iterator
 
 import numpy as np
 
@@ -20,6 +20,19 @@ class UnknownRebarAlgorithmError(RebarAlgorithmError):
 class RebarAnalysis:
     """Canonical result plus implementation-private details."""
     data: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RebarInputContext:
+    """Restartable raw-source reader. Indices refer to original reader records.
+
+    Every yielded array is bounded; callers must not concatenate the raw cloud.
+    Non-finite records are omitted without renumbering subsequent records.
+    BIM geometry, when present, is already in the raw scan coordinate system.
+    """
+    sample: np.ndarray
+    iter_chunks: Callable[[], Iterator[tuple[np.ndarray, np.ndarray]]]
+    bim_prior: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +64,9 @@ class RebarAlgorithm(ABC):
 
     @abstractmethod
     def analyze(self, sample: np.ndarray, parameters: Mapping[str, Any]) -> RebarAnalysis: ...
+
+    def analyze_source(self, context: RebarInputContext, parameters: Mapping[str, Any]) -> RebarAnalysis:
+        return self.analyze(context.sample, parameters)
 
     @abstractmethod
     def project_points(self, points_xyz: np.ndarray, analysis: RebarAnalysis) -> RebarPointAttributes: ...

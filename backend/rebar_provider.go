@@ -44,6 +44,15 @@ type RebarComputeRequest struct {
 	Algorithm         string         `json:"algorithm"`
 	InputOptions      map[string]any `json:"input_options"`
 	Parameters        map[string]any `json:"parameters"`
+	BimPrior          *RebarBimPrior `json:"bim_prior,omitempty"`
+}
+
+type RebarBimPrior struct {
+	IFCPath      string    `json:"ifc_path,omitempty"`
+	ModelPath    string    `json:"model_path,omitempty"`
+	MetadataPath string    `json:"metadata_path,omitempty"`
+	ScanToBim    []float64 `json:"scan_to_bim"`
+	Fingerprint  string    `json:"fingerprint"`
 }
 type RebarArtifactManifest struct {
 	Schema          string `json:"schema"`
