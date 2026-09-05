@@ -11,11 +11,13 @@ import type {
   PreviewBackgroundTheme,
   StandardView,
 } from './UnifiedViewer3D.vue'
+import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
 
 const props = withDefaults(
   defineProps<{
     assetId: number | null
     tilesetUrl?: string | null
+    rebarVisualization?: RebarVisualizationMetadata | null
     minimal?: boolean
     analysisMode?: AnalysisMode
     analysisPoints?: AnalysisPoint[]
@@ -26,6 +28,7 @@ const props = withDefaults(
   {
     minimal: false,
     tilesetUrl: null,
+    rebarVisualization: null,
     analysisMode: 'none',
     analysisPoints: () => [],
     analysisDistances: () => [],
@@ -94,6 +97,7 @@ defineExpose({
     type="pointcloud"
     :asset-id="assetId"
     :pointcloud-tileset-url="tilesetUrl"
+    :rebar-visualization="rebarVisualization"
     :minimal="minimal"
     :analysis-mode="analysisMode"
     :analysis-points="analysisPoints"

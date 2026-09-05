@@ -26,6 +26,8 @@ import { backendRequest } from '@/api/backend-http'
 import { applyC2MVertexColors, parseC2MDistances } from '@/utils/c2mColormap'
 import { sampleC2MDeviationAtPick } from '@/utils/c2mPick'
 import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
+import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
+import { validateVisualization, v3ColorWithMetadata } from '@/features/rebar-visualization'
 
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
 export type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
@@ -72,6 +74,7 @@ export interface UnifiedViewerProps {
   bimAssetId?: number | null
   pointcloudAssetId?: number | null
   pointcloudTilesetUrl?: string | null
+  rebarVisualization?: RebarVisualizationMetadata | null
   displayName?: string
   minimal?: boolean
   calibration?: { modelMatrix: number[] } | null
@@ -98,6 +101,7 @@ const props = withDefaults(defineProps<UnifiedViewerProps>(), {
   bimAssetId: null,
   pointcloudAssetId: null,
   pointcloudTilesetUrl: null,
+  rebarVisualization: null,
   displayName: undefined,
   minimal: false,
   calibration: null,
@@ -1481,6 +1485,8 @@ function attachPointcloudBatchAttributes(root: THREE.Object3D & { batchTable?: a
     { source: 'INTENSITY', target: 'intensity', kind: 'float32' },
     { source: 'CLASSIFICATION', target: 'classification', kind: 'uint8' },
     { source: 'REBAR_CLASS', target: 'rebar_class', kind: 'uint8' },
+    { source: 'SCENE_CLASS', target: 'scene_class', kind: 'uint8' },
+    { source: 'REBAR_FLAGS', target: 'rebar_flags', kind: 'uint8' },
     { source: 'REBAR_DIRECTION', target: 'rebar_direction', kind: 'uint16' },
     { source: 'REBAR_INSTANCE', target: 'rebar_instance', kind: 'uint32' },
     { source: 'REBAR_CONFIDENCE', target: 'rebar_confidence', kind: 'uint8' },
@@ -1625,9 +1631,29 @@ function applyRebarColoring(
     'rebar-instance': { names: ['rebar_instance', 'rebarinstance'], empty: 0, ambiguous: 0xffffffff },
   }
   if (pointcloudColorMode === 'rgb' || pointcloudColorMode === 'intensity') return false
+  const sceneClass = getPointAttribute(geometry, ['scene_class', 'sceneclass'])
+  const flags = getPointAttribute(geometry, ['rebar_flags', 'rebarflags'])
+  const direction = getPointAttribute(geometry, ['rebar_direction', 'rebardirection'])
+  const instance = getPointAttribute(geometry, ['rebar_instance', 'rebarinstance'])
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+  const visualization = validateVisualization(props.rebarVisualization)
+  if (visualization && sceneClass && flags && direction && instance && position &&
+    sceneClass.count === position.count && flags.count === position.count &&
+    direction.count === position.count && instance.count === position.count) {
+    const colors = new Float32Array(position.count * 3)
+    for (let index = 0; index < position.count; index += 1) {
+      const rgb = v3ColorWithMetadata(pointcloudColorMode, visualization, {
+        sceneClass: sceneClass.getX(index), flags: flags.getX(index),
+        direction: direction.getX(index), instance: instance.getX(index),
+      })
+      colors.set(rgb, index * 3)
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    material.color.set(0xffffff); material.vertexColors = true; material.needsUpdate = true
+    return true
+  }
   const definition = definitions[pointcloudColorMode]
   const attribute = getPointAttribute(geometry, definition.names)
-  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
   if (!attribute || !position || attribute.count !== position.count) return false
 
   const colors = new Float32Array(attribute.count * 3)

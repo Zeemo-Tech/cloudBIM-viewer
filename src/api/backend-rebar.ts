@@ -1,12 +1,23 @@
 import { backendRequest, type BackendResult } from '@/api/backend-http'
 
-export type RebarCapability = 'class' | 'direction' | 'instance' | 'confidence'
+export type RebarCapability = 'class' | 'direction' | 'instance' | 'confidence' | 'sceneClass' | 'intersection'
 
 export interface RebarCapabilities {
   class: boolean
   direction: boolean
   instance: boolean
   confidence: boolean
+  sceneClass?: boolean
+  rebarFlags?: boolean
+}
+
+export interface RebarVisualizationMetadata {
+  schema: 'rebar-visualization-v1'
+  defaultMode: 'rebar-class'
+  attributes: Record<string, unknown>
+  values: Record<string, unknown>
+  colors: Record<string, string>
+  instanceStrategy: 'golden-angle-v1'
 }
 
 export interface RebarParameterProperty {
@@ -38,6 +49,7 @@ export interface RebarAlgorithmDescriptor {
     labels?: Record<string, string>
     units?: Record<string, string>
   }
+  visualization?: RebarVisualizationMetadata
 }
 
 export interface RebarSegmentationSummary {
@@ -45,6 +57,9 @@ export interface RebarSegmentationSummary {
   rebarPointCount: number
   directionCount: number
   instanceCount: number
+  sceneClassCounts?: Record<string, number>
+  directionPointCounts?: Record<string, number>
+  intersectionPointCount?: number
   diagnostics?: Record<string, unknown>
 }
 
@@ -54,6 +69,7 @@ export interface RebarSegmentationResult {
   algorithm: { id: string; version: string }
   analysisSchema: string
   capabilities: RebarCapabilities
+  visualization?: RebarVisualizationMetadata
   inputOptions?: Record<string, unknown>
   effectiveParameters: Record<string, unknown>
   summary: RebarSegmentationSummary

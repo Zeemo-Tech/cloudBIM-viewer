@@ -104,6 +104,7 @@ const pageTitle = computed(() => {
 })
 
 const rebarTilesetUrl = computed(() => rebarResult.value?.tilesetUrl ?? null)
+const rebarVisualization = computed(() => rebarResult.value?.visualization ?? null)
 const rebarPanelMode = computed<PointcloudColorMode>(() => {
   const mode = pointcloudControls.colorMode
   return mode === 'original' || mode === 'custom' ? 'rgb' : mode
@@ -462,6 +463,7 @@ watch(
         class="pointcloud-viewer-panel"
         :asset-id="assetId"
         :tileset-url="rebarTilesetUrl"
+        :rebar-visualization="rebarVisualization"
         :analysis-mode="analysisMode"
         :analysis-points="analysisPoints"
         :analysis-distances="analysisDistances"

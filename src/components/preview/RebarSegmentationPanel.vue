@@ -9,6 +9,7 @@ import {
   type RebarSegmentationResult,
 } from '@/api/backend-rebar'
 import type { PointcloudColorMode } from './UnifiedViewer3D.vue'
+import { legendItems, validateVisualization } from '@/features/rebar-visualization'
 
 const props = withDefaults(defineProps<{
   assetId: number
@@ -23,7 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const algorithms = ref<RebarAlgorithmDescriptor[]>([])
-const selectedAlgorithmId = ref('geometric-v2')
+const selectedAlgorithmId = ref('geometric-v3')
 const latest = ref<RebarSegmentationResult | null>(null)
 const loading = ref(false)
 const computing = ref(false)
@@ -68,6 +69,12 @@ const rebarRatio = computed(() => {
   const summary = latest.value?.summary
   if (!summary?.totalPointCount) return null
   return (summary.rebarPointCount / summary.totalPointCount) * 100
+})
+
+const visualization = computed(() => validateVisualization(latest.value?.visualization))
+const legend = computed(() => {
+  if (!latest.value || !['rebar-class', 'rebar-direction', 'rebar-instance'].includes(selectedMode.value)) return []
+  return legendItems(selectedMode.value as 'rebar-class' | 'rebar-direction' | 'rebar-instance', visualization.value, latest.value.summary)
 })
 
 function errorStatus(error: unknown) {
@@ -137,6 +144,7 @@ function emitLatest(value: RebarSegmentationResult | null) {
 }
 
 function setMode(mode: PointcloudColorMode) {
+  if (!modeOptions.value.some((option) => option.value === mode)) mode = 'rgb'
   selectedMode.value = mode
   emit('mode-change', mode)
 }
@@ -163,7 +171,7 @@ async function loadState() {
       if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
       } else if (!algorithms.value.some((item) => item.id === selectedAlgorithmId.value)) {
-        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v2'
+        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v3'
       }
       initializeParameters()
       if (persisted) applyPersistedSettings(persisted)
@@ -258,6 +266,13 @@ onMounted(loadState)
       >
         {{ mode.label }}
       </button>
+    </div>
+
+    <div v-if="legend.length" class="rebar-panel__legend" aria-label="钢筋分割图例">
+      <span v-for="item in legend" :key="item.label">
+        <i :style="{ backgroundColor: `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})` }" />
+        {{ item.label }}
+      </span>
     </div>
 
     <details v-if="advancedFields.length || algorithms.length > 1" class="rebar-panel__advanced">
@@ -355,6 +370,9 @@ onMounted(loadState)
 .rebar-panel__summary { gap: 12px; padding: 8px 0; color: #cbd5e1; font-size: 12px; }
 .rebar-panel__summary strong { color: #fff; }
 .rebar-panel__modes { flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.rebar-panel__legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 8px 0; color: #cbd5e1; font-size: 11px; }
+.rebar-panel__legend span { display: inline-flex; align-items: center; gap: 4px; }
+.rebar-panel__legend i { width: 9px; height: 9px; border-radius: 50%; }
 .rebar-panel button,
 .rebar-panel select,
 .rebar-panel input { min-height: 32px; border: 1px solid rgb(148 163 184 / 28%); border-radius: 8px; color: inherit; background: rgb(15 23 42 / 72%); }
