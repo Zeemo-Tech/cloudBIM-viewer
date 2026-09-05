@@ -14,24 +14,30 @@ process-wide heavy-task gate and therefore preserves its HTTP 429 response.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Annotated, Any, Callable
 
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from algorithms.rebar_segmentation import (
     RebarSegmentationError,
     RebarSegmentationParams,
 )
+from algorithms.rebar_base import RebarAlgorithmError
+from algorithms import REBAR_ALGORITHM_REGISTRY
 from rebar_poc import (
     DEFAULT_MAX_INPUT_POINTS,
+    InvalidRebarInputOptionsError,
     PointCloudInputError,
     StoragePathViolationError,
     UnsupportedPointCloudFormatError,
     run_segmentation_file,
+    compute_rebar_artifact,
 )
+from rebar_tiles import PntsError
 
 
 logger = logging.getLogger(__name__)
@@ -148,6 +154,44 @@ class RebarSegmentRequest(BaseModel):
         return self
 
 
+class RebarComputeRequest(BaseModel):
+    """Snake-case service DTO for a derived rebar tiles artifact."""
+    model_config = ConfigDict(extra="forbid")
+    point_cloud_path: str = Field(min_length=1, max_length=4096)
+    point_cloud_format: str | None = Field(default=None, pattern="^(las|laz|ply|pcd)$")
+    source_tileset_path: str = Field(min_length=1, max_length=4096)
+    output_directory: str = Field(min_length=1, max_length=4096)
+    artifact_version: str = Field(default="1", min_length=1, max_length=128)
+    algorithm: str = Field(default="geometric-v2", min_length=1, max_length=128)
+    input_options: dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("input_options")
+    @classmethod
+    def normalize_input_options(cls, value: dict[str, Any]) -> dict[str, Any]:
+        aliases = {"maxInputPoints": "maxInputPoints", "max_input_points": "maxInputPoints",
+                   "voxelSize": "voxelSize", "voxel_size": "voxelSize"}
+        unknown = sorted(set(value) - set(aliases))
+        if unknown:
+            raise ValueError(f"unknown input_options: {', '.join(unknown)}")
+        normalized: dict[str, Any] = {}
+        for supplied, canonical in aliases.items():
+            if supplied not in value:
+                continue
+            if canonical in normalized:
+                raise ValueError(f"input_options supplies {canonical} more than once")
+            item = value[supplied]
+            if canonical == "maxInputPoints":
+                if isinstance(item, bool) or not isinstance(item, int) or not 3 <= item <= DEFAULT_MAX_INPUT_POINTS:
+                    raise ValueError(f"{supplied} must be an integer from 3 to {DEFAULT_MAX_INPUT_POINTS}")
+            else:
+                if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)) or not 1e-6 <= float(item) <= 5.0:
+                    raise ValueError(f"{supplied} must be a finite number from 0.000001 to 5")
+                item = float(item)
+            normalized[canonical] = item
+        return normalized
+
+
 def _storage_root_from_environment() -> str:
     return (
         os.environ.get("REBAR_STORAGE_ROOT")
@@ -187,31 +231,38 @@ def create_rebar_router(
                 storage_root=effective_storage_root,
             )
         except StoragePathViolationError as exc:
-            return JSONResponse(
-                status_code=403,
-                content={"code": 403, "msg": str(exc)},
-            )
-        except UnsupportedPointCloudFormatError as exc:
-            return JSONResponse(
-                status_code=400,
-                content={"code": 400, "msg": str(exc)},
-            )
-        except PointCloudInputError as exc:
-            return JSONResponse(
-                status_code=400,
-                content={"code": 400, "msg": str(exc)},
-            )
+            return JSONResponse(status_code=403, content={"code": 403, "msg": str(exc)})
+        except (UnsupportedPointCloudFormatError, PointCloudInputError) as exc:
+            return JSONResponse(status_code=400, content={"code": 400, "msg": str(exc)})
         except RebarSegmentationError as exc:
-            return JSONResponse(
-                status_code=422,
-                content={"code": 422, "msg": str(exc)},
-            )
+            return JSONResponse(status_code=422, content={"code": 422, "msg": str(exc)})
         except Exception:
             logger.exception("rebar segmentation failed")
-            return JSONResponse(
-                status_code=500,
-                content={"code": 500, "msg": "rebar segmentation failed"},
-            )
+            return JSONResponse(status_code=500, content={"code": 500, "msg": "rebar segmentation failed"})
+
+    def list_algorithms():
+        return {"algorithms": REBAR_ALGORITHM_REGISTRY.descriptors()}
+
+    def compute_rebar(request: RebarComputeRequest):
+        try:
+            return compute_rebar_artifact(point_cloud_path=request.point_cloud_path,
+                point_cloud_format=request.point_cloud_format, source_tileset_path=request.source_tileset_path,
+                output_directory=request.output_directory, artifact_version=request.artifact_version,
+                algorithm=request.algorithm, input_options=request.input_options, parameters=request.parameters,
+                storage_root=effective_storage_root)
+        except StoragePathViolationError as exc:
+            return JSONResponse(status_code=403, content={"code":403,"errorCode":"artifact_invalid","msg":str(exc)})
+        except (InvalidRebarInputOptionsError, RebarAlgorithmError) as exc:
+            return JSONResponse(status_code=400, content={"code":400,"errorCode":"invalid_parameters","msg":str(exc)})
+        except (PointCloudInputError, UnsupportedPointCloudFormatError) as exc:
+            return JSONResponse(status_code=422, content={"code":422,"errorCode":"unsupported_input","msg":str(exc)})
+        except RebarSegmentationError as exc:
+            return JSONResponse(status_code=422, content={"code":422,"errorCode":"insufficient_evidence","msg":str(exc)})
+        except PntsError as exc:
+            return JSONResponse(status_code=422, content={"code":422,"errorCode":"artifact_invalid","msg":str(exc)})
+        except Exception:
+            logger.exception("rebar compute failed")
+            return JSONResponse(status_code=500, content={"code":500,"msg":"rebar compute failed"})
 
     # Resolve the postponed annotation before a decorator from another module
     # copies/follows this function's signature.
@@ -242,6 +293,16 @@ def create_rebar_router(
             500: {"description": "Unexpected segmentation failure"},
         },
     )
+    router.add_api_route("/rebar/algorithms", list_algorithms, methods=["GET"])
+    compute_rebar.__annotations__["request"] = RebarComputeRequest
+    compute_endpoint: Callable[..., Any] = compute_rebar
+    if heavy_task is not None:
+        compute_endpoint = heavy_task("rebar-compute")(compute_endpoint)
+        compute_endpoint.__annotations__ = {
+            **getattr(compute_endpoint, "__annotations__", {}),
+            "request": RebarComputeRequest,
+        }
+    router.add_api_route("/rebar/compute", compute_endpoint, methods=["POST"])
     return router
 
 

@@ -15,6 +15,7 @@ import type {
 const props = withDefaults(
   defineProps<{
     assetId: number | null
+    tilesetUrl?: string | null
     minimal?: boolean
     analysisMode?: AnalysisMode
     analysisPoints?: AnalysisPoint[]
@@ -24,6 +25,7 @@ const props = withDefaults(
   }>(),
   {
     minimal: false,
+    tilesetUrl: null,
     analysisMode: 'none',
     analysisPoints: () => [],
     analysisDistances: () => [],
@@ -40,6 +42,7 @@ const emit = defineEmits<{
   (event: 'analysis-area', area: AnalysisArea): void
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
+  (event: 'pointcloud-source-fallback'): void
   (event: 'pointcloud-color-stats', payload: {
     histogram: number[]
     hasIntensity: boolean
@@ -90,6 +93,7 @@ defineExpose({
     ref="viewerRef"
     type="pointcloud"
     :asset-id="assetId"
+    :pointcloud-tileset-url="tilesetUrl"
     :minimal="minimal"
     :analysis-mode="analysisMode"
     :analysis-points="analysisPoints"
@@ -103,6 +107,7 @@ defineExpose({
     @analysis-area="emit('analysis-area', $event)"
     @analysis-delete="emit('analysis-delete', $event)"
     @analysis-mode-exit="emit('analysis-mode-exit', $event)"
+    @pointcloud-source-fallback="emit('pointcloud-source-fallback')"
     @pointcloud-color-stats="emit('pointcloud-color-stats', $event)"
   />
 </template>

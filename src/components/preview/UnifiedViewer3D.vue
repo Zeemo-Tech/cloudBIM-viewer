@@ -30,7 +30,12 @@ import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
 export type PreviewBackgroundTheme = 'deep' | 'light' | 'black' | 'gradient'
 export type StandardView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
-export type PointcloudColorMode = 'rgb' | 'intensity'
+export type PointcloudColorMode =
+  | 'rgb'
+  | 'intensity'
+  | 'rebar-class'
+  | 'rebar-direction'
+  | 'rebar-instance'
 export type PointcloudColorRamp = 'grayscale' | 'spectrum' | 'viridis'
 export type PointcloudColorRange = { min: number; max: number }
 
@@ -66,6 +71,7 @@ export interface UnifiedViewerProps {
   scanAssetId?: number | null
   bimAssetId?: number | null
   pointcloudAssetId?: number | null
+  pointcloudTilesetUrl?: string | null
   displayName?: string
   minimal?: boolean
   calibration?: { modelMatrix: number[] } | null
@@ -91,6 +97,7 @@ const props = withDefaults(defineProps<UnifiedViewerProps>(), {
   scanAssetId: null,
   bimAssetId: null,
   pointcloudAssetId: null,
+  pointcloudTilesetUrl: null,
   displayName: undefined,
   minimal: false,
   calibration: null,
@@ -114,6 +121,7 @@ const emit = defineEmits<{
   (event: 'analysis-area', area: AnalysisArea): void
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
+  (event: 'pointcloud-source-fallback'): void
   (event: 'pointcloud-color-stats', payload: {
     histogram: number[]
     hasIntensity: boolean
@@ -179,6 +187,8 @@ let animationId = 0
 let isMountedReady = false
 let loadToken = 0
 let tilesLoadingCount = 0
+let pendingPointcloudCameraPose: CameraPose | null = null
+let pointcloudSourceFallbackActive = false
 
 // 辅助对象
 let axesHelper: THREE.AxesHelper | null = null
@@ -1339,11 +1349,16 @@ async function loadPointcloudModel(assetId: number) {
   pointcloudHasIntensity = false
   pointcloudHasRgb = false
 
-  const res = await getAssetDetail(assetId)
-  const detail = res.data
-  if (!detail?.tilesetUrl) throw new Error('点云切片尚未就绪')
+  let resourceUrl = pointcloudSourceFallbackActive
+    ? ''
+    : props.pointcloudTilesetUrl?.trim() || ''
+  if (!resourceUrl) {
+    const res = await getAssetDetail(assetId)
+    resourceUrl = res.data?.tilesetUrl || ''
+  }
+  if (!resourceUrl) throw new Error('点云切片尚未就绪')
 
-  const url = getPointcloudTilesetUrl(detail.tilesetUrl)
+  const url = getPointcloudTilesetUrl(resourceUrl)
   const nextTileset = new TilesRenderer(url)
   nextTileset.displayActiveTiles = true
   nextTileset.errorTarget = 32.0
@@ -1379,12 +1394,28 @@ async function loadPointcloudModel(assetId: number) {
     if (tilesLoadingCount === 0 && !loaded.value) {
       loaded.value = true
       emit('loaded-change', true)
-      statusText.value = ''
+      statusText.value = pointcloudSourceFallbackActive
+        ? '钢筋派生结果不可用，已回退原始点云'
+        : ''
     }
+  })
+
+  tileset.addEventListener('load-error', ({ error }: any) => {
+    if (tileset !== nextTileset) return
+    if (props.pointcloudTilesetUrl && !pointcloudSourceFallbackActive) {
+      pointcloudSourceFallbackActive = true
+      pendingPointcloudCameraPose = loaded.value ? getCameraPose() : null
+      pointcloudColorMode = 'rgb'
+      emit('pointcloud-source-fallback')
+      void reload()
+      return
+    }
+    loadError.value = `点云加载失败: ${error?.message || '资源不可用'}`
   })
 
   tileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
     if (!tileScene) return
+    attachPointcloudBatchAttributes(tileScene)
     collectPointcloudColorStats(tileScene)
     applyPointcloudMaterial(tileScene)
   })
@@ -1392,6 +1423,11 @@ async function loadPointcloudModel(assetId: number) {
   // 完全对齐校准页的视錐与包围球聚焦定位
   tileset.addEventListener('load-root-tileset', () => {
     if (!camera || !controls || !nextTileset) return
+    if (pendingPointcloudCameraPose) {
+      setCameraPose(pendingPointcloudCameraPose)
+      pendingPointcloudCameraPose = null
+      return
+    }
     const sphere = new THREE.Sphere()
     if (nextTileset.getBoundingSphere?.(sphere)) {
       nextTileset.group.updateMatrixWorld(true)
@@ -1404,6 +1440,66 @@ async function loadPointcloudModel(assetId: number) {
       )
       setSectionState({ box })
     }
+  })
+}
+
+type SupportedBatchArray =
+  | Uint8Array
+  | Uint16Array
+  | Uint32Array
+  | Int8Array
+  | Int16Array
+  | Int32Array
+  | Float32Array
+  | Float64Array
+
+function readBatchProperty(batchTable: any, name: string): ArrayLike<number> | null {
+  if (!batchTable || typeof batchTable.getPropertyArray !== 'function') return null
+  try {
+    const value = batchTable.getPropertyArray(name)
+    if (Array.isArray(value) || ArrayBuffer.isView(value)) return value as ArrayLike<number>
+  } catch (error) {
+    console.warn(`[PointcloudViewer] 无法读取批属性 ${name}`, error)
+  }
+  return null
+}
+
+function copyBatchArray(
+  source: ArrayLike<number>,
+  kind: 'uint8' | 'uint16' | 'uint32' | 'float32',
+): SupportedBatchArray {
+  if (kind === 'uint8') return Uint8Array.from(source)
+  if (kind === 'uint16') return Uint16Array.from(source)
+  if (kind === 'uint32') return Uint32Array.from(source)
+  return Float32Array.from(source)
+}
+
+function attachPointcloudBatchAttributes(root: THREE.Object3D & { batchTable?: any }) {
+  const batchTable = root.batchTable || root.userData?.batchTable
+  if (!batchTable) return
+  const definitions = [
+    { source: 'INTENSITY', target: 'intensity', kind: 'float32' },
+    { source: 'CLASSIFICATION', target: 'classification', kind: 'uint8' },
+    { source: 'REBAR_CLASS', target: 'rebar_class', kind: 'uint8' },
+    { source: 'REBAR_DIRECTION', target: 'rebar_direction', kind: 'uint16' },
+    { source: 'REBAR_INSTANCE', target: 'rebar_instance', kind: 'uint32' },
+    { source: 'REBAR_CONFIDENCE', target: 'rebar_confidence', kind: 'uint8' },
+  ] as const
+  const values = definitions
+    .map((definition) => ({ ...definition, values: readBatchProperty(batchTable, definition.source) }))
+    .filter((item) => item.values)
+  if (!values.length) return
+
+  root.traverse((object) => {
+    const points = object as THREE.Points
+    if (!points.isPoints) return
+    const geometry = points.geometry as THREE.BufferGeometry
+    const pointCount = geometry.getAttribute('position')?.count ?? 0
+    values.forEach((item) => {
+      if (!item.values || item.values.length !== pointCount) return
+      const array = copyBatchArray(item.values, item.kind)
+      geometry.setAttribute(item.target, new THREE.BufferAttribute(array, 1))
+    })
   })
 }
 
@@ -1509,6 +1605,58 @@ function samplePointcloudRamp(value: number): [number, number, number] {
   return [color.r, color.g, color.b]
 }
 
+function deterministicPointColor(value: number): [number, number, number] {
+  const hash = Math.imul(Math.trunc(value), 2654435761) >>> 0
+  const color = new THREE.Color().setHSL((hash % 360) / 360, 0.72, 0.55)
+  return [color.r, color.g, color.b]
+}
+
+function applyRebarColoring(
+  geometry: THREE.BufferGeometry,
+  material: THREE.PointsMaterial,
+) {
+  const definitions: Record<Exclude<PointcloudColorMode, 'rgb' | 'intensity'>, {
+    names: string[]
+    empty: number
+    ambiguous: number
+  }> = {
+    'rebar-class': { names: ['rebar_class', 'rebarclass'], empty: 0, ambiguous: 2 },
+    'rebar-direction': { names: ['rebar_direction', 'rebardirection'], empty: 0, ambiguous: 65535 },
+    'rebar-instance': { names: ['rebar_instance', 'rebarinstance'], empty: 0, ambiguous: 0xffffffff },
+  }
+  if (pointcloudColorMode === 'rgb' || pointcloudColorMode === 'intensity') return false
+  const definition = definitions[pointcloudColorMode]
+  const attribute = getPointAttribute(geometry, definition.names)
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+  if (!attribute || !position || attribute.count !== position.count) return false
+
+  const colors = new Float32Array(attribute.count * 3)
+  for (let index = 0; index < attribute.count; index += 1) {
+    const value = attribute.getX(index)
+    let rgb: [number, number, number]
+    if (pointcloudColorMode === 'rebar-class') {
+      if (value === 1) rgb = [0.96, 0.23, 0.18]
+      else if (value === definition.ambiguous) rgb = [1, 0.72, 0.12]
+      else if (value === 255) rgb = [0.42, 0.46, 0.52]
+      else rgb = [0.12, 0.15, 0.2]
+    } else if (value === definition.empty) {
+      rgb = [0.12, 0.15, 0.2]
+    } else if (value === definition.ambiguous) {
+      rgb = [1, 0.72, 0.12]
+    } else {
+      rgb = deterministicPointColor(value)
+    }
+    colors[index * 3] = rgb[0]
+    colors[index * 3 + 1] = rgb[1]
+    colors[index * 3 + 2] = rgb[2]
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  material.color.set(0xffffff)
+  material.vertexColors = true
+  material.needsUpdate = true
+  return true
+}
+
 function applyPointcloudColoring(obj: THREE.Points, material: THREE.PointsMaterial) {
   const geometry = obj.geometry as THREE.BufferGeometry
   if (!originalPointColors.has(geometry)) {
@@ -1521,6 +1669,8 @@ function applyPointcloudColoring(obj: THREE.Points, material: THREE.PointsMateri
     material.vertexColors = false
     return
   }
+
+  if (applyRebarColoring(geometry, material)) return
 
   if (pointcloudColorMode === 'intensity') {
     const scalar = getPointScalarSource(geometry)
@@ -2209,6 +2359,16 @@ watch(
 )
 
 watch(
+  () => props.pointcloudTilesetUrl,
+  () => {
+    if (!isMountedReady || props.type !== 'pointcloud') return
+    pointcloudSourceFallbackActive = false
+    pendingPointcloudCameraPose = loaded.value ? getCameraPose() : null
+    void reload()
+  },
+)
+
+watch(
   () => props.c2mResult,
   () => {
     if (isMountedReady && props.type === 'c2m') reload()
@@ -2305,6 +2465,9 @@ onBeforeUnmount(() => {
 
     <div v-if="loadError" class="unified-viewer-placeholder unified-viewer-error">
       <div class="placeholder-text error-text">{{ loadError }}</div>
+    </div>
+    <div v-else-if="statusText" class="unified-viewer-status" role="status">
+      {{ statusText }}
     </div>
 
     <!-- 点云 EDL 快捷增强浮层（可选是否打开，并支持实时调节明暗强度） -->
@@ -2410,6 +2573,22 @@ onBeforeUnmount(() => {
 
 .placeholder-text.error-text {
   color: #f87171;
+}
+
+.unified-viewer-status {
+  position: absolute;
+  z-index: 12;
+  left: 50%;
+  bottom: 42px;
+  padding: 7px 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 999px;
+  color: #fde68a;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.32);
+  transform: translateX(-50%);
+  pointer-events: none;
+  font-size: 12px;
 }
 
 /* EDL 悬浮快捷控制器 */

@@ -13,8 +13,8 @@ MESH_SERVICE_PORT="${CLOUDBIM_MESH_SERVICE_PORT:-18001}"
 BACKEND_PORT="${CLOUDBIM_BACKEND_PORT:-8090}"
 FRONTEND_PORT="${CLOUDBIM_FRONTEND_PORT:-5173}"
 
-# The mesh container writes shared C2M artifacts as root. Pass the host's
-# development group so the host backend can read and retire those files.
+# The mesh container writes shared artifacts as root. Pass the host's
+# development group so the host backend can read and retire those trees.
 export CLOUDBIM_RUNTIME_GID="${CLOUDBIM_RUNTIME_GID:-$(id -g)}"
 
 log() {
@@ -156,7 +156,7 @@ start() {
   fi
 
   log "Starting PostgreSQL and mesh service"
-  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d postgres mesh-service
+  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d --build postgres mesh-service
   wait_for_postgres
   wait_for_mesh_service
 

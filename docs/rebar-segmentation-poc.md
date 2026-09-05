@@ -1,6 +1,6 @@
-# 钢筋点云几何分割 PoC 运行手册
+# 钢筋点云分割与派生 Tiles 运行手册
 
-> 状态：实验性几何基线；mesh-service 与离线 CLI 可运行，尚未接入 Go 业务 API、数据库和前端。
+> 状态：实验性几何基线已接入 Go 业务 API、latest 持久化、派生 3D Tiles 和前端多模式查看器。
 >
 > 输出用于算法筛选与人工复核，不构成钢筋数量、间距或直径的工程验收结论。
 
@@ -15,7 +15,21 @@
 5. 只使用同方向 PCA 证据桥接轴向短缺口，再扩充交叉处的共享支持点。
 6. 同一 XY 轴按观测高度层拆分，输出中心线、长度、支持点、轴残差和轴间距摘要。
 
-纯数组核心在 `services/mesh-service/algorithms/rebar_segmentation.py`；文件适配和 CLI 在 `services/mesh-service/rebar_poc.py`；HTTP 契约在 `services/mesh-service/rebar_api.py`。
+纯数组核心在 `services/mesh-service/algorithms/rebar_segmentation.py`；文件适配、派生结果 pipeline 和 CLI 在 `services/mesh-service/rebar_poc.py`；HTTP 契约在 `services/mesh-service/rebar_api.py`。
+
+### 模块替换边界
+
+- Python `RebarAlgorithm` 是算法插件接口，位于 `algorithms/rebar_base.py`。新算法实现 descriptor、参数规范化、样本分析和任意点投影后，注册到独立 `REBAR_ALGORITHM_REGISTRY` 即可；参数类型、单位和展示顺序也由 descriptor 驱动，业务 API、数据库和前端不需要识别算法私有字段。
+- `GeometricV2Adapter` 位于 `algorithms/rebar_geometric.py`，只负责把当前几何核心适配为 `rebar-analysis-v1`。投影所需的线段/半径属于 `algorithmDetails`，不会污染稳定结果合同。
+- Go `RebarComputeProvider` 是计算服务端口。当前 adapter 调用共享存储上的本地 mesh-service；迁移到无共享卷的远程或 GPU 服务时，新 adapter 还需在内部负责源文件上传、产物下载与本地原子落盘，但资产鉴权、latest 持久化和前端接口可以保持不变。
+- 派生结果复用通用 `DBAssetDerivative`，kind 为 `rebar-segmentation`。数据库只保存相对路径、版本、hash、规范化参数和紧凑 metadata；完整分析和 Tiles 保存在资产目录下。
+- 每个版本目录中的 `manifest.json` 只保存校验与索引信息，完整分析单独写入 `result.json`，派生点云位于 `tiles/`；规范化后的 `inputOptions` 与算法有效参数同时持久化用于页面恢复。三者统一受内容 hash 和总字节数校验，避免把多 MiB 分析数据复制进每次计算响应。
+
+派生 PNTS 保留原 `POSITION`、`RGB`、`INTENSITY` 和 `CLASSIFICATION`，并追加稳定属性：
+
+- `REBAR_CLASS` (`UNSIGNED_BYTE`)：0 背景、1 钢筋、2 多重归属、255 未分类。
+- `REBAR_DIRECTION` (`UNSIGNED_SHORT`)：0 无方向、1…N 方向、65535 多重归属。
+- `REBAR_INSTANCE` (`UNSIGNED_INT`)：0 无实例、1…N 实例、`0xffffffff` 多重归属。
 
 ## 2. 数据与索引契约
 
@@ -29,12 +43,24 @@
 
 ## 3. 启动与 HTTP 调用
 
-开发栈仍由仓库的一键管理器控制。首次构建或 mesh-service 源码变化后先重建镜像，再重启整栈：
+开发栈只由仓库的一键管理器控制：
 
 ```bash
-docker compose build mesh-service
-scripts/cloudbim-dev.sh restart
+scripts/cloudbim-dev.sh stop
+scripts/cloudbim-dev.sh start
 scripts/cloudbim-dev.sh status
+```
+
+用户在点云预览页的“钢筋分割”面板发起同步计算。相同资产、算法和参数默认命中 latest 缓存；“重新计算”使用 `force=true`。新版本只有在所有文件和 manifest 校验通过后才替换 latest，失败时上一成功版本继续可用。
+
+Go 公共 API：
+
+```text
+GET  /rebar-segmentation/algorithms
+POST /assets/:id/rebar-segmentation?force=false
+GET  /assets/:id/rebar-segmentation/latest
+GET  /assets/:id/rebar-segmentation/versions/:version/result
+GET  /assets/:id/rebar-segmentation/versions/:version/tiles/*path
 ```
 
 mesh-service 默认只绑定本机 `127.0.0.1:18001`。请求中的路径必须是容器共享存储 `/storage` 下的绝对路径：
@@ -117,14 +143,12 @@ CLI 与 HTTP 共用同一加载器和算法；输出 JSON 通过同目录临时�
 
 ```bash
 cd services/mesh-service
-../../.cloudbim/mesh-venv/bin/python -m unittest -v \
-  test_rebar_segmentation.py test_rebar_api.py
+../../.cloudbim/mesh-venv/bin/python -m unittest discover -v -p 'test_rebar_*.py'
 ../../.cloudbim/mesh-venv/bin/python -m py_compile \
-  main.py algorithms/rebar_segmentation.py rebar_poc.py rebar_api.py \
-  test_rebar_segmentation.py test_rebar_api.py
+  main.py algorithms/*.py rebar_poc.py rebar_api.py rebar_tiles.py
 ```
 
-当前 36 项测试覆盖：正交网片、噪声/离群、设备高杆、高度双层、可见表面双条纹、宽缺口与交叉链、短缺口桥接、非正交拒绝、错单位/稀疏/非有限输入、RANSAC 置信度、JSON 参数规范化、LAS/PLY 加载、跨块体素、稳定限流、路径逃逸、原子写、防止 CLI 覆盖输入、API 状态和共享重任务 429。
+当前测试覆盖：正交网片、噪声/离群、设备高杆、高度双层、可见表面双条纹、宽缺口与交叉链、短缺口桥接、非正交拒绝、错单位/稀疏/非有限输入、registry 替换、跨 tile 空间投影、raw/quantized PNTS、属性类型与对齐、原属性保留、manifest/hash、LAS/PLY 加载、稳定限流、路径逃逸、原子发布、API 状态和共享重任务 429。
 
 ## 8. 尚未完成与下一道门槛
 
@@ -132,6 +156,8 @@ cd services/mesh-service
 - `min_axis_spacing` 会把更近的表面轨迹解释为同一物理轴；它必须来自最小设计筋距/最小可分辨间距。真实钢筋确实更近时，当前模型不适用。
 - 设备杆件与钢筋同方向、同高度时，纯几何仍可能误检，必须增加 ROI、固定设备掩膜、RGB/强度或学习式语义过滤。
 - PLY/PCD 大文件、显式体素截断和大 JSON 索引映射仍需分块产物协议。
-- 在接 Go API/UI 前，至少为正常、反光/锈蚀、遮挡/设备杆三类真实 patch 建立人工单筋与中心线真值，并报告 missed/merged/split、中心线 RMSE、间距 MAE/P95 和参数邻档稳定性。
+- 当前 tile 投影只支持与源点云处于同一坐标系的 PNTS；遇到 `RTC_CENTER` 或任意层级 `tileset.json` 的 `transform` 会在发布前明确失败。接入这类数据前需在算法投影端增加完整的 3D Tiles 坐标变换支持。
+- latest 读取当前会同步校验完整派生树的字节数与 SHA-256；这优先保证损坏结果不会被恢复，但超大 Tiles 需要后续以可信对象存储校验元数据或后台审计降低首屏 I/O。
+- 在把结果用于工程判定前，至少为正常、反光/锈蚀、遮挡/设备杆三类真实 patch 建立人工单筋与中心线真值，并报告 missed/merged/split、中心线 RMSE、间距 MAE/P95 和参数邻档稳定性。
 
 研究依据、许可证和完整路线见 [技术调研](research/rebar-point-cloud-segmentation.md)。

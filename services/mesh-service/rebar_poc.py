@@ -23,6 +23,9 @@ import math
 import os
 import sys
 import tempfile
+import shutil
+import hashlib
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -53,6 +56,10 @@ class StoragePathViolationError(PointCloudInputError):
     """A service request attempted to escape its shared-storage root."""
 
 
+class InvalidRebarInputOptionsError(PointCloudInputError):
+    """Pipeline-level sampling options are invalid or unsupported."""
+
+
 @dataclass(frozen=True)
 class LoadedPointCloud:
     """Bounded detection points plus their source-reader record indices."""
@@ -66,6 +73,7 @@ def resolve_point_cloud_path(
     input_path: str | os.PathLike[str],
     *,
     storage_root: str | os.PathLike[str] | None = None,
+    point_cloud_format: str | None = None,
 ) -> Path:
     """Resolve an existing point-cloud file and optionally confine it to a root.
 
@@ -97,7 +105,7 @@ def resolve_point_cloud_path(
                 f"point-cloud file must be inside shared storage root: {root}"
             ) from exc
 
-    suffix = resolved.suffix.lower()
+    suffix = (f".{point_cloud_format.lower().lstrip('.')}" if point_cloud_format else candidate.suffix.lower())
     if suffix not in SUPPORTED_POINT_CLOUD_EXTENSIONS:
         supported = ", ".join(sorted(SUPPORTED_POINT_CLOUD_EXTENSIONS))
         raise UnsupportedPointCloudFormatError(
@@ -106,10 +114,10 @@ def resolve_point_cloud_path(
     return resolved
 
 
-def _read_source_points(path: Path) -> np.ndarray:
+def _read_source_points(path: Path, suffix: str | None = None) -> np.ndarray:
     """Decode PLY/PCD through Open3D (which currently materializes the file)."""
 
-    suffix = path.suffix.lower()
+    suffix = suffix or path.suffix.lower()
     try:
         import open3d as o3d
 
@@ -414,6 +422,7 @@ def load_point_cloud(
     max_input_points: int,
     voxel_size: float | None = None,
     storage_root: str | os.PathLike[str] | None = None,
+    point_cloud_format: str | None = None,
 ) -> LoadedPointCloud:
     """Load, finite-filter, and deterministically bound a point cloud.
 
@@ -436,15 +445,16 @@ def load_point_cloud(
     ):
         raise PointCloudInputError("voxel_size must be a finite positive number")
 
-    path = resolve_point_cloud_path(input_path, storage_root=storage_root)
-    if path.suffix.lower() in {".las", ".laz"}:
+    requested_suffix = f".{point_cloud_format.lower().lstrip('.')}" if point_cloud_format else Path(input_path).suffix.lower()
+    path = resolve_point_cloud_path(input_path, storage_root=storage_root, point_cloud_format=point_cloud_format)
+    if requested_suffix in {".las", ".laz"}:
         return _load_las_streaming(
             path,
             max_input_points=max_input_points,
             voxel_size=float(voxel_size) if voxel_size is not None else None,
         )
 
-    source_points = _read_source_points(path)
+    source_points = _read_source_points(path, requested_suffix)
     raw_count = int(source_points.shape[0])
     finite_mask = np.isfinite(source_points).all(axis=1)
     finite_source_indices = np.flatnonzero(finite_mask).astype(np.int64, copy=False)
@@ -535,6 +545,228 @@ def run_segmentation_file(
         "algorithm_max_point_count": config.max_point_count,
     }
     return result
+
+
+def _confined_output_directory(output_directory: str | os.PathLike[str], storage_root: str | os.PathLike[str]) -> Path:
+    root = Path(storage_root).expanduser().resolve(strict=False)
+    candidate = Path(output_directory).expanduser()
+    if not candidate.is_absolute():
+        raise StoragePathViolationError("output_directory must be an absolute path inside shared storage")
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise StoragePathViolationError(f"output_directory must be inside shared storage root: {root}") from exc
+    return resolved
+
+
+def _publish_shared_artifact_permissions(root: Path) -> None:
+    """Make a container-owned tree removable by the host backend group."""
+    raw_gid = os.getenv(
+        "ARTIFACT_OUTPUT_GID",
+        os.getenv("C2M_OUTPUT_GID", str(os.getgid())),
+    ).strip()
+    try:
+        output_gid = int(raw_gid)
+    except ValueError as exc:
+        raise RuntimeError("ARTIFACT_OUTPUT_GID must be a non-negative integer") from exc
+    if output_gid < 0:
+        raise RuntimeError("ARTIFACT_OUTPUT_GID must be a non-negative integer")
+
+    for artifact in (root, *root.rglob("*")):
+        os.chown(artifact, -1, output_gid, follow_symlinks=False)
+        artifact.chmod(0o2770 if artifact.is_dir() else 0o660)
+
+
+def _reject_tileset_transforms(source_dir: Path) -> None:
+    """The current projector uses source coordinates, not tile transforms."""
+    for tileset in source_dir.rglob("tileset.json"):
+        try:
+            parsed = json.loads(tileset.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PointCloudInputError(f"invalid tileset JSON: {tileset}") from exc
+        pending = [parsed]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                if "transform" in node:
+                    raise PointCloudInputError(
+                        f"tileset transform is unsupported for source-coordinate rebar projection: {tileset}"
+                    )
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
+
+
+def normalize_rebar_input_options(
+    value: Mapping[str, Any] | None,
+) -> dict[str, int | float | None]:
+    options = dict(value or {})
+    aliases = {
+        "max_input_points": "maxInputPoints",
+        "voxel_size": "voxelSize",
+    }
+    unknown = sorted(set(options) - {"maxInputPoints", "voxelSize", *aliases})
+    if unknown:
+        raise InvalidRebarInputOptionsError(
+            f"unknown rebar input options: {', '.join(unknown)}"
+        )
+    for legacy, canonical in aliases.items():
+        if legacy not in options:
+            continue
+        if canonical in options:
+            raise InvalidRebarInputOptionsError(
+                f"input option {canonical} was provided more than once"
+            )
+        options[canonical] = options[legacy]
+
+    max_points = options.get("maxInputPoints", DEFAULT_MAX_INPUT_POINTS)
+    if isinstance(max_points, bool) or not isinstance(max_points, int):
+        raise InvalidRebarInputOptionsError("maxInputPoints must be an integer")
+    if not 3 <= max_points <= DEFAULT_MAX_INPUT_POINTS:
+        raise InvalidRebarInputOptionsError(
+            f"maxInputPoints must be between 3 and {DEFAULT_MAX_INPUT_POINTS}"
+        )
+
+    voxel_size = options.get("voxelSize")
+    if voxel_size is not None:
+        if (
+            isinstance(voxel_size, bool)
+            or not isinstance(voxel_size, (int, float))
+            or not math.isfinite(float(voxel_size))
+            or not 1e-6 <= float(voxel_size) <= 5.0
+        ):
+            raise InvalidRebarInputOptionsError(
+                "voxelSize must be a finite number between 0.000001 and 5 metres"
+            )
+        voxel_size = float(voxel_size)
+    return {"maxInputPoints": max_points, "voxelSize": voxel_size}
+
+
+def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | None,
+                           source_tileset_path: str, output_directory: str,
+                           artifact_version: str, algorithm: str,
+                           input_options: Mapping[str, Any] | None,
+                           parameters: Mapping[str, Any] | None,
+                           storage_root: str) -> dict[str, Any]:
+    """Create a complete derived tileset in staging, then atomically publish it."""
+    from algorithms import REBAR_ALGORITHM_REGISTRY
+    from rebar_tiles import rewrite_pnts
+    opts = normalize_rebar_input_options(input_options)
+    max_points = int(opts["maxInputPoints"])
+    voxel_size = opts["voxelSize"]
+    algo = REBAR_ALGORITHM_REGISTRY.get(algorithm)
+    effective = dict(algo.normalize_parameters(parameters))
+    loaded = load_point_cloud(point_cloud_path, max_input_points=max_points, voxel_size=voxel_size,
+                              storage_root=storage_root, point_cloud_format=point_cloud_format)
+    analysis = algo.analyze(loaded.points, effective)
+    output = _confined_output_directory(output_directory, storage_root)
+    source_candidate = Path(source_tileset_path).expanduser()
+    if source_candidate.is_symlink():
+        raise StoragePathViolationError("source tileset path must not be a symlink")
+    source = source_candidate.resolve(strict=True)
+    root = Path(storage_root).expanduser().resolve(strict=False)
+    try: source.relative_to(root)
+    except ValueError as exc: raise StoragePathViolationError("source_tileset_path must be inside shared storage") from exc
+    source_dir = source if source.is_dir() else source.parent
+    if not (source_dir / "tileset.json").is_file(): raise PointCloudInputError("source tileset must contain tileset.json")
+    for walk_root, directories, filenames in os.walk(source_dir, followlinks=False):
+        for entry in [*directories, *filenames]:
+            if (Path(walk_root) / entry).is_symlink():
+                raise StoragePathViolationError("source tileset tree must not contain symlinks")
+    _reject_tileset_transforms(source_dir)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=output.parent))
+    # The mesh service commonly runs as container root while the Go backend
+    # validates and serves the bind-mounted artifact as the host user.
+    stage.chmod(0o2770)
+    try:
+        shutil.copytree(source_dir, stage / "tiles", dirs_exist_ok=True)
+        tile_root = stage / "tiles"
+        total = 0
+        rebar_total = 0
+        direction_ids: set[int] = set()
+        instance_ids: set[int] = set()
+        for pnts in tile_root.rglob("*.pnts"):
+            def project_and_count(points: np.ndarray):
+                nonlocal rebar_total
+                attrs = algo.project_points(points, analysis)
+                attrs.validate(len(points))
+                rebar_total += int(np.count_nonzero((attrs.rebar_class == 1) | (attrs.rebar_class == 2)))
+                direction_ids.update(int(value) for value in np.unique(attrs.rebar_direction)
+                                     if value not in (0, np.uint16(65535)))
+                instance_ids.update(int(value) for value in np.unique(attrs.rebar_instance)
+                                    if value not in (0, np.uint32(0xffffffff)))
+                return attrs
+            total += rewrite_pnts(pnts, project_and_count)
+        diagnostics = analysis.data.get("diagnostics", {})
+        summary = {"totalPointCount": total, "rebarPointCount": rebar_total,
+                   "directionCount": len(direction_ids), "instanceCount": len(instance_ids),
+                   "diagnostics": diagnostics}
+        artifact_metadata = {
+            "artifactVersion": artifact_version,
+            "algorithm": {
+                "id": algo.descriptor["id"],
+                "version": algo.descriptor["version"],
+            },
+            "analysisSchema": "rebar-analysis-v1",
+            "capabilities": algo.descriptor["capabilities"],
+            "inputOptions": opts,
+            "effectiveParameters": effective,
+            "summary": summary,
+        }
+        # Keep the root manifest compact: the potentially multi-megabyte,
+        # implementation-specific analysis belongs in the separately served
+        # result document and is covered by the artifact hash below.
+        result = {
+            "schema": "rebar-analysis-v1",
+            **artifact_metadata,
+            "analysis": analysis.data,
+        }
+        (stage / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        hasher = hashlib.sha256()
+        for artifact in sorted((p for p in stage.rglob("*") if p.is_file()), key=lambda p: p.relative_to(stage).as_posix()):
+            hasher.update(artifact.relative_to(stage).as_posix().encode("utf-8"))
+            hasher.update(b"\0")
+            hasher.update(artifact.read_bytes())
+        digest = hasher.hexdigest()
+        manifest = {
+            "schema": "rebar-artifact-manifest-v1",
+            **artifact_metadata,
+            "resultPath": "result.json",
+            "tilesetPath": "tiles/tileset.json",
+            "manifestPath": "manifest.json",
+            "contentHash": digest,
+            "byteSize": 0,
+        }
+        # Include the manifest itself in byteSize; repeat until the encoded
+        # decimal field reaches a stable length.
+        for _ in range(3):
+            (stage / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            actual_size = sum(p.stat().st_size for p in stage.rglob("*") if p.is_file())
+            if manifest["byteSize"] == actual_size: break
+            manifest["byteSize"] = actual_size
+        # copytree preserves the uploader's private 0700/0600 modes, but the
+        # files are now owned by the container user. The shared setgid group
+        # lets the separate Go process validate, serve, and retire the tree.
+        _publish_shared_artifact_permissions(stage)
+        # Publish by rename.  A prior consumable artifact is retained until the
+        # replacement is fully built; restore it if the final rename fails.
+        backup: Path | None = None
+        if output.exists():
+            backup = output.with_name(f".{output.name}.previous-{uuid.uuid4().hex}")
+            output.replace(backup)
+        try:
+            stage.replace(output)
+        except Exception:
+            if backup is not None and backup.exists(): backup.replace(output)
+            raise
+        if backup is not None:
+            shutil.rmtree(backup)
+        return manifest
+    except Exception:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
 
 
 def write_json_atomically(

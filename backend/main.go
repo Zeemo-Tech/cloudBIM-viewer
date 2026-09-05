@@ -165,6 +165,7 @@ type DBAssetDerivative struct {
 	ContentHash  string  `gorm:"size:128"`
 	ByteSize     int64   `gorm:"not null;default:0"`
 	ParamsJSON   string  `gorm:"type:text"`
+	MetadataJSON string  `gorm:"type:text"`
 	ErrorMessage *string `gorm:"type:text"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -395,6 +396,9 @@ type app struct {
 	c2mMutationMu       sync.Mutex
 	c2mOperationLocksMu sync.Mutex
 	c2mOperationLocks   map[string]*c2mOperationLock
+	rebarLocksMu        sync.Mutex
+	rebarLocks          map[int64]*sync.Mutex
+	rebarProvider       RebarComputeProvider
 	db                  *gorm.DB
 	cfg                 config
 	jobs                chan string
@@ -408,11 +412,13 @@ type c2mOperationLock struct {
 }
 
 func newApp(cfg config) *app {
-	return &app{
+	a := &app{
 		cfg:        cfg,
 		jobs:       make(chan string, cfg.WorkerCount*4),
 		remeshJobs: make(chan int64, cfg.WorkerCount*4),
 	}
+	a.rebarProvider = MeshServiceRebarComputeProvider{BaseURL: cfg.MeshServiceURL}
+	return a
 }
 func env(k, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -1274,6 +1280,9 @@ func (a *app) deleteAsset(c *gin.Context) {
 		fail(c, 404, "资产不存在")
 		return
 	}
+	lock := a.rebarLock(item.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	a.c2mMutationMu.Lock()
 	var c2mRows []DBC2MResult
 	if err := a.db.Where("owner_id = ? AND (scan_id = ? OR bim_id = ?)", userID(c), item.ID, item.ID).Find(&c2mRows).Error; err != nil {
@@ -3996,6 +4005,7 @@ func main() {
 	auth.GET("/me", a.authRequired(), a.me)
 	r.Use(a.authRequired())
 	r.POST("/uploads", a.createUpload)
+	r.GET("/rebar-segmentation/algorithms", a.rebarAlgorithms)
 	r.GET("/uploads/:id", a.uploadStatus)
 	r.HEAD("/uploads/:id", a.upload)
 	r.PATCH("/uploads/:id", a.upload)
@@ -4009,6 +4019,12 @@ func main() {
 	r.DELETE("/assets/:id", a.deleteAsset)
 	r.GET("/assets/:id/measurements", a.listMeasurements)
 	r.POST("/assets/:id/measurements", a.createMeasurement)
+	r.POST("/assets/:id/rebar-segmentation", a.rebarCompute)
+	r.GET("/assets/:id/rebar-segmentation/latest", a.rebarLatest)
+	r.GET("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
+	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
+	r.GET("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
+	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
 	r.GET("/assets/:id/:resource", a.resource)
 	r.HEAD("/assets/:id/:resource", a.resource)
 	r.DELETE("/measurements/:measurementId", a.deleteMeasurement)

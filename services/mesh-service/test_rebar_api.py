@@ -22,7 +22,7 @@ from algorithms.rebar_segmentation import (
     InvalidPointCloudError,
     RebarSegmentationParams,
 )
-from rebar_api import RebarParams, create_rebar_router
+from rebar_api import RebarComputeRequest, RebarParams, create_rebar_router
 from rebar_poc import (
     LoadedPointCloud,
     PointCloudInputError,
@@ -474,7 +474,7 @@ class RebarApiTests(unittest.TestCase):
 
     def test_injected_heavy_task_gate_can_return_429(self):
         def busy_gate(task_name):
-            self.assertEqual(task_name, "rebar-segment")
+            self.assertIn(task_name, {"rebar-segment", "rebar-compute"})
 
             def decorate(func):
                 @wraps(func)
@@ -497,6 +497,29 @@ class RebarApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.headers["retry-after"], "5")
         self.assertEqual(response.json()["activeTask"], "c2m")
+
+    def test_compute_uses_injected_heavy_task_gate(self):
+        seen = []
+        def busy_gate(task_name):
+            seen.append(task_name)
+            def decorate(func):
+                @wraps(func)
+                def wrapped(*args, **kwargs):
+                    return JSONResponse(status_code=429, content={"code": 429, "msg": "busy"})
+                return wrapped
+            return decorate
+        response = asyncio.run(_asgi_post(self._app(heavy_task=busy_gate), "/rebar/compute", {
+            "point_cloud_path": str(self.source), "source_tileset_path": str(self.source), "output_directory": str(self.storage_root / "out")
+        }))
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(seen, ["rebar-segment", "rebar-compute"])
+
+    def test_compute_input_options_are_normalized_and_reject_invalid_values(self):
+        request = RebarComputeRequest.model_validate({"point_cloud_path":"/a.ply", "source_tileset_path":"/s", "output_directory":"/o", "input_options":{"max_input_points":8,"voxelSize":.1}})
+        self.assertEqual(request.input_options, {"maxInputPoints":8,"voxelSize":.1})
+        for options in ({"unknown": 1}, {"maxInputPoints": True}, {"maxInputPoints": "8"}, {"voxelSize": True}, {"voxelSize": 6}):
+            with self.assertRaises(Exception):
+                RebarComputeRequest.model_validate({"point_cloud_path":"/a.ply", "source_tileset_path":"/s", "output_directory":"/o", "input_options":options})
 
 
 if __name__ == "__main__":

@@ -11,12 +11,14 @@ import {
 import { useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
+import RebarSegmentationPanel from '@/components/preview/RebarSegmentationPanel.vue'
 import PointcloudViewCube from '@/components/preview/PointcloudViewCube.vue'
 import PointcloudColorRangeBar, {
   type PointcloudColorRamp,
   type PointcloudColorRange,
 } from '@/components/preview/PointcloudColorRangeBar.vue'
-import type { CameraPose } from '@/components/preview/UnifiedViewer3D.vue'
+import type { CameraPose, PointcloudColorMode } from '@/components/preview/UnifiedViewer3D.vue'
+import type { RebarSegmentationResult } from '@/api/backend-rebar'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisArea,
@@ -63,6 +65,7 @@ const pointcloudCameraPose = ref<CameraPose | null>(null)
 const pointcloudColorRamp = ref<PointcloudColorRamp>('grayscale')
 const pointcloudColorRange = ref<PointcloudColorRange>({ min: 0, max: 1 })
 const pointcloudIntensityHistogram = ref<number[]>([])
+const rebarResult = ref<RebarSegmentationResult | null>(null)
 const measurementBackendIds = new Map<string, number>()
 let measurementLoadToken = 0
 
@@ -77,7 +80,7 @@ const pointcloudControls = reactive({
   showAxes: false,
   showGrid: false,
   sectionEnabled: false,
-  colorMode: 'intensity' as 'rgb' | 'intensity' | 'original' | 'custom',
+  colorMode: 'intensity' as PointcloudColorMode | 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
 })
 
@@ -98,6 +101,12 @@ const backgroundOptions: Array<{ label: string; value: PreviewBackgroundTheme }>
 
 const pageTitle = computed(() => {
   return props.previewType === 'bim' ? 'BIM 全屏预览' : '点云全屏预览'
+})
+
+const rebarTilesetUrl = computed(() => rebarResult.value?.tilesetUrl ?? null)
+const rebarPanelMode = computed<PointcloudColorMode>(() => {
+  const mode = pointcloudControls.colorMode
+  return mode === 'original' || mode === 'custom' ? 'rgb' : mode
 })
 
 const emptyText = computed(() => {
@@ -150,8 +159,10 @@ function applyPanelSettings() {
   if (pointcloudControls.colorMode === 'custom') {
     panel.setPointColor?.(pointcloudControls.pointColor)
   } else {
+    const displayMode: PointcloudColorMode =
+      pointcloudControls.colorMode === 'original' ? 'rgb' : pointcloudControls.colorMode
     panel.setPointcloudColorDisplay?.(
-      pointcloudControls.colorMode === 'intensity' ? 'intensity' : 'rgb',
+      displayMode,
       pointcloudColorRamp.value,
       pointcloudColorRange.value,
     )
@@ -188,6 +199,22 @@ function handlePointcloudColorStats(stats: {
   hasRgb: boolean
 }) {
   pointcloudIntensityHistogram.value = stats.histogram
+}
+
+function handleRebarResult(result: RebarSegmentationResult | null) {
+  rebarResult.value = result
+  if (!result && String(pointcloudControls.colorMode).startsWith('rebar-')) {
+    pointcloudControls.colorMode = 'rgb'
+  }
+}
+
+function handleRebarMode(mode: PointcloudColorMode) {
+  pointcloudControls.colorMode = mode
+  pointcloudPanelRef.value?.setPointcloudColorDisplay?.(
+    mode,
+    pointcloudColorRamp.value,
+    pointcloudColorRange.value,
+  )
 }
 
 function togglePointcloudEdl() {
@@ -383,6 +410,7 @@ watch(
   () => {
     analysisMode.value = 'none'
     pointcloudIntensityHistogram.value = []
+    rebarResult.value = null
     void loadMeasurements()
   },
 )
@@ -433,6 +461,7 @@ watch(
         ref="pointcloudPanelRef"
         class="pointcloud-viewer-panel"
         :asset-id="assetId"
+        :tileset-url="rebarTilesetUrl"
         :analysis-mode="analysisMode"
         :analysis-points="analysisPoints"
         :analysis-distances="analysisDistances"
@@ -447,6 +476,14 @@ watch(
         @analysis-area="handleAnalysisArea"
         @analysis-delete="removeAnalysisById($event.kind, $event.id)"
         @analysis-mode-exit="handleAnalysisModeExit"
+        @pointcloud-source-fallback="handleRebarMode('rgb')"
+      />
+
+      <RebarSegmentationPanel
+        :asset-id="assetId"
+        :mode="rebarPanelMode"
+        @result-change="handleRebarResult"
+        @mode-change="handleRebarMode"
       />
 
       <ViewerAnalysisOverlay
