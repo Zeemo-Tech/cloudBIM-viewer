@@ -1610,7 +1610,7 @@ async function loadC2MModel(expectedToken: number) {
 
   let plyUrl = ''
   if (props.scanAssetId && props.bimAssetId) {
-    plyUrl = getC2MColoredPlyUrl(props.scanAssetId, props.bimAssetId)
+    plyUrl = getC2MColoredPlyUrl(props.scanAssetId, props.bimAssetId, result.resultVersion)
   }
 
   if (!plyUrl) {
@@ -1621,7 +1621,7 @@ async function loadC2MModel(expectedToken: number) {
   try {
     const distancesRequest = result.distancesAvailable === false
       ? Promise.resolve<ArrayBuffer | null>(null)
-      : backendRequest<ArrayBuffer>(getC2MDistancesUrl(props.scanAssetId!, props.bimAssetId!), {
+      : backendRequest<ArrayBuffer>(getC2MDistancesUrl(props.scanAssetId!, props.bimAssetId!, result.resultVersion), {
           method: 'GET',
           responseType: 'arraybuffer',
         }).catch((error) => {
@@ -1694,6 +1694,7 @@ async function loadC2MModel(expectedToken: number) {
     loadError.value = ''
     emit('loaded-change', true)
   } catch (err: any) {
+    if (expectedToken !== loadToken) return
     loadError.value = `C2M 结果加载失败: ${err.message || err}`
     loaded.value = false
   }

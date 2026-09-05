@@ -235,9 +235,11 @@ const c2mSettingsDirty = computed(() => {
 })
 const canRecolorC2M = computed(() => Boolean(
   canUseC2MResult.value &&
+  c2mResult.value?.resultVersion &&
   c2mResult.value?.distancesAvailable !== false &&
   c2mSettingsDirty.value &&
   !c2mRunning.value &&
+  !c2mSceneLoading.value &&
   !c2mRecoloring.value,
 ))
 const c2mDisplayResult = computed<C2MResult | null>(() => {
@@ -343,14 +345,14 @@ async function syncC2MDistances(result: C2MResult) {
   const requestId = ++c2mDistancesRequestId
   c2mDistances.value = null
   if (
-    result.fresh === false ||
+    !isC2MResultFresh(result) ||
     result.distancesAvailable === false ||
     !props.pointcloudAssetId ||
     !props.bimAssetId
   ) return
   try {
     const buffer = await backendRequest<ArrayBuffer>(
-      getC2MDistancesUrl(props.pointcloudAssetId, props.bimAssetId),
+      getC2MDistancesUrl(props.pointcloudAssetId, props.bimAssetId, result.resultVersion),
       { method: 'GET', responseType: 'arraybuffer' },
     )
     if (requestId !== c2mDistancesRequestId) return
@@ -425,8 +427,10 @@ async function runC2M() {
     if (!isC2MResultFresh(response.data)) clearC2MScene()
     ElMessage.success('Scan vs BIM 快速预估完成')
   } catch (error) {
-    c2mError.value = error instanceof Error ? error.message : 'Scan vs BIM 计算失败'
-    ElMessage.error(c2mError.value)
+    if (resultRequestId === c2mResultRequestId) {
+      c2mError.value = error instanceof Error ? error.message : 'Scan vs BIM 计算失败'
+      ElMessage.error(c2mError.value)
+    }
   } finally {
     c2mRunning.value = false
   }
@@ -460,18 +464,27 @@ async function loadLatestC2M() {
 }
 
 async function loadC2MToScene() {
-  if (!canUseC2MResult.value || !c2mResult.value?.coloredPlyAvailable || !props.pointcloudAssetId || !props.bimAssetId || !scene) return
+  const result = c2mResult.value
+  if (!result || !isC2MResultFresh(result) || !result.coloredPlyAvailable || !props.pointcloudAssetId || !props.bimAssetId || !scene) return
   const requestId = ++c2mSceneLoadRequestId
   const scanId = props.pointcloudAssetId
   const bimId = props.bimAssetId
   c2mSceneLoading.value = true
   try {
-    const blob = await backendRequest<Blob>(getC2MColoredPlyUrl(scanId, bimId), { method: 'GET', responseType: 'blob' })
-    if (requestId !== c2mSceneLoadRequestId || !isC2MResultFresh(c2mResult.value)) return
+    const blob = await backendRequest<Blob>(getC2MColoredPlyUrl(scanId, bimId, result.resultVersion), { method: 'GET', responseType: 'blob' })
+    if (
+      requestId !== c2mSceneLoadRequestId ||
+      !isC2MResultFresh(c2mResult.value) ||
+      c2mResult.value?.resultVersion !== result.resultVersion
+    ) return
     const objectUrl = URL.createObjectURL(blob)
     try {
       const geometry = await new PLYLoader().loadAsync(objectUrl)
-      if (requestId !== c2mSceneLoadRequestId || !isC2MResultFresh(c2mResult.value)) {
+      if (
+        requestId !== c2mSceneLoadRequestId ||
+        !isC2MResultFresh(c2mResult.value) ||
+        c2mResult.value?.resultVersion !== result.resultVersion
+      ) {
         geometry.dispose()
         return
       }
@@ -531,7 +544,8 @@ function clearC2MScene(invalidateLoad = true) {
 }
 
 async function applyC2MVisualization() {
-  if (!canRecolorC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
+  const resultVersion = c2mResult.value?.resultVersion
+  if (!canRecolorC2M.value || !resultVersion || !props.pointcloudAssetId || !props.bimAssetId) return
   c2mRecoloring.value = true
   c2mError.value = ''
   const resultRequestId = ++c2mResultRequestId
@@ -540,6 +554,7 @@ async function applyC2MVisualization() {
     const response = await recolorC2M({
       modelScanFileId: props.pointcloudAssetId,
       modelBimFileId: props.bimAssetId,
+      resultVersion,
       ...c2mRequestedVisualization.value,
     })
     if (resultRequestId !== c2mResultRequestId) return
@@ -550,8 +565,10 @@ async function applyC2MVisualization() {
     else if (reloadScene) await loadC2MToScene()
     ElMessage.success('C2M 配色与直方图已更新')
   } catch (error) {
-    c2mError.value = error instanceof Error ? error.message : '应用 C2M 配色失败'
-    ElMessage.error(c2mError.value)
+    if (resultRequestId === c2mResultRequestId) {
+      c2mError.value = error instanceof Error ? error.message : '应用 C2M 配色失败'
+      ElMessage.error(c2mError.value)
+    }
   } finally {
     c2mRecoloring.value = false
   }

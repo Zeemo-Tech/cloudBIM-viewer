@@ -12,7 +12,11 @@
 
 - 正值：scan 在法线朝向一侧（BIM 表面偏内，实际墙面向外凸出，存在空隙/测量超标）
 - 负值：scan 在法线背侧（BIM 表面偏外，实际墙面向内凹入，存在混凝土不足）
-- 颜色：蓝色（负/凹入）→ 白色（零偏差）→ 红色（正/凸出）
+- 颜色：蓝→青（负偏差）→绿（零偏差）→黄→红（正偏差）
+- 超出配色半宽的顶点统一使用暗灰 `#3a3a3a`
+
+对外 compute/recolor 契约统一使用 raw per-vertex distances 进行统计、
+直方图和着色，以保证 PLY、distances.bin 与容差比例逐顶点一致。
 """
 
 from __future__ import annotations
@@ -23,20 +27,19 @@ import time
 from typing import Any
 
 import laspy
-import matplotlib.cm as cm
 import numpy as np
 import open3d as o3d
-from matplotlib.colors import LinearSegmentedColormap
 from scipy.spatial import cKDTree
 
-# 工程云图色图：蓝→青→绿→黄→红（与前端 c2mColormap.ts 保持一致）
-_C2M_CMAP = LinearSegmentedColormap.from_list("c2m", [
-    "#0d47a1",  # 蓝（强负偏差）
-    "#00bcd4",  # 青（负偏差容差边界）
-    "#00c853",  # 绿（零偏差）
-    "#ffd600",  # 黄（正偏差容差边界）
-    "#d50000",  # 红（强正偏差）
-])
+# 工程云图色契约，与前端 src/utils/c2mColormap.ts 的五个 stop 一致。
+_C2M_COLOR_STOPS = np.array([
+    [0x0D, 0x47, 0xA1],  # 蓝（强负偏差）
+    [0x00, 0xBC, 0xD4],  # 青（负偏差容差边界）
+    [0x00, 0xC8, 0x53],  # 绿（零偏差）
+    [0xFF, 0xD6, 0x00],  # 黄（正偏差容差边界）
+    [0xD5, 0x00, 0x00],  # 红（强正偏差）
+], dtype=np.float64) / 255.0
+_C2M_OUT_OF_RANGE_COLOR = np.array([0x3A, 0x3A, 0x3A], dtype=np.float64) / 255.0
 
 logger = logging.getLogger(__name__)
 
@@ -352,42 +355,63 @@ def colorize_mesh_by_signed_distance(
     max_colormap_distance: float,
     tolerance_limit: float = 0.05,
 ) -> o3d.geometry.TriangleMesh:
-    """用工程云图色图按有符号距离给 mesh 顶点着色。
+    """用工程云图色契约按 raw 有符号距离给 mesh 顶点着色。
 
-    双参数分段映射（与前端 c2mColormap.ts 保持一致）：
+    双参数分段映射（与前端 `c2mColormap.ts` 保持一致）：
       -max_colormap_distance → t=0   蓝（强负偏差）
       -tolerance_limit       → t=0.25 青（负偏差容差边界）
       0                      → t=0.5  绿（零偏差）
       +tolerance_limit       → t=0.75 黄（正偏差容差边界）
       +max_colormap_distance → t=1   红（强正偏差）
       超出 ±max_colormap_distance → 暗灰 #3a3a3a
+
+    当 tolerance_limit == max_colormap_distance 时，远端区间自然退化为空，
+    ±limit 分别使用青/黄容差边界色，不在函数内暗中改写容差。
     """
-    cap = max(max_colormap_distance, 1e-9)
-    tol = max(min(tolerance_limit, cap - 1e-6), 1e-6)
-    d = signed_distances.astype(np.float64)
+    cap = float(max_colormap_distance)
+    tol = float(tolerance_limit)
+    if not np.isfinite(cap) or cap <= 0:
+        raise ValueError("max_colormap_distance must be finite and greater than zero")
+    if not np.isfinite(tol) or tol <= 0 or tol > cap:
+        raise ValueError("tolerance_limit must be finite, positive, and no greater than the color range")
+
+    d = np.asarray(signed_distances, dtype=np.float64)
+    vertex_count = len(np.asarray(mesh.vertices))
+    if d.ndim != 1 or len(d) != vertex_count:
+        raise ValueError(
+            f"signed_distances length {d.size} does not match mesh vertex count {vertex_count}"
+        )
+    if not np.all(np.isfinite(d)):
+        raise ValueError("signed_distances must contain only finite values")
 
     # 分段线性映射到 t ∈ [0, 1]
-    t = np.empty_like(d)
+    t = np.full_like(d, 0.5)
     out_of_range = np.abs(d) > cap
 
-    # 负半轴
-    neg_far  = (d <= -tol) & ~out_of_range  # [-cap, -tol]
-    neg_near = (d > -tol) & (d <= 0)        # (-tol, 0]
-    t[neg_far]  = 0.25 * (d[neg_far] + cap) / (cap - tol)
+    # 容差内区间始终存在，包含端点以保证 T == C 时仍定义良好。
+    neg_near = (d >= -tol) & (d <= 0)
+    pos_near = (d > 0) & (d <= tol)
     t[neg_near] = 0.25 + 0.25 * (d[neg_near] + tol) / tol
-
-    # 正半轴
-    pos_far  = (d >= tol) & ~out_of_range   # [tol, cap]
-    pos_near = (d > 0) & (d < tol)          # (0, tol)
-    t[pos_far]  = 0.75 + 0.25 * (d[pos_far] - tol) / (cap - tol)
     t[pos_near] = 0.5 + 0.25 * d[pos_near] / tol
-    t[d == 0]   = 0.5
 
-    # 查色图
-    colors = _C2M_CMAP(np.clip(t, 0.0, 1.0))[:, :3]
+    if cap > tol:
+        neg_far = (d >= -cap) & (d < -tol)
+        pos_far = (d > tol) & (d <= cap)
+        t[neg_far] = 0.25 * (d[neg_far] + cap) / (cap - tol)
+        t[pos_far] = 0.75 + 0.25 * (d[pos_far] - tol) / (cap - tol)
+
+    # 在相邻五色 stop 的 sRGB 数值间插值；Three.js 动态着色会先做同样
+    # 的插值，再把结果转换到线性色彩空间供渲染器使用。
+    scaled = np.clip(t, 0.0, 1.0) * (_C2M_COLOR_STOPS.shape[0] - 1)
+    lower = np.minimum(np.floor(scaled).astype(np.int64), _C2M_COLOR_STOPS.shape[0] - 2)
+    fraction = scaled - lower
+    colors = (
+        _C2M_COLOR_STOPS[lower] * (1.0 - fraction[:, np.newaxis])
+        + _C2M_COLOR_STOPS[lower + 1] * fraction[:, np.newaxis]
+    )
 
     # 超出色温范围覆盖为暗灰 #3a3a3a，与色带形成强区隔
-    colors[out_of_range] = [0.23, 0.23, 0.23]
+    colors[out_of_range] = _C2M_OUT_OF_RANGE_COLOR
 
     mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
     return mesh
@@ -405,10 +429,20 @@ def compute_statistics(
     [-max_hist_dist, +max_hist_dist]（n_bins 个桶）。
     """
     distances = np.asarray(distances, dtype=np.float64)
-    if distances.size == 0:
-        raise ValueError("distances must not be empty")
+    if distances.ndim != 1 or distances.size == 0:
+        raise ValueError("distances must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(distances)):
+        raise ValueError("distances must contain only finite values")
+    r = float(max_hist_dist)
+    if not np.isfinite(r) or r <= 0:
+        raise ValueError("max_hist_dist must be finite and greater than zero")
+    if isinstance(n_bins, bool) or int(n_bins) != n_bins or int(n_bins) <= 0:
+        raise ValueError("n_bins must be a positive integer")
+    n_bins = int(n_bins)
+    tolerance = float(tolerance)
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("tolerance must be finite and non-negative")
     absolute_distances = np.abs(distances)
-    tolerance = max(float(tolerance), 0.0)
     stats = {
         "min":  float(np.min(distances)),
         "max":  float(np.max(distances)),
@@ -424,7 +458,6 @@ def compute_statistics(
         "withinToleranceRatio": float(np.mean(absolute_distances <= tolerance)),
     }
     # 对称区间直方图：负值在左半段，正值在右半段
-    r = max(max_hist_dist, 1e-6)
     counts, bin_edges = np.histogram(
         distances, bins=n_bins, range=(-r, r)
     )
@@ -439,7 +472,7 @@ def compute_statistics(
 def smooth_vertex_distances(
     mesh: o3d.geometry.TriangleMesh,
     distances: np.ndarray,
-    iterations: int = 5,
+    iterations: int = 0,
     strength: float = 0.5,
 ) -> np.ndarray:
     """对逐顶点有符号距离做 Laplacian 图平滑，消除因网格过密导致的高频噪声色斑。
@@ -452,7 +485,7 @@ def smooth_vertex_distances(
 
     参数
     ----
-    iterations : 迭代次数，越多越平滑；建议 3-10，默认 5。
+    iterations : 迭代次数，越多越平滑；默认 0（对外 API 使用 raw 契约）。
     strength   : 每轮向邻居均值靠拢的权重 [0, 1]；越大越激进，默认 0.5。
     """
     from scipy.sparse import csr_matrix

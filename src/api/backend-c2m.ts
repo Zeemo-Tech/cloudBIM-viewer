@@ -61,6 +61,7 @@ export interface C2MResult {
   fresh?: boolean
   staleReason?: string
   distancesAvailable?: boolean
+  resultVersion?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -95,7 +96,7 @@ export type C2MRecolorParams = Pick<
   | 'maxHistogramDistance'
   | 'histogramBins'
   | 'toleranceLimit'
-> & Pick<C2MParams, 'modelScanFileId' | 'modelBimFileId'>
+> & Pick<C2MParams, 'modelScanFileId' | 'modelBimFileId'> & { resultVersion: string }
 
 export function recolorC2M(params: C2MRecolorParams) {
   return backendRequest<BackendResult<C2MResult>>('/alignments/bim/c2m/recolor', {
@@ -112,12 +113,21 @@ export function getLatestC2M(scanId: number, bimId: number) {
   })
 }
 
-export function getC2MColoredPlyUrl(scanId: number, bimId: number) {
-  return normalizeBackendUrl(`/alignments/bim/c2m/colored-ply?modelScanFileId=${scanId}&modelBimFileId=${bimId}`)
+function getC2MArtifactUrl(path: string, scanId: number, bimId: number, resultVersion?: string) {
+  const params = new URLSearchParams({
+    modelScanFileId: String(scanId),
+    modelBimFileId: String(bimId),
+  })
+  if (resultVersion) params.set('resultVersion', resultVersion)
+  return normalizeBackendUrl(`${path}?${params.toString()}`)
 }
 
-export function getC2MDistancesUrl(scanId: number, bimId: number) {
-  return normalizeBackendUrl(`/alignments/bim/c2m/distances?modelScanFileId=${scanId}&modelBimFileId=${bimId}`)
+export function getC2MColoredPlyUrl(scanId: number, bimId: number, resultVersion?: string) {
+  return getC2MArtifactUrl('/alignments/bim/c2m/colored-ply', scanId, bimId, resultVersion)
+}
+
+export function getC2MDistancesUrl(scanId: number, bimId: number, resultVersion?: string) {
+  return getC2MArtifactUrl('/alignments/bim/c2m/distances', scanId, bimId, resultVersion)
 }
 
 /**

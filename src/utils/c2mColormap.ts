@@ -1,19 +1,30 @@
 import * as THREE from 'three'
 
+// Keep interpolation in sRGB so browser-side recoloring matches the PLY bytes
+// produced by the mesh service and the CSS legend gradient. Three.js vertex
+// attributes are linear, so setRGB performs the sRGB -> linear conversion last.
 const COLOR_STOPS = [
-  new THREE.Color(0x0d47a1),
-  new THREE.Color(0x00bcd4),
-  new THREE.Color(0x00c853),
-  new THREE.Color(0xffd600),
-  new THREE.Color(0xd50000),
-]
+  [0x0d / 255, 0x47 / 255, 0xa1 / 255],
+  [0x00 / 255, 0xbc / 255, 0xd4 / 255],
+  [0x00 / 255, 0xc8 / 255, 0x53 / 255],
+  [0xff / 255, 0xd6 / 255, 0x00 / 255],
+  [0xd5 / 255, 0x00 / 255, 0x00 / 255],
+] as const
 
 const OUT_OF_RANGE_COLOR = new THREE.Color(0x3a3a3a)
 
 export function c2mDivergingColor(value: number, target = new THREE.Color()) {
   const scaled = THREE.MathUtils.clamp(value, 0, 1) * (COLOR_STOPS.length - 1)
   const lower = Math.min(Math.floor(scaled), COLOR_STOPS.length - 2)
-  return target.copy(COLOR_STOPS[lower]).lerp(COLOR_STOPS[lower + 1], scaled - lower)
+  const fraction = scaled - lower
+  const start = COLOR_STOPS[lower]
+  const end = COLOR_STOPS[lower + 1]
+  return target.setRGB(
+    THREE.MathUtils.lerp(start[0], end[0], fraction),
+    THREE.MathUtils.lerp(start[1], end[1], fraction),
+    THREE.MathUtils.lerp(start[2], end[2], fraction),
+    THREE.SRGBColorSpace,
+  )
 }
 
 export function c2mDistancePosition(
@@ -94,7 +105,14 @@ export function parseC2MDistances(
   expectedVertexCount: number,
 ): Float32Array | null {
   if (buffer.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) return null
-  const distances = new Float32Array(buffer)
-  if (distances.length !== expectedVertexCount) return null
+  const count = buffer.byteLength / Float32Array.BYTES_PER_ELEMENT
+  if (count !== expectedVertexCount) return null
+  const view = new DataView(buffer)
+  const distances = new Float32Array(count)
+  for (let index = 0; index < count; index += 1) {
+    const value = view.getFloat32(index * Float32Array.BYTES_PER_ELEMENT, true)
+    if (!Number.isFinite(value)) return null
+    distances[index] = value
+  }
   return distances
 }

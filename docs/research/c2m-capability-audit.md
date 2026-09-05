@@ -5,7 +5,23 @@
 > 审计范围：当前工作区、前端、Go 后端、mesh-service、数据库契约、测试、全部可达 Git 历史、本地分支、远端跟踪分支及远端 refs。
 >
 > 审计方式：只读源码与 Git 对象检查、运行态数据库/产物盘点，以及一个不写文件的合成几何复现。
-> 注意：当前工作区已有未提交的 C2M 直方图 UI 与元数据改动。本文会将其与已提交历史严格分开。
+>
+> 注意：正文描述的是实施前的审计基线；其后完成情况以“实施结果”一节为准。
+
+## 0. 实施结果（2026-09-05）
+
+本文第 11 节定义的“最小且正确的下一版”已经完成并通过跨层验收：
+
+- P0 结果可信度：结果保存输入 fingerprint，latest 返回 `fresh/stale` 与原因；配准、精调或 remesh 变化后，API 和前端都立即阻止旧 PLY/BIN 使用。
+- P0 生命周期：compute/recolor 采用唯一临时文件、`fsync` 和原子发布；Go 事务切换引用后才回收旧产物，资产删除同步清关联记录；启动及每 6 小时清扫超过 1 小时且无 DB 引用的白名单产物。
+- P0 并发与安全：同资产对操作串行，recolor 带不可变 `resultVersion` 做基线 CAS；下载也校验 revision 并禁用缓存；产物路径拒绝符号链接逃逸，容器与宿主用 setgid 目录和 `0660` 文件共享读写权限。
+- P1 参数契约：配色色域 C、直方图视窗 H、容差 T 和桶数均有统一边界；mesh 返回 normalized visualization，Go 严格验证直方图桶数、边界、总数和 overflow；统计、直方图、PLY 与 `distances.bin` 统一使用 raw distance。
+- P1/P2 前端：提供自动、全范围、±50/100/200 mm、H 跟随 C、区间外计数和即时本地预览；修复三分屏清屏；删除无效“确认应用”；支持鉴权后的 little-endian float32 distance 下载和 Shift 重心插值拾取。
+- 配色契约：Python PLY、Three.js 动态着色和 CSS 色标统一为五色 stop 的 sRGB 插值，零值为绿色，色域外为 `#3a3a3a`。
+
+验收包括 Go 普通/竞态测试与 vet、前端生产构建、mesh 容器内 22 项 C2M 单测、合成几何测试，以及真实开发数据的 latest → revision 下载 → recolor → 旧 revision 409 → 新 revision 下载链路。启动清扫已回收 10 个历史孤儿产物。
+
+仍按本文建议独立推进、未在本轮冒险开放的内容是：reference profile、normal constraint、异步 job/取消恢复、超差 shader 筛选与统计导出。横向多后端部署还需数据库级 advisory lock/外键；极端大 LAS/PLY 还需明确资源预算。这些不属于本轮单实例 quick profile 的发布边界。
 
 ## 1. 结论先行
 

@@ -38,6 +38,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type response struct {
@@ -389,15 +390,21 @@ func parseJWTDuration(value string) (time.Duration, error) {
 }
 
 type app struct {
-	mu                sync.RWMutex
-	uploadMu          sync.Mutex
-	c2mMutationMu     sync.Mutex
-	c2mOperationLocks sync.Map
-	db                *gorm.DB
-	cfg               config
-	jobs              chan string
-	remeshJobs        chan int64
-	workerWG          sync.WaitGroup
+	mu                  sync.RWMutex
+	uploadMu            sync.Mutex
+	c2mMutationMu       sync.Mutex
+	c2mOperationLocksMu sync.Mutex
+	c2mOperationLocks   map[string]*c2mOperationLock
+	db                  *gorm.DB
+	cfg                 config
+	jobs                chan string
+	remeshJobs          chan int64
+	workerWG            sync.WaitGroup
+}
+
+type c2mOperationLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func newApp(cfg config) *app {
@@ -1060,6 +1067,11 @@ func (a *app) startWorkers(ctx context.Context) error {
 			}
 		}
 	}()
+	a.workerWG.Add(1)
+	go func() {
+		defer a.workerWG.Done()
+		a.runC2MOrphanSweeper(ctx)
+	}()
 	if err := a.db.Model(&DBUpload{}).Where("status = ?", "processing").Update("status", "queued").Error; err != nil {
 		return fmt.Errorf("恢复未完成上传任务失败: %w", err)
 	}
@@ -1262,8 +1274,10 @@ func (a *app) deleteAsset(c *gin.Context) {
 		fail(c, 404, "资产不存在")
 		return
 	}
+	a.c2mMutationMu.Lock()
 	var c2mRows []DBC2MResult
 	if err := a.db.Where("owner_id = ? AND (scan_id = ? OR bim_id = ?)", userID(c), item.ID, item.ID).Find(&c2mRows).Error; err != nil {
+		a.c2mMutationMu.Unlock()
 		fail(c, 500, "查询关联 C2M 结果失败")
 		return
 	}
@@ -1282,12 +1296,14 @@ func (a *app) deleteAsset(c *gin.Context) {
 		}
 		return tx.Delete(&DBAsset{}, "id = ? AND owner_id = ?", item.ID, userID(c)).Error
 	}); err != nil {
+		a.c2mMutationMu.Unlock()
 		fail(c, 500, "删除资产失败")
 		return
 	}
+	a.c2mMutationMu.Unlock()
 	for _, row := range c2mRows {
-		a.removeC2MArtifact(row.ColoredPlyPath)
-		a.removeC2MArtifact(row.DistancesPath)
+		a.removeUnreferencedC2MArtifact(row.ColoredPlyPath)
+		a.removeUnreferencedC2MArtifact(row.DistancesPath)
 	}
 	_ = os.RemoveAll(item.Dir)
 	ok(c, nil)
@@ -1561,6 +1577,7 @@ func (a *app) queueRemeshAsset(assetID int64, algorithm, paramsJSON string, forc
 	if !force {
 		query = query.Where("remesh_status IS NULL OR remesh_status = '' OR remesh_status NOT IN ?", []string{"queued", "processing", "succeeded"})
 	}
+	a.c2mMutationMu.Lock()
 	result := query.Updates(map[string]any{
 		"remesh_status":        "queued",
 		"remesh_error":         nil,
@@ -1574,6 +1591,7 @@ func (a *app) queueRemeshAsset(assetID int64, algorithm, paramsJSON string, forc
 		"remesh_vertex_after":  0,
 		"remesh_face_after":    0,
 	})
+	a.c2mMutationMu.Unlock()
 	if result.Error != nil {
 		return fmt.Errorf("保存网格均匀化任务失败: %w", result.Error)
 	}
@@ -2390,6 +2408,8 @@ func (a *app) createAlignment(c *gin.Context) {
 	result := Alignment{ModelID: 0, ScanID: req.ModelScanFileID, BimID: req.ModelBimFileID, ModelBIMBuildingName: stringPtr(bimAsset.SourceName), Qx: qx, Qy: qy, Qz: qz, Qw: qw, Tx: trX, Ty: trY, Tz: trZ, Matrix: matrix, RMSE: rmse, MaxError: max, PairCount: fit.pairCount, InlierCount: fit.inlierCount}
 	matrixJSON, _ := json.Marshal(result.Matrix)
 	row := DBAlignment{ScanID: result.ScanID, BimID: result.BimID, Qx: result.Qx, Qy: result.Qy, Qz: result.Qz, Qw: result.Qw, Tx: result.Tx, Ty: result.Ty, Tz: result.Tz, MatrixJSON: string(matrixJSON), RMSE: result.RMSE, MaxError: result.MaxError, PairCount: result.PairCount, InlierCount: result.InlierCount, OwnerID: userID(c), CreatedAt: time.Now()}
+	a.c2mMutationMu.Lock()
+	defer a.c2mMutationMu.Unlock()
 	var existing DBAlignment
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", row.ScanID, row.BimID, row.OwnerID).First(&existing).Error; err == nil {
 		row.ID = existing.ID
@@ -2645,7 +2665,8 @@ func (a *app) fineAlignment(c *gin.Context) {
 	result.RMSERegressRatio, result.FitnessRegressRatio, result.ApplyWhenRegressed = req.RMSERegressRatio, req.FitnessRegressRatio, req.ApplyWhenRegressed
 	if serviceResult.Applied && len(serviceResult.Transform) == 16 {
 		matrixJSON, _ := json.Marshal(serviceResult.Transform)
-		_ = a.db.Model(&DBAlignment{}).
+		a.c2mMutationMu.Lock()
+		updateErr := a.db.Model(&DBAlignment{}).
 			Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scan.ID, bim.ID, userID(c)).
 			Updates(map[string]any{
 				"qx":          serviceResult.Quaternion.Qx,
@@ -2658,6 +2679,11 @@ func (a *app) fineAlignment(c *gin.Context) {
 				"matrix_json": string(matrixJSON),
 				"rmse":        serviceResult.Metrics.FineRMSE,
 			}).Error
+		a.c2mMutationMu.Unlock()
+		if updateErr != nil {
+			fail(c, http.StatusInternalServerError, "保存精细配准结果失败")
+			return
+		}
 	}
 	ok(c, result)
 }
@@ -2712,6 +2738,7 @@ type c2mServiceResult struct {
 type c2mRecolorRequest struct {
 	ModelScanFileID      int64   `json:"modelScanFileId"`
 	ModelBimFileID       int64   `json:"modelBimFileId"`
+	ResultVersion        string  `json:"resultVersion"`
 	MaxColormapDistance  float64 `json:"maxColormapDistance"`
 	MaxHistogramDistance float64 `json:"maxHistogramDistance"`
 	HistogramBins        int     `json:"histogramBins"`
@@ -2820,6 +2847,9 @@ func (a *app) currentC2MInputFingerprint(scanID, bimID, ownerID int64) (string, 
 	if err := a.db.Where("id = ? AND owner_id = ? AND type = ? AND status = ?", bimID, ownerID, "bim", "ready").First(&bimRow).Error; err != nil {
 		return "", errors.New("BIM 资产不可用")
 	}
+	if bimRow.RemeshStatus != "succeeded" {
+		return "", errors.New("网格均匀化结果已失效或正在更新，请重新计算")
+	}
 	var alignment DBAlignment
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scanID, bimID, ownerID).First(&alignment).Error; err != nil {
 		return "", errors.New("配准结果不存在")
@@ -2880,11 +2910,105 @@ func (a *app) removeC2MArtifact(path string) {
 	}
 	resolved, err := a.c2mArtifactPath(path)
 	if err == nil {
-		_ = os.Remove(resolved)
+		if err := os.Remove(resolved); err != nil && !os.IsNotExist(err) {
+			log.Printf("删除 C2M 产物 %s 失败: %v", resolved, err)
+		}
+	}
+}
+
+func isC2MArtifactFilename(name string) bool {
+	return (strings.HasPrefix(name, "colored_") || strings.HasPrefix(name, ".colored_")) && strings.HasSuffix(name, ".ply") ||
+		(strings.HasPrefix(name, "dist_") || strings.HasPrefix(name, ".dist_")) && strings.HasSuffix(name, ".bin")
+}
+
+func (a *app) sweepC2MOrphanFiles(referenced map[string]struct{}, cutoff time.Time) (int, error) {
+	root := filepath.Join(a.cfg.DataDir, "c2m_results")
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !isC2MArtifactFilename(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		resolved, err := a.c2mArtifactPath(path)
+		if err != nil {
+			continue
+		}
+		if _, exists := referenced[resolved]; exists {
+			continue
+		}
+		if err := os.Remove(resolved); err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("清理孤立 C2M 产物 %s 失败: %v", resolved, err)
+			}
+			continue
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+func (a *app) sweepC2MOrphans(gracePeriod time.Duration) (int, error) {
+	a.c2mMutationMu.Lock()
+	defer a.c2mMutationMu.Unlock()
+	var rows []DBC2MResult
+	if err := a.db.Select("colored_ply_path", "distances_path").Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	referenced := make(map[string]struct{}, len(rows)*2)
+	for _, row := range rows {
+		for _, path := range []string{row.ColoredPlyPath, row.DistancesPath} {
+			path = backendDataPath(a.cfg.DataDir, path, a.cfg.MeshServiceStorageDir)
+			if resolved, err := a.c2mArtifactPath(path); err == nil {
+				referenced[resolved] = struct{}{}
+			}
+		}
+	}
+	return a.sweepC2MOrphanFiles(referenced, time.Now().Add(-gracePeriod))
+}
+
+const (
+	c2mOrphanGracePeriod   = time.Hour
+	c2mOrphanSweepInterval = 6 * time.Hour
+)
+
+func (a *app) runC2MOrphanSweeper(ctx context.Context) {
+	run := func() {
+		removed, err := a.sweepC2MOrphans(c2mOrphanGracePeriod)
+		if err != nil {
+			log.Printf("清理孤立 C2M 产物失败: %v", err)
+		} else if removed > 0 {
+			log.Printf("已清理 %d 个孤立 C2M 产物", removed)
+		}
+	}
+	run()
+	ticker := time.NewTicker(c2mOrphanSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
 	}
 }
 
 func (a *app) removeUnreferencedC2MArtifact(path string) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return
+	}
 	resolved, err := a.c2mArtifactPath(path)
 	if err != nil {
 		return
@@ -2895,12 +3019,115 @@ func (a *app) removeUnreferencedC2MArtifact(path string) {
 		Count(&references).Error; err != nil || references != 0 {
 		return
 	}
-	a.removeC2MArtifact(resolved)
+	a.removeC2MArtifact(path)
+}
+
+func (a *app) removeUnreferencedC2MServiceArtifact(path string) {
+	a.removeUnreferencedC2MArtifact(backendDataPath(a.cfg.DataDir, path, a.cfg.MeshServiceStorageDir))
 }
 
 func (a *app) c2mArtifactAvailable(path string) bool {
 	resolved, err := a.c2mArtifactPath(path)
 	return err == nil && regularFileExists(resolved)
+}
+
+func c2mResultVersion(row DBC2MResult) string {
+	hash := sha256.New()
+	_, _ = fmt.Fprintf(hash, "%d\x00%d\x00%d\x00", row.ID, row.ScanID, row.BimID)
+	_, _ = io.WriteString(hash, row.InputFingerprint)
+	_, _ = io.WriteString(hash, "\x00"+row.ColoredPlyPath+"\x00"+row.DistancesPath)
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func c2mResultVersionMatches(c *gin.Context, row DBC2MResult) bool {
+	requested := strings.TrimSpace(c.Query("resultVersion"))
+	return requested == "" || requested == c2mResultVersion(row)
+}
+
+func (a *app) lockC2MOperation(ownerID, scanID, bimID int64) func() {
+	key := fmt.Sprintf("%d:%d:%d", ownerID, scanID, bimID)
+	a.c2mOperationLocksMu.Lock()
+	if a.c2mOperationLocks == nil {
+		a.c2mOperationLocks = make(map[string]*c2mOperationLock)
+	}
+	lock := a.c2mOperationLocks[key]
+	if lock == nil {
+		lock = &c2mOperationLock{}
+		a.c2mOperationLocks[key] = lock
+	}
+	lock.refs++
+	a.c2mOperationLocksMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		a.c2mOperationLocksMu.Lock()
+		lock.refs--
+		if lock.refs == 0 && a.c2mOperationLocks[key] == lock {
+			delete(a.c2mOperationLocks, key)
+		}
+		a.c2mOperationLocksMu.Unlock()
+	}
+}
+
+var (
+	errC2MInputChanged  = errors.New("C2M 输入已变化")
+	errC2MResultChanged = errors.New("C2M 结果已被其它请求更新")
+)
+
+func (a *app) replaceC2MResult(next *DBC2MResult, expectedFingerprint string) (*DBC2MResult, error) {
+	a.c2mMutationMu.Lock()
+	defer a.c2mMutationMu.Unlock()
+	currentFingerprint, err := a.currentC2MInputFingerprint(next.ScanID, next.BimID, next.OwnerID)
+	if err != nil || currentFingerprint != expectedFingerprint {
+		return nil, errC2MInputChanged
+	}
+	var previous *DBC2MResult
+	err = a.db.Transaction(func(tx *gorm.DB) error {
+		var current DBC2MResult
+		findErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("scan_id = ? AND bim_id = ? AND owner_id = ?", next.ScanID, next.BimID, next.OwnerID).
+			First(&current).Error
+		if findErr == nil {
+			copy := current
+			previous = &copy
+			next.ID = current.ID
+			next.CreatedAt = current.CreatedAt
+			return tx.Save(next).Error
+		}
+		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return findErr
+		}
+		return tx.Create(next).Error
+	})
+	return previous, err
+}
+
+func (a *app) replaceRecoloredC2MResult(base, next *DBC2MResult) (*DBC2MResult, error) {
+	a.c2mMutationMu.Lock()
+	defer a.c2mMutationMu.Unlock()
+	currentFingerprint, err := a.currentC2MInputFingerprint(base.ScanID, base.BimID, base.OwnerID)
+	if err != nil || currentFingerprint != base.InputFingerprint {
+		return nil, errC2MInputChanged
+	}
+	var previous *DBC2MResult
+	err = a.db.Transaction(func(tx *gorm.DB) error {
+		var current DBC2MResult
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("scan_id = ? AND bim_id = ? AND owner_id = ?", base.ScanID, base.BimID, base.OwnerID).
+			First(&current).Error; err != nil {
+			return err
+		}
+		if current.ID != base.ID || current.InputFingerprint != base.InputFingerprint || current.ColoredPlyPath != base.ColoredPlyPath || current.DistancesPath != base.DistancesPath {
+			return errC2MResultChanged
+		}
+		copy := current
+		previous = &copy
+		next.ID = current.ID
+		next.CreatedAt = current.CreatedAt
+		return tx.Save(next).Error
+	})
+	return previous, err
 }
 
 func (a *app) c2mResultResponse(row DBC2MResult) gin.H {
@@ -3003,6 +3230,8 @@ func normalizeC2MRequest(req *c2mRequest) error {
 	switch {
 	case req.Profile != "quick" && req.Profile != "reference":
 		return fmt.Errorf("不支持的 C2M profile: %s", req.Profile)
+	case req.NormalConstraintEnabled:
+		return errors.New("normalConstraintEnabled 尚未开放，当前仅支持 false")
 	case math.IsNaN(req.VoxelSize) || math.IsInf(req.VoxelSize, 0) || req.VoxelSize < 0.001 || req.VoxelSize > 5:
 		return errors.New("voxelSize 必须在 0.001 到 5 m 之间")
 	case req.KnnK < 1 || req.KnnK > 64:
@@ -3072,26 +3301,58 @@ func resolveC2MVisualization(returned *c2mVisualization, fallback c2mVisualizati
 	return result, nil
 }
 
-func validC2MHistogram(value json.RawMessage) bool {
-	var histogram struct {
-		BinEdges      []float64 `json:"binEdges"`
-		Counts        []int64   `json:"counts"`
-		OverflowCount int64     `json:"overflowCount"`
-	}
+type c2mHistogram struct {
+	BinEdges      []float64 `json:"binEdges"`
+	Counts        []int64   `json:"counts"`
+	OverflowCount int64     `json:"overflowCount"`
+}
+
+func parseC2MHistogram(value json.RawMessage) (c2mHistogram, bool) {
+	var histogram c2mHistogram
 	if len(value) == 0 || json.Unmarshal(value, &histogram) != nil || len(histogram.Counts) == 0 || len(histogram.BinEdges) != len(histogram.Counts)+1 || histogram.OverflowCount < 0 {
-		return false
+		return c2mHistogram{}, false
 	}
 	for index, edge := range histogram.BinEdges {
 		if math.IsNaN(edge) || math.IsInf(edge, 0) || (index > 0 && edge <= histogram.BinEdges[index-1]) {
-			return false
+			return c2mHistogram{}, false
 		}
 	}
 	for _, count := range histogram.Counts {
 		if count < 0 {
+			return c2mHistogram{}, false
+		}
+	}
+	return histogram, true
+}
+
+func validC2MHistogram(value json.RawMessage, visualization c2mVisualization, vertexCount int) bool {
+	histogram, valid := parseC2MHistogram(value)
+	if !valid || vertexCount < 0 || len(histogram.Counts) != visualization.HistogramBins || histogram.OverflowCount > int64(vertexCount) {
+		return false
+	}
+	limit := visualization.MaxHistogramDistance
+	for index, edge := range histogram.BinEdges {
+		expected := -limit + (float64(index)/float64(visualization.HistogramBins))*2*limit
+		if math.Abs(edge-expected) > math.Max(1e-12, math.Abs(expected)*1e-9) {
 			return false
 		}
 	}
-	return true
+	total := histogram.OverflowCount
+	for _, count := range histogram.Counts {
+		if count > int64(vertexCount)-total {
+			return false
+		}
+		total += count
+	}
+	return total == int64(vertexCount)
+}
+
+func c2mHistogramFromRow(row DBC2MResult) json.RawMessage {
+	value := json.RawMessage(strings.TrimSpace(row.HistogramJSON))
+	if _, valid := parseC2MHistogram(value); valid {
+		return value
+	}
+	return json.RawMessage("null")
 }
 
 func isHistoricalC2MResult(row DBC2MResult) bool {
@@ -3161,7 +3422,7 @@ func c2mResultData(row DBC2MResult) gin.H {
 		"pointsAfter":      row.PointsAfter,
 		"meshVertexCount":  row.MeshVertexCount,
 		"stats":            c2mStatsFromRow(row),
-		"histogram":        validRawJSON(row.HistogramJSON, json.RawMessage("null")),
+		"histogram":        c2mHistogramFromRow(row),
 		"visualization": gin.H{
 			"maxColormapDistance":  maxColormapDistance,
 			"maxHistogramDistance": maxHistogramDistance,
@@ -3173,6 +3434,7 @@ func c2mResultData(row DBC2MResult) gin.H {
 		},
 		"diagnostics":      validRawJSON(row.DiagnosticsJSON, json.RawMessage("{}")),
 		"inputFingerprint": row.InputFingerprint,
+		"resultVersion":    c2mResultVersion(row),
 		"createdAt":        row.CreatedAt,
 		"updatedAt":        row.UpdatedAt,
 	}
@@ -3184,6 +3446,8 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "Scan 与 BIM 资产 ID 非法")
 		return
 	}
+	unlock := a.lockC2MOperation(userID(c), req.ModelScanFileID, req.ModelBimFileID)
+	defer unlock()
 	scan, scanOK := a.getAssetByID(c, req.ModelScanFileID, "pointcloud")
 	bim, bimOK := a.getAssetByID(c, req.ModelBimFileID, "bim")
 	if !scanOK || !bimOK {
@@ -3225,7 +3489,6 @@ func (a *app) computeC2M(c *gin.Context) {
 		return
 	}
 	serviceParams := c2mServiceParams(req)
-	paramsJSON, _ := json.Marshal(serviceParams)
 	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": serviceParams})
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/c2m/compute", bytes.NewReader(body))
 	if err != nil {
@@ -3259,55 +3522,83 @@ func (a *app) computeC2M(c *gin.Context) {
 	}
 	var result c2mServiceResult
 	if json.Unmarshal(responseBody, &result) != nil {
+		a.removeUnreferencedC2MServiceArtifact(result.ColoredPlyPath)
+		a.removeUnreferencedC2MServiceArtifact(result.DistancesPath)
 		fail(c, 502, "解析 C2M 结果失败")
 		return
 	}
-	coloredPath, distancesPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath, a.cfg.MeshServiceStorageDir), backendDataPath(a.cfg.DataDir, result.DistancesPath, a.cfg.MeshServiceStorageDir)
-	coloredPath, coloredErr := a.c2mArtifactPath(coloredPath)
-	distancesPath, distancesErr := a.c2mArtifactPath(distancesPath)
+	returnedColoredPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath, a.cfg.MeshServiceStorageDir)
+	returnedDistancesPath := backendDataPath(a.cfg.DataDir, result.DistancesPath, a.cfg.MeshServiceStorageDir)
+	coloredPath, coloredErr := a.c2mArtifactPath(returnedColoredPath)
+	distancesPath, distancesErr := a.c2mArtifactPath(returnedDistancesPath)
 	if coloredErr != nil || distancesErr != nil || !regularFileExists(coloredPath) || !regularFileExists(distancesPath) {
-		a.removeC2MArtifact(coloredPath)
-		a.removeC2MArtifact(distancesPath)
+		a.removeUnreferencedC2MArtifact(returnedColoredPath)
+		a.removeUnreferencedC2MArtifact(returnedDistancesPath)
 		fail(c, http.StatusBadGateway, "C2M 服务返回了无效的产物路径")
 		return
 	}
 	profile, err := resolveC2MResultProfile(req.Profile, result.Profile)
 	if err != nil {
-		a.removeC2MArtifact(coloredPath)
-		a.removeC2MArtifact(distancesPath)
+		a.removeUnreferencedC2MArtifact(coloredPath)
+		a.removeUnreferencedC2MArtifact(distancesPath)
 		fail(c, http.StatusBadGateway, err.Error())
 		return
 	}
-	currentFingerprint, fingerprintErr := a.currentC2MInputFingerprint(scan.ID, bim.ID, userID(c))
-	if fingerprintErr != nil || currentFingerprint != inputFingerprint {
-		a.removeC2MArtifact(coloredPath)
-		a.removeC2MArtifact(distancesPath)
-		fail(c, http.StatusConflict, "计算期间配准或网格输入发生变化，请重新计算")
+	visualization, err := resolveC2MVisualization(result.Visualization, c2mVisualizationFromRequest(req))
+	if err != nil {
+		a.removeUnreferencedC2MArtifact(coloredPath)
+		a.removeUnreferencedC2MArtifact(distancesPath)
+		fail(c, http.StatusBadGateway, err.Error())
 		return
 	}
-	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MaxColormapDistance: req.MaxColormapDistance, MaxHistogramDistance: req.MaxHistogramDistance, HistogramBins: req.HistogramBins, ToleranceLimit: req.ToleranceLimit, InputFingerprint: inputFingerprint, ParamsJSON: string(paramsJSON), MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
-	var previous DBC2MResult
-	previousFound := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scan.ID, bim.ID, userID(c)).First(&previous).Error == nil
-	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scan.ID, bim.ID, userID(c)).Assign(row).FirstOrCreate(&row).Error; err != nil {
-		a.removeC2MArtifact(coloredPath)
-		a.removeC2MArtifact(distancesPath)
+	if !validC2MHistogram(result.Histogram, visualization, result.MeshVertices) {
+		a.removeUnreferencedC2MArtifact(coloredPath)
+		a.removeUnreferencedC2MArtifact(distancesPath)
+		fail(c, http.StatusBadGateway, "C2M 服务返回的直方图与顶点数或可视化参数不一致")
+		return
+	}
+	serviceParams["max_colormap_distance"] = visualization.MaxColormapDistance
+	serviceParams["max_histogram_distance"] = visualization.MaxHistogramDistance
+	serviceParams["histogram_bins"] = visualization.HistogramBins
+	serviceParams["tolerance_limit"] = visualization.ToleranceLimit
+	serviceParams["smoothing_iterations"] = visualization.SmoothingIterations
+	serviceParams["smoothing_strength"] = visualization.SmoothingStrength
+	paramsJSON, _ := json.Marshal(serviceParams)
+	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MaxColormapDistance: visualization.MaxColormapDistance, MaxHistogramDistance: visualization.MaxHistogramDistance, HistogramBins: visualization.HistogramBins, ToleranceLimit: visualization.ToleranceLimit, InputFingerprint: inputFingerprint, ParamsJSON: string(paramsJSON), MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
+	previous, err := a.replaceC2MResult(&row, inputFingerprint)
+	if err != nil {
+		a.removeUnreferencedC2MArtifact(coloredPath)
+		a.removeUnreferencedC2MArtifact(distancesPath)
+		if errors.Is(err, errC2MInputChanged) {
+			fail(c, http.StatusConflict, "计算期间配准或网格输入发生变化，请重新计算")
+			return
+		}
 		fail(c, 500, "保存 C2M 结果失败")
 		return
 	}
-	if previousFound {
+	if previous != nil {
 		if previous.ColoredPlyPath != coloredPath {
-			a.removeC2MArtifact(previous.ColoredPlyPath)
+			a.removeUnreferencedC2MArtifact(previous.ColoredPlyPath)
 		}
 		if previous.DistancesPath != distancesPath {
-			a.removeC2MArtifact(previous.DistancesPath)
+			a.removeUnreferencedC2MArtifact(previous.DistancesPath)
 		}
 	}
 	ok(c, a.c2mResultResponse(row))
 }
 
+func c2mPairQuery(c *gin.Context) (int64, int64, bool) {
+	scanID, scanErr := strconv.ParseInt(c.Query("modelScanFileId"), 10, 64)
+	bimID, bimErr := strconv.ParseInt(c.Query("modelBimFileId"), 10, 64)
+	return scanID, bimID, scanErr == nil && bimErr == nil && scanID > 0 && bimID > 0
+}
+
 func (a *app) getC2MLatest(c *gin.Context) {
-	scanID, _ := strconv.ParseInt(c.Query("modelScanFileId"), 10, 64)
-	bimID, _ := strconv.ParseInt(c.Query("modelBimFileId"), 10, 64)
+	scanID, bimID, valid := c2mPairQuery(c)
+	if !valid {
+		fail(c, http.StatusBadRequest, "Scan 与 BIM 资产 ID 非法")
+		return
+	}
 	var row DBC2MResult
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scanID, bimID, userID(c)).First(&row).Error; err != nil {
 		fail(c, 404, "暂无 C2M 计算结果")
@@ -3317,11 +3608,18 @@ func (a *app) getC2MLatest(c *gin.Context) {
 }
 
 func (a *app) c2mColoredPly(c *gin.Context) {
-	scanID, _ := strconv.ParseInt(c.Query("modelScanFileId"), 10, 64)
-	bimID, _ := strconv.ParseInt(c.Query("modelBimFileId"), 10, 64)
+	scanID, bimID, valid := c2mPairQuery(c)
+	if !valid {
+		fail(c, http.StatusBadRequest, "Scan 与 BIM 资产 ID 非法")
+		return
+	}
 	var row DBC2MResult
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scanID, bimID, userID(c)).First(&row).Error; err != nil || row.ColoredPlyPath == "" {
 		fail(c, 404, "暂无 C2M 着色结果")
+		return
+	}
+	if !c2mResultVersionMatches(c, row) {
+		fail(c, http.StatusConflict, "C2M 结果版本已变化，请刷新后重试")
 		return
 	}
 	if fresh, reason := a.c2mFreshness(row); !fresh {
@@ -3334,15 +3632,24 @@ func (a *app) c2mColoredPly(c *gin.Context) {
 		return
 	}
 	c.Header("Content-Disposition", `inline; filename="c2m_colored.ply"`)
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("X-C2M-Result-Version", c2mResultVersion(row))
 	c.File(path)
 }
 
 func (a *app) c2mDistances(c *gin.Context) {
-	scanID, _ := strconv.ParseInt(c.Query("modelScanFileId"), 10, 64)
-	bimID, _ := strconv.ParseInt(c.Query("modelBimFileId"), 10, 64)
+	scanID, bimID, valid := c2mPairQuery(c)
+	if !valid {
+		fail(c, http.StatusBadRequest, "Scan 与 BIM 资产 ID 非法")
+		return
+	}
 	var row DBC2MResult
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scanID, bimID, userID(c)).First(&row).Error; err != nil || row.DistancesPath == "" {
 		fail(c, http.StatusNotFound, "暂无 C2M 距离数据")
+		return
+	}
+	if !c2mResultVersionMatches(c, row) {
+		fail(c, http.StatusConflict, "C2M 结果版本已变化，请刷新后重试")
 		return
 	}
 	if fresh, reason := a.c2mFreshness(row); !fresh {
@@ -3356,6 +3663,9 @@ func (a *app) c2mDistances(c *gin.Context) {
 	}
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", `attachment; filename="c2m_distances.bin"`)
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("X-C2M-Result-Version", c2mResultVersion(row))
+	c.Header("X-C2M-Distance-Format", "float32-le")
 	c.File(path)
 }
 
@@ -3365,6 +3675,8 @@ func (a *app) recolorC2M(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "Scan 与 BIM 资产 ID 非法")
 		return
 	}
+	unlock := a.lockC2MOperation(userID(c), req.ModelScanFileID, req.ModelBimFileID)
+	defer unlock()
 	if err := normalizeC2MRecolorRequest(&req); err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -3373,6 +3685,14 @@ func (a *app) recolorC2M(c *gin.Context) {
 	var row DBC2MResult
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", req.ModelScanFileID, req.ModelBimFileID, userID(c)).First(&row).Error; err != nil {
 		fail(c, http.StatusNotFound, "暂无 C2M 计算结果")
+		return
+	}
+	if strings.TrimSpace(req.ResultVersion) == "" {
+		fail(c, http.StatusBadRequest, "缺少 C2M 结果版本，请刷新后重试")
+		return
+	}
+	if req.ResultVersion != c2mResultVersion(row) {
+		fail(c, http.StatusConflict, "C2M 结果版本已变化，请刷新后重试")
 		return
 	}
 	if fresh, reason := a.c2mFreshness(row); !fresh {
@@ -3432,60 +3752,86 @@ func (a *app) recolorC2M(c *gin.Context) {
 		return
 	}
 	var result c2mRecolorServiceResult
-	if err := json.Unmarshal(responseBody, &result); err != nil || !json.Valid(result.Histogram) {
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		a.removeUnreferencedC2MServiceArtifact(result.ColoredPlyPath)
 		fail(c, http.StatusBadGateway, "解析 C2M 重着色结果失败")
 		return
 	}
-	newColoredPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath, a.cfg.MeshServiceStorageDir)
-	newColoredPath, err = a.c2mArtifactPath(newColoredPath)
+	returnedColoredPath := backendDataPath(a.cfg.DataDir, result.ColoredPlyPath, a.cfg.MeshServiceStorageDir)
+	newColoredPath, err := a.c2mArtifactPath(returnedColoredPath)
 	if err != nil || !regularFileExists(newColoredPath) {
+		a.removeUnreferencedC2MArtifact(returnedColoredPath)
 		fail(c, http.StatusBadGateway, "C2M 重着色服务返回了无效的产物路径")
 		return
 	}
+	fallbackVisualization := c2mVisualizationFromRequest(c2mRequest{
+		MaxColormapDistance:  req.MaxColormapDistance,
+		MaxHistogramDistance: req.MaxHistogramDistance,
+		HistogramBins:        req.HistogramBins,
+		ToleranceLimit:       req.ToleranceLimit,
+	})
+	visualization, err := resolveC2MVisualization(result.Visualization, fallbackVisualization)
+	if err != nil {
+		a.removeUnreferencedC2MArtifact(newColoredPath)
+		fail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	if !validC2MHistogram(result.Histogram, visualization, row.MeshVertexCount) {
+		a.removeUnreferencedC2MArtifact(newColoredPath)
+		fail(c, http.StatusBadGateway, "C2M 服务返回的直方图与顶点数或可视化参数不一致")
+		return
+	}
 	if fresh, reason := a.c2mFreshness(row); !fresh {
-		a.removeC2MArtifact(newColoredPath)
+		a.removeUnreferencedC2MArtifact(newColoredPath)
 		fail(c, http.StatusConflict, reason)
 		return
 	}
 
-	oldColoredPath := row.ColoredPlyPath
-	row.MaxColormapDistance = req.MaxColormapDistance
-	row.MaxHistogramDistance = req.MaxHistogramDistance
-	row.HistogramBins = req.HistogramBins
-	row.ToleranceLimit = req.ToleranceLimit
-	row.MinDist = result.Stats.Min
-	row.MeanDist = result.Stats.Mean
-	row.StdDist = result.Stats.Std
-	row.P50 = result.Stats.P50
-	row.P90 = result.Stats.P90
-	row.P95 = result.Stats.P95
-	row.P99 = result.Stats.P99
-	row.MaxDist = result.Stats.Max
-	row.MeanAbs = result.Stats.MeanAbs
-	row.RMSE = result.Stats.RMSE
-	row.P95Abs = result.Stats.P95Abs
-	row.WithinToleranceRatio = result.Stats.WithinToleranceRatio
-	row.HistogramJSON = string(result.Histogram)
-	row.ColoredPlyPath = newColoredPath
+	next := row
+	next.MaxColormapDistance = visualization.MaxColormapDistance
+	next.MaxHistogramDistance = visualization.MaxHistogramDistance
+	next.HistogramBins = visualization.HistogramBins
+	next.ToleranceLimit = visualization.ToleranceLimit
+	next.MinDist = result.Stats.Min
+	next.MeanDist = result.Stats.Mean
+	next.StdDist = result.Stats.Std
+	next.P50 = result.Stats.P50
+	next.P90 = result.Stats.P90
+	next.P95 = result.Stats.P95
+	next.P99 = result.Stats.P99
+	next.MaxDist = result.Stats.Max
+	next.MeanAbs = result.Stats.MeanAbs
+	next.RMSE = result.Stats.RMSE
+	next.P95Abs = result.Stats.P95Abs
+	next.WithinToleranceRatio = result.Stats.WithinToleranceRatio
+	next.HistogramJSON = string(result.Histogram)
+	next.ColoredPlyPath = newColoredPath
 	var params map[string]any
-	if json.Unmarshal([]byte(row.ParamsJSON), &params) != nil || params == nil {
+	if json.Unmarshal([]byte(next.ParamsJSON), &params) != nil || params == nil {
 		params = map[string]any{}
 	}
-	params["max_colormap_distance"] = req.MaxColormapDistance
-	params["max_histogram_distance"] = req.MaxHistogramDistance
-	params["histogram_bins"] = req.HistogramBins
-	params["tolerance_limit"] = req.ToleranceLimit
+	params["max_colormap_distance"] = visualization.MaxColormapDistance
+	params["max_histogram_distance"] = visualization.MaxHistogramDistance
+	params["histogram_bins"] = visualization.HistogramBins
+	params["tolerance_limit"] = visualization.ToleranceLimit
+	params["smoothing_iterations"] = visualization.SmoothingIterations
+	params["smoothing_strength"] = visualization.SmoothingStrength
 	paramsJSON, _ := json.Marshal(params)
-	row.ParamsJSON = string(paramsJSON)
-	if err := a.db.Save(&row).Error; err != nil {
-		a.removeC2MArtifact(newColoredPath)
+	next.ParamsJSON = string(paramsJSON)
+	previous, err := a.replaceRecoloredC2MResult(&row, &next)
+	if err != nil {
+		a.removeUnreferencedC2MArtifact(newColoredPath)
+		if errors.Is(err, errC2MInputChanged) || errors.Is(err, errC2MResultChanged) {
+			fail(c, http.StatusConflict, "C2M 结果在重着色期间已变化，请重试")
+			return
+		}
 		fail(c, http.StatusInternalServerError, "保存 C2M 重着色结果失败")
 		return
 	}
-	if oldColoredPath != newColoredPath {
-		a.removeC2MArtifact(oldColoredPath)
+	if previous != nil && previous.ColoredPlyPath != newColoredPath {
+		a.removeUnreferencedC2MArtifact(previous.ColoredPlyPath)
 	}
-	ok(c, a.c2mResultResponse(row))
+	ok(c, a.c2mResultResponse(next))
 }
 
 func (a *app) listMeasurements(c *gin.Context) {
@@ -3635,7 +3981,7 @@ func main() {
 		log.Fatal(err)
 	}
 	r := gin.New()
-	corsConfig := cors.Config{AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "Tus-Resumable", "Upload-Length", "Upload-Metadata", "Upload-Offset", "X-Request-ID"}, ExposeHeaders: []string{"Location", "Upload-Length", "Upload-Offset", "Tus-Resumable", "X-Request-ID", "ETag", "Last-Modified", "Accept-Ranges", "Content-Range", "Retry-After"}, AllowCredentials: true, MaxAge: 12 * time.Hour}
+	corsConfig := cors.Config{AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "Tus-Resumable", "Upload-Length", "Upload-Metadata", "Upload-Offset", "X-Request-ID"}, ExposeHeaders: []string{"Location", "Upload-Length", "Upload-Offset", "Tus-Resumable", "X-Request-ID", "X-C2M-Result-Version", "X-C2M-Distance-Format", "ETag", "Last-Modified", "Accept-Ranges", "Content-Range", "Retry-After"}, AllowCredentials: true, MaxAge: 12 * time.Hour}
 	if len(cfg.CORSAllowOrigins) == 1 && cfg.CORSAllowOrigins[0] == "*" {
 		corsConfig.AllowAllOrigins = true
 		corsConfig.AllowCredentials = false

@@ -28,6 +28,7 @@ services:
     environment:
       PORT: 8001
       TZ: Asia/Shanghai
+      C2M_OUTPUT_GID: ${CLOUDBIM_RUNTIME_GID:-1000}
     ports:
       - "127.0.0.1:${MESH_SERVICE_PORT:-8001}:8001"
     volumes:

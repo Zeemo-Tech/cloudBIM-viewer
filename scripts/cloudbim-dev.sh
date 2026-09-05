@@ -13,6 +13,10 @@ MESH_SERVICE_PORT="${CLOUDBIM_MESH_SERVICE_PORT:-18001}"
 BACKEND_PORT="${CLOUDBIM_BACKEND_PORT:-8090}"
 FRONTEND_PORT="${CLOUDBIM_FRONTEND_PORT:-5173}"
 
+# The mesh container writes shared C2M artifacts as root. Pass the host's
+# development group so the host backend can read and retire those files.
+export CLOUDBIM_RUNTIME_GID="${CLOUDBIM_RUNTIME_GID:-$(id -g)}"
+
 log() {
   printf '[cloudbim] %s\n' "$*"
 }
@@ -110,6 +114,17 @@ wait_for_postgres() {
   fail "PostgreSQL did not become ready; inspect with '$0 logs'"
 }
 
+wait_for_mesh_service() {
+  log "Waiting for mesh service"
+  for _ in {1..30}; do
+    if curl -fsS "http://127.0.0.1:$MESH_SERVICE_PORT/algorithms" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  fail "Mesh service did not become ready; inspect with '$0 logs'"
+}
+
 wait_for_backend() {
   log "Waiting for backend"
   for _ in {1..30}; do
@@ -143,6 +158,7 @@ start() {
   log "Starting PostgreSQL and mesh service"
   docker compose -f "$ROOT_DIR/docker-compose.yml" up -d postgres mesh-service
   wait_for_postgres
+  wait_for_mesh_service
 
   if [[ ! -d "$ROOT_DIR/node_modules" ]]; then
     log "Installing frontend dependencies"

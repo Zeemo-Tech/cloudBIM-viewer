@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestSolveRigidFitUsesAllPairs(t *testing.T) {
@@ -339,21 +341,218 @@ func TestC2MArtifactPathRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestRemoveC2MArtifactRefusesSymlink(t *testing.T) {
+	dataDir := t.TempDir()
+	resultsDir := filepath.Join(dataDir, "c2m_results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(resultsDir, "target.bin")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(resultsDir, "link.bin")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	a := app{cfg: config{DataDir: dataDir}}
+	a.removeC2MArtifact(link)
+	if content, err := os.ReadFile(target); err != nil || string(content) != "keep" {
+		t.Fatalf("symlink target was removed or changed: %q, %v", content, err)
+	}
+}
+
+func TestSweepC2MOrphanFilesKeepsReferencesAndRecentFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	resultsDir := filepath.Join(dataDir, "c2m_results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	writeArtifact := func(name string, modified time.Time) string {
+		t.Helper()
+		path := filepath.Join(resultsDir, name)
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	referencedPath := writeArtifact("colored_referenced.ply", old)
+	orphanPath := writeArtifact("dist_orphan.bin", old)
+	recentPath := writeArtifact("colored_recent.ply", time.Now())
+	unrelatedPath := writeArtifact("notes.txt", old)
+	symlinkPath := filepath.Join(resultsDir, "dist_link.bin")
+	if err := os.Symlink(orphanPath, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	a := app{cfg: config{DataDir: dataDir}}
+	referencedResolved, err := a.c2mArtifactPath(referencedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := a.sweepC2MOrphanFiles(map[string]struct{}{referencedResolved: {}}, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed files = %d, want 1", removed)
+	}
+	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
+		t.Fatalf("orphan still exists or stat failed unexpectedly: %v", err)
+	}
+	for _, path := range []string{referencedPath, recentPath, unrelatedPath, symlinkPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("protected path %s was removed: %v", path, err)
+		}
+	}
+}
+
+func TestC2MValidationRejectsNegativeValues(t *testing.T) {
+	requests := []c2mRequest{
+		{VoxelSize: -1},
+		{MaxColormapDistance: -1},
+		{MaxHistogramDistance: -1},
+		{HistogramBins: -1},
+		{ToleranceLimit: -1},
+		{KnnK: -1},
+		{NormalMaxAngleDeg: -1},
+	}
+	for _, req := range requests {
+		if err := normalizeC2MRequest(&req); err == nil {
+			t.Errorf("negative C2M request was normalized instead of rejected: %+v", req)
+		}
+	}
+}
+
+func TestC2MValidationRejectsUnsafeNormalConstraint(t *testing.T) {
+	req := c2mRequest{NormalConstraintEnabled: true}
+	if err := normalizeC2MRequest(&req); err == nil || !strings.Contains(err.Error(), "尚未开放") {
+		t.Fatalf("unsafe normal constraint error = %v", err)
+	}
+}
+
+func TestC2MResultVersionTracksArtifactsNotTimestampPrecision(t *testing.T) {
+	row := DBC2MResult{
+		ID: 1, ScanID: 2, BimID: 3, InputFingerprint: "input",
+		ColoredPlyPath: "/data/c2m_results/colored_a.ply",
+		DistancesPath:  "/data/c2m_results/dist_a.bin",
+		UpdatedAt:      time.Unix(100, 123456789),
+	}
+	version := c2mResultVersion(row)
+	row.UpdatedAt = row.UpdatedAt.Truncate(time.Microsecond)
+	if got := c2mResultVersion(row); got != version {
+		t.Fatalf("timestamp precision changed version: %q != %q", got, version)
+	}
+	row.ColoredPlyPath = "/data/c2m_results/colored_b.ply"
+	if got := c2mResultVersion(row); got == version {
+		t.Fatal("artifact replacement did not change result version")
+	}
+}
+
+func TestResolveC2MVisualizationPrefersValidatedServiceValues(t *testing.T) {
+	fallback := c2mVisualization{MaxColormapDistance: 0.1, MaxHistogramDistance: 0.1, HistogramBins: 50, ToleranceLimit: 0.05}
+	returned := &c2mVisualization{MaxColormapDistance: 0.2, MaxHistogramDistance: 0.3, HistogramBins: 80, ToleranceLimit: 0.04}
+	got, err := resolveC2MVisualization(returned, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MaxColormapDistance != 0.2 || got.MaxHistogramDistance != 0.3 || got.HistogramBins != 80 || got.ToleranceLimit != 0.04 || got.ColorDistanceField != "raw" {
+		t.Fatalf("resolved visualization = %+v", got)
+	}
+	returned.ToleranceLimit = 0.4
+	if _, err := resolveC2MVisualization(returned, fallback); err == nil {
+		t.Fatal("invalid service visualization was accepted")
+	}
+}
+
+func TestValidC2MHistogramRequiresConsistentFiniteBins(t *testing.T) {
+	visualization := c2mVisualization{MaxHistogramDistance: 0.1, HistogramBins: 2}
+	if !validC2MHistogram(json.RawMessage(`{"binEdges":[-0.1,0,0.1],"counts":[2,3],"overflowCount":1}`), visualization, 6) {
+		t.Fatal("valid histogram was rejected")
+	}
+	for _, value := range []string{
+		`null`,
+		`{"binEdges":[-0.1,0.1],"counts":[2,3]}`,
+		`{"binEdges":[-0.1,-0.1,0.1],"counts":[2,3]}`,
+		`{"binEdges":[-0.1,0,0.1],"counts":[2,-1]}`,
+		`{"binEdges":[-0.2,0,0.2],"counts":[2,3],"overflowCount":1}`,
+		`{"binEdges":[-0.1,0,0.1],"counts":[2,2],"overflowCount":1}`,
+	} {
+		if validC2MHistogram(json.RawMessage(value), visualization, 6) {
+			t.Errorf("invalid histogram was accepted: %s", value)
+		}
+	}
+}
+
+func TestC2MOperationLockSerializesSamePair(t *testing.T) {
+	a := app{}
+	unlockFirst := a.lockC2MOperation(1, 2, 3)
+	acquired := make(chan struct{})
+	released := make(chan struct{})
+	go func() {
+		unlockSecond := a.lockC2MOperation(1, 2, 3)
+		close(acquired)
+		unlockSecond()
+		close(released)
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("same-pair operation lock was acquired concurrently")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlockFirst()
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("same-pair operation lock was not released")
+	}
+	a.c2mOperationLocksMu.Lock()
+	defer a.c2mOperationLocksMu.Unlock()
+	if len(a.c2mOperationLocks) != 0 {
+		t.Fatalf("unused operation locks were retained: %d", len(a.c2mOperationLocks))
+	}
+}
+
+func TestC2MPairQueryRejectsMissingOrNonPositiveIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, query := range []string{"", "?modelScanFileId=x&modelBimFileId=2", "?modelScanFileId=0&modelBimFileId=2"} {
+		context, _ := gin.CreateTestContext(httptest.NewRecorder())
+		context.Request = httptest.NewRequest(http.MethodGet, "/alignments/bim/c2m/latest"+query, nil)
+		if _, _, valid := c2mPairQuery(context); valid {
+			t.Errorf("query %q was accepted", query)
+		}
+	}
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodGet, "/alignments/bim/c2m/latest?modelScanFileId=1&modelBimFileId=2", nil)
+	if scanID, bimID, valid := c2mPairQuery(context); !valid || scanID != 1 || bimID != 2 {
+		t.Fatalf("valid pair = %d/%d, %v", scanID, bimID, valid)
+	}
+}
+
 func TestC2MResultDataOmitsUnknownAbsoluteStatsForHistoricalRows(t *testing.T) {
-	data := c2mResultData(DBC2MResult{MeanAbs: 9, RMSE: 9, P95Abs: 9, WithinToleranceRatio: 9})
+	data := c2mResultData(DBC2MResult{MeanAbs: 9, RMSE: 9, P95Abs: 9, WithinToleranceRatio: 9, HistogramJSON: `[]`})
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded struct {
-		Profile string         `json:"profile"`
-		Stats   map[string]any `json:"stats"`
+		Profile   string         `json:"profile"`
+		Stats     map[string]any `json:"stats"`
+		Histogram any            `json:"histogram"`
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Profile != "quick" {
 		t.Fatalf("historical profile = %q", decoded.Profile)
+	}
+	if decoded.Histogram != nil {
+		t.Fatalf("historical invalid histogram = %#v, want null", decoded.Histogram)
 	}
 	for _, key := range []string{"meanAbs", "rmse", "p95Abs", "withinToleranceRatio"} {
 		if _, exists := decoded.Stats[key]; exists {
