@@ -200,13 +200,17 @@ let bimRoot: THREE.Object3D | null = null
 let pointcloudWrapper: THREE.Group | null = null
 let rebarOverlay: THREE.Group | null = null
 
-function updateRebarInspection(focus = false) {
+function updateRebarInspection(focus = false, refreshFixtureFilter = true) {
   disposeRebarOverlay(rebarOverlay)
   rebarOverlay = null
-  if (!pointcloudWrapper || !props.rebarInspection) return
+  if (!pointcloudWrapper) return
+  if (!props.rebarInspection) {
+    if (refreshFixtureFilter) refreshLoadedPointcloudMaterials()
+    return
+  }
   rebarOverlay = buildRebarOverlay(props.rebarInspection)
   pointcloudWrapper.add(rebarOverlay)
-  if (tileset?.group) applyPointcloudMaterial(tileset.group)
+  if (refreshFixtureFilter) refreshLoadedPointcloudMaterials()
   if (focus && props.rebarInspection.selectedId) {
     const selected = props.rebarInspection.instances.find((item) => item.id === props.rebarInspection?.selectedId)
     if (selected) {
@@ -222,6 +226,20 @@ let c2mMeshRoot: THREE.Object3D | null = null
 let analysisMeshSession: AnalysisMeshSession | null = null
 let analysisC2MMaterial: C2MShaderMaterial | null = null
 let c2mUsesAnalysisTiles = false
+
+function forEachLoadedPointcloudModel(callback: (model: THREE.Object3D) => void) {
+  // `tileset.group` only contains visible tile scenes. Cached hidden LODs must
+  // also receive appearance changes before they are shown again.
+  const currentTileset = tileset
+  if (!currentTileset) return
+  currentTileset.forEachLoadedModel((model) => {
+    if (tileset === currentTileset) callback(model)
+  })
+}
+
+function refreshLoadedPointcloudMaterials() {
+  forEachLoadedPointcloudModel(applyPointcloudMaterial)
+}
 
 let bimSourceMatrix = new THREE.Matrix4()
 let bimSourceCenter = new THREE.Vector3()
@@ -1402,7 +1420,8 @@ async function loadBimModel(assetId: number) {
   }
 }
 
-async function loadPointcloudModel(assetId: number) {
+async function loadPointcloudModel(assetId: number, expectedToken: number) {
+  if (expectedToken !== loadToken) return
   loaded.value = false
   emit('loaded-change', false)
   pointcloudIntensityHistogram = Array.from({ length: 64 }, () => 0)
@@ -1414,6 +1433,7 @@ async function loadPointcloudModel(assetId: number) {
     : props.pointcloudTilesetUrl?.trim() || ''
   if (!resourceUrl) {
     const res = await getAssetDetail(assetId)
+    if (expectedToken !== loadToken) return
     resourceUrl = res.data?.tilesetUrl || ''
   }
   if (!resourceUrl) throw new Error('点云切片尚未就绪')
@@ -1446,11 +1466,13 @@ async function loadPointcloudModel(assetId: number) {
   pointcloudWrapper = wrapper
   updateRebarInspection()
 
-  tileset.addEventListener('tiles-load-start', () => {
+  nextTileset.addEventListener('tiles-load-start', () => {
+    if (tileset !== nextTileset) return
     tilesLoadingCount++
   })
 
-  tileset.addEventListener('tiles-load-end', () => {
+  nextTileset.addEventListener('tiles-load-end', () => {
+    if (tileset !== nextTileset) return
     tilesLoadingCount = Math.max(0, tilesLoadingCount - 1)
     if (tilesLoadingCount === 0 && !loaded.value) {
       loaded.value = true
@@ -1461,7 +1483,7 @@ async function loadPointcloudModel(assetId: number) {
     }
   })
 
-  tileset.addEventListener('load-error', ({ error }: any) => {
+  nextTileset.addEventListener('load-error', ({ error }: any) => {
     if (tileset !== nextTileset) return
     if (props.pointcloudTilesetUrl && !pointcloudSourceFallbackActive) {
       pointcloudSourceFallbackActive = true
@@ -1474,16 +1496,16 @@ async function loadPointcloudModel(assetId: number) {
     loadError.value = `点云加载失败: ${error?.message || '资源不可用'}`
   })
 
-  tileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
-    if (!tileScene) return
+  nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
+    if (tileset !== nextTileset || !tileScene) return
     attachPointcloudBatchAttributes(tileScene)
     collectPointcloudColorStats(tileScene)
     applyPointcloudMaterial(tileScene)
   })
 
   // 完全对齐校准页的视錐与包围球聚焦定位
-  tileset.addEventListener('load-root-tileset', () => {
-    if (!camera || !controls || !nextTileset) return
+  nextTileset.addEventListener('load-root-tileset', () => {
+    if (tileset !== nextTileset || !camera || !controls) return
     if (pendingPointcloudCameraPose) {
       setCameraPose(pendingPointcloudCameraPose)
       pendingPointcloudCameraPose = null
@@ -2266,14 +2288,14 @@ async function reload() {
     if (props.type === 'bim' && props.assetId) {
       await loadBimModel(props.assetId)
     } else if (props.type === 'pointcloud' && (props.assetId || props.pointcloudAssetId)) {
-      await loadPointcloudModel((props.assetId || props.pointcloudAssetId)!)
+      await loadPointcloudModel((props.assetId || props.pointcloudAssetId)!, currentToken)
     } else if (props.type === 'c2m') {
       await loadC2MModel(currentToken)
     } else if (props.type === 'hybrid') {
       if (props.bimAssetId) await loadBimModel(props.bimAssetId)
       const pcId = props.scanAssetId || props.pointcloudAssetId || props.assetId
       if (pcId) {
-        await loadPointcloudModel(pcId)
+        await loadPointcloudModel(pcId, currentToken)
       }
     }
   } catch (err: any) {
@@ -2452,9 +2474,7 @@ function setWireframe(wireframe: boolean) {
 
 function setPointColor(color: string | null) {
   pointColorOverride = color
-  if (tileset?.group) {
-    applyPointcloudMaterial(tileset.group)
-  }
+  refreshLoadedPointcloudMaterials()
 }
 
 function setPointcloudColorDisplay(
@@ -2469,7 +2489,7 @@ function setPointcloudColorDisplay(
     min: THREE.MathUtils.clamp(range.min, 0, 1),
     max: THREE.MathUtils.clamp(range.max, 0, 1),
   }
-  if (tileset?.group) applyPointcloudMaterial(tileset.group)
+  refreshLoadedPointcloudMaterials()
 }
 
 function setPointSize(size: number) {
@@ -2718,10 +2738,13 @@ defineExpose({
 
 // 监听 Prop 变化
 watch(() => props.rebarInspection, (next, previous) => {
-  updateRebarInspection(next?.selectedId !== previous?.selectedId)
+  updateRebarInspection(
+    next?.selectedId !== previous?.selectedId,
+    next?.hideFixtures !== previous?.hideFixtures,
+  )
 }, { deep: true })
 watch(() => props.rebarVisualization, () => {
-  if (isMountedReady && tileset?.group) applyPointcloudMaterial(tileset.group)
+  if (isMountedReady) refreshLoadedPointcloudMaterials()
 }, { deep: true })
 watch(
   () => [props.assetId, props.bimAssetId, props.scanAssetId, props.pointcloudAssetId, props.type] as const,
