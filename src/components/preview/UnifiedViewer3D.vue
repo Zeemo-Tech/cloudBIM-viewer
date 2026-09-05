@@ -16,8 +16,15 @@ import ViewerMeasurementBadge, {
 } from './ViewerMeasurementBadge.vue'
 import { createUploadHeaders } from '@/config/upload-backend'
 import { getAssetDetail, getBimGlbUrl, getPointcloudTilesetUrl } from '@/api/backend-file'
-import { getC2MColoredPlyUrl, type C2MResult } from '@/api/backend-c2m'
+import {
+  getC2MColoredPlyUrl,
+  getC2MDistancesUrl,
+  isC2MResultFresh,
+  type C2MResult,
+} from '@/api/backend-c2m'
 import { backendRequest } from '@/api/backend-http'
+import { applyC2MVertexColors, parseC2MDistances } from '@/utils/c2mColormap'
+import { sampleC2MDeviationAtPick } from '@/utils/c2mPick'
 import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
@@ -118,6 +125,7 @@ const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('')
 const loadError = ref('')
 const loaded = ref(false)
+const c2mPick = ref<{ x: number; y: number; deviation: number; withinTolerance: boolean } | null>(null)
 
 // EDL 配置与响应式状态
 const EDL_STORAGE_KEY = 'cloudbim.viewer.edlEnabled'
@@ -224,6 +232,7 @@ let analysisDistanceStartMarker: THREE.Sprite | null = null
 let analysisDistanceEndMarker: THREE.Sprite | null = null
 let analysisDistanceHoverMarker: THREE.Sprite | null = null
 let analysisPointerDown: { x: number; y: number } | null = null
+let c2mPointerDown: { x: number; y: number } | null = null
 let measurementModelDiagonal = 10
 const archivedAnalysisGroups: THREE.Group[] = []
 const archivedAnalysisById = new Map<string, THREE.Group>()
@@ -1136,6 +1145,10 @@ function commitAnalysisPoint(hitPoint: THREE.Vector3) {
 }
 
 function handleAnalysisPointerDown(event: PointerEvent) {
+  if (props.type === 'c2m' && event.shiftKey && event.button === 0) {
+    c2mPointerDown = { x: event.clientX, y: event.clientY }
+    return
+  }
   if (props.analysisMode === 'none' || event.button !== 0) return
   analysisPointerDown = { x: event.clientX, y: event.clientY }
 }
@@ -1149,12 +1162,48 @@ function handleAnalysisPointerMove(event: PointerEvent) {
 }
 
 function handleAnalysisPointerUp(event: PointerEvent) {
+  const c2mDown = c2mPointerDown
+  c2mPointerDown = null
+  if (
+    c2mDown &&
+    event.shiftKey &&
+    Math.hypot(event.clientX - c2mDown.x, event.clientY - c2mDown.y) <= 6
+  ) {
+    pickC2MDeviation(event)
+    analysisPointerDown = null
+    return
+  }
   const pointerDown = analysisPointerDown
   analysisPointerDown = null
   if (!pointerDown || props.analysisMode === 'none') return
   if (Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 6) return
   const hitPoint = pickAnalysisPoint(event)
   if (hitPoint) commitAnalysisPoint(hitPoint)
+}
+
+function pickC2MDeviation(event: PointerEvent) {
+  if (!renderer || !camera || !c2mMeshRoot || !viewportEl.value) return
+  const rect = renderer.domElement.getBoundingClientRect()
+  const pointer = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  )
+  const picker = raycaster ?? new THREE.Raycaster()
+  picker.setFromCamera(pointer, camera)
+  const hit = picker.intersectObject(c2mMeshRoot, true).find(
+    (intersection) => intersection.object instanceof THREE.Mesh,
+  )
+  if (!hit || !(hit.object instanceof THREE.Mesh)) return
+  const deviation = sampleC2MDeviationAtPick(hit, hit.object)
+  if (deviation === null) return
+  const tolerance = Math.max(props.c2mResult?.visualization?.toleranceLimit ?? 0.05, 0)
+  const viewportRect = viewportEl.value.getBoundingClientRect()
+  c2mPick.value = {
+    x: THREE.MathUtils.clamp(event.clientX - viewportRect.left, 86, Math.max(86, viewportRect.width - 86)),
+    y: THREE.MathUtils.clamp(event.clientY - viewportRect.top, 56, Math.max(56, viewportRect.height - 56)),
+    deviation,
+    withinTolerance: Math.abs(deviation) <= tolerance,
+  }
 }
 
 function handleAnalysisKeydown(event: KeyboardEvent) {
@@ -1201,14 +1250,7 @@ function cleanCurrentSceneModels() {
     tileset.dispose()
     tileset = null
   }
-  if (c2mMeshRoot && scene) {
-    scene.remove(c2mMeshRoot)
-    c2mMeshRoot.traverse((c: any) => {
-      c.geometry?.dispose?.()
-      c.material?.dispose?.()
-    })
-    c2mMeshRoot = null
-  }
+  clearC2MResult(false)
   clearAnalysisVisuals()
 }
 
@@ -1548,9 +1590,23 @@ function applyPointcloudMaterial(root: THREE.Object3D) {
   })
 }
 
-async function loadC2MModel() {
+async function loadC2MModel(expectedToken: number) {
   loaded.value = false
   emit('loaded-change', false)
+
+  const result = props.c2mResult
+  if (!result) {
+    statusText.value = '暂无 C2M 结果'
+    return
+  }
+  if (!isC2MResultFresh(result)) {
+    loadError.value = 'C2M 结果已过期，请重新计算'
+    return
+  }
+  if (result.coloredPlyAvailable === false) {
+    loadError.value = 'C2M 着色结果尚不可用'
+    return
+  }
 
   let plyUrl = ''
   if (props.scanAssetId && props.bimAssetId) {
@@ -1563,11 +1619,50 @@ async function loadC2MModel() {
   }
 
   try {
-    const blob = await backendRequest<Blob>(plyUrl, { method: 'GET', responseType: 'blob' })
+    const distancesRequest = result.distancesAvailable === false
+      ? Promise.resolve<ArrayBuffer | null>(null)
+      : backendRequest<ArrayBuffer>(getC2MDistancesUrl(props.scanAssetId!, props.bimAssetId!), {
+          method: 'GET',
+          responseType: 'arraybuffer',
+        }).catch((error) => {
+          console.info('[C2MViewer] 原始逐顶点距离暂不可用，点选功能已禁用', error)
+          return null
+        })
+    const [blob, distancesBuffer] = await Promise.all([
+      backendRequest<Blob>(plyUrl, { method: 'GET', responseType: 'blob' }),
+      distancesRequest,
+    ])
+    if (expectedToken !== loadToken) return
     const objectUrl = URL.createObjectURL(blob)
     const loader = new PLYLoader()
-    const geometry = await loader.loadAsync(objectUrl)
-    URL.revokeObjectURL(objectUrl)
+    let geometry: THREE.BufferGeometry
+    try {
+      geometry = await loader.loadAsync(objectUrl)
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+    if (expectedToken !== loadToken) {
+      geometry.dispose()
+      return
+    }
+
+    if (distancesBuffer) {
+      const vertexCount = geometry.getAttribute('position')?.count ?? 0
+      const distances = parseC2MDistances(distancesBuffer, vertexCount)
+      if (distances) {
+        // The C2M PLY endpoint is one indexed geometry whose position order is
+        // preserved from the remesh. distances.bin uses that exact vertex order.
+        geometry.setAttribute('distance', new THREE.BufferAttribute(distances, 1))
+        applyC2MVertexColors(
+          geometry,
+          distances,
+          result.visualization?.maxColormapDistance ?? 0.1,
+          result.visualization?.toleranceLimit ?? 0.05,
+        )
+      } else {
+        console.warn(`[C2MViewer] distances.bin 与单网格 ${vertexCount} 个顶点不匹配，已保留服务端 PLY 配色`)
+      }
+    }
 
     if (!geometry.attributes.normal) geometry.computeVertexNormals()
 
@@ -1575,10 +1670,8 @@ async function loadC2MModel() {
     const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
     geometry.translate(-center.x, -center.y, -center.z)
 
-    const material = new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshBasicMaterial({
       vertexColors: !!geometry.attributes.color,
-      roughness: 0.45,
-      metalness: 0.1,
       side: THREE.DoubleSide,
       clippingPlanes: sectionEnabled ? clipPlanes : [],
     })
@@ -1689,7 +1782,7 @@ async function reload() {
     } else if (props.type === 'pointcloud' && (props.assetId || props.pointcloudAssetId)) {
       await loadPointcloudModel((props.assetId || props.pointcloudAssetId)!)
     } else if (props.type === 'c2m') {
-      await loadC2MModel()
+      await loadC2MModel(currentToken)
     } else if (props.type === 'hybrid') {
       if (props.bimAssetId) await loadBimModel(props.bimAssetId)
       const pcId = props.scanAssetId || props.pointcloudAssetId || props.assetId
@@ -2044,7 +2137,7 @@ function applyBimWorldPose(
     c2mMeshRoot.matrixAutoUpdate = true
     c2mMeshRoot.position.copy(targetPose.position)
     c2mMeshRoot.quaternion.copy(targetPose.quaternion)
-    c2mMeshRoot.scale.set(1, 1, 1)
+    c2mMeshRoot.scale.copy(targetPose.scale)
     c2mMeshRoot.updateMatrixWorld(true)
   } else {
     c2mMeshRoot.position.set(0, 0, 0)
@@ -2052,6 +2145,23 @@ function applyBimWorldPose(
     c2mMeshRoot.scale.set(1, 1, 1)
     c2mMeshRoot.updateMatrixWorld(true)
   }
+}
+
+function clearC2MResult(invalidateLoad = true) {
+  if (invalidateLoad) loadToken += 1
+  c2mPick.value = null
+  if (c2mMeshRoot && scene) {
+    scene.remove(c2mMeshRoot)
+    c2mMeshRoot.traverse((child: any) => {
+      child.geometry?.dispose?.()
+      if (Array.isArray(child.material)) child.material.forEach((material: any) => material?.dispose?.())
+      else child.material?.dispose?.()
+    })
+  }
+  c2mMeshRoot = null
+  loaded.value = false
+  statusText.value = ''
+  emit('loaded-change', false)
 }
 
 defineExpose({
@@ -2083,6 +2193,7 @@ defineExpose({
   setEdlStrength,
   getModelWorldPose,
   applyBimWorldPose,
+  clearC2MResult,
   cancelAnalysis: cancelActiveAnalysis,
   removeAnalysisVisual,
   clearAnalysis: clearAnalysisVisuals,
@@ -2094,6 +2205,14 @@ watch(
   () => {
     if (isMountedReady) reload()
   },
+)
+
+watch(
+  () => props.c2mResult,
+  () => {
+    if (isMountedReady && props.type === 'c2m') reload()
+  },
+  { deep: true },
 )
 
 watch(
@@ -2153,6 +2272,18 @@ onBeforeUnmount(() => {
 <template>
   <div class="unified-viewer-3d">
     <div ref="viewportEl" class="unified-viewer-viewport" />
+
+    <div
+      v-if="c2mPick"
+      class="c2m-pick-popover"
+      :class="c2mPick.withinTolerance ? 'is-within' : 'is-exceeded'"
+      :style="{ left: `${c2mPick.x}px`, top: `${c2mPick.y}px` }"
+      role="status"
+      aria-live="polite"
+    >
+      <strong>{{ c2mPick.deviation >= 0 ? '+' : '' }}{{ (c2mPick.deviation * 1000).toFixed(1) }} mm</strong>
+      <span>{{ c2mPick.withinTolerance ? '容差内' : '超出容差' }}</span>
+    </div>
 
     <ViewerMeasurementBadge
       v-for="badge in measurementBadges"
@@ -2226,6 +2357,36 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.c2m-pick-popover {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  gap: 2px;
+  min-width: 112px;
+  padding: 8px 10px;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 6px;
+  color: #e5edf8;
+  background: rgb(8 17 29 / 92%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 10px));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.c2m-pick-popover strong {
+  font-size: 14px;
+}
+
+.c2m-pick-popover.is-within strong {
+  color: #4ade80;
+}
+
+.c2m-pick-popover.is-exceeded strong {
+  color: #fb7185;
 }
 
 .unified-viewer-placeholder {

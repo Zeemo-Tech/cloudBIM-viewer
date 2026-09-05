@@ -20,10 +20,26 @@ export interface C2MStats {
   p90: number
   p95: number
   p99: number
-  meanAbs: number
-  rmse: number
-  p95Abs: number
-  withinToleranceRatio: number
+  meanAbs?: number
+  rmse?: number
+  p95Abs?: number
+  withinToleranceRatio?: number
+}
+
+export interface C2MVisualization {
+  maxColormapDistance: number
+  maxHistogramDistance: number
+  histogramBins: number
+  toleranceLimit: number
+  colorDistanceField?: 'raw' | 'smoothed'
+  smoothingIterations?: number
+  smoothingStrength?: number
+}
+
+export interface C2MHistogram {
+  binEdges: number[]
+  counts: number[]
+  overflowCount?: number
 }
 
 export interface C2MResult {
@@ -34,13 +50,19 @@ export interface C2MResult {
   pointsAfter: number
   meshVertexCount: number
   profile: C2MProfile
-  algorithmVersion: string
-  metricDirection: C2MMetricDirection
-  approximation: C2MApproximation | null
+  algorithmVersion?: string
+  metricDirection?: C2MMetricDirection | ''
+  approximation?: C2MApproximation | null
   stats: C2MStats
-  histogram?: { binEdges: number[]; counts: number[]; overflowCount?: number }
+  histogram?: C2MHistogram | null
+  visualization?: C2MVisualization
   diagnostics?: { scanBboxRaw?: { min: number[]; max: number[] }; scanBboxAfterTransform?: { min: number[]; max: number[] }; meshBbox?: { min: number[]; max: number[] }; bboxOverlapIoU?: number }
   coloredPlyAvailable?: boolean
+  fresh?: boolean
+  staleReason?: string
+  distancesAvailable?: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface C2MParams {
@@ -63,7 +85,23 @@ export function computeC2M(params: C2MParams) {
   return backendRequest<BackendResult<C2MResult>>('/alignments/bim/c2m', {
     method: 'POST',
     data: params,
-    timeout: 600_000,
+    timeout: 1_800_000,
+  })
+}
+
+export type C2MRecolorParams = Pick<
+  C2MVisualization,
+  | 'maxColormapDistance'
+  | 'maxHistogramDistance'
+  | 'histogramBins'
+  | 'toleranceLimit'
+> & Pick<C2MParams, 'modelScanFileId' | 'modelBimFileId'>
+
+export function recolorC2M(params: C2MRecolorParams) {
+  return backendRequest<BackendResult<C2MResult>>('/alignments/bim/c2m/recolor', {
+    method: 'POST',
+    data: params,
+    timeout: 1_800_000,
   })
 }
 
@@ -76,4 +114,17 @@ export function getLatestC2M(scanId: number, bimId: number) {
 
 export function getC2MColoredPlyUrl(scanId: number, bimId: number) {
   return normalizeBackendUrl(`/alignments/bim/c2m/colored-ply?modelScanFileId=${scanId}&modelBimFileId=${bimId}`)
+}
+
+export function getC2MDistancesUrl(scanId: number, bimId: number) {
+  return normalizeBackendUrl(`/alignments/bim/c2m/distances?modelScanFileId=${scanId}&modelBimFileId=${bimId}`)
+}
+
+/**
+ * Only a positive freshness assertion is safe to render. Older result rows are
+ * returned with `fresh: false`; responses from an older API that omit the field
+ * are also treated as unverifiable instead of silently loading stale geometry.
+ */
+export function isC2MResultFresh(result: C2MResult | null | undefined) {
+  return result?.fresh === true
 }

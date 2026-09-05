@@ -35,12 +35,24 @@ import {
 } from '@/api/backend-file'
 import { downloadRemeshResult, getMeshAlgorithms, getRemeshStatus, remeshBimAsset, type MeshAlgorithm, type RemeshStats, type RemeshStatus } from '@/api/backend-mesh'
 import { backendRequest } from '@/api/backend-http'
-import { computeC2M, getLatestC2M, getC2MColoredPlyUrl, type C2MResult } from '@/api/backend-c2m'
+import {
+  computeC2M,
+  getLatestC2M,
+  getC2MColoredPlyUrl,
+  getC2MDistancesUrl,
+  isC2MResultFresh,
+  recolorC2M,
+  type C2MResult,
+  type C2MVisualization,
+} from '@/api/backend-c2m'
+import { applyC2MVertexColors, histogramFromC2MDistances, parseC2MDistances } from '@/utils/c2mColormap'
+import { sampleC2MDeviationAtPick } from '@/utils/c2mPick'
 import { createUploadHeaders } from '@/config/upload-backend'
 import wanggeIcon from '@/assets/images/wangge.png'
 import toushiIcon from '@/assets/images/toushi.png'
 import zhengjiaoIcon from '@/assets/images/zhengjiao.png'
 import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
+import C2MHistogramLegend from '@/components/preview/C2MHistogramLegend.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisMode,
@@ -162,8 +174,17 @@ const c2mVoxelSize = ref(0.05)
 const c2mError = ref('')
 const c2mSceneLoaded = ref(false)
 const c2mSceneLoading = ref(false)
-const c2mApplied = ref(false)
+const c2mRecoloring = ref(false)
+const c2mColorRangeMm = ref(100)
+const c2mHistogramRangeMm = ref(100)
+const c2mToleranceMm = ref(50)
+const c2mHistogramBins = ref(50)
+const c2mHistogramFollowsColor = ref(true)
 let c2mSceneGroup: THREE.Group | null = null
+const c2mDistances = ref<Float32Array | null>(null)
+let c2mResultRequestId = 0
+let c2mDistancesRequestId = 0
+let c2mSceneLoadRequestId = 0
 const remeshLoading = ref(false)
 const remeshMeshLoaded = ref(false)
 const remeshRestoreAvailable = ref(false)
@@ -191,6 +212,183 @@ const meshTaskActive = computed(() =>
 const meshControlsDisabled = computed(() => meshRunning.value || meshTaskActive.value)
 const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && !!props.bimAssetId)
 const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && hasSavedAlignmentMatrix.value && meshReady.value && !c2mRunning.value))
+const c2mResultIsFresh = computed(() => isC2MResultFresh(c2mResult.value))
+const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFresh.value))
+const c2mOverlapWarning = computed(() => {
+  const overlap = c2mResult.value?.diagnostics?.bboxOverlapIoU
+  return typeof overlap === 'number' && overlap < 0.3
+})
+const c2mRequestedVisualization = computed<C2MVisualization>(() => ({
+  maxColormapDistance: c2mColorRangeMm.value / 1000,
+  maxHistogramDistance: c2mHistogramRangeMm.value / 1000,
+  histogramBins: Math.round(c2mHistogramBins.value),
+  toleranceLimit: c2mToleranceMm.value / 1000,
+}))
+const c2mSettingsDirty = computed(() => {
+  const current = c2mResult.value?.visualization
+  const requested = c2mRequestedVisualization.value
+  if (!current) return Boolean(c2mResult.value)
+  return !sameC2MValue(current.maxColormapDistance, requested.maxColormapDistance) ||
+    !sameC2MValue(current.maxHistogramDistance, requested.maxHistogramDistance) ||
+    current.histogramBins !== requested.histogramBins ||
+    !sameC2MValue(current.toleranceLimit, requested.toleranceLimit)
+})
+const canRecolorC2M = computed(() => Boolean(
+  canUseC2MResult.value &&
+  c2mResult.value?.distancesAvailable !== false &&
+  c2mSettingsDirty.value &&
+  !c2mRunning.value &&
+  !c2mRecoloring.value,
+))
+const c2mDisplayResult = computed<C2MResult | null>(() => {
+  const result = c2mResult.value
+  const distances = c2mDistances.value
+  if (!result || !distances || !c2mSettingsDirty.value) return result
+  const tolerance = c2mRequestedVisualization.value.toleranceLimit
+  let withinTolerance = 0
+  distances.forEach((distance) => {
+    if (Number.isFinite(distance) && Math.abs(distance) <= tolerance) withinTolerance += 1
+  })
+  return {
+    ...result,
+    visualization: c2mRequestedVisualization.value,
+    histogram: histogramFromC2MDistances(
+      distances,
+      c2mRequestedVisualization.value.maxHistogramDistance,
+      c2mRequestedVisualization.value.histogramBins,
+    ),
+    stats: {
+      ...result.stats,
+      withinToleranceRatio: distances.length ? withinTolerance / distances.length : 0,
+    },
+  }
+})
+
+function sameC2MValue(left: number, right: number) {
+  return Math.abs(left - right) < 1e-9
+}
+
+function invalidateC2MResult(reason: string) {
+  c2mResultRequestId += 1
+  c2mDistancesRequestId += 1
+  c2mDistances.value = null
+  clearC2MScene()
+  if (c2mResult.value) {
+    c2mResult.value = {
+      ...c2mResult.value,
+      fresh: false,
+      staleReason: reason,
+    }
+  }
+}
+
+function niceC2MRangeMm(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 100
+  const exponent = 10 ** Math.floor(Math.log10(value))
+  const normalized = value / exponent
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+  return Math.max(10, Math.min(10_000, factor * exponent))
+}
+
+function c2mAutoRangeMm() {
+  const stats = c2mResult.value?.stats
+  if (!stats) return 100
+  const robustExtent = Math.max(Math.abs(stats.p99), stats.p95Abs ?? 0, 0.01) * 1000 * 1.2
+  return niceC2MRangeMm(robustExtent)
+}
+
+function c2mFullRangeMm() {
+  const stats = c2mResult.value?.stats
+  if (!stats) return 100
+  return niceC2MRangeMm(Math.max(Math.abs(stats.min), Math.abs(stats.max)) * 1000 * 1.02)
+}
+
+function setC2MColorRangeMm(value: number) {
+  c2mColorRangeMm.value = value
+  if (c2mHistogramFollowsColor.value) c2mHistogramRangeMm.value = value
+  if (c2mToleranceMm.value > value) c2mToleranceMm.value = value
+}
+
+function selectC2MRangePreset(preset: 'auto' | '50' | '100' | '200' | 'full') {
+  if (preset === 'auto') setC2MColorRangeMm(c2mAutoRangeMm())
+  else if (preset === 'full') setC2MColorRangeMm(c2mFullRangeMm())
+  else setC2MColorRangeMm(Number(preset))
+}
+
+function onC2MColorRangeChange(value: number | undefined) {
+  if (typeof value === 'number') setC2MColorRangeMm(value)
+}
+
+function onC2MHistogramFollowChange(follows: string | number | boolean) {
+  if (follows) c2mHistogramRangeMm.value = c2mColorRangeMm.value
+}
+
+function syncC2MControls(result: C2MResult) {
+  const visualization = result.visualization
+  if (!visualization) {
+    setC2MColorRangeMm(c2mAutoRangeMm())
+    return
+  }
+  c2mColorRangeMm.value = visualization.maxColormapDistance * 1000
+  c2mHistogramRangeMm.value = visualization.maxHistogramDistance * 1000
+  c2mToleranceMm.value = visualization.toleranceLimit * 1000
+  c2mHistogramBins.value = visualization.histogramBins
+  c2mHistogramFollowsColor.value = sameC2MValue(
+    visualization.maxColormapDistance,
+    visualization.maxHistogramDistance,
+  )
+}
+
+async function syncC2MDistances(result: C2MResult) {
+  const requestId = ++c2mDistancesRequestId
+  c2mDistances.value = null
+  if (
+    result.fresh === false ||
+    result.distancesAvailable === false ||
+    !props.pointcloudAssetId ||
+    !props.bimAssetId
+  ) return
+  try {
+    const buffer = await backendRequest<ArrayBuffer>(
+      getC2MDistancesUrl(props.pointcloudAssetId, props.bimAssetId),
+      { method: 'GET', responseType: 'arraybuffer' },
+    )
+    if (requestId !== c2mDistancesRequestId) return
+    const distances = parseC2MDistances(buffer, result.meshVertexCount)
+    if (!distances) {
+      console.warn(`[C2M] distances.bin 与结果声明的 ${result.meshVertexCount} 个顶点不匹配`)
+      return
+    }
+    c2mDistances.value = distances
+    previewC2MVisualization()
+  } catch (error) {
+    if (requestId === c2mDistancesRequestId) {
+      console.info('[C2M] 原始逐顶点距离暂不可用', error)
+    }
+  }
+}
+
+function previewC2MVisualization() {
+  const distances = c2mDistances.value
+  if (!distances || !c2mSceneGroup) return
+  const meshes: THREE.Mesh[] = []
+  c2mSceneGroup.traverse((child) => {
+    if (child instanceof THREE.Mesh) meshes.push(child)
+  })
+  // distances.bin is defined against one indexed remesh geometry. Do not
+  // duplicate the full array across arbitrary multi-mesh scene graphs.
+  if (meshes.length !== 1) return
+  const [mesh] = meshes
+  if (mesh.geometry.getAttribute('position')?.count !== distances.length) return
+  mesh.geometry.setAttribute('distance', new THREE.BufferAttribute(distances, 1))
+  applyC2MVertexColors(
+    mesh.geometry,
+    distances,
+    c2mRequestedVisualization.value.maxColormapDistance,
+    c2mRequestedVisualization.value.toleranceLimit,
+  )
+  requestRender()
+}
 
 function formatC2MDistance(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(4)} m` : '--'
@@ -208,14 +406,23 @@ async function runC2M() {
   }
   c2mRunning.value = true
   c2mError.value = ''
+  const resultRequestId = ++c2mResultRequestId
+  clearC2MScene()
+  c2mDistancesRequestId += 1
+  c2mDistances.value = null
   try {
     const response = await computeC2M({
       modelScanFileId: props.pointcloudAssetId,
       modelBimFileId: props.bimAssetId,
       profile: 'quick',
       voxelSize: c2mVoxelSize.value,
+      ...c2mRequestedVisualization.value,
     })
+    if (resultRequestId !== c2mResultRequestId) return
     c2mResult.value = response.data
+    syncC2MControls(response.data)
+    void syncC2MDistances(response.data)
+    if (!isC2MResultFresh(response.data)) clearC2MScene()
     ElMessage.success('Scan vs BIM 快速预估完成')
   } catch (error) {
     c2mError.value = error instanceof Error ? error.message : 'Scan vs BIM 计算失败'
@@ -226,29 +433,64 @@ async function runC2M() {
 }
 
 async function loadLatestC2M() {
-  if (!props.pointcloudAssetId || !props.bimAssetId) return
-  try {
-    const response = await getLatestC2M(props.pointcloudAssetId, props.bimAssetId)
-    c2mResult.value = response.data
-  } catch {
+  const requestId = ++c2mResultRequestId
+  if (!props.pointcloudAssetId || !props.bimAssetId) {
     c2mResult.value = null
+    c2mDistancesRequestId += 1
+    c2mDistances.value = null
+    clearC2MScene()
+    return
+  }
+  const scanId = props.pointcloudAssetId
+  const bimId = props.bimAssetId
+  try {
+    const response = await getLatestC2M(scanId, bimId)
+    if (requestId !== c2mResultRequestId) return
+    c2mResult.value = response.data
+    syncC2MControls(response.data)
+    void syncC2MDistances(response.data)
+    if (!isC2MResultFresh(response.data)) clearC2MScene()
+  } catch {
+    if (requestId !== c2mResultRequestId) return
+    c2mResult.value = null
+    c2mDistancesRequestId += 1
+    c2mDistances.value = null
+    clearC2MScene()
   }
 }
 
 async function loadC2MToScene() {
-  if (!c2mResult.value?.coloredPlyAvailable || !props.pointcloudAssetId || !props.bimAssetId || !scene) return
+  if (!canUseC2MResult.value || !c2mResult.value?.coloredPlyAvailable || !props.pointcloudAssetId || !props.bimAssetId || !scene) return
+  const requestId = ++c2mSceneLoadRequestId
+  const scanId = props.pointcloudAssetId
+  const bimId = props.bimAssetId
   c2mSceneLoading.value = true
   try {
-    const blob = await backendRequest<Blob>(getC2MColoredPlyUrl(props.pointcloudAssetId, props.bimAssetId), { method: 'GET', responseType: 'blob' })
+    const blob = await backendRequest<Blob>(getC2MColoredPlyUrl(scanId, bimId), { method: 'GET', responseType: 'blob' })
+    if (requestId !== c2mSceneLoadRequestId || !isC2MResultFresh(c2mResult.value)) return
     const objectUrl = URL.createObjectURL(blob)
     try {
       const geometry = await new PLYLoader().loadAsync(objectUrl)
+      if (requestId !== c2mSceneLoadRequestId || !isC2MResultFresh(c2mResult.value)) {
+        geometry.dispose()
+        return
+      }
       if (!geometry.attributes.position) throw new Error('C2M 着色 PLY 缺少顶点数据')
+      const distances = c2mDistances.value
+      if (distances?.length === geometry.attributes.position.count) {
+        geometry.setAttribute('distance', new THREE.BufferAttribute(distances, 1))
+        applyC2MVertexColors(
+          geometry,
+          distances,
+          c2mRequestedVisualization.value.maxColormapDistance,
+          c2mRequestedVisualization.value.toleranceLimit,
+        )
+      }
       if (!geometry.attributes.normal) geometry.computeVertexNormals()
       geometry.computeBoundingBox()
       const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3()
       geometry.translate(-center.x, -center.y, -center.z)
-      clearC2MScene()
+      clearC2MScene(false)
       const group = new THREE.Group()
       group.name = 'c2m-colored-result'
       if (bimPivot) {
@@ -266,27 +508,53 @@ async function loadC2MToScene() {
       ElMessage.success('C2M 着色结果已加载到场景')
     } finally { URL.revokeObjectURL(objectUrl) }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '加载 C2M 结果失败')
+    if (requestId === c2mSceneLoadRequestId) {
+      ElMessage.error(error instanceof Error ? error.message : '加载 C2M 结果失败')
+    }
   } finally {
-    c2mSceneLoading.value = false
+    if (requestId === c2mSceneLoadRequestId) c2mSceneLoading.value = false
   }
 }
 
-function clearC2MScene() {
+function clearC2MScene(invalidateLoad = true) {
+  if (invalidateLoad) {
+    c2mSceneLoadRequestId += 1
+    c2mSceneLoading.value = false
+  }
   if (c2mSceneGroup && scene) {
     scene.remove(c2mSceneGroup)
     disposeObject3D(c2mSceneGroup)
   }
   c2mSceneGroup = null
   c2mSceneLoaded.value = false
-  c2mApplied.value = false
   requestRender()
 }
 
-function confirmC2MApply() {
-  if (!c2mSceneLoaded.value) return
-  c2mApplied.value = true
-  ElMessage.success('C2M 结果已确认应用，当前着色结果将用于后续标注查看')
+async function applyC2MVisualization() {
+  if (!canRecolorC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
+  c2mRecoloring.value = true
+  c2mError.value = ''
+  const resultRequestId = ++c2mResultRequestId
+  const reloadScene = c2mSceneLoaded.value
+  try {
+    const response = await recolorC2M({
+      modelScanFileId: props.pointcloudAssetId,
+      modelBimFileId: props.bimAssetId,
+      ...c2mRequestedVisualization.value,
+    })
+    if (resultRequestId !== c2mResultRequestId) return
+    c2mResult.value = response.data
+    syncC2MControls(response.data)
+    void syncC2MDistances(response.data)
+    if (!isC2MResultFresh(response.data)) clearC2MScene()
+    else if (reloadScene) await loadC2MToScene()
+    ElMessage.success('C2M 配色与直方图已更新')
+  } catch (error) {
+    c2mError.value = error instanceof Error ? error.message : '应用 C2M 配色失败'
+    ElMessage.error(c2mError.value)
+  } finally {
+    c2mRecoloring.value = false
+  }
 }
 const meshStatusText = computed(() => {
   if (meshRunning.value) return '正在提交均匀化任务...'
@@ -340,6 +608,12 @@ async function refreshMeshStatus(showError = false) {
     meshStatus.value = response.data
     meshStats.value = response.data.stats || null
     meshError.value = response.data.status === 'failed' ? response.data.lastError || '网格均匀化失败' : ''
+    if (
+      (response.data.status === 'queued' || response.data.status === 'processing') &&
+      isC2MResultFresh(c2mResult.value)
+    ) {
+      invalidateC2MResult('网格均匀化任务已开始，请在完成后重新计算')
+    }
     scheduleMeshStatusPolling()
     if (
       (previousStatus === 'queued' || previousStatus === 'processing') &&
@@ -388,6 +662,7 @@ async function runMeshRemesh() {
     })
     meshStats.value = null
     meshStatus.value = { supported: true, status: response.data.status }
+    invalidateC2MResult('网格均匀化任务已开始，请在完成后重新计算')
     ElMessage.success('网格均匀化任务已进入后台队列')
     scheduleMeshStatusPolling()
   } catch (error) {
@@ -3130,6 +3405,25 @@ function getTopLevelSceneObjectFromIntersection(object: THREE.Object3D | null) {
 
 function handleViewportPointerDown(event: PointerEvent) {
   if (!viewportEl.value || !activeCamera || !raycaster || !contentGroup) return
+  if (event.shiftKey && event.button === 0 && c2mSceneGroup) {
+    const pointer = getPointerNdc(event)
+    if (pointer) {
+      raycaster.setFromCamera(pointer, activeCamera)
+      const hit = raycaster.intersectObject(c2mSceneGroup, true).find(
+        (intersection) => intersection.object instanceof THREE.Mesh,
+      )
+      if (hit?.object instanceof THREE.Mesh) {
+        const deviation = sampleC2MDeviationAtPick(hit, hit.object)
+        if (deviation !== null) {
+          const tolerance = c2mRequestedVisualization.value.toleranceLimit
+          ElMessage.info(
+            `${deviation >= 0 ? '+' : ''}${(deviation * 1000).toFixed(1)} mm · ${Math.abs(deviation) <= tolerance ? '容差内' : '超出容差'}`,
+          )
+          return
+        }
+      }
+    }
+  }
   if (analysisMode.value !== 'none') {
     analysisPointerDown = { x: event.clientX, y: event.clientY }
     if (controls) controls.enabled = false
@@ -3969,6 +4263,8 @@ async function handleSaveAlignment() {
     latestAlignmentResult.value = response.data
     hasSavedAlignmentMatrix.value = true
     coarseAlignmentDirty.value = false
+    invalidateC2MResult('配准矩阵已保存，请重新计算')
+    void loadLatestC2M()
     ElMessage.success('校准结果已保存')
     console.info('[BimPointcloudAlign] save alignment success')
     return true
@@ -4090,6 +4386,9 @@ async function runFineAlignment() {
     })
     fineAlignResult.value = response.data
     const result = response.data
+    if (result.appliedFineResult) {
+      invalidateC2MResult('精细化配准已应用，请重新计算')
+    }
     const current = latestAlignmentResult.value
     const preview: BimAlignmentResult = {
       modelId: current?.modelId ?? 0,
@@ -4433,6 +4732,20 @@ watch(transformMode, () => {
   setTransformMode(transformMode.value)
 })
 
+watch(coarseAlignmentDirty, (dirty) => {
+  if (dirty && isC2MResultFresh(c2mResult.value)) {
+    invalidateC2MResult('配准变换存在未保存修改，请保存后重新计算')
+  }
+})
+
+watch([c2mColorRangeMm, c2mToleranceMm], ([colorRange]) => {
+  if (c2mHistogramFollowsColor.value && c2mHistogramRangeMm.value !== colorRange) {
+    c2mHistogramRangeMm.value = colorRange
+  }
+  if (c2mToleranceMm.value > colorRange) c2mToleranceMm.value = colorRange
+  previewC2MVisualization()
+})
+
 onMounted(async () => {
   syncPositionStepPreset()
   syncRotationStepPreset()
@@ -4453,6 +4766,8 @@ onBeforeUnmount(() => {
   clearPointcloudColorSaveTimer()
   clearLoadedRemeshMesh()
   clearC2MScene()
+  c2mDistancesRequestId += 1
+  c2mDistances.value = null
   pointcloudRootReady = false
   loggedSavedAlignmentKey = ''
   endClipDrag()
@@ -5045,21 +5360,94 @@ onBeforeUnmount(() => {
             <el-input-number v-model="c2mVoxelSize" :min="0.01" :max="1" :step="0.01" :precision="3" size="small" :disabled="!canRunC2M" />
           </div>
           <el-button type="primary" size="small" style="width: 100%" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">开始快速预估</el-button>
+          <div class="c2m-range-presets" role="group" aria-label="C2M 配色色域预设，单位毫米">
+            <el-button size="small" aria-label="使用自动稳健范围" @click="selectC2MRangePreset('auto')">自动</el-button>
+            <el-button size="small" aria-label="配色色域正负 50 毫米" @click="selectC2MRangePreset('50')">±50</el-button>
+            <el-button size="small" aria-label="配色色域正负 100 毫米" @click="selectC2MRangePreset('100')">±100</el-button>
+            <el-button size="small" aria-label="配色色域正负 200 毫米" @click="selectC2MRangePreset('200')">±200</el-button>
+            <el-button size="small" aria-label="扩展到结果的完整偏差范围" @click="selectC2MRangePreset('full')">全范围</el-button>
+          </div>
+          <div class="c2m-visualization-controls">
+            <div class="control-row">
+              <span class="label">配色色域 C (mm)</span>
+              <el-input-number
+                v-model="c2mColorRangeMm"
+                :min="10"
+                :max="10000"
+                :step="10"
+                :precision="0"
+                size="small"
+                aria-label="配色色域半宽，单位毫米"
+                @change="onC2MColorRangeChange"
+              />
+            </div>
+            <div class="control-row c2m-follow-row">
+              <span class="label">直方图跟随 C</span>
+              <el-switch v-model="c2mHistogramFollowsColor" size="small" aria-label="直方图范围跟随配色色域" @change="onC2MHistogramFollowChange" />
+            </div>
+            <div class="control-row">
+              <span class="label">直方图 H (mm)</span>
+              <el-input-number
+                v-model="c2mHistogramRangeMm"
+                :min="10"
+                :max="10000"
+                :step="10"
+                :precision="0"
+                size="small"
+                :disabled="c2mHistogramFollowsColor"
+                aria-label="直方图视窗半宽，单位毫米"
+              />
+            </div>
+            <div class="control-row">
+              <span class="label">工程容差 T (mm)</span>
+              <el-input-number
+                v-model="c2mToleranceMm"
+                :min="1"
+                :max="c2mColorRangeMm"
+                :step="1"
+                :precision="0"
+                size="small"
+                aria-label="工程容差半宽，单位毫米"
+              />
+            </div>
+            <div class="control-row">
+              <span class="label">直方图桶数</span>
+              <el-input-number v-model="c2mHistogramBins" :min="10" :max="200" :step="10" :precision="0" size="small" aria-label="直方图桶数" />
+            </div>
+          </div>
+          <el-button
+            size="small"
+            type="success"
+            style="width: 100%; margin-top: 8px"
+            :loading="c2mRecoloring"
+            :disabled="!canRecolorC2M"
+            @click="applyC2MVisualization"
+          >
+            {{ c2mSettingsDirty ? '应用配色与分布' : '当前设置已应用' }}
+          </el-button>
           <div class="c2m-actions">
-            <el-button size="small" :disabled="!c2mResult?.coloredPlyAvailable || c2mRunning || c2mSceneLoading" :loading="c2mSceneLoading" @click="loadC2MToScene">加载到场景</el-button>
+            <el-button size="small" :disabled="!canUseC2MResult || !c2mResult?.coloredPlyAvailable || c2mRunning || c2mSceneLoading || c2mRecoloring" :loading="c2mSceneLoading" @click="loadC2MToScene">加载到场景</el-button>
             <el-button size="small" :disabled="!c2mSceneLoaded" @click="clearC2MScene">清空场景</el-button>
-            <el-button size="small" type="success" :disabled="!c2mSceneLoaded" @click="confirmC2MApply">{{ c2mApplied ? '已确认应用' : '确认应用' }}</el-button>
           </div>
           <div v-if="c2mError" class="mesh-remesh-error">{{ c2mError }}</div>
+          <div v-if="c2mResult && !c2mResultIsFresh" class="c2m-result-warning c2m-result-warning--stale" role="alert">
+            此结果已过期，不能加载或重新着色。{{ c2mResult.staleReason || '配准或网格输入已发生变化，请重新计算。' }}
+          </div>
+          <div v-if="c2mOverlapWarning" class="c2m-result-warning" role="status">
+            BBox 重叠度低于 30%，当前配准可能偏离，请先检查模型位置再判断偏差结果。
+          </div>
           <div v-if="c2mResult" class="c2m-result-summary">
             <div>结果档位：{{ c2mResult.profile === 'reference' ? 'Reference 高精度' : '快速预估（非正式 Reference）' }}</div>
+            <div>测量方向：{{ c2mResult.metricDirection === 'scan-points-to-mesh-triangles' ? 'Scan 点 → BIM 三角面' : 'BIM 网格顶点 → Scan 最近点' }}</div>
             <div>点云降采样：{{ c2mResult.pointsBefore.toLocaleString() }} → {{ c2mResult.pointsAfter.toLocaleString() }}</div>
             <div>Min / Max：{{ c2mResult.stats.min.toFixed(4) }} m / {{ c2mResult.stats.max.toFixed(4) }} m</div>
             <div>Mean / P95：{{ c2mResult.stats.mean.toFixed(4) }} m / {{ c2mResult.stats.p95.toFixed(4) }} m</div>
             <div>MeanAbs / RMSE：{{ formatC2MDistance(c2mResult.stats.meanAbs) }} / {{ formatC2MDistance(c2mResult.stats.rmse) }}</div>
-            <div>P95Abs / 容差内：{{ formatC2MDistance(c2mResult.stats.p95Abs) }} / {{ formatC2MPercentage(c2mResult.stats.withinToleranceRatio) }}</div>
+            <div>P95Abs / 容差内：{{ formatC2MDistance(c2mResult.stats.p95Abs) }} / {{ formatC2MPercentage(c2mDisplayResult?.stats.withinToleranceRatio) }}</div>
             <div v-if="c2mResult.diagnostics?.bboxOverlapIoU !== undefined">BBox 重叠度：{{ (c2mResult.diagnostics.bboxOverlapIoU * 100).toFixed(1) }}%</div>
           </div>
+          <div v-if="c2mSceneLoaded && c2mDistances" class="c2m-pick-hint">按住 Shift 单击着色网格，可读取该位置的插值偏差。</div>
+          <C2MHistogramLegend v-if="c2mDisplayResult" class="c2m-result-histogram" :result="c2mDisplayResult" compact />
         </div>
        
 

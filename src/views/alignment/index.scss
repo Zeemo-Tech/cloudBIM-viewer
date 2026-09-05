@@ -355,6 +355,81 @@
   line-height: 1.7;
 }
 
+.c2m-pick-hint {
+  margin-top: 8px;
+  color: rgba(214, 228, 248, 0.68);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.c2m-result-histogram {
+  margin-top: 8px;
+}
+
+.c2m-range-presets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+
+  .el-button {
+    min-width: 0;
+    margin-left: 0;
+    padding-inline: 4px;
+  }
+}
+
+.c2m-visualization-controls {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+  .control-row {
+    min-width: 0;
+  }
+
+  .label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .el-input-number {
+    width: 112px;
+    min-width: 96px;
+  }
+}
+
+.c2m-follow-row {
+  min-height: 28px;
+}
+
+.c2m-result-warning {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(230, 162, 60, 0.42);
+  color: #f3d19e;
+  background: rgba(230, 162, 60, 0.12);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.c2m-result-warning--stale {
+  border-color: rgba(245, 108, 108, 0.5);
+  color: #fab6b6;
+  background: rgba(245, 108, 108, 0.13);
+}
+
+@media (max-width: 720px) {
+  .c2m-range-presets {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .c2m-visualization-controls .el-input-number {
+    width: 104px;
+    min-width: 88px;
+  }
+}
+
 .c2m-actions {
   display: flex;
   flex-wrap: wrap;

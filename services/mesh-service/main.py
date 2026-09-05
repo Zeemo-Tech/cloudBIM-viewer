@@ -22,7 +22,7 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from functools import wraps
-from typing import Any
+from typing import Annotated, Any, Callable, Literal
 
 import numpy as np
 
@@ -30,7 +30,7 @@ import pymeshlab
 import trimesh
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from algorithms import ALGORITHM_REGISTRY
 
@@ -242,31 +242,44 @@ def _cleanup_task(work_dir: str):
 
 # ── C2M (Cloud-to-Mesh Distance) ───────────────────────────────────────
 
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+
+
 class C2MParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     profile: str = "quick"
-    voxel_size: float = 0.05
-    max_colormap_distance: float = 0.10
-    max_histogram_distance: float = 1.0
-    histogram_bins: int = 50
+    voxel_size: FiniteFloat = Field(default=0.05, ge=0.001, le=5.0)
+    max_colormap_distance: FiniteFloat = Field(default=0.10, ge=0.001, le=10.0)
+    max_histogram_distance: FiniteFloat = Field(default=0.10, ge=0.001, le=10.0)
+    histogram_bins: int = Field(default=50, ge=10, le=200)
     # 合格界限：容差上下限（±X），青/黄颜色出现在此处
-    tolerance_limit: float = 0.05
-    # 可视化平滑参数：用 Laplacian 平滑消除细密网格引起的高频色斑
-    # 原始距离仍写入 .bin，平滑仅影响着色用的 colored PLY
-    smoothing_iterations: int = 5
-    smoothing_strength: float = 0.5
-    # 法向量约束参数：kNN 候选 + 方向筛选
-    knn_k: int = 8
-    normal_constraint_enabled: bool = False
+    tolerance_limit: FiniteFloat = Field(default=0.05, ge=0.0001, le=10.0)
+    # 当前对外契约统一使用 raw distances 做统计、直方图和着色。
+    # 保留字段是为了与 Go 代理兼容；在定义可复核 benchmark 前不开放平滑。
+    smoothing_iterations: Literal[0] = 0
+    smoothing_strength: Literal[0.5] = 0.5
+    # 法向约束的符号语义尚未完成 benchmark，因此仅保留兼容字段与安全默认。
+    knn_k: int = Field(default=8, ge=1, le=64)
+    normal_constraint_enabled: Literal[False] = False
     normal_half_space_only: bool = True
-    normal_max_angle_deg: float = 75.0
-    normal_fallback_mode: str = "nearest"
+    normal_max_angle_deg: FiniteFloat = Field(default=75.0, gt=0.0, le=180.0)
+    normal_fallback_mode: Literal["nearest"] = "nearest"
+
+    @model_validator(mode="after")
+    def validate_visualization_ranges(self):
+        if self.tolerance_limit > self.max_colormap_distance:
+            raise ValueError("tolerance_limit 不能大于 max_colormap_distance")
+        return self
 
 
 class C2MRequest(BaseModel):
-    scan_path: str
-    mesh_path: str
-    alignment_matrix: list[float]
-    params: C2MParams = C2MParams()
+    model_config = ConfigDict(extra="forbid")
+
+    scan_path: str = Field(min_length=1)
+    mesh_path: str = Field(min_length=1)
+    alignment_matrix: list[FiniteFloat] = Field(min_length=16, max_length=16)
+    params: C2MParams = Field(default_factory=C2MParams)
 
 
 C2M_OUTPUT_DIR = "/storage/c2m_results"
@@ -438,10 +451,18 @@ class C2MRecolorRequest(BaseModel):
     """重新着色请求：不重新计算距离，仅用新色彩参数生成 colored PLY。"""
     distances_path: str          # 已存储的 float32 raw distances 文件路径
     mesh_path: str               # remeshed PLY 路径（用于 Laplacian 平滑）
-    max_colormap_distance: float = 0.10
-    tolerance_limit: float = 0.05
-    smoothing_iterations: int = 5
-    smoothing_strength: float = 0.5
+    max_colormap_distance: float = Field(default=0.10, ge=0.001, le=10.0)
+    max_histogram_distance: float = Field(default=0.10, ge=0.001, le=10.0)
+    histogram_bins: int = Field(default=50, ge=10, le=200)
+    tolerance_limit: float = Field(default=0.05, ge=0.0001, le=10.0)
+    smoothing_iterations: int = Field(default=0, ge=0, le=100)
+    smoothing_strength: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_visualization_ranges(self):
+        if self.tolerance_limit > self.max_colormap_distance:
+            raise ValueError("tolerance_limit 不能大于 max_colormap_distance")
+        return self
 
 
 @app.post("/c2m/recolor")
@@ -455,6 +476,7 @@ def c2m_recolor(req: C2MRecolorRequest):
 
     from algorithms.c2m_distance import (
         colorize_mesh_by_signed_distance,
+        compute_statistics,
         smooth_vertex_distances,
     )
 
@@ -479,21 +501,29 @@ def c2m_recolor(req: C2MRecolorRequest):
                 content={"code": 400, "msg": f"distances 长度 {len(distances)} 与网格顶点数 {n_verts} 不匹配"},
             )
 
-        # 3. Laplacian 平滑（仅用于着色，原始距离不变）
+        # 3. 原始距离负责统计和直方图，确保调节容差/视窗后结果同步更新。
+        stat_result = compute_statistics(
+            distances,
+            req.max_histogram_distance,
+            req.histogram_bins,
+            tolerance=req.tolerance_limit,
+        )
+
+        # 4. Laplacian 平滑（仅用于着色，原始距离不变）
         distances_for_color = smooth_vertex_distances(
             mesh, distances,
             iterations=req.smoothing_iterations,
             strength=req.smoothing_strength,
         )
 
-        # 4. 用新参数重新着色
+        # 5. 用新参数重新着色
         colorize_mesh_by_signed_distance(
             mesh, distances_for_color,
             req.max_colormap_distance,
             req.tolerance_limit,
         )
 
-        # 5. 保存新 colored PLY
+        # 6. 保存新 colored PLY
         os.makedirs(C2M_OUTPUT_DIR, exist_ok=True)
         output_token = uuid.uuid4().hex
         colored_filename = f"colored_{output_token}.ply"
@@ -502,6 +532,16 @@ def c2m_recolor(req: C2MRecolorRequest):
         colored_size = os.path.getsize(colored_path)
 
         return {
+            **stat_result,
+            "visualization": {
+                "maxColormapDistance": req.max_colormap_distance,
+                "maxHistogramDistance": req.max_histogram_distance,
+                "histogramBins": req.histogram_bins,
+                "toleranceLimit": req.tolerance_limit,
+                "colorDistanceField": "raw" if req.smoothing_iterations == 0 else "smoothed",
+                "smoothingIterations": req.smoothing_iterations,
+                "smoothingStrength": req.smoothing_strength,
+            },
             "coloredPlyPath": colored_path,
             "coloredPlySize": colored_size,
         }

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import * as THREE from 'three'
 import UnifiedViewer3D from './UnifiedViewer3D.vue'
+import C2MHistogramLegend from './C2MHistogramLegend.vue'
+import { getLatestC2M } from '@/api/backend-c2m'
 import type { C2MResult } from '@/api/backend-c2m'
 import type { CameraPose, CameraRotation, PreviewBackgroundTheme } from './UnifiedViewer3D.vue'
 
@@ -23,11 +25,48 @@ const emit = defineEmits<{
 }>()
 
 const viewerRef = ref<InstanceType<typeof UnifiedViewer3D> | null>(null)
+const localResult = ref<C2MResult | null>(props.result ?? null)
+let resultRequestId = 0
+
+async function refreshResult() {
+  const requestId = ++resultRequestId
+  if (props.result !== undefined) {
+    localResult.value = props.result ?? null
+    return
+  }
+  if (!props.scanAssetId || !props.bimAssetId) {
+    localResult.value = null
+    return
+  }
+  try {
+    const response = await getLatestC2M(props.scanAssetId, props.bimAssetId)
+    if (requestId === resultRequestId) localResult.value = response.data
+  } catch {
+    if (requestId === resultRequestId) localResult.value = null
+  }
+}
+
+async function reload() {
+  await refreshResult()
+  await viewerRef.value?.reload()
+}
+
+function clearResult() {
+  resultRequestId += 1
+  localResult.value = null
+  viewerRef.value?.clearC2MResult()
+}
+
+watch(
+  () => [props.result, props.scanAssetId, props.bimAssetId] as const,
+  () => void refreshResult(),
+  { immediate: true },
+)
 
 defineExpose({
-  reload: () => viewerRef.value?.reload(),
-  loadResult: () => viewerRef.value?.reload(),
-  clearResult: () => viewerRef.value?.reload(),
+  reload,
+  loadResult: reload,
+  clearResult,
   resetView: () => viewerRef.value?.resetView(),
   setBackgroundTheme: (theme: PreviewBackgroundTheme) => viewerRef.value?.setBackgroundTheme(theme),
   setBackgroundColor: (color: string) => viewerRef.value?.setBackgroundColor(color),
@@ -46,15 +85,50 @@ defineExpose({
 </script>
 
 <template>
-  <UnifiedViewer3D
-    ref="viewerRef"
-    type="c2m"
-    :scan-asset-id="scanAssetId"
-    :bim-asset-id="bimAssetId"
-    :c2m-result="result"
-    :calibration="calibration"
-    :bim-world-pose="bimWorldPose"
-    @loaded-change="emit('loaded-change', $event)"
-    @camera-change="emit('camera-change', $event)"
-  />
+  <div class="c2m-result-preview">
+    <UnifiedViewer3D
+      ref="viewerRef"
+      type="c2m"
+      :scan-asset-id="scanAssetId"
+      :bim-asset-id="bimAssetId"
+      :c2m-result="localResult"
+      :calibration="calibration"
+      :bim-world-pose="bimWorldPose"
+      @loaded-change="emit('loaded-change', $event)"
+      @camera-change="emit('camera-change', $event)"
+    />
+    <C2MHistogramLegend
+      v-if="localResult"
+      class="c2m-result-preview__legend"
+      :result="localResult"
+      compact
+    />
+  </div>
 </template>
+
+<style scoped>
+.c2m-result-preview {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.c2m-result-preview__legend {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  width: auto;
+  max-width: 520px;
+}
+
+@media (max-width: 640px) {
+  .c2m-result-preview__legend {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+  }
+}
+</style>

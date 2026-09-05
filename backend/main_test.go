@@ -217,6 +217,7 @@ func TestC2MServiceResultJSONMapping(t *testing.T) {
 func TestC2MResultDataPreservesMetadataAndDefaultsLegacyProfile(t *testing.T) {
 	row := DBC2MResult{
 		ScanID: 1, BimID: 2, VoxelSize: 0.05, PointsBefore: 100, PointsAfter: 25, MeshVertexCount: 10,
+		MaxColormapDistance: 0.2, MaxHistogramDistance: 2, HistogramBins: 80, ToleranceLimit: 0.03,
 		MeanAbs: 0.03, RMSE: 0.04, P95Abs: 0.16, WithinToleranceRatio: 0.8,
 		AlgorithmVersion: "c2m-quick-v1", MetricDirection: "mesh-vertices-to-scan-points",
 		HistogramJSON: `{"counts":[1]}`, DiagnosticsJSON: `{"bboxOverlapIoU":0.5}`,
@@ -232,6 +233,12 @@ func TestC2MResultDataPreservesMetadataAndDefaultsLegacyProfile(t *testing.T) {
 		MetricDirection  string         `json:"metricDirection"`
 		Approximation    map[string]any `json:"approximation"`
 		Stats            c2mStats       `json:"stats"`
+		Visualization    struct {
+			MaxColormapDistance  float64 `json:"maxColormapDistance"`
+			MaxHistogramDistance float64 `json:"maxHistogramDistance"`
+			HistogramBins        int     `json:"histogramBins"`
+			ToleranceLimit       float64 `json:"toleranceLimit"`
+		} `json:"visualization"`
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
@@ -244,6 +251,91 @@ func TestC2MResultDataPreservesMetadataAndDefaultsLegacyProfile(t *testing.T) {
 	}
 	if decoded.Stats.MeanAbs != 0.03 || decoded.Stats.RMSE != 0.04 || decoded.Stats.P95Abs != 0.16 || decoded.Stats.WithinToleranceRatio != 0.8 {
 		t.Fatalf("result stats = %+v", decoded.Stats)
+	}
+	if decoded.Visualization.MaxColormapDistance != 0.2 || decoded.Visualization.MaxHistogramDistance != 2 || decoded.Visualization.HistogramBins != 80 || decoded.Visualization.ToleranceLimit != 0.03 {
+		t.Fatalf("visualization = %+v", decoded.Visualization)
+	}
+}
+
+func TestC2MResultDataDefaultsHistoricalVisualization(t *testing.T) {
+	data := c2mResultData(DBC2MResult{})
+	encoded, err := json.Marshal(data["visualization"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var visualization struct {
+		MaxColormapDistance  float64 `json:"maxColormapDistance"`
+		MaxHistogramDistance float64 `json:"maxHistogramDistance"`
+		HistogramBins        int     `json:"histogramBins"`
+		ToleranceLimit       float64 `json:"toleranceLimit"`
+	}
+	if err := json.Unmarshal(encoded, &visualization); err != nil {
+		t.Fatal(err)
+	}
+	if visualization.MaxColormapDistance != 0.10 || visualization.MaxHistogramDistance != 0.10 || visualization.HistogramBins != 50 || visualization.ToleranceLimit != 0.05 {
+		t.Fatalf("historical visualization = %+v", visualization)
+	}
+}
+
+func TestNormalizeC2MRequestRejectsToleranceOutsideColorRange(t *testing.T) {
+	req := c2mRequest{MaxColormapDistance: 0.05, MaxHistogramDistance: 0.1, HistogramBins: 50, ToleranceLimit: 0.06}
+	if err := normalizeC2MRequest(&req); err == nil {
+		t.Fatal("tolerance above color range was accepted")
+	}
+}
+
+func TestNormalizeC2MRequestUsesCentimeterScaleHistogramDefault(t *testing.T) {
+	req := c2mRequest{}
+	if err := normalizeC2MRequest(&req); err != nil {
+		t.Fatal(err)
+	}
+	if req.MaxHistogramDistance != 0.10 || req.HistogramBins != 50 {
+		t.Fatalf("histogram defaults = range %v bins %d", req.MaxHistogramDistance, req.HistogramBins)
+	}
+}
+
+func TestC2MInputFingerprintChangesWithInputs(t *testing.T) {
+	dir := t.TempDir()
+	scanPath := filepath.Join(dir, "scan.las")
+	meshPath := filepath.Join(dir, "mesh.ply")
+	if err := os.WriteFile(scanPath, []byte("scan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(meshPath, []byte("mesh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := c2mInputFingerprint("[1,0,0,0]", scanPath, meshPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c2mInputFingerprint("[2,0,0,0]", scanPath, meshPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("alignment matrix change did not invalidate fingerprint")
+	}
+}
+
+func TestC2MArtifactPathRejectsSymlinkEscape(t *testing.T) {
+	dataDir := t.TempDir()
+	resultsDir := filepath.Join(dataDir, "c2m_results")
+	outsideDir := t.TempDir()
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(outsideDir, "secret.bin")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkPath := filepath.Join(resultsDir, "escaped.bin")
+	if err := os.Symlink(outsidePath, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	a := app{cfg: config{DataDir: dataDir}}
+	if resolved, err := a.c2mArtifactPath(symlinkPath); err == nil {
+		t.Fatalf("symlink escape resolved to %q", resolved)
 	}
 }
 

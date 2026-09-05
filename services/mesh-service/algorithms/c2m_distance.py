@@ -431,6 +431,7 @@ def compute_statistics(
     histogram = {
         "binEdges": bin_edges.tolist(),
         "counts": counts.tolist(),
+        "overflowCount": int(np.count_nonzero((distances < -r) | (distances > r))),
     }
     return {"stats": stats, "histogram": histogram}
 
