@@ -10,13 +10,13 @@ export function buildRebarOverlay(inspection: RebarInspection): THREE.Group {
     const color = new THREE.Color(...instanceColor(instance.id))
     const paths = instance.observedSegments?.map((segment) => segment.points) ?? [instance.centerline]
     for (const points of paths) {
-    if (points.length < 2 || points.some((p) => p.length !== 3 || !p.every(Number.isFinite))) continue
-    const geometry = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p[0], p[1], p[2])))
-    const material = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true,
-      opacity: inspection.selectedId && instance.id !== inspection.selectedId ? 0.25 : 1 })
-    const line = new THREE.Line(geometry, material)
-    line.renderOrder = 9000
-    group.add(line)
+      if (points.length < 2 || points.some((p) => p.length !== 3 || !p.every(Number.isFinite))) continue
+      const geometry = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p[0], p[1], p[2])))
+      const material = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true,
+        opacity: inspection.selectedId && instance.id !== inspection.selectedId ? 0.25 : 1 })
+      const line = new THREE.Line(geometry, material)
+      line.renderOrder = 9000
+      group.add(line)
     }
     for (const inferred of instance.inferredSegments ?? []) {
       const segment = typeof inferred === 'object' && inferred !== null

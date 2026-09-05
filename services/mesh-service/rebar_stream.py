@@ -46,6 +46,7 @@ def write_raw_labels(directory: Path, context: RebarInputContext,
     directory.mkdir()
     counts = np.zeros(5, dtype=np.int64)
     total = ambiguous = 0
+    instance_counts: dict[int, int] = {}
     chunks = []
     for indices, xyz in context.iter_chunks():
         if not len(xyz):
@@ -87,8 +88,13 @@ def write_raw_labels(directory: Path, context: RebarInputContext,
         counts += np.bincount(scene, minlength=5)
         total += len(xyz)
         ambiguous += int(np.count_nonzero(flags & 2))
+        known = attrs.rebar_instance[(scene == 2) & (attrs.rebar_instance > 0) & (attrs.rebar_instance < 0xffffffff)]
+        identifiers, support = np.unique(known, return_counts=True)
+        for identifier, count in zip(identifiers, support):
+            instance_counts[int(identifier)] = instance_counts.get(int(identifier), 0) + int(count)
     manifest = dict(schema='rebar-raw-labels-v1', indexSpace='source-reader-record',
                     finitePointCount=total, ambiguousPointCount=ambiguous,
+                    instanceCount=len(instance_counts), instancePointCounts=instance_counts,
                     sceneClassCounts=dict(zip(SCENE_NAMES, map(int, counts))), chunks=chunks,
                     attributes={'source_index':'uint64', 'scene_class':'uint8', 'rebar_class':'uint8',
                                 'rebar_direction':'uint16', 'rebar_instance':'uint32', 'rebar_flags':'uint8'},

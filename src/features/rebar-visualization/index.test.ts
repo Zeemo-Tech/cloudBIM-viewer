@@ -27,5 +27,7 @@ test('v4 fixture class and known crossing instance remain distinct', () => {
   assert.deepEqual(v3Color('rebar-instance', v4, { sceneClass: 2, flags: 1, instance: 8 }), instanceColor(8))
   assert.deepEqual(v3Color('rebar-class', v4, { sceneClass: 2, flags: 2, instance: 0xffffffff }), [250/255,204/255,21/255])
   assert.ok(legendItems('rebar-class', v4).some((row) => row.label === '夹具／围挡'))
+  const aliases = { ...v4, values: { sceneClass: { ...v4.values.sceneClass, fixture_formwork: 4 } } }
+  assert.equal(legendItems('rebar-class', aliases).filter((row) => row.label === '夹具／围挡').length, 1)
   assert.notDeepEqual(v3Color('rebar-direction', v4, { sceneClass: 2, flags: 0, direction: 3 }), v3Color('rebar-direction', v4, { sceneClass: 2, flags: 0, direction: 4 }))
 })

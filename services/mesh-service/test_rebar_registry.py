@@ -39,6 +39,7 @@ class RegistryTests(unittest.TestCase):
         importlib.reload(algorithms)
         self.assertTrue(algorithms.REBAR_ALGORITHM_REGISTRY.has("geometric-v2"))
         self.assertTrue(algorithms.REBAR_ALGORITHM_REGISTRY.has("geometric-v3"))
+        self.assertTrue(algorithms.REBAR_ALGORITHM_REGISTRY.has("geometric-v4"))
 
     def test_geometric_projects_different_tile_count_by_world_segments(self):
         adapter = GeometricV2Adapter()

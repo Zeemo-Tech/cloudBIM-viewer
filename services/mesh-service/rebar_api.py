@@ -160,7 +160,7 @@ class RebarBimPriorRequest(BaseModel):
     ifc_path: str | None = Field(default=None, min_length=1, max_length=4096)
     model_path: str | None = Field(default=None, min_length=1, max_length=4096)
     metadata_path: str | None = Field(default=None, min_length=1, max_length=4096)
-    scan_to_bim: list[FiniteFloat] = Field(min_length=16, max_length=16)
+    scan_to_bim: list[Annotated[float, Field(strict=True, allow_inf_nan=False)]] = Field(min_length=16, max_length=16)
     fingerprint: str = Field(default="", max_length=128)
 
 

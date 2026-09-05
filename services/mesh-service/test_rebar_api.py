@@ -530,6 +530,12 @@ class RebarApiTests(unittest.TestCase):
         self.assertEqual(response.status_code,422)
         self.assertEqual(response.json()['errorCode'],'bim_prior_unavailable')
 
+    def test_bim_matrix_does_not_coerce_boolean_or_string_numbers(self):
+        for value in (True,'1'):
+            with self.assertRaises(ValueError):
+                RebarComputeRequest.model_validate({'point_cloud_path':'/a.las','source_tileset_path':'/s',
+                    'output_directory':'/o','bim_prior':{'scan_to_bim':[value]+[0.]*15}})
+
 
 if __name__ == "__main__":
     unittest.main()

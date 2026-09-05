@@ -1,0 +1,591 @@
+{
+  "schema": "rebar-v4-acceptance-record-v1",
+  "synthetic": [
+    {
+      "semantic": {
+        "precision": 0.9996548451117439,
+        "recall": 0.9944206008583691,
+        "fixtureLeakage": 0.0,
+        "perCase": {
+          "baseline": {
+            "recall": 0.995
+          },
+          "close_pair_16mm": {
+            "recall": 0.9966666666666667
+          },
+          "close_pair_22mm": {
+            "recall": 0.9938888888888889
+          },
+          "crossing": {
+            "recall": 1.0
+          },
+          "edge_bar": {
+            "recall": 1.0
+          },
+          "hook_180": {
+            "recall": 0.9722222222222222
+          },
+          "hook_90": {
+            "recall": 1.0
+          },
+          "inclined_45": {
+            "recall": 1.0
+          },
+          "inclined_60": {
+            "recall": 0.9766666666666667
+          }
+        },
+        "fixtureCaseLeakage": {
+          "fixture": 0.0,
+          "fixture_square_tube": 0.0
+        },
+        "sceneConfusionMatrix": [
+          [
+            894,
+            0,
+            4,
+            0,
+            2
+          ],
+          [
+            1,
+            11998,
+            0,
+            0,
+            1
+          ],
+          [
+            65,
+            0,
+            11585,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            2500
+          ]
+        ]
+      },
+      "instances": {
+        "groundTruth": 13,
+        "predicted": 13,
+        "matched": 13,
+        "missed": 0,
+        "spurious": 0,
+        "merged": 0,
+        "split": 0,
+        "iou50Recall": 1.0,
+        "iou50Precision": 1.0,
+        "perGroundTruthIoU": {
+          "1": 0.9944444444444445,
+          "2": 0.9944506104328524,
+          "3": 0.9977777777777778,
+          "4": 0.9955555555555555,
+          "5": 0.9881871876419809,
+          "6": 1.0,
+          "7": 1.0,
+          "8": 0.992,
+          "9": 0.9973333333333333,
+          "10": 0.9823788546255506,
+          "11": 0.9922394678492239,
+          "12": 0.9933333333333333,
+          "13": 0.9766666666666667
+        }
+      },
+      "hookParentConsistency": 1.0,
+      "hookRecall": 0.9886363636363636,
+      "rawCounts": {
+        "points": 27074,
+        "ambiguousExcluded": 24,
+        "rebarTruth": 11674
+      },
+      "elapsedS": 1.1952930712141097,
+      "algorithm": "geometric-v4",
+      "seed": 20260905,
+      "topArcs": true,
+      "cases": {
+        "table": 12000,
+        "baseline": 1800,
+        "close_pair_16mm": 1800,
+        "close_pair_22mm": 1800,
+        "hook_90": 1300,
+        "hook_180": 900,
+        "inclined_45": 600,
+        "inclined_60": 600,
+        "fixture_square_tube": 1500,
+        "fixture": 1000,
+        "edge_bar": 900,
+        "crossing": 1950,
+        "declared_tiny_crossing": 24,
+        "clutter": 900
+      }
+    },
+    {
+      "semantic": {
+        "precision": 0.9999134648667359,
+        "recall": 0.9918454935622317,
+        "fixtureLeakage": 0.0,
+        "perCase": {
+          "baseline": {
+            "recall": 0.9966666666666667
+          },
+          "close_pair_16mm": {
+            "recall": 0.9955555555555555
+          },
+          "close_pair_22mm": {
+            "recall": 0.995
+          },
+          "crossing": {
+            "recall": 1.0
+          },
+          "edge_bar": {
+            "recall": 0.9988888888888889
+          },
+          "hook_180": {
+            "recall": 0.9455555555555556
+          },
+          "hook_90": {
+            "recall": 0.9992307692307693
+          },
+          "inclined_45": {
+            "recall": 1.0
+          },
+          "inclined_60": {
+            "recall": 0.965
+          }
+        },
+        "fixtureCaseLeakage": {
+          "fixture": 0.0,
+          "fixture_square_tube": 0.0
+        },
+        "sceneConfusionMatrix": [
+          [
+            899,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            11998,
+            0,
+            0,
+            2
+          ],
+          [
+            95,
+            0,
+            11555,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            2499
+          ]
+        ]
+      },
+      "instances": {
+        "groundTruth": 13,
+        "predicted": 14,
+        "matched": 13,
+        "missed": 0,
+        "spurious": 1,
+        "merged": 0,
+        "split": 0,
+        "iou50Recall": 1.0,
+        "iou50Precision": 0.9285714285714286,
+        "perGroundTruthIoU": {
+          "1": 0.9977802441731409,
+          "2": 0.9944444444444445,
+          "3": 0.9955555555555555,
+          "4": 0.9955555555555555,
+          "5": 0.9327272727272727,
+          "6": 1.0,
+          "7": 0.9988888888888889,
+          "8": 0.9946666666666667,
+          "9": 0.9933333333333333,
+          "10": 0.9888888888888889,
+          "11": 0.9944444444444445,
+          "12": 0.9955555555555555,
+          "13": 0.965
+        }
+      },
+      "hookParentConsistency": 0.9725118483412323,
+      "hookRecall": 0.9772727272727273,
+      "rawCounts": {
+        "points": 27074,
+        "ambiguousExcluded": 24,
+        "rebarTruth": 11674
+      },
+      "elapsedS": 0.9148706058040261,
+      "algorithm": "geometric-v4",
+      "seed": 20260906,
+      "topArcs": true,
+      "cases": {
+        "table": 12000,
+        "baseline": 1800,
+        "close_pair_16mm": 1800,
+        "close_pair_22mm": 1800,
+        "hook_90": 1300,
+        "hook_180": 900,
+        "inclined_45": 600,
+        "inclined_60": 600,
+        "fixture_square_tube": 1500,
+        "fixture": 1000,
+        "edge_bar": 900,
+        "crossing": 1950,
+        "declared_tiny_crossing": 24,
+        "clutter": 900
+      }
+    },
+    {
+      "semantic": {
+        "precision": 0.9995683329016662,
+        "recall": 0.9938197424892704,
+        "fixtureLeakage": 0.0,
+        "perCase": {
+          "baseline": {
+            "recall": 0.9961111111111111
+          },
+          "close_pair_16mm": {
+            "recall": 0.9977777777777778
+          },
+          "close_pair_22mm": {
+            "recall": 0.9961111111111111
+          },
+          "crossing": {
+            "recall": 1.0
+          },
+          "edge_bar": {
+            "recall": 1.0
+          },
+          "hook_180": {
+            "recall": 0.9622222222222222
+          },
+          "hook_90": {
+            "recall": 1.0
+          },
+          "inclined_45": {
+            "recall": 1.0
+          },
+          "inclined_60": {
+            "recall": 0.9666666666666667
+          }
+        },
+        "fixtureCaseLeakage": {
+          "fixture": 0.0,
+          "fixture_square_tube": 0.0
+        },
+        "sceneConfusionMatrix": [
+          [
+            894,
+            0,
+            5,
+            0,
+            1
+          ],
+          [
+            1,
+            11999,
+            0,
+            0,
+            0
+          ],
+          [
+            72,
+            0,
+            11578,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            2499
+          ]
+        ]
+      },
+      "instances": {
+        "groundTruth": 13,
+        "predicted": 14,
+        "matched": 13,
+        "missed": 0,
+        "spurious": 1,
+        "merged": 0,
+        "split": 0,
+        "iou50Recall": 1.0,
+        "iou50Precision": 0.9285714285714286,
+        "perGroundTruthIoU": {
+          "1": 0.9955555555555555,
+          "2": 0.9955604883462819,
+          "3": 0.9966703662597114,
+          "4": 0.9977777777777778,
+          "5": 0.9345454545454546,
+          "6": 1.0,
+          "7": 0.9988901220865705,
+          "8": 0.9840213049267643,
+          "9": 0.9933422103861518,
+          "10": 0.9823399558498896,
+          "11": 0.9955555555555555,
+          "12": 0.9966666666666667,
+          "13": 0.9666666666666667
+        }
+      },
+      "hookParentConsistency": 0.9898892633606162,
+      "hookRecall": 0.9845454545454545,
+      "rawCounts": {
+        "points": 27074,
+        "ambiguousExcluded": 24,
+        "rebarTruth": 11674
+      },
+      "elapsedS": 0.9426455991342664,
+      "algorithm": "geometric-v4",
+      "seed": 20260907,
+      "topArcs": true,
+      "cases": {
+        "table": 12000,
+        "baseline": 1800,
+        "close_pair_16mm": 1800,
+        "close_pair_22mm": 1800,
+        "hook_90": 1300,
+        "hook_180": 900,
+        "inclined_45": 600,
+        "inclined_60": 600,
+        "fixture_square_tube": 1500,
+        "fixture": 1000,
+        "edge_bar": 900,
+        "crossing": 1950,
+        "declared_tiny_crossing": 24,
+        "clutter": 900
+      }
+    },
+    {
+      "semantic": {
+        "precision": 0.9994774884612035,
+        "recall": 0.9851502145922747,
+        "fixtureLeakage": 0.0,
+        "perCase": {
+          "baseline": {
+            "recall": 0.9977777777777778
+          },
+          "close_pair_16mm": {
+            "recall": 0.9972222222222222
+          },
+          "close_pair_22mm": {
+            "recall": 0.9938888888888889
+          },
+          "crossing": {
+            "recall": 1.0
+          },
+          "edge_bar": {
+            "recall": 1.0
+          },
+          "hook_180": {
+            "recall": 0.9966666666666667
+          },
+          "hook_90": {
+            "recall": 1.0
+          },
+          "inclined_45": {
+            "recall": 0.9516666666666667
+          },
+          "inclined_60": {
+            "recall": 0.7983333333333333
+          }
+        },
+        "fixtureCaseLeakage": {
+          "fixture": 0.0,
+          "fixture_square_tube": 0.0
+        },
+        "sceneConfusionMatrix": [
+          [
+            892,
+            0,
+            6,
+            0,
+            2
+          ],
+          [
+            1,
+            11998,
+            0,
+            0,
+            1
+          ],
+          [
+            173,
+            0,
+            11477,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            2500
+          ]
+        ]
+      },
+      "instances": {
+        "groundTruth": 13,
+        "predicted": 14,
+        "matched": 13,
+        "missed": 0,
+        "spurious": 1,
+        "merged": 0,
+        "split": 0,
+        "iou50Recall": 1.0,
+        "iou50Precision": 0.9285714285714286,
+        "perGroundTruthIoU": {
+          "1": 0.9977777777777778,
+          "2": 0.9667405764966741,
+          "3": 0.9977777777777778,
+          "4": 0.9966666666666667,
+          "5": 0.9968210717529519,
+          "6": 0.9516666666666667,
+          "7": 1.0,
+          "8": 0.976,
+          "9": 0.988,
+          "10": 0.9824945295404814,
+          "11": 0.991130820399113,
+          "12": 0.9944444444444445,
+          "13": 0.7983333333333333
+        }
+      },
+      "hookParentConsistency": 1.0,
+      "hookRecall": 0.9986363636363637,
+      "rawCounts": {
+        "points": 27074,
+        "ambiguousExcluded": 24,
+        "rebarTruth": 11674
+      },
+      "elapsedS": 0.9957539630122483,
+      "algorithm": "geometric-v4",
+      "seed": 20260905,
+      "topArcs": false,
+      "cases": {
+        "table": 12000,
+        "baseline": 1800,
+        "close_pair_16mm": 1800,
+        "close_pair_22mm": 1800,
+        "hook_90": 1300,
+        "hook_180": 900,
+        "inclined_45": 600,
+        "inclined_60": 600,
+        "fixture_square_tube": 1500,
+        "fixture": 1000,
+        "edge_bar": 900,
+        "crossing": 1950,
+        "declared_tiny_crossing": 24,
+        "clutter": 900
+      }
+    }
+  ],
+  "realScan": {
+    "annotatedGroundTruth": false,
+    "inputPoints": 9216369,
+    "elapsedS": 106.71348432311788,
+    "peakRssMiB": 680.796875,
+    "sceneClassCounts": {
+      "clutter": 687364,
+      "table": 5113834,
+      "rebar": 1904958,
+      "statisticalNoise": 0,
+      "fixture_formwork": 1510213
+    },
+    "ambiguousPointCount": 126808,
+    "candidateInstanceCount": 174,
+    "diagnostics": {
+      "detectionPointCount": 209804,
+      "tableSampleCount": 112844,
+      "featureCount": 138836,
+      "fixtureSurfaceCount": 59,
+      "linePrimitiveCount": 270,
+      "instanceCount": 174,
+      "coverageVoxelSize": 0.004725,
+      "coveragePasses": 2,
+      "sourceCoveragePointCount": 209804,
+      "fullResolutionProjectedSupportCount": 1892968,
+      "bim": {
+        "usage": "unique-association-and-observed-fragment-gaps",
+        "designCandidateCount": 56,
+        "matchedCount": 12,
+        "ambiguousCount": 101,
+        "inferredGapCount": 0,
+        "mergedFragmentCount": 0,
+        "registrationUncertainty": 0.02
+      }
+    },
+    "verification": {
+      "chunks": 93,
+      "sourceIndices": "complete 0..9216368",
+      "sha256": "all passed",
+      "candidateCSR": "all passed"
+    }
+  },
+  "liveIntegration": {
+    "elapsedS": 103.80000554723665,
+    "assetId": 5,
+    "artifactVersion": "1788606073985250036-d081d487de24",
+    "bimDiagnostics": {
+      "ambiguousCount": 96,
+      "designCandidateCount": 56,
+      "inferredGapCount": 0,
+      "matchedCount": 15,
+      "mergedFragmentCount": 0,
+      "registrationUncertainty": 0.02,
+      "usage": "unique-association-and-observed-fragment-gaps"
+    },
+    "labelManifestRoute": "passed",
+    "repeatComputeCached": true,
+    "rawCountsMatchOffline": true,
+    "browser": {
+      "centerlines": true,
+      "fixtureVisibility": true,
+      "instanceFocus": true,
+      "candidateOptions": 174,
+      "pageErrors": []
+    }
+  }
+}

@@ -84,7 +84,11 @@ export function legendItems(mode: RebarVisualizationMode, visualization: unknown
   if (metadata.schema === 'rebar-visualization-v2') {
     const scenes = metadata.values.sceneClass as Record<string, number>
     const labels: Record<string, string> = { clutter: '其他', table: '台面', rebar: '钢筋', noise: '噪声', statisticalNoise: '噪声', fixture: '夹具／围挡', fixture_formwork: '夹具／围挡' }
-    const entries = Object.entries(scenes).filter(([, id]) => typeof id === 'number').sort((a, b) => a[1] - b[1]).map(([key, id]) => ({ label: labels[key] ?? key, color: hexRgb(metadata.colors[key] ?? (id === 4 ? '#10b981' : c.clutter)) }))
+    const seen = new Set<number>()
+    const entries = Object.entries(scenes).filter(([, id]) => {
+      if (typeof id !== 'number' || seen.has(id)) return false
+      seen.add(id); return true
+    }).sort((a, b) => a[1] - b[1]).map(([key, id]) => ({ label: labels[key] ?? key, color: hexRgb(metadata.colors[key] ?? (id === 4 ? '#10b981' : c.clutter)) }))
     if (mode === 'rebar-instance') entries.push(item(`单根实例（${summary?.instanceCount ?? 0}）`, 'rebar'))
     if (mode === 'rebar-direction') entries.push(item('三维方向（不同颜色）', 'directionA'))
     entries.push(item('归属待确认', 'intersection'))

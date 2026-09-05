@@ -9,6 +9,8 @@ export interface RebarCapabilities {
   confidence: boolean
   sceneClass?: boolean
   rebarFlags?: boolean
+  rawLabels?: boolean
+  bimPrior?: boolean
 }
 
 export interface RebarVisualizationMetadata {
@@ -61,7 +63,7 @@ export interface RebarSegmentationSummary {
   directionPointCounts?: Record<string, number>
   intersectionPointCount?: number
   diagnostics?: Record<string, unknown>
-  rawSource?: { finitePointCount: number; ambiguousPointCount: number; sceneClassCounts: Record<string, number> }
+  rawSource?: { finitePointCount: number; ambiguousPointCount: number; instanceCount?: number; sceneClassCounts: Record<string, number> }
   rawLabelsPath?: string
   bimPrior?: { designBarCount: number; diagnostics: Record<string, unknown> }
 }

@@ -81,6 +81,7 @@ const modeOptions = computed<Array<{ value: PointcloudColorMode; label: string }
 
 const rebarRatio = computed(() => {
   const summary = latest.value?.summary
+  if (summary?.rawSource?.finitePointCount) return (summary.rawSource.sceneClassCounts.rebar / summary.rawSource.finitePointCount) * 100
   if (!summary?.totalPointCount) return null
   return (summary.rebarPointCount / summary.totalPointCount) * 100
 })
@@ -296,7 +297,7 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
     <div v-else-if="errorMessage" class="rebar-panel__error">{{ errorMessage }}</div>
 
     <div v-if="latest" class="rebar-panel__summary">
-      <span><strong>{{ latest.summary.instanceCount }}</strong> 个实例</span>
+      <span><strong>{{ latest.summary.rawSource?.instanceCount ?? latest.summary.instanceCount }}</strong> {{ latest.algorithm.id === 'geometric-v4' ? '个候选实例' : '个实例' }}</span>
       <span><strong>{{ latest.summary.directionCount }}</strong> 个方向</span>
       <span v-if="rebarRatio !== null"><strong>{{ rebarRatio.toFixed(1) }}%</strong> 钢筋点</span>
     </div>
@@ -314,7 +315,7 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
           <option v-for="instance in instances" :key="instance.id" :value="instance.id">钢筋 {{ instance.id }}{{ instance.designId ? ' · BIM 已关联' : '' }}</option>
         </select>
       </label>
-      <small>虚线表示设计推断，不代表扫描已观测到。</small>
+      <small>虚线表示推断连接，不代表扫描已观测到。</small>
       <small v-if="detailError">{{ detailError }}</small>
     </div>
     <label v-if="selectedAlgorithmId === 'geometric-v4' && linkedBimId" class="rebar-panel__hint">

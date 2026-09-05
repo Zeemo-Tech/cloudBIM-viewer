@@ -211,8 +211,9 @@ function updateRebarInspection(focus = false) {
     const selected = props.rebarInspection.instances.find((item) => item.id === props.rebarInspection?.selectedId)
     if (selected) {
       pointcloudWrapper.updateMatrixWorld(true)
-      const box = new THREE.Box3().setFromPoints(selected.centerline.map((p) => new THREE.Vector3(p[0], p[1], p[2]).applyMatrix4(pointcloudWrapper!.matrixWorld)))
-      fitCameraToBox(box.expandByScalar(0.03))
+      const points = selected.observedSegments?.flatMap((segment) => segment.points) ?? selected.centerline
+      const box = new THREE.Box3().setFromPoints(points.filter((p) => p.length === 3 && p.every(Number.isFinite)).map((p) => new THREE.Vector3(p[0], p[1], p[2]).applyMatrix4(pointcloudWrapper!.matrixWorld)))
+      if (!box.isEmpty()) fitCameraToBox(box.expandByScalar(0.03))
     }
   }
 }

@@ -731,7 +731,8 @@ def compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | N
                 attrs = algo.project_points(points, analysis)
                 attrs.validate(len(points))
                 rebar_total += int(np.count_nonzero((attrs.rebar_class == 1) | (attrs.rebar_class == 2)))
-                intersection_total += int(np.count_nonzero(attrs.rebar_class == 2))
+                intersection_total += int(np.count_nonzero(
+                    (attrs.rebar_flags & 1) if attrs.rebar_flags is not None else (attrs.rebar_class == 2)))
                 direction_point_counts["directionA"] += int(np.count_nonzero(attrs.rebar_direction == 1))
                 direction_point_counts["directionB"] += int(np.count_nonzero(attrs.rebar_direction == 2))
                 if attrs.scene_class is not None:

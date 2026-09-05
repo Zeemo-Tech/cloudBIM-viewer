@@ -31,6 +31,7 @@ class StreamingTests(unittest.TestCase):
             path=Path(folder)/'labels'
             summary=write_raw_labels(path,context,Algorithm(),RebarAnalysis({}))
             self.assertEqual(summary['finitePointCount'],2)
+            self.assertEqual(summary['instancePointCounts'],{17:1})
             self.assertEqual(summary['sceneClassCounts']['fixture_formwork'],1)
             manifest=json.loads((path/'manifest.json').read_text())
             with np.load(path/manifest['chunks'][0]['path'],allow_pickle=False) as labels:
