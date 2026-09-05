@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Bounded equivalence check for two geometric-v5 artifact directories.
 
-Rows are joined through a temporary on-disk SQLite index by source_index; chunk
-boundaries are deliberately ignored.  The process keeps only one NPZ chunk in
-memory at once.  SQLite payload storage trades disk for bounded RAM and is
-intentionally explicit rather than silently sampling a large artifact.
+Rows are joined by uint64 source_index using temporary sorted disk runs and a
+heap merge; chunk boundaries are deliberately ignored. Per-chunk decoding and
+external sorting bound memory without sampling the source or requiring SQLite.
 """
 from __future__ import annotations
 

@@ -1,6 +1,8 @@
 # V5 recovery, 2026-09-06
 
 This is an implementation and evidence record, not an acceptance certificate.
+The first frozen holdout run failed. V5 is not accepted or the default, and no
+recovery real-scan benchmark was started.
 
 ## Preserved baseline
 
@@ -100,7 +102,10 @@ so it cannot resolve these four bugs by choosing between different design sizes.
 
 ## Status
 
-Implementation and integrated validation are in progress. V5 is not released.
+The four reported development failures have targeted fixes and regressions.
+General V5 completion is not claimed: held-out hook identity still fails.
+Implementation commits are `932694d` and `3d2ff7c`; the latter is the frozen
+algorithm revision used for the first holdout run.
 
 Current recovery checks:
 
@@ -130,4 +135,66 @@ instances, no spurious instances, no splits and no merges. The baseline tail and
 16 mm pair have direct full-pipeline regressions, in addition to the aggregate
 gates. A three-level transfer regression covers all six candidate permutations
 and both association modes; a distinct-axis tail is required to remain separate.
-No recovery holdout or real benchmark has run yet.
+## First frozen holdout: failed
+
+Report: `.cloudbim/rebar-v5-validation/frozen-recovery-01.json`, with its adjacent
+log. The same frozen parameters and source fingerprint above were used for all
+five scenarios. The three repeated parameter scenarios passed. The two previously
+unseen seed-20261017 scenarios produced:
+
+| Holdout case | Steel P | Hook parent | IoU50 P/R | Merges | Result |
+| --- | ---: | ---: | --- | ---: | --- |
+| top | .999486 | .376183 | .80 / .923077 | 0 | FAIL |
+| full, half density | .999656 | 1 | 1 / 1 | 0 | PASS |
+
+The top case fails the unchanged hook-parent threshold .95 and IoU50 precision
+threshold .90. It reports one split and two spurious instances. This is an
+acceptance failure, not a runtime error; the CLI process returned zero, so the
+JSON `passed` field, not the shell exit status, is the physical acceptance gate.
+The entire suite has `status: complete`, `passed: false`, and no runtime errors.
+
+No algorithm or parameter changes were made after seeing the held-out results.
+The source fingerprint was recomputed after the run and matched exactly. This
+seed is now seen validation evidence, not a fresh holdout for future tuning.
+
+## Real and integration boundaries
+
+- The raw LAS SHA-256 still equals the fixed-region document's source hash:
+  `eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52`.
+  This is source identity verification, not real segmentation validation.
+- No new 9,216,369-point benchmark, real ROI artifact or two-layout real artifact
+  comparison was run. The synthetic gate failed before that stage. The 900 s /
+  2 GiB targets therefore remain unverified; older failed timings are unchanged.
+- Backend lifecycle/authentication/atomic-publication tests passed in the Go
+  suite, and Python artifact/API tests passed in the 198-test suite. These do
+  not establish a successful authenticated full-asset browser workflow.
+- The managed development stack was used for the browser fixtures and then
+  stopped with `scripts/cloudbim-dev.sh stop`; status confirmed all services
+  stopped. No isolated integrated-stack services were started manually.
+- The comparison CLI uses external sorting, not SQLite. Its six tests passed
+  using the project Python 3.11 environment. The environment's optional SQLite
+  extension warning does not affect this tool.
+
+## Next safe work
+
+1. Develop general hook-continuity evidence on independent development fixtures;
+   do not change gates, widen association tolerances, or use seed 20261017 to
+   fit parameters. Predeclare a new, unseen holdout before another acceptance
+   attempt. Preserve this failed report rather than replacing it with a rerun.
+2. Treat IFC assistance as a separate optional capability requiring verified
+   scan registration and unique local design correspondence, as described above.
+3. Only after frozen synthetic acceptance succeeds, run the immutable real
+   benchmark command in the original handoff. Use a new directory and a new
+   sibling performance-report filename; no successful asset latest is replaced.
+4. Generate the seven fixed ROI panels with `scripts/rebar-v5-review.py`. Verify
+   source SHA externally and require `labelledSamplePointCount == samplePointCount`
+   for every region: the current renderer reports missing labels but would draw
+   them as unknown. ROI names and algorithm overlays are not human truth.
+5. Produce a second real artifact with only reader chunk size changed and use
+   `scripts/rebar-v5-compare.py FIRST SECOND --output REPORT.json`; then complete
+   authenticated asset-page review. Do not switch defaults before all gates pass.
+
+Three subagents were reused: Sol/high for read-only planning and consequential
+review; Terra/medium for ownership investigation/implementation; Terra/medium
+for fixture/projection implementation and tool readiness. Root integrated,
+reviewed the combined diff, ran final checks and recorded the failed acceptance.

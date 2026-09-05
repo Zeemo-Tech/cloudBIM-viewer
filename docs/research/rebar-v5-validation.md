@@ -6,6 +6,12 @@ projection and its finite centreline intersections separately. It does not turn
 an intersection into a point classification or treat algorithm output as human
 truth.
 
+Latest recorded recovery (2026-09-06): all three development scenarios passed,
+but the first frozen holdout suite failed. `holdout-top` has hook-parent
+consistency .376183 (< .95) and IoU50 precision .80 (< .90); the other holdout
+passed. V5 is not accepted. See [the recovery record](rebar-v5-recovery-2026-09-06.md)
+for the frozen fingerprint, commands, evidence and real-performance boundaries.
+
 Run the parameter scenarios while iterating on the algorithm:
 
 ```bash
