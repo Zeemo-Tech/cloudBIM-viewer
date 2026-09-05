@@ -25,6 +25,7 @@ type RebarAlgorithmDescriptor struct {
 	InputOptionSchema map[string]any `json:"inputOptionSchema,omitempty"`
 	UIHints           map[string]any `json:"uiHints,omitempty"`
 	Capabilities      map[string]any `json:"capabilities"`
+	Visualization     any            `json:"visualization,omitempty"`
 }
 type RebarProviderError struct {
 	Code       string
@@ -56,6 +57,7 @@ type RebarArtifactManifest struct {
 	InputOptions        any    `json:"inputOptions"`
 	EffectiveParameters any    `json:"effectiveParameters"`
 	Summary             any    `json:"summary"`
+	Visualization       any    `json:"visualization,omitempty"`
 	ResultPath          string `json:"resultPath"`
 	TilesetPath         string `json:"tilesetPath"`
 	ManifestPath        string `json:"manifestPath"`

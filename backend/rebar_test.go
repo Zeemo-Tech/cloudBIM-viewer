@@ -27,13 +27,17 @@ func validRebarManifest() RebarArtifactManifest {
 	return m
 }
 
-type fakeRebarProvider struct{ calls int }
+type fakeRebarProvider struct {
+	calls   int
+	request RebarComputeRequest
+}
 
 func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDescriptor, error) {
-	return []RebarAlgorithmDescriptor{{ID: "geometric-v2", Version: "1", Capabilities: map[string]any{}}}, nil
+	return []RebarAlgorithmDescriptor{{ID: "geometric-v3", Version: "1", Capabilities: map[string]any{}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}}, nil
 }
 func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (RebarArtifactManifest, error) {
 	p.calls++
+	p.request = r
 	if err := os.MkdirAll(filepath.Join(r.OutputDirectory, "tiles"), 0755); err != nil {
 		return RebarArtifactManifest{}, err
 	}
@@ -52,11 +56,12 @@ func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (R
 	m.Schema = "rebar-artifact-manifest-v1"
 	m.ArtifactVersion = r.ArtifactVersion
 	m.AnalysisSchema = "rebar-analysis-v1"
-	m.Algorithm.ID, m.Algorithm.Version = "geometric-v2", "1"
+	m.Algorithm.ID, m.Algorithm.Version = "geometric-v3", "1"
 	m.Capabilities = map[string]any{}
 	m.InputOptions = map[string]any{}
 	m.EffectiveParameters = map[string]any{}
 	m.Summary = map[string]any{}
+	m.Visualization = map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}
 	m.ResultPath = "result.json"
 	m.TilesetPath = "tiles/tileset.json"
 	m.ManifestPath = "manifest.json"
@@ -116,13 +121,17 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	if w.Code != 200 || fake.calls != 1 || !bytes.Contains(w.Body.Bytes(), []byte(`"cached":false`)) {
 		t.Fatalf("first=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
 	}
+	if fake.request.Algorithm != "geometric-v3" || !bytes.Contains(w.Body.Bytes(), []byte(`"visualization"`)) {
+		t.Fatalf("default/visualization=%q %s", fake.request.Algorithm, w.Body.String())
+	}
 	var row DBAssetDerivative
 	if err = db.Where("asset_id=? AND kind=?", 1, rebarKind).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
 	first := row.Version
 	w = post(false)
-	if w.Code != 200 || fake.calls != 1 || !bytes.Contains(w.Body.Bytes(), []byte(`"cached":true`)) {
+	if w.Code != 200 || fake.calls != 1 || !bytes.Contains(w.Body.Bytes(), []byte(`"cached":true`)) ||
+		!bytes.Contains(w.Body.Bytes(), []byte(`"visualization"`)) {
 		t.Fatalf("cache=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
 	}
 	w = post(true)
@@ -137,7 +146,8 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	}
 	c, w := rebarContext(http.MethodGet, "/assets/1/rebar-segmentation/latest", "", 7)
 	a.rebarLatest(c)
-	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(row.Version)) {
+	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(row.Version)) ||
+		!bytes.Contains(w.Body.Bytes(), []byte(`"visualization"`)) {
 		t.Fatalf("latest=%d %s", w.Code, w.Body.String())
 	}
 	c, w = rebarContext(http.MethodGet, "/assets/1/rebar-segmentation/versions/"+row.Version+"/result", "", 7)
@@ -205,6 +215,36 @@ func TestRebarManifestRequiresContainedCanonicalTileset(t *testing.T) {
 	}
 }
 
+func TestRebarManifestAcceptsHistoricalAndVisualizationMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tiles"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"tiles/tileset.json", "result.json"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, visualization := range []any{nil, map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}} {
+		m := validRebarManifest()
+		m.Visualization = visualization
+		for range 4 {
+			raw, _ := json.Marshal(m)
+			m.ByteSize = int64(4 + len(raw))
+		}
+		raw, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(root, "manifest.json"), raw, 0644); err != nil {
+			t.Fatal(err)
+		}
+		m.ContentHash = hashBytes([]byte("result.json\x00{}tiles/tileset.json\x00{}"))
+		raw, _ = json.Marshal(m)
+		_ = os.WriteFile(filepath.Join(root, "manifest.json"), raw, 0644)
+		if _, _, err := rebarManifest(root, m); err != nil {
+			t.Fatalf("visualization=%#v: %v", visualization, err)
+		}
+	}
+}
+
 func TestRebarFormatUsesSourceNameWhenStoredSourceHasNoExtension(t *testing.T) {
 	if got := rebarFormat(Asset{SourceName: "scan.LAZ"}); got != "laz" {
 		t.Fatalf("format = %q", got)
@@ -217,7 +257,7 @@ func TestMeshServiceRebarProviderPreservesDescriptorAndErrorContract(t *testing.
 		switch r.URL.Path {
 		case "/rebar/algorithms":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"algorithms":[{"id":"next","version":"3","capabilities":{},"inputOptionSchema":{"type":"object"}}]}`))
+			_, _ = w.Write([]byte(`{"algorithms":[{"id":"next","version":"3","capabilities":{},"visualization":{"schema":"rebar-visualization-v1","defaultMode":"rebar-class"},"inputOptionSchema":{"type":"object"}}]}`))
 		case "/rebar/compute":
 			computeCalls++
 			w.Header().Set("Content-Type", "application/json")
@@ -237,7 +277,7 @@ func TestMeshServiceRebarProviderPreservesDescriptorAndErrorContract(t *testing.
 
 	provider := MeshServiceRebarComputeProvider{BaseURL: server.URL, Client: server.Client()}
 	algorithms, err := provider.ListAlgorithms(context.Background())
-	if err != nil || len(algorithms) != 1 || algorithms[0].InputOptionSchema["type"] != "object" {
+	if err != nil || len(algorithms) != 1 || algorithms[0].InputOptionSchema["type"] != "object" || algorithms[0].Visualization == nil {
 		t.Fatalf("algorithms=%#v err=%v", algorithms, err)
 	}
 	_, err = provider.Compute(context.Background(), RebarComputeRequest{})

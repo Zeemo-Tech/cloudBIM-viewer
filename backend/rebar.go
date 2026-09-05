@@ -30,6 +30,7 @@ type rebarMetadata struct {
 	InputOptions        map[string]any `json:"inputOptions"`
 	EffectiveParameters map[string]any `json:"effectiveParameters"`
 	Summary             map[string]any `json:"summary"`
+	Visualization       any            `json:"visualization,omitempty"`
 	InputFingerprint    string         `json:"inputFingerprint"`
 	RequestFingerprint  string         `json:"requestFingerprint"`
 	ResultPath          string         `json:"resultPath"`
@@ -223,6 +224,9 @@ func (a *app) validRebarRow(asset *Asset, row DBAssetDerivative) bool {
 		!sameJSON(m.EffectiveParameters, metadata.EffectiveParameters) || !sameJSON(m.Summary, metadata.Summary) {
 		return false
 	}
+	if !sameJSON(m.Visualization, metadata.Visualization) {
+		return false
+	}
 	_, size, e := rebarManifest(root, m)
 	return e == nil && size == row.ByteSize
 }
@@ -239,7 +243,7 @@ func mapAny(v any) map[string]any {
 }
 func (a *app) rebarResponse(id int64, r DBAssetDerivative, cached bool) gin.H {
 	m, _ := decodeMeta(r)
-	return gin.H{"assetId": id, "artifactVersion": r.Version, "algorithm": m.Algorithm, "analysisSchema": m.AnalysisSchema, "capabilities": m.Capabilities, "inputOptions": m.InputOptions, "effectiveParameters": m.EffectiveParameters, "summary": m.Summary, "tilesetUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/tiles/tileset.json", id, r.Version), "resultUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/result", id, r.Version), "cached": cached, "updatedAt": r.UpdatedAt}
+	return gin.H{"assetId": id, "artifactVersion": r.Version, "algorithm": m.Algorithm, "analysisSchema": m.AnalysisSchema, "capabilities": m.Capabilities, "visualization": m.Visualization, "inputOptions": m.InputOptions, "effectiveParameters": m.EffectiveParameters, "summary": m.Summary, "tilesetUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/tiles/tileset.json", id, r.Version), "resultUrl": fmt.Sprintf("/assets/%d/rebar-segmentation/versions/%s/result", id, r.Version), "cached": cached, "updatedAt": r.UpdatedAt}
 }
 func (a *app) rebarCompute(c *gin.Context) {
 	var b struct {
@@ -261,7 +265,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 		return
 	}
 	if b.Algorithm == "" {
-		b.Algorithm = "geometric-v2"
+		b.Algorithm = "geometric-v3"
 	}
 	params, _ := canonicalJSON(b)
 	lock := a.rebarLock(asset.ID)
@@ -346,7 +350,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 		fail(c, 500, "artifact_invalid")
 		return
 	}
-	meta := rebarMetadata{AnalysisSchema: m.AnalysisSchema, Capabilities: mapAny(m.Capabilities), InputOptions: mapAny(m.InputOptions), EffectiveParameters: mapAny(m.EffectiveParameters), Summary: mapAny(m.Summary), InputFingerprint: fp, RequestFingerprint: requestFP, ResultPath: m.ResultPath}
+	meta := rebarMetadata{AnalysisSchema: m.AnalysisSchema, Capabilities: mapAny(m.Capabilities), Visualization: m.Visualization, InputOptions: mapAny(m.InputOptions), EffectiveParameters: mapAny(m.EffectiveParameters), Summary: mapAny(m.Summary), InputFingerprint: fp, RequestFingerprint: requestFP, ResultPath: m.ResultPath}
 	meta.Algorithm.ID, meta.Algorithm.Version = m.Algorithm.ID, m.Algorithm.Version
 	raw, _ := canonicalJSON(meta)
 	row := DBAssetDerivative{AssetID: asset.ID, Kind: rebarKind, Format: "3dtiles", Status: "ready", RelativePath: filepath.Join("derivatives", rebarKind, version), EntryPath: entry, Version: version, ContentHash: m.ContentHash, ByteSize: size, ParamsJSON: params, MetadataJSON: raw}
