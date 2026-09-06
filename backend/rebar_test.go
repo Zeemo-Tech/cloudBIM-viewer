@@ -31,6 +31,7 @@ type fakeRebarProvider struct {
 	calls             int
 	request           RebarComputeRequest
 	descriptorVersion string
+	computeErr        error
 }
 
 func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDescriptor, error) {
@@ -46,6 +47,9 @@ func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDes
 func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (RebarArtifactManifest, error) {
 	p.calls++
 	p.request = r
+	if p.computeErr != nil {
+		return RebarArtifactManifest{}, p.computeErr
+	}
 	if err := os.MkdirAll(filepath.Join(r.OutputDirectory, "tiles"), 0755); err != nil {
 		return RebarArtifactManifest{}, err
 	}
@@ -255,8 +259,8 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	if w := post(`{}`); w.Code != 200 || fake.calls != 1 {
 		t.Fatalf("defaults=%d %s", w.Code, w.Body.String())
 	}
-	if fake.request.Algorithm != "geometric-v3" {
-		t.Fatalf("unaccepted V5 became default: %q", fake.request.Algorithm)
+	if fake.request.Algorithm != "geometric-v5" {
+		t.Fatalf("V5 was not the default: %q", fake.request.Algorithm)
 	}
 	if got := fake.request.Parameters["radius"]; got != float64(0.02) {
 		t.Fatalf("parameter defaults were not sent: %#v", fake.request.Parameters)
@@ -270,6 +274,10 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	}
 	if w := post(`{"algorithm":"geometric-v5","bimPrior":{"bimAssetId":999}}`); w.Code != 422 || fake.calls != 2 || !bytes.Contains(w.Body.Bytes(), []byte("selected_algorithm_does_not_support_bim")) {
 		t.Fatalf("v5 BIM=%d %s", w.Code, w.Body.String())
+	}
+	fake.computeErr = &RebarProviderError{Code: "resource_limit_exceeded", Status: http.StatusUnprocessableEntity}
+	if w := post(`{"parameters":{"radius":0.03}}`); w.Code != 422 || !bytes.Contains(w.Body.Bytes(), []byte("resource_limit_exceeded")) {
+		t.Fatalf("resource limit=%d %s", w.Code, w.Body.String())
 	}
 }
 
@@ -364,7 +372,7 @@ func TestMeshServiceRebarProviderPreservesDescriptorAndErrorContract(t *testing.
 				return
 			}
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			_, _ = w.Write([]byte(`{"errorCode":"artifact_invalid"}`))
+			_, _ = w.Write([]byte(`{"errorCode":"resource_limit_exceeded"}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -382,7 +390,7 @@ func TestMeshServiceRebarProviderPreservesDescriptorAndErrorContract(t *testing.
 		t.Fatalf("provider error=%#v", err)
 	}
 	_, err = provider.Compute(context.Background(), RebarComputeRequest{})
-	if !errors.As(err, &providerErr) || providerErr.Code != "artifact_invalid" || providerErr.Status != http.StatusUnprocessableEntity {
-		t.Fatalf("artifact error=%#v", err)
+	if !errors.As(err, &providerErr) || providerErr.Code != "resource_limit_exceeded" || providerErr.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("resource limit error=%#v", err)
 	}
 }

@@ -8,6 +8,10 @@ import numpy as np
 RECORD = np.dtype([("source_index", "<u8"), ("xyz", "<f8", (3,))])
 
 
+class SpatialBudgetExceeded(ValueError):
+    """Complete raw support cannot be materialized within the spatial budget."""
+
+
 class SpatialStore:
     def __init__(self, directory, params):
         self.directory = Path(directory)
@@ -79,7 +83,7 @@ class SpatialStore:
                 selected = np.asarray(rows[mask])
                 count += len(selected)
                 if count > self.p.neighbourhood_point_limit:
-                    raise ValueError("spatial neighbourhood exceeds V5 memory budget; reduce feature radii")
+                    raise SpatialBudgetExceeded("spatial neighbourhood exceeds V5 memory budget")
                 if len(selected):
                     parts.append(selected)
         if not parts:

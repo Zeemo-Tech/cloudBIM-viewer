@@ -22,6 +22,7 @@ from algorithms.rebar_segmentation import (
     InvalidPointCloudError,
     RebarSegmentationParams,
 )
+from algorithms.rebar_v5.spatial import SpatialBudgetExceeded
 from rebar_api import RebarComputeRequest, RebarParams, create_rebar_router
 from rebar_poc import (
     LoadedPointCloud,
@@ -516,7 +517,7 @@ class RebarApiTests(unittest.TestCase):
 
     def test_compute_input_options_are_normalized_and_reject_invalid_values(self):
         request = RebarComputeRequest.model_validate({"point_cloud_path":"/a.ply", "source_tileset_path":"/s", "output_directory":"/o", "input_options":{"max_input_points":8,"voxelSize":.1}})
-        self.assertEqual(request.algorithm, "geometric-v3")
+        self.assertEqual(request.algorithm, "geometric-v5")
         self.assertEqual(request.input_options, {"maxInputPoints":8,"voxelSize":.1})
         for options in ({"unknown": 1}, {"maxInputPoints": True}, {"maxInputPoints": "8"}, {"voxelSize": True}, {"voxelSize": 6}):
             with self.assertRaises(Exception):
@@ -529,6 +530,20 @@ class RebarApiTests(unittest.TestCase):
                 'output_directory':str(self.storage_root/'out'), 'algorithm':'geometric-v4'}))
         self.assertEqual(response.status_code,422)
         self.assertEqual(response.json()['errorCode'],'bim_prior_unavailable')
+
+    def test_compute_resource_limit_is_a_sanitized_422(self):
+        with mock.patch(
+            "rebar_api.compute_rebar_artifact",
+            side_effect=SpatialBudgetExceeded("SpatialStore.query exceeded 1 GiB"),
+        ):
+            response = asyncio.run(_asgi_post(self._app(), "/rebar/compute", {
+                "point_cloud_path": str(self.source),
+                "source_tileset_path": str(self.source),
+                "output_directory": str(self.storage_root / "out"),
+            }))
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["errorCode"], "resource_limit_exceeded")
+        self.assertNotIn("SpatialStore", response.json()["msg"])
 
     def test_bim_matrix_does_not_coerce_boolean_or_string_numbers(self):
         for value in (True,'1'):

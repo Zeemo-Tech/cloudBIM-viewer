@@ -1,5 +1,11 @@
 # V5 recovery, 2026-09-06
 
+Historical checkpoint: the default policy below describes the recovery at
+`53c7dcc`. The user subsequently explicitly requested V5 as the default for
+manual review. See the [provider runtime fix](rebar-v5-provider-fix-2026-09-06.md)
+for that superseding rollout and its separate verification evidence. The failed
+holdout and unverified real-performance status remain unchanged.
+
 This is an implementation and evidence record, not an acceptance certificate.
 The first frozen holdout run failed. V5 is not accepted or the default, and no
 recovery real-scan benchmark was started.

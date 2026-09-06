@@ -12,6 +12,11 @@ consistency .376183 (< .95) and IoU50 precision .80 (< .90); the other holdout
 passed. V5 is not accepted. See [the recovery record](rebar-v5-recovery-2026-09-06.md)
 for the frozen fingerprint, commands, evidence and real-performance boundaries.
 
+Later on the same day, the user explicitly requested V5 as the default for
+manual review. That rollout does not waive any acceptance gate. The subsequent
+[provider runtime fix](rebar-v5-provider-fix-2026-09-06.md) passes the three
+development scenarios; no holdout was rerun or used to tune it.
+
 Run the parameter scenarios while iterating on the algorithm:
 
 ```bash

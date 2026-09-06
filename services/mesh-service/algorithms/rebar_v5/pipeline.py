@@ -17,7 +17,7 @@ from ..rebar_base import RebarAnalysis, RebarInputContext, RebarPointAttributes
 from ..rebar_v4_geometry import build_segment_index
 from .contracts import Params, UNKNOWN, TABLE, REBAR, NOISE, FIXTURE, AMBIGUOUS, VERSION
 from .features import denoise, multiscale
-from .spatial import SpatialStore
+from .spatial import SpatialStore, SpatialBudgetExceeded
 from .scene import detect_table, table_mask, detect_fixtures, fixture_mask, refine_fixture_faces
 from .bolts import detect_bolts, bolt_mask
 from .rods import planar_bars, web_bars, distance_to_paths, finalize_instances
@@ -138,6 +138,7 @@ def prepare(context,p):
 def refine_fixture_support(runtime, plane, proposals, p):
     """Re-fit detected finite faces from coalesced bounded raw-store regions."""
     regions=[]
+    proposal_bounds={}
     for face in proposals:
         try:
             origin,normal,axes,extent=(np.asarray(face[key],dtype=float) for key in ("origin","normal","axes","halfExtent"))
@@ -146,6 +147,7 @@ def refine_fixture_support(runtime, plane, proposals, p):
         if axes.shape != (2,3) or extent.shape != (2,) or not np.isfinite(np.r_[origin,normal,axes.ravel(),extent]).all():continue
         reach=np.abs(axes).T@extent+np.abs(normal)*(p.fixture_surface_distance+p.fixture_offset_gap)
         lo,hi=origin-reach,origin+reach
+        proposal_bounds[id(face)]=(lo,hi)
         overlaps=[index for index,(lower,upper,_) in enumerate(regions) if np.all(lo<=upper)&np.all(hi>=lower)]
         if not overlaps:
             regions.append([lo,hi,[face]]);continue
@@ -157,7 +159,36 @@ def refine_fixture_support(runtime, plane, proposals, p):
         regions.append([lower,upper,grouped])
     refined=[]
     for lo,hi,faces in regions:
-        records=runtime.store.query(lo,hi)
+        try:
+            records=runtime.store.query(lo,hi)
+        except SpatialBudgetExceeded:
+            # Keep the fitter's physical context; only raw ownership is tiled.
+            halo=max(p.fixture_min_length,4*p.fixture_grid_cell,
+                     2*p.max_radius+2*p.fixture_surface_distance,
+                     2.5*p.fixture_min_width+p.fixture_surface_distance)
+            for _,core_lo,core_hi in runtime.store.cores():
+                lower,upper=np.maximum(lo,core_lo),np.minimum(hi,core_hi)
+                if np.any(lower>=upper):continue
+                support_lo,support_hi=np.maximum(lo,lower-halo),np.minimum(hi,upper+halo)
+                local_faces=[face for face in faces if
+                             np.all(proposal_bounds[id(face)][0]<support_hi) and
+                             np.all(proposal_bounds[id(face)][1]>support_lo)]
+                if not local_faces:continue
+                records=runtime.store.query(support_lo,support_hi)
+                valid=~runtime.masks(records)
+                valid&=~table_mask(records["xyz"],plane,p)
+                support=records["xyz"][valid]
+                owned=support[np.all((support>=lower)&(support<upper),axis=1)]
+                for face in refine_fixture_faces(support,local_faces,p):
+                    # Core bounds own counts, not a clip of observed grid cells.
+                    face["coreBounds"]=[lower.tolist(),upper.tolist()]
+                    evidence=owned[fixture_mask(owned,[face],p)]
+                    if not len(evidence):continue
+                    local=(evidence-np.asarray(face["origin"]))@np.asarray(face["axes"]).T
+                    face["occupiedCells"]=np.unique(np.floor(local/face["gridSize"]).astype(np.int64),axis=0).tolist()
+                    face["supportCount"]=len(evidence)
+                    refined.append(face)
+            continue
         valid=~runtime.masks(records)
         valid&=~table_mask(records["xyz"],plane,p)
         refined.extend(refine_fixture_faces(records["xyz"][valid],faces,p))

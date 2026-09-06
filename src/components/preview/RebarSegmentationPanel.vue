@@ -32,7 +32,7 @@ const emit = defineEmits<{
 }>()
 
 const algorithms = ref<RebarAlgorithmDescriptor[]>([])
-const selectedAlgorithmId = ref('geometric-v3')
+const selectedAlgorithmId = ref('geometric-v5')
 const latest = ref<RebarSegmentationResult | null>(null)
 const loading = ref(false)
 const computing = ref(false)
@@ -101,6 +101,14 @@ function errorStatus(error: unknown) {
 }
 
 function errorText(error: unknown) {
+  const data = (error as { response?: { data?: unknown } })?.response?.data
+  if (data && typeof data === 'object') {
+    const code = (data as { msg?: unknown; errorCode?: unknown }).errorCode ??
+      (data as { msg?: unknown }).msg
+    if (code === 'resource_limit_exceeded') {
+      return 'V5 完整邻域超出资源预算，本次未生成新结果'
+    }
+  }
   return error instanceof Error ? error.message : '钢筋分割请求失败'
 }
 
@@ -207,12 +215,12 @@ async function loadState() {
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []
-      if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
+      if (algorithms.value.some((item) => item.id === 'geometric-v5')) {
+        selectedAlgorithmId.value = 'geometric-v5'
+      } else if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
-      } else if (algorithms.value.some((item) => item.id === 'geometric-v3')) {
-        selectedAlgorithmId.value = 'geometric-v3'
       } else if (!algorithms.value.some((item) => item.id === selectedAlgorithmId.value)) {
-        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v3'
+        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v5'
       }
       initializeParameters()
       if (persisted) applyPersistedSettings(persisted)

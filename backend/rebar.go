@@ -346,7 +346,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 		return
 	}
 	if b.Algorithm == "" {
-		b.Algorithm = "geometric-v3"
+		b.Algorithm = "geometric-v5"
 	}
 	descriptors, err := a.rebarProvider.ListAlgorithms(c.Request.Context())
 	if err != nil {
@@ -449,7 +449,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 					c.Header("Retry-After", pe.RetryAfter)
 				}
 				fail(c, 409, code)
-			} else if code == "invalid_parameters" || code == "unsupported_input" || code == "insufficient_evidence" || code == "bim_prior_unavailable" {
+			} else if code == "invalid_parameters" || code == "unsupported_input" || code == "insufficient_evidence" || code == "bim_prior_unavailable" || code == "resource_limit_exceeded" {
 				fail(c, 422, code)
 			} else if code == "artifact_invalid" {
 				fail(c, 502, code)

@@ -27,6 +27,7 @@ from algorithms.rebar_segmentation import (
     RebarSegmentationParams,
 )
 from algorithms.rebar_base import RebarAlgorithmError
+from algorithms.rebar_v5.spatial import SpatialBudgetExceeded
 from algorithms import REBAR_ALGORITHM_REGISTRY
 from rebar_poc import (
     DEFAULT_MAX_INPUT_POINTS,
@@ -172,7 +173,7 @@ class RebarComputeRequest(BaseModel):
     source_tileset_path: str = Field(min_length=1, max_length=4096)
     output_directory: str = Field(min_length=1, max_length=4096)
     artifact_version: str = Field(default="1", min_length=1, max_length=128)
-    algorithm: str = Field(default="geometric-v3", min_length=1, max_length=128)
+    algorithm: str = Field(default="geometric-v5", min_length=1, max_length=128)
     input_options: dict[str, Any] = Field(default_factory=dict)
     parameters: dict[str, Any] = Field(default_factory=dict)
     bim_prior: RebarBimPriorRequest | None = None
@@ -268,6 +269,12 @@ def create_rebar_router(
             return JSONResponse(status_code=400, content={"code":400,"errorCode":"invalid_parameters","msg":str(exc)})
         except InvalidBimPriorError as exc:
             return JSONResponse(status_code=422, content={"code":422,"errorCode":"bim_prior_unavailable","msg":str(exc)})
+        except SpatialBudgetExceeded:
+            return JSONResponse(status_code=422, content={
+                "code": 422,
+                "errorCode": "resource_limit_exceeded",
+                "msg": "rebar computation exceeds the configured resource budget",
+            })
         except (PointCloudInputError, UnsupportedPointCloudFormatError) as exc:
             return JSONResponse(status_code=422, content={"code":422,"errorCode":"unsupported_input","msg":str(exc)})
         except RebarSegmentationError as exc:
