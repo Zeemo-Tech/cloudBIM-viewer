@@ -426,7 +426,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 		return
 	}
 	defer os.RemoveAll(stage)
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), rebarComputeTimeout)
 	defer cancel()
 	m, e := a.rebarProvider.Compute(ctx, RebarComputeRequest{
 		PointCloudPath: meshServicePath(a.cfg.DataDir, source, a.cfg.MeshServiceStorageDir), PointCloudFormat: rebarFormat(*asset),

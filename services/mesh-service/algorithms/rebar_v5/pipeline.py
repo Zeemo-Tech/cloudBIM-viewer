@@ -15,12 +15,14 @@ from scipy.spatial import cKDTree
 
 from ..rebar_base import RebarAnalysis, RebarInputContext, RebarPointAttributes
 from ..rebar_v4_geometry import build_segment_index
-from .contracts import Params, UNKNOWN, TABLE, REBAR, NOISE, FIXTURE, AMBIGUOUS, VERSION
+from .contracts import (Params, UNKNOWN, TABLE, REBAR, NOISE, FIXTURE, AMBIGUOUS, VERSION,
+    FIXTURE_SQUARE_TUBE, FIXTURE_PLATE, FIXTURE_BOLT, ROLE_PLANAR, ROLE_WEB)
 from .features import denoise, multiscale
 from .spatial import SpatialStore, SpatialBudgetExceeded
-from .scene import detect_table, table_mask, detect_fixtures, fixture_mask, refine_fixture_faces
+from .scene import detect_table, table_mask, detect_fixtures, fixture_mask, fixture_candidates, refine_fixture_faces
 from .bolts import detect_bolts, bolt_mask
 from .rods import planar_bars, web_bars, distance_to_paths, finalize_instances
+from .hooks import recover_terminal_hooks
 from .intersections import compute_intersections
 from .verification import verify_raw_instances
 from .ownership import merge_fragments
@@ -199,7 +201,8 @@ def projection_entries(instances,p):
     entries=[]
     for item in instances:
         entries.append({"id":item["id"],"instance":item["id"],"directionId":item.get("directionId",0),
-            "radius":item["radius"]+p.support_distance,"observedSegments":item["observedSegments"],"centerline":item["centerline"]})
+            "radius":item["radius"]+p.support_distance,"observedSegments":item["observedSegments"],"centerline":item["centerline"],
+            "role":item.get("role", "unresolved")})
     return entries
 
 
@@ -222,8 +225,9 @@ def classify(points,analysis,features=None,noise=None):
         if runtime is not None:runtime.cached_projection=index
     projected=project_surface_top2(points,index,p.support_distance)
     table=table_mask(points,details.get("plane"),p)
-    surfaces=details.get("fixture",{}).get("surfaces",[])
+    surfaces=fixture_candidates(points,details.get("fixture",{}).get("surfaces",[]),p)
     fixture=np.zeros(len(points),bool);fixture_conf=np.zeros(len(points))
+    fixture_kind=np.zeros(len(points),np.uint8)
     if features is not None:
         planar=(features["surface_planarity"]>=p.min_planarity)&features["surface_valid"].astype(bool)
         normals=np.asarray(features.get("surface_normal",np.zeros((len(points),3))),dtype=float)
@@ -241,11 +245,17 @@ def classify(points,analysis,features=None,noise=None):
         rows=np.flatnonzero(support);aligned=np.abs(normals[rows]@normal)
         evidence*=np.where(planar[rows]&normal_valid[rows],.75+.25*aligned,1.)
         # Max over complete per-face evidence is independent of face order.
+        kind={"square-tube-face":FIXTURE_SQUARE_TUBE,"plate":FIXTURE_PLATE}.get(face.get('kind'),0)
+        chosen=(evidence>fixture_conf[rows]+1e-10)|((np.abs(evidence-fixture_conf[rows])<=1e-10)&(kind>fixture_kind[rows]))
+        fixture_kind[rows[chosen]]=kind
         fixture_conf[rows]=np.maximum(fixture_conf[rows],evidence)
         fixture|=support
     for model in details.get('fixture',{}).get('bolts',[]):
         support=bolt_mask(points,[model],p)
-        fixture_conf[support]=np.maximum(fixture_conf[support],.75+.22*model.get('confidence',.7))
+        evidence=.75+.22*model.get('confidence',.7)
+        chosen=support & (evidence>=fixture_conf-1e-10)
+        fixture_kind[chosen]=FIXTURE_BOLT
+        fixture_conf[support]=np.maximum(fixture_conf[support],evidence)
         fixture|=support
     steel=projected.best_id>0
     table_conf=np.where(table,.95,0.)
@@ -264,6 +274,12 @@ def classify(points,analysis,features=None,noise=None):
     # A fitted observed axis with strong local tangent support may release an
     # erroneous planar mask; no class has unconditional priority.
     win=steel&(bar_conf>np.maximum(table_conf,fixture_conf)+.02)
+    if not p.ownership_review_enabled:
+        # Debug mode exposes the sequential masks without a later competing
+        # cylinder undoing them. Raw-support validation remains enabled.
+        scene[table]=TABLE
+        scene[fixture&~table]=FIXTURE
+        win=steel&~table&~fixture
     scene[win]=REBAR
     if noise is not None:scene[np.asarray(noise,bool)]=NOISE
     matched=scene==REBAR
@@ -278,7 +294,19 @@ def classify(points,analysis,features=None,noise=None):
     confidence[scene==UNKNOWN]=0;confidence[scene==NOISE]=1
     instance_conf=np.where(matched, np.clip(difference/p.ambiguity_margin,0,1),0).astype(np.float32)
     instance_conf[~np.isfinite(instance_conf)]=0
-    attrs=RebarPointAttributes(matched.astype(np.uint8),directions,ids,scene,flags,confidence,instance_conf)
+    fixture_kind[scene!=FIXTURE]=0
+    role=np.zeros(len(points),np.uint8)
+    entries=sorted(details['projection']['instances'], key=lambda item:item['id'])
+    if entries:
+        identifiers=np.array([item['id'] for item in entries],np.uint32)
+        roles=np.array([{'planar':ROLE_PLANAR,'web':ROLE_WEB}.get(item.get('role'),0) for item in entries],np.uint8)
+        selected=np.flatnonzero(ids>0)
+        positions=np.searchsorted(identifiers,ids[selected])
+        valid=positions<len(identifiers)
+        selected=selected[valid];positions=positions[valid]
+        valid=identifiers[positions]==ids[selected]
+        role[selected[valid]]=roles[positions[valid]]
+    attrs=RebarPointAttributes(matched.astype(np.uint8),directions,ids,scene,flags,confidence,instance_conf,fixture_kind,role)
     rows=np.flatnonzero(ambiguous)
     candidates={"point_indices":rows.astype(np.uint32),"offsets":np.arange(0,2*len(rows)+1,2,dtype=np.uint64),
                 "instance_ids":np.column_stack((projected.best_id[rows],projected.second_id[rows])).ravel().astype(np.uint32)}
@@ -295,6 +323,7 @@ def raw_chunk(ordinal,analysis):
             np.savez_compressed(path,source_index=raw["source_index"],scene_class=attrs.scene_class,
                 rebar_class=attrs.rebar_class,rebar_instance=attrs.rebar_instance,rebar_direction=attrs.rebar_direction,
                 rebar_flags=attrs.rebar_flags,class_confidence=attrs.class_confidence,instance_confidence=attrs.instance_confidence,
+                fixture_kind=attrs.fixture_kind,rebar_role=attrs.rebar_role,
                 **{"candidate_"+k:v for k,v in candidates.items()})
             runtime.label_chunks[ordinal]=path
     with np.load(runtime.label_chunks[ordinal]) as saved:
@@ -324,12 +353,13 @@ def stage_features(ordinal,raw,analysis):
     coordinates=support["xyz"]
     table=table_mask(coordinates,details.get("plane"),p)
     fixture=fixture_mask(coordinates,details.get("fixture",{}).get("surfaces",[]),p)|bolt_mask(coordinates,details.get('fixture',{}).get('bolts',[]),p)
+    core_table=table_mask(xyz,details.get("plane"),p)
+    core_fixture=fixture_mask(xyz,details.get("fixture",{}).get("surfaces",[]),p)|bolt_mask(xyz,details.get('fixture',{}).get('bolts',[]),p)
     payload={}
     for name,excluded,newly in (("table",table,table),("fixture",table|fixture,fixture)):
         if not np.any(newly&valid):continue
         near=cKDTree(coordinates[newly&valid]).query(xyz,distance_upper_bound=p.halo)[0]<p.halo
-        core_excluded=table_mask(xyz,details.get("plane"),p)
-        if name=="fixture":core_excluded|=fixture_mask(xyz,details.get("fixture",{}).get("surfaces",[]),p)|bolt_mask(xyz,details.get('fixture',{}).get('bolts',[]),p)
+        core_excluded=core_table if name=="table" else core_table|core_fixture
         rows=np.flatnonzero(near&~core_excluded&~raw["noise"].astype(bool))
         if not len(rows):continue
         updates=multiscale(coordinates[valid&~excluded],xyz[rows],p)
@@ -353,7 +383,8 @@ def transfer_labels(points,analysis):
     arrays={"rebar_class":np.zeros(len(points),np.uint8),"rebar_direction":np.zeros(len(points),np.uint16),
         "rebar_instance":np.zeros(len(points),np.uint32),"scene_class":np.zeros(len(points),np.uint8),
         "rebar_flags":np.zeros(len(points),np.uint8),"class_confidence":np.zeros(len(points),np.float32),
-        "instance_confidence":np.zeros(len(points),np.float32)}
+        "instance_confidence":np.zeros(len(points),np.float32),
+        "fixture_kind":np.zeros(len(points),np.uint8),"rebar_role":np.zeros(len(points),np.uint8)}
     candidate_rows=[];candidate_lists=[]
     keys=np.floor(points/p.block_size).astype(np.int64)
     unique,inverse=np.unique(keys,axis=0,return_inverse=True)
@@ -409,7 +440,11 @@ def transfer_labels(points,analysis):
                 arrays['rebar_flags'][row]=AMBIGUOUS
             elif arrays["scene_class"][row]==REBAR and (len(ids)>=2 or arrays["rebar_flags"][row]&AMBIGUOUS):
                 arrays["rebar_instance"][row]=0;arrays["rebar_direction"][row]=0;arrays["rebar_flags"][row]=AMBIGUOUS
+                arrays["rebar_role"][row]=0
                 if len(ids)>=2:candidate_rows.append(int(row));candidate_lists.append(sorted(ids))
+            if mixed:
+                for name in ("fixture_kind", "rebar_role"):
+                    if len(np.unique(values[name][neighbours]))>1:arrays[name][row]=0
     if candidate_rows:
         order=np.argsort(candidate_rows);candidate_lists=[candidate_lists[i] for i in order];candidate_rows=np.asarray(candidate_rows)[order]
     offsets=np.r_[0,np.cumsum([len(ids) for ids in candidate_lists])].astype(np.uint64)
@@ -514,6 +549,17 @@ def analyze(context,p):
         body=distance_to_paths(active,planar,p,protect=True)
         # Direction protects web contact observations from a horizontal tube.
         body&=np.abs(af["axis_tangent"][:,2])<=np.sin(np.deg2rad(p.planar_angle_degrees))
+        start=time.perf_counter()
+        previous_segments=[len(item['observedSegments']) for item in planar]
+        planar,hook_diagnostic=recover_terminal_hooks(active,af,p,planar,layers)
+        # Only newly observed terminal paths shield their surface from web
+        # detection. A hook's vertical arm must survive the horizontal gate.
+        hook_paths=[dict(item,observedSegments=item['observedSegments'][count:])
+                    for item,count in zip(planar,previous_segments)
+                    if len(item['observedSegments'])>count]
+        body|=distance_to_paths(active,hook_paths,p)
+        stages.append({"name":"terminal-hooks","inputPointCount":len(active),
+                       **hook_diagnostic,"elapsedS":time.perf_counter()-start})
         start=time.perf_counter();web,wdiag=web_bars(active[~body],{k:v[~body] for k,v in af.items()},p,layers,planar)
         stages.append({"name":"web-bars","inputPointCount":int((~body).sum()),"candidateCount":len(web),"elapsedS":time.perf_counter()-start,**wdiag})
         instances,connections=finalize_instances(planar+web,p)
@@ -522,42 +568,46 @@ def analyze(context,p):
               "diagnostics":{"stages":stages,"sourcePointCount":runtime.store.count,"detectionPointCount":len(points)}}
         result=RebarAnalysis(data,resources=runtime)
         start=time.perf_counter()
-        # Two bounded review passes are available only where a previous mask
-        # actually competes with observed axial evidence.
-        released=0;review_records=[]
-        early_fixture=fixture_mask(points,surfaces,p)|bolt_mask(points,bolts,p)
-        excluded=table|early_fixture
-        # Inspect contradictory axial evidence even if an early scene mask
-        # hid a whole rod and no initial instance could compete for its points.
-        probe=excluded&features["axis_valid"].astype(bool)&(features["axis_linearity"]>.65)
-        probe&=features["axis_linearity"]>features["surface_planarity"]
-        if np.count_nonzero(probe)>=p.min_primitive_votes:
-            local=cKDTree(points[probe]).query(points,distance_upper_bound=p.halo)[0]<p.halo
-            pf={k:v[local] for k,v in features.items()}
-            additional,_,_=planar_bars(points[local],pf,p)
-            additional_web,_=web_bars(points[local],pf,p,layers,additional)
-            from .rods import deduplicate_instances
-            instances,connections=finalize_instances(deduplicate_instances(instances+additional+additional_web,p),p)
-            data["instances"]=instances;data["connections"]=connections
-            data["algorithmDetails"]["projection"]["instances"]=projection_entries(instances,p);runtime.cached_projection=None
-        for iteration in range(2):
-            attrs,_=classify(points,result,features)
-            release=excluded&(attrs.scene_class==REBAR)
-            if not release.any():break
-            released+=int(release.sum());excluded[release]=False
-            near=cKDTree(points[release]).query(points,distance_upper_bound=p.halo)[0]<p.halo
-            rows=(~excluded)&near
-            local_features=multiscale(points[~excluded],points[rows],p)
-            extra,_,_=planar_bars(points[rows],local_features,p)
-            extra_web,_=web_bars(points[rows],local_features,p,layers,extra)
-            from .rods import deduplicate_instances
-            instances,connections=finalize_instances(deduplicate_instances(instances+extra+extra_web,p),p)
-            data["instances"]=instances;data["connections"]=connections
-            data["algorithmDetails"]["projection"]["instances"]=projection_entries(instances,p);runtime.cached_projection=None
-            review_records.append({"pass":iteration+1,"releasedPointCount":int(release.sum()),"tableReleaseCount":int((release&table).sum()),
-                                  "fixtureReleaseCount":int((release&early_fixture).sum()),"recheckPointCount":int(rows.sum()),"candidateCount":len(extra)+len(extra_web)})
-        stages.append({"name":"ownership-review","inputPointCount":len(points),"releasedPointCount":released,"maxPasses":2,"passes":review_records,
-                       "contradictoryMaskPointCount":int(probe.sum()),"elapsedS":time.perf_counter()-start})
+        if p.ownership_review_enabled:
+            # Two bounded review passes are available only where a previous mask
+            # actually competes with observed axial evidence.
+            released=0;review_records=[]
+            early_fixture=fixture_mask(points,surfaces,p)|bolt_mask(points,bolts,p)
+            excluded=table|early_fixture
+            # Inspect contradictory axial evidence even if an early scene mask
+            # hid a whole rod and no initial instance could compete for its points.
+            probe=excluded&features["axis_valid"].astype(bool)&(features["axis_linearity"]>.65)
+            probe&=features["axis_linearity"]>features["surface_planarity"]
+            if np.count_nonzero(probe)>=p.min_primitive_votes:
+                local=cKDTree(points[probe]).query(points,distance_upper_bound=p.halo)[0]<p.halo
+                pf={k:v[local] for k,v in features.items()}
+                additional,_,_=planar_bars(points[local],pf,p)
+                additional_web,_=web_bars(points[local],pf,p,layers,additional)
+                from .rods import deduplicate_instances
+                instances,connections=finalize_instances(deduplicate_instances(instances+additional+additional_web,p),p)
+                data["instances"]=instances;data["connections"]=connections
+                data["algorithmDetails"]["projection"]["instances"]=projection_entries(instances,p);runtime.cached_projection=None
+            for iteration in range(2):
+                attrs,_=classify(points,result,features)
+                release=excluded&(attrs.scene_class==REBAR)
+                if not release.any():break
+                released+=int(release.sum());excluded[release]=False
+                near=cKDTree(points[release]).query(points,distance_upper_bound=p.halo)[0]<p.halo
+                rows=(~excluded)&near
+                local_features=multiscale(points[~excluded],points[rows],p)
+                extra,_,_=planar_bars(points[rows],local_features,p)
+                extra_web,_=web_bars(points[rows],local_features,p,layers,extra)
+                from .rods import deduplicate_instances
+                instances,connections=finalize_instances(deduplicate_instances(instances+extra+extra_web,p),p)
+                data["instances"]=instances;data["connections"]=connections
+                data["algorithmDetails"]["projection"]["instances"]=projection_entries(instances,p);runtime.cached_projection=None
+                review_records.append({"pass":iteration+1,"releasedPointCount":int(release.sum()),"tableReleaseCount":int((release&table).sum()),
+                                      "fixtureReleaseCount":int((release&early_fixture).sum()),"recheckPointCount":int(rows.sum()),"candidateCount":len(extra)+len(extra_web)})
+            stages.append({"name":"ownership-review","enabled":True,"inputPointCount":len(points),"releasedPointCount":released,"maxPasses":2,"passes":review_records,
+                           "contradictoryMaskPointCount":int(probe.sum()),"elapsedS":time.perf_counter()-start})
+        else:
+            stages.append({"name":"ownership-review","enabled":False,"maxPasses":0,"passes":[],
+                           "releasedPointCount":0,"elapsedS":0.})
         start=time.perf_counter()
         instances,raw_diagnostic=verify_raw_instances(runtime,instances,p,preserve_association=True)
         instances=merge_fragments(instances,p)
@@ -585,6 +635,7 @@ def export_sidecars(directory,analysis):
     feature_dir=directory/"features";label_dir=directory/"labels"
     feature_dir.mkdir();label_dir.mkdir()
     feature_chunks=[];label_chunks=[];updates=[];counts=np.zeros(5,np.int64);ambiguous=0;total=0
+    fixture_counts=np.zeros(4,np.int64);role_counts=np.zeros(3,np.int64)
     feature_payload={};payload={}
     for ordinal,path in enumerate(runtime.feature_chunks):
         with np.load(path) as raw:
@@ -599,6 +650,7 @@ def export_sidecars(directory,analysis):
             payload={"source_index":ids,"scene_class":attrs.scene_class,"rebar_class":attrs.rebar_class,
                      "rebar_instance":attrs.rebar_instance,"rebar_direction":attrs.rebar_direction,"rebar_flags":attrs.rebar_flags,
                      "class_confidence":attrs.class_confidence,"instance_confidence":attrs.instance_confidence,
+                     "fixture_kind":attrs.fixture_kind,"rebar_role":attrs.rebar_role,
                      **{"candidate_"+key:value for key,value in candidates.items()}}
             np.savez_compressed(label_dir/name,**payload)
             runtime.label_chunks[ordinal]=label_dir/name
@@ -610,6 +662,8 @@ def export_sidecars(directory,analysis):
                 item={"path":name,"count":len(ids),"firstSourceIndex":int(ids.min()),"lastSourceIndex":int(ids.max()),"sha256":hashlib.sha256((folder/name).read_bytes()).hexdigest()}
                 records.append(item)
             counts+=np.bincount(attrs.scene_class,minlength=5);total+=len(ids);ambiguous+=int(np.count_nonzero(attrs.rebar_flags&AMBIGUOUS))
+            fixture_counts+=np.bincount(attrs.fixture_kind[attrs.scene_class==FIXTURE],minlength=4)
+            role_counts+=np.bincount(attrs.rebar_role[attrs.scene_class==REBAR],minlength=3)
     if total!=runtime.store.count:
         raise ValueError('incomplete source feature/label output; refusing publication')
     feature_manifest={"schema":"rebar-features-v1","algorithmVersion":VERSION,"indexSpace":"source-reader-record","finitePointCount":total,
@@ -618,6 +672,8 @@ def export_sidecars(directory,analysis):
                       "boundaryUpdates":{"encoding":"sparse-source-index","applyOrder":["table","fixture"],"attributes":"stage prefix followed by base attribute name","chunks":updates}}
     label_manifest={"schema":"rebar-raw-labels-v2","sourceFingerprint":runtime.store.fingerprint,"indexSpace":"source-reader-record","finitePointCount":total,"ambiguousPointCount":ambiguous,
                     "sceneClassCounts":dict(zip(("unknown","table","rebar","noise","fixture"),map(int,counts))),"chunks":label_chunks,
+                    "fixtureKindCounts":dict(zip(("unknown","squareTube","plate","bolt"),map(int,fixture_counts))),
+                    "rebarRoleCounts":dict(zip(("unresolved","planar","web"),map(int,role_counts))),
                     "attributes":{k:{"dtype":str(v.dtype),"shape":list(v.shape[1:])} for k,v in payload.items()},"candidates":{"encoding":"sparse-csr","point_indices":"local row in source_index"}}
     for folder,manifest in ((feature_dir,feature_manifest),(label_dir,label_manifest)):
         (folder/"manifest.json").write_text(json.dumps(manifest,indent=2))

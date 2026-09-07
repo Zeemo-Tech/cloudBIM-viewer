@@ -166,7 +166,7 @@ def table_mask(points, model, p):
     return finite & observed & (np.abs(local3 @ normal) <= float(model.get("distance", p.table_distance)))
 
 
-def _fixture_face(support, normal, p, seeds=None):
+def _fixture_face(support, normal, p, seeds=None, *, minimum_width=None):
     seed_axes = _plane_axes(normal)
     offsets = support @ normal
     width = max(p.fixture_surface_distance, p.fixture_offset_gap / 2)
@@ -210,8 +210,9 @@ def _fixture_face(support, normal, p, seeds=None):
             # A rod's apparent planar cap may be roughly its diameter. It is
             # not a fixture face unless it is wider than a maximum rebar plus
             # the observed surface tolerance on both sides.
-            minimum_width = max(p.fixture_min_width, 2 * p.max_radius + 2 * p.fixture_surface_distance)
-            if min(dimensions) < minimum_width or max(dimensions) < p.fixture_min_length:
+            required_width = (max(p.fixture_min_width, 2 * p.max_radius + 2 * p.fixture_surface_distance)
+                              if minimum_width is None else minimum_width)
+            if min(dimensions) < required_width or max(dimensions) < p.fixture_min_length:
                 continue
             # A bent cylindrical strip can have a wide global bounding box.
             # Require actual width across multiple local longitudinal slices.
@@ -224,7 +225,7 @@ def _fixture_face(support, normal, p, seeds=None):
                 if len(values)>=max(5,p.fixture_min_points//2):
                     widths.append(float(np.ptp(np.percentile(values,[5,95]))))
                     gap_fractions.append(float(np.max(np.diff(np.sort(values))))/max(float(np.ptp(values)),1e-12))
-            if not widths or np.median(widths)<.85*minimum_width:
+            if not widths or np.median(widths)<.85*required_width:
                 continue
             if np.median(gap_fractions)>.30:
                 continue
@@ -280,13 +281,17 @@ def _square_tube_companions(support, faces, p):
             if not (max(p.fixture_min_width, 2*p.min_radius) <= separation <= 2.5*p.fixture_min_width):
                 continue
             centre = (a0+a1)/2
-            # Centres must agree along the long axis; otherwise these are two
-            # independent plates at different places, not tube side walls.
-            if abs(float((a1-a0) @ axis)) > p.fixture_grid_cell*2:
+            # Partial scans can split the two opposing walls at different
+            # positions. Propose companions only over their measured overlap.
+            shift = float((a1-a0) @ axis)
+            lower = max(-float(extent0[long_index]), shift-float(np.max(extent1)))
+            upper = min(float(extent0[long_index]), shift+float(np.max(extent1)))
+            if upper-lower < p.fixture_min_length:
                 continue
+            centre += ((lower+upper)/2-shift/2)*axis
             cross = np.cross(axis, n0)
             cross /= max(np.linalg.norm(cross), 1e-12)
-            long_extent = min(float(extent0[long_index]), float(np.max(extent1)))
+            long_extent = (upper-lower)/2
             for sign in (-1., 1.):
                 target = centre+sign*(separation/2)*cross
                 delta = support-target
@@ -307,6 +312,10 @@ def _square_tube_companions(support, faces, p):
                 dimensions = hi-lo
                 if dimensions[0] < p.fixture_min_length or dimensions[1] < max(p.fixture_min_width, .70*separation):
                     continue
+                profile = np.sort(local[:,1])
+                # Two isolated edge stripes do not observe a connecting wall.
+                if np.max(np.diff(profile))/max(float(np.ptp(profile)),1e-12) > .35:
+                    continue
                 # Every longitudinal slice must show actual width; a line or a
                 # pair of rod stripes cannot satisfy this rectangular support.
                 bins = np.floor((local[:, 0]-lo[0])/max(.03, 3*p.fixture_grid_cell)).astype(int)
@@ -323,7 +332,114 @@ def _square_tube_companions(support, faces, p):
     return result
 
 
-def _accepted_fixture_faces(result, support, p):
+def _tube_face_pair(first, second, p):
+    """Two adjoining longitudinal walls, not any nearby perpendicular plates."""
+    a, b = np.asarray(first['origin']), np.asarray(second['origin'])
+    n, m = np.asarray(first['normal']), np.asarray(second['normal'])
+    ea, eb = np.asarray(first['halfExtent']), np.asarray(second['halfExtent'])
+    aa, ab = np.asarray(first['axes']), np.asarray(second['axes'])
+    ia, ib = int(np.argmax(ea)), int(np.argmax(eb))
+    la, lb = aa[ia], ab[ib]
+    # A square tube has a common long axis and similarly long adjacent walls.
+    if abs(float(n @ m)) >= .20 or abs(float(la @ lb)) < .97:
+        return False
+    if min(max(ea)/max(min(ea), 1e-12), max(eb)/max(min(eb), 1e-12)) < 2.5:
+        return False
+    delta = b-a
+    overlap = max(0., min(max(ea), float(delta @ la)+max(eb))-
+                  max(-max(ea), float(delta @ la)-max(eb)))
+    if overlap < 1.2*min(max(ea), max(eb)):
+        return False
+    # Each plane intersects the other at its short edge, not across the middle
+    # of an unrelated plate. halfExtent already includes one occupancy cell.
+    sa, sb = max(min(ea)-p.fixture_grid_cell, 0), max(min(eb)-p.fixture_grid_cell, 0)
+    tolerance = max(p.fixture_grid_cell, 2*p.fixture_surface_distance)
+    return (abs(abs(float(delta @ n))-sb) <= tolerance and
+            abs(abs(float(delta @ m))-sa) <= tolerance)
+
+
+def _clamp_plates_near_tubes(support, faces, p):
+    """Recover narrow exterior plates only beside measured tube walls.
+
+    Retain the global anti-cylinder width gate. Contextual plate proposals
+    still require the same flatness, filled cross-section and occupied cells.
+    """
+    result = []
+    for wall in faces:
+        if wall.get('kind') != 'square-tube-face':
+            continue
+        origin, normal, axes, extent = (np.asarray(wall[k], float) for k in ('origin','normal','axes','halfExtent'))
+        center = np.asarray(wall.get('tubeCenter', origin), float)
+        outward = normal * (-1 if float((origin-center) @ normal) < 0 else 1)
+        delta = support-origin
+        offset = delta @ outward
+        local = delta @ axes.T
+        reach = max(2*p.fixture_grid_cell, 2*p.fixture_offset_gap)
+        rows = ((offset > 2*p.fixture_fit_distance) & (offset <= reach) &
+                np.all(np.abs(local) <= extent+p.fixture_grid_cell, axis=1))
+        cloud = support[rows]
+        if len(cloud) < p.fixture_min_points:
+            continue
+        for plate in _fixture_face(cloud, normal, p, minimum_width=max(2*p.max_radius, .9*p.fixture_min_width)):
+            # The narrow patch must be smaller than the supporting tube wall;
+            # a parallel full-length wall is not a clamp.
+            if max(plate['halfExtent']) >= .60*max(extent):
+                continue
+            plate['kind'] = 'plate'
+            plate['evidence'] = 'observed-plate-on-tube'
+            result.append(plate)
+    return result
+
+
+def _consistent_fixture_normals(support, faces, p, features=None):
+    """A plate must agree with the uncropped surface's local normal field.
+
+    A cylindrical U bend can fill a wide planar bounding box after selecting
+    one thin normal-offset band. Its original surface normals still rotate;
+    checking those prevents the clipped band from becoming a false plate.
+    """
+    from .features import pca_features
+    accepted = []
+    for face in faces:
+        rows = np.flatnonzero(fixture_mask(support, [face], p))
+        if len(rows) > 256:
+            rows = rows[np.linspace(0, len(rows)-1, 256, dtype=int)]
+        if not len(rows):
+            continue
+        if features is None:
+            local = pca_features(support, support[rows], p.surface_radius, p)
+            normals, valid = local['normal'], local['normal_valid'].astype(bool)
+        else:
+            normals = _features(features, 'normal', len(support), np.zeros((len(support),3)))[rows]
+            valid = _features(features, 'valid', len(support), np.zeros(len(support),bool))[rows].astype(bool)
+        aligned = np.abs(normals @ np.asarray(face['normal'])) >= math.cos(math.radians(2*p.fixture_normal_tolerance_degrees))
+        agreement = float(np.mean(valid & aligned))
+        if agreement >= .50:
+            face['normalAgreement'] = agreement
+            accepted.append(face)
+    return accepted
+
+
+def _opposing_fixture_faces(first, second, p):
+    """Independent parallel faces can validate sparse, mixed corner normals."""
+    normal, other = np.asarray(first['normal']), np.asarray(second['normal'])
+    delta = np.asarray(second['origin'])-np.asarray(first['origin'])
+    ea, eb = np.asarray(first['halfExtent']), np.asarray(second['halfExtent'])
+    aa, ab = np.asarray(first['axes']), np.asarray(second['axes'])
+    la, lb = aa[np.argmax(ea)], ab[np.argmax(eb)]
+    if abs(float(normal @ other)) < .97 or abs(float(la @ lb)) < .97:
+        return False
+    separation = abs(float(delta @ normal))
+    if not (p.fixture_min_width <= separation <= 2.5*p.fixture_min_width):
+        return False
+    if abs(min(ea)-min(eb)) > p.fixture_grid_cell:
+        return False
+    overlap = min(max(ea), float(delta @ la)+max(eb))-max(-max(ea),float(delta @ la)-max(eb))
+    return (overlap >= max(p.fixture_min_length, min(max(ea),max(eb))) and
+            abs(float(delta @ np.cross(la,normal))) <= 2*p.fixture_grid_cell)
+
+
+def _accepted_fixture_faces(result, support, p, features=None):
     unique = []
     for surface in sorted(result, key=lambda item: -item["supportCount"]):
         normal = np.asarray(surface["normal"], dtype=float)
@@ -336,24 +452,61 @@ def _accepted_fixture_faces(result, support, p):
         ):
             continue
         unique.append(surface)
-    result = unique
+    # Sparse companion proposals still need their own measured surface. Build
+    # them before deciding whether the cross-section supports a tube subtype.
+    result = unique + _square_tube_companions(support, unique, p)
+    adjacency=[[] for _ in result]
+    for i, first in enumerate(result):
+        for j in range(i+1,len(result)):
+            if _tube_face_pair(first,result[j],p):
+                adjacency[i].append(j);adjacency[j].append(i)
     accepted = []
-    for surface in result:
-        n = np.asarray(surface["normal"])
-        origin = np.asarray(surface["origin"])
-        extent = np.asarray(surface["halfExtent"])
-        paired = any(
-            abs(float(n @ np.asarray(other["normal"]))) < .20
-            and np.linalg.norm(origin - np.asarray(other["origin"])) <= 1.5 * (np.linalg.norm(extent) + np.linalg.norm(np.asarray(other["halfExtent"]))) + p.fixture_grid_cell
-            and .4 <= np.linalg.norm(extent) / max(np.linalg.norm(np.asarray(other["halfExtent"])), 1e-9) <= 2.5
-            for other in result if other is not surface
-        )
+    for index,surface in enumerate(result):
+        partners = [result[j] for j in adjacency[index]]
+        # Two adjoining faces also describe an L bracket. Require an opposing
+        # pair connected by a third measured wall before asserting a tube.
+        closed = []
+        for adjacent_index in adjacency[index]:
+            adjacent=result[adjacent_index]
+            for opposite_index in adjacency[adjacent_index]:
+                opposite=result[opposite_index]
+                if opposite is surface or opposite is adjacent:
+                    continue
+                normal = np.asarray(surface['normal'])
+                delta = np.asarray(opposite['origin'])-np.asarray(surface['origin'])
+                if (abs(float(normal @ np.asarray(opposite['normal']))) >= .97 and
+                    abs(float(delta @ normal)) >= p.fixture_min_width):
+                    closed.extend((adjacent, opposite))
+        # The connecting wall itself has two opposing parallel neighbours.
+        for i, first in enumerate(partners):
+            for second in partners[i+1:]:
+                normal = np.asarray(first['normal'])
+                delta = np.asarray(second['origin'])-np.asarray(first['origin'])
+                if (abs(float(normal @ np.asarray(second['normal']))) >= .97 and
+                    abs(float(delta @ normal)) >= p.fixture_min_width):
+                    closed.extend((first, second))
+        paired = bool(closed)
         if paired:
             surface["kind"] = "square-tube-face"
             surface["confidence"] = min(1., surface["confidence"] + .15)
+            surface['tubeCenter'] = np.mean([surface['origin']]+[other['origin'] for other in closed], axis=0).tolist()
+        elif partners or surface.get('kind') == 'square-tube-face':
+            surface['kind'] = 'fixture-unknown'
         if paired or surface["supportCount"] >= 4 * p.fixture_min_points:
             accepted.append(surface)
-    return accepted + _square_tube_companions(support, accepted, p)
+    # A measured rectangular shell supplies independent cross-face evidence.
+    # Sparse tube corners mix normals from adjoining faces, so the single-face
+    # normal-field test applies to plates and unresolved surfaces instead.
+    tubes = [face for face in accepted if face['kind']=='square-tube-face']
+    other = [face for face in accepted if face['kind']!='square-tube-face']
+    opposing = [face for face in other if any(_opposing_fixture_faces(face, candidate, p)
+                for candidate in accepted if candidate is not face)]
+    for face in opposing:
+        face['kind'] = 'fixture-unknown'
+        face['evidence'] = 'observed-opposing-faces'
+    other = [face for face in other if not any(face is candidate for candidate in opposing)]
+    other.extend(_clamp_plates_near_tubes(support, tubes, p))
+    return tubes + opposing + _consistent_fixture_normals(support, other, p, features)
 
 
 def refine_fixture_faces(support, proposals, p):
@@ -399,7 +552,34 @@ def detect_fixtures(points, features, p, table=None):
     for mode, _ in modes:
         seed_rows = np.abs(normal[rows] @ mode) >= math.cos(math.radians(p.fixture_normal_tolerance_degrees))
         result.extend(_fixture_face(support, mode, p, seeds[seed_rows]))
-    return _accepted_fixture_faces(result, support, p)
+    return _accepted_fixture_faces(result, support, p, {key:np.asarray(value)[finite] for key,value in features.items()})
+
+
+def fixture_candidates(points, fixtures, p):
+    """Discard faces whose exact lookup box cannot intersect this point block.
+
+    This is only a broad-phase filter. The observed-cell and finite surface
+    tests in fixture_mask still decide membership, including boundary points.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    finite = np.isfinite(points).all(axis=1)
+    if not np.any(finite) or not fixtures:
+        return []
+    coordinates = points[finite]
+    lower, upper = coordinates.min(axis=0), coordinates.max(axis=0)
+    candidates = []
+    for face in fixtures:
+        try:
+            origin, normal, axes, extent = (np.asarray(face[key], dtype=float)
+                for key in ("origin", "normal", "axes", "halfExtent"))
+            distance = float(face.get("distance", p.fixture_surface_distance))
+            reach = np.abs(axes).T @ extent + np.abs(normal) * distance
+        except (KeyError, TypeError, ValueError):
+            continue
+        if np.any(upper < origin-reach-1e-12) or np.any(lower > origin+reach+1e-12):
+            continue
+        candidates.append(face)
+    return candidates
 
 
 def fixture_mask(points, fixtures, p):
@@ -407,6 +587,8 @@ def fixture_mask(points, fixtures, p):
     points = np.asarray(points, dtype=np.float64)
     result = np.zeros(len(points), dtype=bool)
     finite = np.isfinite(points).all(axis=1)
+    if len(fixtures) > 1:
+        fixtures = fixture_candidates(points, fixtures, p)
     for face in fixtures:
         try:
             origin, normal, axes = (np.asarray(face[key], dtype=float) for key in ("origin", "normal", "axes"))

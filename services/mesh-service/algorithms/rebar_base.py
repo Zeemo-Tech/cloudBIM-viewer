@@ -45,6 +45,8 @@ class RebarPointAttributes:
     rebar_flags: np.ndarray | None = None
     class_confidence: np.ndarray | None = None
     instance_confidence: np.ndarray | None = None
+    fixture_kind: np.ndarray | None = None
+    rebar_role: np.ndarray | None = None
 
     def validate(self, count: int) -> None:
         for name, value, dtype in (("REBAR_CLASS", self.rebar_class, np.uint8),
@@ -52,9 +54,15 @@ class RebarPointAttributes:
                                    ("REBAR_INSTANCE", self.rebar_instance, np.uint32)):
             if not isinstance(value, np.ndarray) or value.shape != (count,) or value.dtype != np.dtype(dtype):
                 raise RebarAlgorithmError(f"{name} must be a {dtype.__name__} array of length {count}")
-        for name, value in (("SCENE_CLASS", self.scene_class), ("REBAR_FLAGS", self.rebar_flags)):
+        for name, value in (("SCENE_CLASS", self.scene_class), ("REBAR_FLAGS", self.rebar_flags),
+                            ("FIXTURE_KIND", self.fixture_kind), ("REBAR_ROLE", self.rebar_role)):
             if value is not None and (not isinstance(value, np.ndarray) or value.shape != (count,) or value.dtype != np.dtype(np.uint8)):
                 raise RebarAlgorithmError(f"{name} must be a uint8 array of length {count}")
+        for name, value, maximum, scene in (("FIXTURE_KIND", self.fixture_kind, 3, 4),
+                                            ("REBAR_ROLE", self.rebar_role, 2, 2)):
+            if value is not None and (np.any(value > maximum) or
+                    self.scene_class is None or np.any((value > 0) & (self.scene_class != scene))):
+                raise RebarAlgorithmError(f"{name} must agree with its scene class and enum")
         for name, value in (("CLASS_CONFIDENCE", self.class_confidence), ("INSTANCE_CONFIDENCE", self.instance_confidence)):
             if value is not None and (not isinstance(value, np.ndarray) or value.shape != (count,) or value.dtype != np.float32 or not np.isfinite(value).all() or np.any((value < 0) | (value > 1))):
                 raise RebarAlgorithmError(f"{name} must contain {count} finite float32 scores in [0,1]")

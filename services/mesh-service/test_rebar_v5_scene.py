@@ -77,7 +77,8 @@ class SceneTests(unittest.TestCase):
                     "halfExtent": [.06, .02], "distance": self.p.fixture_surface_distance,
                     "supportCount": 40, "coverage": 1., "confidence": 1., "kind": "plate",
                     "occupiedCells": [[0, 0]], "gridSize": self.p.fixture_grid_cell}
-        faces = _accepted_fixture_faces([face(0), face(.02)], np.empty((0, 3)), self.p)
+        support = np.vstack([plane(np.arange(-.05,.06,.005),np.arange(-.015,.016,.005),z) for z in (0,.02)])
+        faces = _accepted_fixture_faces([face(0), face(.02)], support, self.p)
         self.assertEqual(len(faces), 2)
 
     def test_raw_refinement_fits_each_exact_canonical_normal_once(self):

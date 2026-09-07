@@ -1,4 +1,4 @@
-import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
+import type { RebarPointVisibilityCategory, RebarVisualizationMetadata } from '@/api/backend-rebar'
 
 export type RebarVisualizationMode = 'rebar-class' | 'rebar-direction' | 'rebar-instance'
 export type Rgb = [number, number, number]
@@ -10,7 +10,46 @@ export const V3_COLORS = {
 
 const AMBIGUITY_COLOR = '#a855f7'
 const INACTIVE_COLOR = '#525252'
-type RebarPoint = { sceneClass: number; flags: number; direction: number; instance: number }
+export const REBAR_SEMANTIC_FALLBACK_COLORS = {
+  fixtureUnknown: '#10b981', fixtureSquareTube: '#60a5fa', fixturePlate: '#fbbf24', fixtureBolt: '#f472b6',
+  rebarUnresolved: '#a855f7', rebarPlanar: '#2dd4bf', rebarWeb: '#fb923c',
+} as const
+type RebarPoint = { sceneClass: number; flags: number; direction: number; instance: number; fixtureKind?: number; rebarRole?: number }
+
+export const REBAR_POINT_VISIBILITY_CATEGORIES: RebarPointVisibilityCategory[] = [
+  'unknown', 'table', 'noise', 'fixtureUnknown', 'fixtureSquareTube', 'fixturePlate', 'fixtureBolt',
+  'rebarUnresolved', 'rebarPlanar', 'rebarWeb',
+]
+
+export function rebarPointVisibilityCategory(point: Pick<RebarPoint, 'sceneClass' | 'fixtureKind' | 'rebarRole'>): RebarPointVisibilityCategory {
+  if (point.sceneClass === 1) return 'table'
+  if (point.sceneClass === 3) return 'noise'
+  if (point.sceneClass === 4) return point.fixtureKind === 1 ? 'fixtureSquareTube' : point.fixtureKind === 2 ? 'fixturePlate' : point.fixtureKind === 3 ? 'fixtureBolt' : 'fixtureUnknown'
+  if (point.sceneClass === 2) return point.rebarRole === 1 ? 'rebarPlanar' : point.rebarRole === 2 ? 'rebarWeb' : 'rebarUnresolved'
+  return 'unknown'
+}
+
+/** Attributes are additive in V5; missing subtype values use the broad legacy bucket. */
+export function isRebarPointVisible(point: Pick<RebarPoint, 'sceneClass' | 'fixtureKind' | 'rebarRole'>, visibility: Partial<Record<RebarPointVisibilityCategory, boolean>> | undefined): boolean {
+  return visibility?.[rebarPointVisibilityCategory(point)] !== false
+}
+
+export function visibleRebarPointIndices(
+  count: number,
+  pointAt: (index: number) => Pick<RebarPoint, 'sceneClass' | 'fixtureKind' | 'rebarRole'>,
+  visibility: Partial<Record<RebarPointVisibilityCategory, boolean>> | undefined,
+): number[] | null {
+  if (!Object.values(visibility ?? {}).some((value) => value === false)) return null
+  let filtered: number[] | null = null
+  for (let index = 0; index < count; index += 1) {
+    if (isRebarPointVisible(pointAt(index), visibility)) {
+      filtered?.push(index)
+    } else if (!filtered) {
+      filtered = Array.from({ length: index }, (_, previous) => previous)
+    }
+  }
+  return filtered
+}
 
 const hex = /^#[0-9a-f]{6}$/i
 export function validateVisualization(value: unknown): RebarVisualizationMetadata | null {
@@ -41,6 +80,12 @@ export function hexRgb(value: string): Rgb {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
+export function rebarSemanticColor(visualization: unknown, category: keyof typeof REBAR_SEMANTIC_FALLBACK_COLORS): string {
+  const colors = validateVisualization(visualization)?.colors
+  const colorKey = ({ fixtureUnknown: 'fixture', fixtureSquareTube: 'squareTube', fixturePlate: 'plate', fixtureBolt: 'bolt', rebarUnresolved: 'unresolved', rebarPlanar: 'planar', rebarWeb: 'web' } as const)[category]
+  return colors?.[colorKey] ?? REBAR_SEMANTIC_FALLBACK_COLORS[category]
+}
+
 export function instanceColor(id: number): Rgb {
   const hue = (((id - 1) * 137.508 + 15) % 360 + 360) % 360
   const lightness = id % 2 ? 0.52 : 0.64
@@ -53,13 +98,13 @@ export function instanceColor(id: number): Rgb {
 }
 
 export function v3Color(mode: RebarVisualizationMode, visualization: unknown, point: {
-  sceneClass?: number; flags?: number; direction?: number; instance?: number
+  sceneClass?: number; flags?: number; direction?: number; instance?: number; fixtureKind?: number; rebarRole?: number
 }): Rgb | null {
   const metadata = validateVisualization(visualization)
   if (!metadata || point.sceneClass === undefined || point.flags === undefined) return null
   return v3ColorWithMetadata(mode, metadata, {
     sceneClass: point.sceneClass, flags: point.flags,
-    direction: point.direction ?? 0, instance: point.instance ?? 0,
+    direction: point.direction ?? 0, instance: point.instance ?? 0, fixtureKind: point.fixtureKind, rebarRole: point.rebarRole,
   })
 }
 
@@ -74,6 +119,11 @@ export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
   const intersection = hexRgb(colors.intersection ?? V3_COLORS.intersection)
   const ambiguity = hexRgb(colors.ambiguity ?? AMBIGUITY_COLOR)
   const inactive = hexRgb(INACTIVE_COLOR)
+  const fixtureColors = (['fixtureUnknown','fixtureSquareTube','fixturePlate','fixtureBolt'] as const)
+    .map((category) => hexRgb(rebarSemanticColor(metadata, category)))
+  const roleColors = (['rebarUnresolved','rebarPlanar','rebarWeb'] as const)
+    .map((category) => hexRgb(rebarSemanticColor(metadata, category)))
+  const hasRoleContract = metadata.schema === 'rebar-visualization-v3' && Boolean(metadata.values.rebarRole)
   const directionColor = (id: number): Rgb => {
     if (id === 1) return directionA
     if (id === 2) return directionB
@@ -94,12 +144,18 @@ export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
     if (sceneColors) {
       // V5 does not assign intersection points. Bit 1 is instance ambiguity;
       // bit 0 is deliberately ignored because it is never emitted by V5.
-      const scene = sceneColors.get(point.sceneClass) ?? clutter
+      const fixtureColor = point.sceneClass === 4
+        ? fixtureColors[point.fixtureKind ?? 0] ?? fixtureColors[0]
+        : null
+      const scene = fixtureColor ?? sceneColors.get(point.sceneClass) ?? clutter
       if (point.sceneClass !== 2) return mode === 'rebar-class' ? scene : inactive
       if (metadata.schema === 'rebar-visualization-v2' && ((point.flags & 1) !== 0 || point.direction === 65535)) return intersection
       const ambiguous = metadata.schema === 'rebar-visualization-v3'
         ? (point.flags & 2) !== 0 || point.instance === 0
         : (point.flags & 2) !== 0 || point.instance === 0xffffffff
+      if (mode === 'rebar-class' && hasRoleContract) {
+        return roleColors[point.rebarRole ?? 0] ?? roleColors[0]!
+      }
       if (mode === 'rebar-instance') {
         if (ambiguous) return ambiguity
         if (point.instance > 0) return instanceColor(point.instance)
@@ -136,7 +192,23 @@ export function legendItems(mode: RebarVisualizationMode, visualization: unknown
       label: labels[key] ?? key,
       color: hexRgb(metadata.colors[key] ?? V3_COLORS.clutter),
     }))
-    if (mode === 'rebar-class') return entries
+    if (mode === 'rebar-class') {
+      const kinds = metadata.values.fixtureKind as Record<string, number> | undefined
+      const roles = metadata.values.rebarRole as Record<string, number> | undefined
+      if (!kinds && !roles) return entries
+      const fixtureIndex = entries.findIndex((entry) => entry.label === '夹具／围挡')
+      const fixtures = Object.entries(kinds ?? {}).sort((a, b) => a[1] - b[1]).map(([key]) => ({
+        label: ({ unknown: '夹具·未细分', squareTube: '夹具·方管', plate: '夹具·夹持板', bolt: '夹具·螺栓' } as Record<string, string>)[key] ?? key,
+        color: hexRgb(rebarSemanticColor(metadata, key === 'squareTube' ? 'fixtureSquareTube' : key === 'plate' ? 'fixturePlate' : key === 'bolt' ? 'fixtureBolt' : 'fixtureUnknown')),
+      }))
+      const roleEntries = Object.entries(roles ?? {}).sort((a, b) => a[1] - b[1]).map(([key]) => ({
+        label: ({ unresolved: '钢筋·待判定', planar: '钢筋·平面筋', web: '钢筋·斜腹杆' } as Record<string, string>)[key] ?? key,
+        color: hexRgb(rebarSemanticColor(metadata, key === 'planar' ? 'rebarPlanar' : key === 'web' ? 'rebarWeb' : 'rebarUnresolved')),
+      }))
+      const sceneEntries = fixtureIndex < 0 ? [...entries, ...fixtures] : [...entries.slice(0, fixtureIndex), ...fixtures, ...entries.slice(fixtureIndex + 1)]
+      const rebarIndex = sceneEntries.findIndex((entry) => entry.label === '钢筋')
+      return rebarIndex < 0 ? [...sceneEntries, ...roleEntries] : [...sceneEntries.slice(0, rebarIndex), ...roleEntries, ...sceneEntries.slice(rebarIndex + 1)]
+    }
     if (mode === 'rebar-direction') return [item('方向 A', 'directionA'), item('方向 B', 'directionB'), { label: '非钢筋', color: hexRgb(INACTIVE_COLOR) }]
     return [item(`单根实例（${summary?.instanceCount ?? 0}）`, 'rebar'), { label: '归属待确认', color: hexRgb(metadata.colors.ambiguity ?? AMBIGUITY_COLOR) }, { label: '非钢筋', color: hexRgb(INACTIVE_COLOR) }]
   }

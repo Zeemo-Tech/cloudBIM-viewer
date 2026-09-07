@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// Full-resolution V5 scans can exceed thirty minutes; keep the provider and
+// handler deadlines aligned. The browser allows two additional minutes.
+const rebarComputeTimeout = 60 * time.Minute
+
 // RebarComputeProvider is the boundary between HTTP handlers and geometry work.
 type RebarComputeProvider interface {
 	ListAlgorithms(context.Context) ([]RebarAlgorithmDescriptor, error)
@@ -83,7 +87,7 @@ func (p MeshServiceRebarComputeProvider) client() *http.Client {
 	if p.Client != nil {
 		return p.Client
 	}
-	return &http.Client{Timeout: 30 * time.Minute}
+	return &http.Client{Timeout: rebarComputeTimeout}
 }
 func (p MeshServiceRebarComputeProvider) ListAlgorithms(ctx context.Context) ([]RebarAlgorithmDescriptor, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(p.BaseURL, "/")+"/rebar/algorithms", nil)

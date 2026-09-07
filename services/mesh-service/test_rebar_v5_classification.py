@@ -23,7 +23,8 @@ def _face():
 
 
 def _analysis(instances, faces=None):
-    params = Params()
+    # These tests exercise opt-in competitive ownership, not debug stage masks.
+    params = Params(ownership_review_enabled=True)
     return RebarAnalysis({
         "algorithmDetails": {
             "parameters": vars(params),

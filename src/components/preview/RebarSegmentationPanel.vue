@@ -11,10 +11,12 @@ import {
   type RebarParameterProperty,
   type RebarSegmentationResult,
   type RebarIntersection,
+  type RebarPointVisibilityCategory,
+  type RebarRole,
   isRebarV5Result,
 } from '@/api/backend-rebar'
 import type { PointcloudColorMode } from './UnifiedViewer3D.vue'
-import { legendItems, validateVisualization } from '@/features/rebar-visualization'
+import { legendItems, rebarSemanticColor, validateVisualization } from '@/features/rebar-visualization'
 
 const props = withDefaults(defineProps<{
   assetId: number
@@ -36,6 +38,9 @@ const selectedAlgorithmId = ref('geometric-v5')
 const latest = ref<RebarSegmentationResult | null>(null)
 const loading = ref(false)
 const computing = ref(false)
+const elapsedSeconds = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+const elapsedLabel = computed(() => `${Math.floor(elapsedSeconds.value / 60)}:${String(elapsedSeconds.value % 60).padStart(2, '0')}`)
 const errorMessage = ref('')
 const maxInputPoints = ref(200_000)
 const voxelSizeMm = ref<number | null>(null)
@@ -47,6 +52,16 @@ const selectedInstance = ref<number | null>(null)
 const showCenterlines = ref(false)
 const showIntersections = ref(true)
 const hideFixtures = ref(false)
+const ownershipReviewEnabled = ref(false)
+const pointVisibility = reactive<Partial<Record<RebarPointVisibilityCategory, boolean>>>({
+  unknown: true, table: true, noise: true, fixtureUnknown: true, fixtureSquareTube: true,
+  fixturePlate: true, fixtureBolt: true, rebarUnresolved: true, rebarPlanar: true, rebarWeb: true,
+})
+const visibleRebarRoles = computed<Partial<Record<RebarRole, boolean>>>(() => ({
+  unresolved: pointVisibility.rebarUnresolved !== false,
+  planar: pointVisibility.rebarPlanar !== false,
+  web: pointVisibility.rebarWeb !== false,
+}))
 const intersections = ref<RebarIntersection[]>([])
 const selectedIntersection = ref<number | null>(null)
 const detailError = ref('')
@@ -67,19 +82,46 @@ const advancedFields = computed(() => {
     ...hinted.filter((name) => !preferred.includes(name)),
   ]
   return [...new Set(ordered)]
-    .filter((name) => properties[name])
+    .filter((name) => properties[name] && name !== 'ownership_review_enabled')
     .map((name) => ({ name, property: properties[name] }))
+})
+
+const supportsOwnershipReview = computed(() => Boolean(selectedAlgorithm.value?.parameterSchema?.properties?.ownership_review_enabled))
+const visibilityGroups = computed(() => {
+  const summary = latest.value?.summary
+  const scenes = summary?.sceneClassCounts ?? latest.value?.summary.rawSource?.sceneClassCounts ?? {}
+  const fixtures = summary?.fixtureKindCounts
+  const roles = summary?.rebarRoleCounts
+  const colors = latest.value?.visualization
+  return [
+    { title: '场景', rows: [
+      { key: 'unknown' as const, label: '未知', color: colors?.colors.unknown ?? '#64748b', count: scenes.unknown ?? 0 },
+      { key: 'table' as const, label: '台面', color: colors?.colors.table ?? '#94a3b8', count: scenes.table ?? 0 },
+      { key: 'noise' as const, label: '噪声', color: colors?.colors.noise ?? '#d946ef', count: scenes.noise ?? 0 },
+    ] },
+    { title: '夹具', rows: [
+      { key: 'fixtureUnknown' as const, label: '未细分夹具', color: rebarSemanticColor(colors, 'fixtureUnknown'), count: fixtures?.unknown ?? (scenes.fixture ?? 0) },
+      { key: 'fixtureSquareTube' as const, label: '方管', color: rebarSemanticColor(colors, 'fixtureSquareTube'), count: fixtures?.squareTube ?? 0 },
+      { key: 'fixturePlate' as const, label: '夹持板', color: rebarSemanticColor(colors, 'fixturePlate'), count: fixtures?.plate ?? 0 },
+      { key: 'fixtureBolt' as const, label: '螺栓', color: rebarSemanticColor(colors, 'fixtureBolt'), count: fixtures?.bolt ?? 0 },
+    ] },
+    { title: '钢筋', rows: [
+      { key: 'rebarUnresolved' as const, label: '待判定', color: rebarSemanticColor(colors, 'rebarUnresolved'), count: roles?.unresolved ?? (scenes.rebar ?? 0) },
+      { key: 'rebarPlanar' as const, label: '平面筋', color: rebarSemanticColor(colors, 'rebarPlanar'), count: roles?.planar ?? 0 },
+      { key: 'rebarWeb' as const, label: '斜腹杆', color: rebarSemanticColor(colors, 'rebarWeb'), count: roles?.web ?? 0 },
+    ] },
+  ]
 })
 
 const modeOptions = computed<Array<{ value: PointcloudColorMode; label: string }>>(() => {
   const options: Array<{ value: PointcloudColorMode; label: string }> = [
-    { value: 'rgb', label: '真彩' },
+    { value: 'rgb', label: '原色' },
     { value: 'intensity', label: '强度' },
   ]
   const capabilities = latest.value?.capabilities
-  if (capabilities?.class) options.push({ value: 'rebar-class', label: '钢筋类别' })
-  if (capabilities?.direction) options.push({ value: 'rebar-direction', label: '钢筋方向' })
-  if (capabilities?.instance) options.push({ value: 'rebar-instance', label: '钢筋实例' })
+  if (capabilities?.class) options.push({ value: 'rebar-class', label: '类别' })
+  if (capabilities?.direction) options.push({ value: 'rebar-direction', label: '方向' })
+  if (capabilities?.instance) options.push({ value: 'rebar-instance', label: '实例' })
   return options
 })
 
@@ -136,6 +178,7 @@ function fieldUnit(name: string, property: RebarParameterProperty) {
 function initializeParameters() {
   persistedParameterBaseline.value = {}
   Object.keys(parameterValues).forEach((key) => delete parameterValues[key])
+  ownershipReviewEnabled.value = false
   advancedFields.value.forEach(({ name, property }) => {
     if (typeof property.default === 'number') {
       parameterValues[name] = displayNumber(name, property, property.default)
@@ -161,6 +204,7 @@ function applyPersistedSettings(value: RebarSegmentationResult) {
   const persistedVoxelSize = value.inputOptions?.voxelSize
   if (typeof persistedMaxPoints === 'number') maxInputPoints.value = persistedMaxPoints
   voxelSizeMm.value = typeof persistedVoxelSize === 'number' ? persistedVoxelSize * 1000 : null
+  ownershipReviewEnabled.value = value.effectiveParameters.ownership_review_enabled === true
   advancedFields.value.forEach(({ name, property }) => {
     const persisted = value.effectiveParameters[name]
     if (typeof persisted === 'number') {
@@ -247,6 +291,7 @@ function buildParameters() {
       result[name] = value
     }
   })
+  if (supportsOwnershipReview.value) result.ownership_review_enabled = ownershipReviewEnabled.value
   return result
 }
 
@@ -254,7 +299,9 @@ async function compute(force = false) {
   if (computing.value) return
   computing.value = true
   errorMessage.value = ''
-  emitLatest(null)
+  const startedAt = Date.now()
+  elapsedSeconds.value = 0
+  elapsedTimer = setInterval(() => { elapsedSeconds.value = Math.floor((Date.now() - startedAt) / 1000) }, 1000)
   try {
     const response = await computeRebarSegmentation(
       props.assetId,
@@ -275,9 +322,13 @@ async function compute(force = false) {
   } catch (error) {
     errorMessage.value = errorText(error)
   } finally {
+    if (elapsedTimer) clearInterval(elapsedTimer)
+    elapsedTimer = null
     computing.value = false
   }
 }
+
+onBeforeUnmount(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 
 watch(selectedAlgorithmId, initializeParameters, { flush: 'sync' })
 watch(() => props.mode, (mode) => { selectedMode.value = mode })
@@ -285,29 +336,27 @@ watch(() => props.assetId, loadState)
 watch(() => props.selectedIntersectionId, (id) => {
   selectedIntersection.value = id ?? null
 })
-watch([instances, intersections, selectedInstance, selectedIntersection, showCenterlines, showIntersections, hideFixtures], () => {
+watch([instances, intersections, selectedInstance, selectedIntersection, showCenterlines, showIntersections, hideFixtures, pointVisibility], () => {
   emit('inspection-change', { instances: instances.value, intersections: intersections.value,
     selectedId: selectedInstance.value, selectedIntersectionId: selectedIntersection.value,
-    showCenterlines: showCenterlines.value, showIntersections: showIntersections.value, hideFixtures: hideFixtures.value })
-})
+    showCenterlines: showCenterlines.value, showIntersections: showIntersections.value, hideFixtures: hideFixtures.value,
+    pointVisibility: { ...pointVisibility }, visibleRebarRoles: visibleRebarRoles.value })
+}, { deep: true })
 onMounted(loadState)
 onBeforeUnmount(() => { ++loadToken; ++detailToken })
 </script>
 
 <template>
-  <section class="rebar-panel" aria-label="钢筋分割">
+  <section class="rebar-panel" aria-label="点云分析">
     <div class="rebar-panel__head">
       <div>
-        <span class="rebar-panel__eyebrow">Rebar segmentation</span>
-        <h3>钢筋分割</h3>
+        <span class="rebar-panel__eyebrow">POINT CLOUD</span>
+        <h3>点云分析</h3>
       </div>
-      <span v-if="latest" class="rebar-panel__badge">已持久化</span>
+      <span class="rebar-panel__badge">{{ latest ? '结果已保存' : loading ? '读取中' : '待运行' }}</span>
     </div>
 
-    <p class="rebar-panel__hint">几何识别结果仅供辅助检查，不能替代工程验收。</p>
-
-    <div v-if="loading" class="rebar-panel__status">正在读取最新结果…</div>
-    <div v-else-if="errorMessage" class="rebar-panel__error">{{ errorMessage }}</div>
+    <div v-if="errorMessage" class="rebar-panel__error">{{ errorMessage }}</div>
 
     <div v-if="latest" class="rebar-panel__summary">
       <span><strong>{{ latest.summary.rawSource?.instanceCount ?? latest.summary.instanceCount }}</strong> 个实例</span>
@@ -316,14 +365,41 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
       <span v-if="rebarRatio !== null"><strong>{{ rebarRatio.toFixed(1) }}%</strong> 钢筋点</span>
     </div>
 
+    <div class="rebar-panel__run">
+      <label v-if="supportsOwnershipReview" class="rebar-panel__ownership">
+        <span><strong>归属复核</strong><small>默认关闭，调试分类时无需启用</small></span>
+        <span class="rebar-panel__switch"><input v-model="ownershipReviewEnabled" aria-label="归属复核" type="checkbox" :disabled="computing" /><i /></span>
+      </label>
+      <button class="primary" type="button" :disabled="loading || computing" @click="compute(false)">
+        {{ computing ? `计算中 · ${elapsedLabel}` : latest ? '按当前设置运行' : '开始分析' }}
+      </button>
+    </div>
+
+    <p v-if="computing" class="rebar-panel__hint">正在分析点云{{ latest ? '，可继续查看上次结果' : '' }}。</p>
+
+    <div v-if="latest" class="rebar-panel__modes" role="group" aria-label="颜色模式">
+      <button v-for="mode in modeOptions" :key="mode.value" type="button" :class="{ active: selectedMode === mode.value }" @click="setMode(mode.value)">{{ mode.label }}</button>
+    </div>
+
+    <div v-if="latest" class="rebar-panel__visibility" aria-label="点类别可见性">
+      <div v-for="group in visibilityGroups" :key="group.title" class="rebar-panel__visibility-group">
+        <strong>{{ group.title }}</strong>
+        <label v-for="row in group.rows" :key="row.key" class="rebar-panel__visibility-row" :title="`${pointVisibility[row.key] === false ? '显示' : '隐藏'}${row.label}`">
+          <input v-model="pointVisibility[row.key]" type="checkbox" :aria-label="`显示${row.label}`" />
+          <i :style="{ backgroundColor: row.color }" />
+          <span>{{ row.label }}</span><small>{{ row.count.toLocaleString() }}</small>
+          <b aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /><path v-if="pointVisibility[row.key] === false" d="M3 3 21 21" /></svg></b>
+        </label>
+      </div>
+    </div>
+
     <p v-if="latest?.summary.rawSource" class="rebar-panel__hint">
       原始点 {{ latest.summary.rawSource.finitePointCount.toLocaleString() }} ·
       待确认 {{ latest.summary.rawSource.ambiguousPointCount.toLocaleString() }}
     </p>
     <div v-if="latest && ['rebar-visualization-v2', 'rebar-visualization-v3'].includes(latest.visualization?.schema ?? '')" class="rebar-panel__inspection">
-      <label><input v-model="showCenterlines" type="checkbox" /> 显示中心线</label>
-      <label v-if="isRebarV5Result(latest)"><input v-model="showIntersections" type="checkbox" /> 显示交点</label>
-      <label><input v-model="hideFixtures" type="checkbox" /> 隐藏夹具／围挡</label>
+      <label class="rebar-panel__overlay-toggle"><span>显示中心线</span><span class="rebar-panel__switch"><input v-model="showCenterlines" aria-label="显示中心线" type="checkbox" /><i /></span></label>
+      <label v-if="isRebarV5Result(latest)" class="rebar-panel__overlay-toggle"><span>显示理论交点</span><span class="rebar-panel__switch"><input v-model="showIntersections" aria-label="显示理论交点" type="checkbox" /><i /></span></label>
       <label>聚焦单根钢筋
         <select v-model="selectedInstance">
           <option :value="null">全部实例</option>
@@ -339,20 +415,8 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
       <p v-if="selectedIntersection !== null && intersections.find((item) => item.id === selectedIntersection)" class="rebar-panel__intersection-detail">
         交点 {{ selectedIntersection }} · 角度 {{ intersections.find((item) => item.id === selectedIntersection)?.angleDegrees.toFixed(2) }}° · 残差 {{ intersections.find((item) => item.id === selectedIntersection)?.residual.toFixed(4) }}
       </p>
-      <small>虚线表示推断连接，不代表扫描已观测到。</small>
+      <small>虚线为推断连接；红色球体为中心线推算的理论交点。</small>
       <small v-if="detailError">{{ detailError }}</small>
-    </div>
-
-    <div v-if="latest" class="rebar-panel__modes" role="group" aria-label="钢筋结果着色">
-      <button
-        v-for="mode in modeOptions"
-        :key="mode.value"
-        type="button"
-        :class="{ active: selectedMode === mode.value }"
-        @click="setMode(mode.value)"
-      >
-        {{ mode.label }}
-      </button>
     </div>
 
     <div v-if="legend.length" class="rebar-panel__legend" aria-label="钢筋分割图例">
@@ -363,7 +427,7 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
     </div>
 
     <details v-if="advancedFields.length || algorithms.length > 1" class="rebar-panel__advanced">
-      <summary>高级参数</summary>
+      <summary>更多运行参数</summary>
       <label v-if="algorithms.length > 1">
         <span>算法</span>
         <select v-model="selectedAlgorithmId" :disabled="computing">
@@ -413,9 +477,6 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
     </details>
 
     <div class="rebar-panel__actions">
-      <button class="primary" type="button" :disabled="loading || computing" @click="compute(false)">
-        {{ computing ? '计算中…' : latest ? '按当前参数计算' : '开始钢筋分割' }}
-      </button>
       <button v-if="latest" type="button" :disabled="computing" @click="compute(true)">重新计算</button>
     </div>
   </section>
@@ -427,14 +488,14 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
   z-index: 36;
   top: 18px;
   right: 18px;
-  width: min(340px, calc(100% - 36px));
-  padding: 16px;
-  border: 1px solid rgb(148 163 184 / 24%);
-  border-radius: 16px;
+  width: min(366px, calc(100% - 28px));
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid rgb(148 163 184 / 28%);
+  border-radius: 12px;
   color: #e5edf9;
   background: rgb(8 15 28 / 92%);
-  box-shadow: 0 18px 44px rgb(2 6 23 / 36%);
-  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 32px rgb(2 6 23 / 34%);
 }
 
 .rebar-panel__head,
@@ -451,15 +512,42 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
 .rebar-panel h3 { margin: 2px 0 0; font-size: 17px; }
 .rebar-panel__eyebrow { color: #67e8f9; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
 .rebar-panel__badge { padding: 4px 8px; border-radius: 999px; color: #86efac; background: rgb(22 101 52 / 35%); font-size: 11px; }
-.rebar-panel__hint { margin: 10px 0; color: #94a3b8; font-size: 12px; line-height: 1.5; }
 .rebar-panel__status { color: #bae6fd; font-size: 12px; }
 .rebar-panel__error { margin: 8px 0; color: #fecaca; font-size: 12px; }
 .rebar-panel__summary { gap: 12px; padding: 8px 0; color: #cbd5e1; font-size: 12px; }
 .rebar-panel__summary strong { color: #fff; }
-.rebar-panel__modes { flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.rebar-panel__run { display: flex; gap: 8px; margin: 10px 0; }
+.rebar-panel__run .primary { flex: 0 0 auto; }
+.rebar-panel__modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; margin: 10px 0; padding: 3px; border: 1px solid rgb(148 163 184 / 20%); border-radius: 9px; }
+.rebar-panel__modes button { min-width: 0; padding: 0 4px; border: 0; background: transparent; font-size: 11px; }
 .rebar-panel__legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 8px 0; color: #cbd5e1; font-size: 11px; }
 .rebar-panel__legend span { display: inline-flex; align-items: center; gap: 4px; }
 .rebar-panel__legend i { width: 9px; height: 9px; border-radius: 50%; }
+.rebar-panel__visibility { display: grid; gap: 10px; padding: 10px 0; border-block: 1px solid rgb(148 163 184 / 16%); font-size: 12px; }
+.rebar-panel__visibility-group { display: grid; gap: 2px; }
+.rebar-panel__visibility strong { padding: 2px 4px; color: #cbd5e1; font-size: 11px; }
+.rebar-panel__visibility-row { display: grid; grid-template-columns: 10px minmax(100px, 1fr) 9ch 16px; align-items: center; gap: 8px; min-height: 29px; padding: 0 7px; border-radius: 6px; color: #cbd5e1; cursor: pointer; }
+.rebar-panel__visibility-row:hover { background: rgb(30 41 59 / 70%); }
+.rebar-panel__visibility-row:focus-within { outline: 1px solid #22d3ee; outline-offset: 1px; }
+.rebar-panel__visibility-row input { position: absolute; opacity: 0; }
+.rebar-panel__visibility-row i { width: 8px; height: 8px; border-radius: 50%; }
+.rebar-panel__visibility-row small { color: #7f91aa; font-variant-numeric: tabular-nums; text-align: right; }
+.rebar-panel__visibility-row b { display: flex; color: #67e8f9; }
+.rebar-panel__visibility-row svg { width: 16px; height: 16px; }
+.rebar-panel__visibility-row input:not(:checked) ~ span { color: #64748b; }
+.rebar-panel__visibility-row input:not(:checked) ~ b { color: #64748b; }
+.rebar-panel__ownership { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: space-between; margin: 0; padding: 6px 8px; border: 1px solid rgb(148 163 184 / 20%); border-radius: 8px; }
+.rebar-panel__ownership span { display: grid; gap: 2px; }
+.rebar-panel__ownership strong { color: #e5edf9; font-size: 12px; }
+.rebar-panel__ownership small { color: #94a3b8; font-size: 10px; }
+.rebar-panel__switch { position: relative; flex: 0 0 auto; width: 30px; height: 18px; }
+.rebar-panel__switch input { position: absolute; inset: 0; z-index: 1; width: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
+.rebar-panel__switch i { display: block; width: 30px; height: 18px; border: 1px solid #475569; border-radius: 999px; background: #334155; transition: background .16s, border-color .16s; }
+.rebar-panel__switch i::after { display: block; width: 12px; height: 12px; margin: 2px; border-radius: 50%; background: #e2e8f0; content: ''; transition: transform .16s; }
+.rebar-panel__switch input:checked + i { border-color: #22d3ee; background: #0891b2; }
+.rebar-panel__switch input:checked + i::after { transform: translateX(12px); }
+.rebar-panel__switch input:focus-visible + i { outline: 2px solid #67e8f9; outline-offset: 2px; }
+.rebar-panel__switch input:disabled + i { opacity: .5; }
 .rebar-panel button,
 .rebar-panel select,
 .rebar-panel input { min-height: 32px; border: 1px solid rgb(148 163 184 / 28%); border-radius: 8px; color: inherit; background: rgb(15 23 42 / 72%); }
@@ -479,11 +567,14 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
 .rebar-panel__actions { gap: 8px; margin-top: 12px; }
 .rebar-panel__inspection { display: grid; gap: 8px; margin: 12px 0; font-size: 12px; }
 .rebar-panel__inspection label { display: flex; align-items: center; gap: 7px; }
+.rebar-panel__inspection .rebar-panel__overlay-toggle { justify-content: space-between; padding: 5px 7px; border: 1px solid rgb(148 163 184 / 18%); border-radius: 7px; }
 .rebar-panel__inspection select { min-width: 0; max-width: 200px; }
 .rebar-panel__inspection small { color: #94a3b8; }
 .rebar-panel__intersection-detail { margin: 0; color: #fde68a; font-size: 11px; }
 
 @media (max-width: 760px) {
   .rebar-panel { top: 10px; right: 10px; max-height: calc(100% - 20px); overflow: auto; }
+  .rebar-panel__modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 </style>
+  const colors = latest.value?.visualization

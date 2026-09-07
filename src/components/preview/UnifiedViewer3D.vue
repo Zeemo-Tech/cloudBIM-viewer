@@ -38,7 +38,7 @@ import {
 } from '@/features/analysis-mesh'
 import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from './ViewerAnalysisOverlay.vue'
 import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
-import { createRebarColorizer, validateVisualization } from '@/features/rebar-visualization'
+import { createRebarColorizer, visibleRebarPointIndices, validateVisualization } from '@/features/rebar-visualization'
 import { buildRebarOverlay, disposeRebarOverlay } from '@/features/rebar-visualization/inspection'
 import type { RebarInspection, RebarIntersection } from '@/api/backend-rebar'
 
@@ -337,7 +337,7 @@ type RebarSourceAttribute = THREE.BufferAttribute | THREE.InterleavedBufferAttri
 type RebarColorCacheEntry = {
   signature: string
   attribute: THREE.BufferAttribute
-  sources: readonly RebarSourceAttribute[]
+  sources: readonly (RebarSourceAttribute | null)[]
   versions: readonly number[]
   count: number
 }
@@ -1600,6 +1600,8 @@ function attachPointcloudBatchAttributes(root: THREE.Object3D & { batchTable?: a
     { source: 'CLASSIFICATION', target: 'classification', kind: 'uint8' },
     { source: 'REBAR_CLASS', target: 'rebar_class', kind: 'uint8' },
     { source: 'SCENE_CLASS', target: 'scene_class', kind: 'uint8' },
+    { source: 'FIXTURE_KIND', target: 'fixture_kind', kind: 'uint8' },
+    { source: 'REBAR_ROLE', target: 'rebar_role', kind: 'uint8' },
     { source: 'REBAR_FLAGS', target: 'rebar_flags', kind: 'uint8' },
     { source: 'REBAR_DIRECTION', target: 'rebar_direction', kind: 'uint16' },
     { source: 'REBAR_INSTANCE', target: 'rebar_instance', kind: 'uint32' },
@@ -1757,11 +1759,13 @@ function cachedRebarColors(
   flags: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
   direction: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
   instance: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  fixtureKind: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null,
+  rebarRole: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null,
   count: number,
 ) {
   const signature = rebarVisualizationSignature(metadata)
-  const sources = [sceneClass, flags, direction, instance] as const
-  const versions = sources.map(rebarAttributeVersion)
+  const sources = [sceneClass, flags, direction, instance, fixtureKind, rebarRole] as const
+  const versions = sources.map((source) => source ? rebarAttributeVersion(source) : -1)
   let byVisualization = rebarColorCache.get(geometry)
   if (!byVisualization) {
     byVisualization = new WeakMap()
@@ -1786,6 +1790,7 @@ function cachedRebarColors(
     const rgb = colorize(mode, {
       sceneClass: sceneClass.getX(index), flags: flags.getX(index),
       direction: direction.getX(index), instance: instance.getX(index),
+      fixtureKind: fixtureKind?.getX(index), rebarRole: rebarRole?.getX(index),
     })
     const offset = index * 3
     colors[offset] = Math.round(rgb[0] * 255)
@@ -1815,6 +1820,8 @@ function applyRebarColoring(
   const flags = getPointAttribute(geometry, ['rebar_flags', 'rebarflags'])
   const direction = getPointAttribute(geometry, ['rebar_direction', 'rebardirection'])
   const instance = getPointAttribute(geometry, ['rebar_instance', 'rebarinstance'])
+  const fixtureKind = getPointAttribute(geometry, ['fixture_kind', 'fixturekind'])
+  const rebarRole = getPointAttribute(geometry, ['rebar_role', 'rebarrole'])
   const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
   const visualization = validateVisualization(props.rebarVisualization)
   if (visualization && sceneClass && flags && direction && instance && position &&
@@ -1828,6 +1835,8 @@ function applyRebarColoring(
       flags,
       direction,
       instance,
+      fixtureKind,
+      rebarRole,
       position.count,
     ))
     material.color.set(0xffffff); material.vertexColors = true; material.needsUpdate = true
@@ -1943,23 +1952,42 @@ function applyPointcloudMaterial(root: THREE.Object3D) {
         if (scenes) {
           let state = geometry.userData.rebarFixtureFilter as {
             original: THREE.BufferAttribute | null; applied: THREE.BufferAttribute | null;
-            scenes: THREE.BufferAttribute | THREE.InterleavedBufferAttribute; hidden: boolean;
+            scenes: THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+            fixtureKind: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null;
+            rebarRole: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null;
+            signature: string;
           } | undefined
-          if (!state || state.applied !== geometry.index || state.scenes !== scenes) {
-            state = { original: geometry.index, applied: geometry.index, scenes, hidden: false }
+          const fixtureKind = getPointAttribute(geometry, ['fixture_kind', 'fixturekind'])
+          const rebarRole = getPointAttribute(geometry, ['rebar_role', 'rebarrole'])
+          if (!state || state.scenes !== scenes || state.fixtureKind !== fixtureKind || state.rebarRole !== rebarRole || (geometry.index !== state.applied && geometry.index !== state.original)) {
+            state = { original: geometry.index, applied: geometry.index, scenes, fixtureKind, rebarRole, signature: '' }
             geometry.userData.rebarFixtureFilter = state
           }
-          const hide = !!props.rebarInspection?.hideFixtures
-          if (hide && !state.hidden) {
-            const indices: number[] = []
-            for (let index = 0; index < (state.original?.count ?? scenes.count); index++) {
-              const point = state.original ? state.original.getX(index) : index
-              if (scenes.getX(point) !== 4) indices.push(point)
-            }
-            geometry.setIndex(indices)
-          } else if (!hide && state.hidden) geometry.setIndex(state.original)
-          state.hidden = hide
+          const visibility = { ...props.rebarInspection?.pointVisibility }
+          if (props.rebarInspection?.hideFixtures) {
+            visibility.fixtureUnknown = false
+            visibility.fixtureSquareTube = false
+            visibility.fixturePlate = false
+            visibility.fixtureBolt = false
+          }
+          const signature = JSON.stringify([visibility, scenes.count,
+            rebarAttributeVersion(scenes), fixtureKind ? rebarAttributeVersion(fixtureKind) : -1,
+            rebarRole ? rebarAttributeVersion(rebarRole) : -1,
+            state.original?.version ?? -1])
+          if (state.signature !== signature) {
+          const count = state.original?.count ?? scenes.count
+          if (!Object.values(visibility).some((value) => value === false)) {
+            geometry.setIndex(state.original)
+          } else {
+            const visible = visibleRebarPointIndices(count, (index) => {
+              const point = state!.original ? state!.original.getX(index) : index
+              return { sceneClass: scenes.getX(point), fixtureKind: fixtureKind?.getX(point), rebarRole: rebarRole?.getX(point) }
+            }, visibility)
+            geometry.setIndex(visible ? visible.map((index) => state!.original ? state!.original.getX(index) : index) : state.original)
+          }
           state.applied = geometry.index
+          state.signature = signature
+          }
         }
         mat.clippingPlanes = sectionEnabled ? clipPlanes : []
 
@@ -2800,7 +2828,7 @@ watch(() => props.rebarInspection, (next, previous) => {
   }
   updateRebarInspection(
     next?.selectedId !== previous?.selectedId,
-    next?.hideFixtures !== previous?.hideFixtures,
+    next?.hideFixtures !== previous?.hideFixtures || next?.pointVisibility !== previous?.pointVisibility,
   )
 }, { deep: true })
 watch(() => props.rebarVisualization, () => {

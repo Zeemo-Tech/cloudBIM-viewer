@@ -10,6 +10,8 @@ export interface RebarCapabilities {
   sceneClass?: boolean
   rebarFlags?: boolean
   rawLabels?: boolean
+  fixtureKind?: boolean
+  rebarRole?: boolean
   bimPrior?: boolean
 }
 
@@ -60,6 +62,8 @@ export interface RebarSegmentationSummary {
   directionCount: number
   instanceCount: number
   sceneClassCounts?: Record<string, number>
+  fixtureKindCounts?: { unknown: number; squareTube: number; plate: number; bolt: number }
+  rebarRoleCounts?: { unresolved: number; planar: number; web: number }
   directionPointCounts?: Record<string, number>
   /** V5 counts reconstructed intersections, rather than assigning points to one. */
   intersectionCount?: number
@@ -130,18 +134,22 @@ export interface RebarInspection {
   showCenterlines: boolean
   showIntersections: boolean
   hideFixtures: boolean
+  pointVisibility?: Partial<Record<RebarPointVisibilityCategory, boolean>>
+  visibleRebarRoles?: Partial<Record<RebarRole, boolean>>
 }
+
+export type FixtureKind = 'unknown' | 'squareTube' | 'plate' | 'bolt'
+export type RebarRole = 'unresolved' | 'planar' | 'web'
+export type RebarPointVisibilityCategory =
+  | 'unknown' | 'table' | 'noise'
+  | 'fixtureUnknown' | 'fixtureSquareTube' | 'fixturePlate' | 'fixtureBolt'
+  | 'rebarUnresolved' | 'rebarPlanar' | 'rebarWeb'
 
 export function getRebarAnalysis(resultUrl: string) {
   return backendRequest<{ analysis: RebarAnalysisV2 }>(resultUrl, { method: 'GET' })
 }
 
-export function isRebarV5Result(value: RebarSegmentationResult | null | undefined): value is RebarSegmentationResult {
-  return value?.algorithm.id === 'geometric-v5' &&
-    value.algorithm.version === '1' &&
-    value.analysisSchema === 'rebar-analysis-v2' &&
-    value.visualization?.schema === 'rebar-visualization-v3'
-}
+export { isRebarV5Result } from '@/features/rebar-visualization/result'
 
 export function listRebarAlgorithms() {
   return backendRequest<BackendResult<{ algorithms: RebarAlgorithmDescriptor[] }>>(
@@ -168,7 +176,7 @@ export function computeRebarSegmentation(
       method: 'POST',
       params: { force: options.force ? 'true' : undefined },
       data: request,
-      timeout: 32 * 60_000,
+      timeout: 62 * 60_000,
     },
   )
 }

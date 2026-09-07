@@ -218,7 +218,7 @@ class OwnershipTests(unittest.TestCase):
         """Use the full raw cloud: hook labels must not remain fragment IDs."""
         truth = make_truth_scene(seed=20260905, top_arcs=True)
         adapter = GeometricV5Adapter()
-        analysis = adapter.analyze(truth.points, adapter.normalize_parameters({"detection_point_limit": 100000}))
+        analysis = adapter.analyze(truth.points, adapter.normalize_parameters({"detection_point_limit": 100000, "ownership_review_enabled": True}))
         try:
             attrs = adapter.project_points(truth.points, analysis)
             hook = (truth.scene == REBAR) & (truth.instance == truth.hook_instance)

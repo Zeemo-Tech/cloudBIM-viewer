@@ -783,6 +783,8 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
         rebar_total = 0
         intersection_total = 0
         scene_counts = np.zeros(5, dtype=np.int64)
+        fixture_counts = np.zeros(4, dtype=np.int64)
+        role_counts = np.zeros(3, dtype=np.int64)
         direction_point_counts = {"directionA": 0, "directionB": 0}
         direction_ids: set[int] = set()
         instance_ids: set[int] = set()
@@ -799,6 +801,10 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
                 if attrs.scene_class is not None:
                     if np.any(attrs.scene_class > 4): raise ValueError("unrecognized scene class")
                     scene_counts[:] += np.bincount(attrs.scene_class, minlength=5)
+                    if attrs.fixture_kind is not None:
+                        fixture_counts[:] += np.bincount(attrs.fixture_kind[attrs.scene_class == 4], minlength=4)
+                    if attrs.rebar_role is not None:
+                        role_counts[:] += np.bincount(attrs.rebar_role[attrs.scene_class == 2], minlength=3)
                 direction_ids.update(int(value) for value in np.unique(attrs.rebar_direction)
                                      if value not in (0, np.uint16(65535)))
                 instance_ids.update(int(value) for value in np.unique(attrs.rebar_instance)
@@ -825,6 +831,10 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
             summary["display"] = {"totalPointCount": total, "rebarPointCount": rebar_total,
                 "sceneClassCounts": dict(zip(("unknown", "table", "rebar", "noise", "fixture"), map(int, scene_counts)))}
             summary["sceneClassCounts"] = summary["display"]["sceneClassCounts"]
+            summary["fixtureKindCounts"] = dict(zip(("unknown", "squareTube", "plate", "bolt"), map(int, fixture_counts)))
+            summary["rebarRoleCounts"] = dict(zip(("unresolved", "planar", "web"), map(int, role_counts)))
+            summary["display"]["fixtureKindCounts"] = summary["fixtureKindCounts"]
+            summary["display"]["rebarRoleCounts"] = summary["rebarRoleCounts"]
             summary["rawLabelsPath"] = "labels/manifest.json"
             summary["featuresPath"] = "features/manifest.json"
         elif algo.descriptor.get("capabilities", {}).get("rawLabels", False):

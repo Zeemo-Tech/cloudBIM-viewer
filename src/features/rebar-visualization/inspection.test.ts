@@ -29,17 +29,19 @@ function inspection(overrides: Partial<RebarInspection> = {}): RebarInspection {
   }
 }
 
-test('intersection markers default independently from hidden centerlines and preserve picking metadata', () => {
+test('intersection markers are independent red sphere meshes and preserve picking metadata', () => {
   const overlay = buildRebarOverlay(inspection())
-  const sprites = overlay.children.filter((child): child is THREE.Sprite => child instanceof THREE.Sprite)
+  const meshes = overlay.children.filter((child): child is THREE.Mesh => child instanceof THREE.Mesh)
   assert.equal(overlay.children.filter((child) => child instanceof THREE.Line).length, 0)
-  assert.equal(sprites.length, 1)
-  const marker = sprites[0]
+  assert.equal(meshes.length, 1)
+  const marker = meshes[0]
+  assert.ok(marker.geometry instanceof THREE.SphereGeometry)
+  assert.equal((marker.material as THREE.MeshBasicMaterial).color.getHexString(), 'ef4444')
   assert.equal(marker.name, 'rebar-intersection-17')
   assert.equal(marker.userData.rebarIntersectionId, 17)
   assert.equal(marker.userData.rebarIntersection, intersection)
   assert.deepEqual(marker.position.toArray(), [1, 2, 3])
-  assert.deepEqual(marker.scale.toArray(), [.035, .035, .035])
+  assert.ok(marker.raycast)
   disposeRebarOverlay(overlay)
 })
 
@@ -53,26 +55,21 @@ test('roles are encoded for highlighting and selected intersections retain only 
 
   const selected = buildRebarOverlay(inspection({ selectedIntersectionId: 17 }))
   assert.equal(selected.children.filter((child) => child instanceof THREE.Line).length, 2)
-  assert.equal((selected.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite).scale.x, .05)
+  assert.equal(((selected.children.find((child) => child instanceof THREE.Mesh) as THREE.Mesh).geometry as THREE.SphereGeometry).parameters.radius, .025)
   disposeRebarOverlay(selected)
 })
 
-test('disposing every overlay releases line and sprite geometry, material, and marker texture', () => {
+test('disposing every overlay releases line and sphere geometry and material', () => {
   const overlay = buildRebarOverlay(inspection({ showCenterlines: true }))
   const parent = new THREE.Group()
   parent.add(overlay)
-  const sprite = overlay.children.find((child): child is THREE.Sprite => child instanceof THREE.Sprite)!
-  const texture = new THREE.Texture()
-  let textureDisposed = false
+  const marker = overlay.children.find((child): child is THREE.Mesh => child instanceof THREE.Mesh)!
   let geometryDisposed = false
   let materialDisposed = false
-  texture.dispose = () => { textureDisposed = true }
-  sprite.geometry.dispose = () => { geometryDisposed = true }
-  sprite.material.map = texture
-  sprite.material.dispose = () => { materialDisposed = true }
+  marker.geometry.dispose = () => { geometryDisposed = true }
+  ;(marker.material as THREE.Material).dispose = () => { materialDisposed = true }
   disposeRebarOverlay(overlay)
   assert.equal(parent.children.length, 0)
-  assert.equal(textureDisposed, true)
   assert.equal(geometryDisposed, true)
   assert.equal(materialDisposed, true)
 
