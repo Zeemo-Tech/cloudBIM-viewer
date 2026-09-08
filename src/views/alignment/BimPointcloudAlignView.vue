@@ -1433,7 +1433,7 @@ function closePage() {
   console.info('[BimPointcloudAlign] closePage fallback redirect', {
     target: window.location.origin,
   })
-  window.location.href = window.location.origin
+  window.location.href = `${window.location.origin}/projects`
 }
 
 function parseColor(value: string) {
@@ -4834,7 +4834,7 @@ async function handleCalibrationComplete() {
   ElMessage.success('校准矩阵已保存，可通过步骤条进入实模对比')
   // Reload the shell so the WebGL canvas is fully disposed and the upload
   // page recalculates its calibrated preview options from the backend.
-  window.location.assign(`${window.location.origin}/upload`)
+  window.location.assign(`${window.location.origin}/projects`)
 }
 
 function activateCoarseRegistration() {

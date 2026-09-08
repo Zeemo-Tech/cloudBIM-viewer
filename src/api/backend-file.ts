@@ -40,6 +40,7 @@ export interface PaginatedData<T> {
 
 export interface AssetSummary {
   id: number
+  projectId?: number
   type: AssetType
   sourceName: string
   sourceSize: number
@@ -72,12 +73,14 @@ export interface UploadStatus {
 export interface ListAssetsParams extends PaginationParams {
   type?: AssetType
   status?: AssetStatus
+  projectId?: number
 }
 
 export interface CreateTusUploadParams {
   fileName: string
   fileSize: number
   assetType: AssetType
+  projectId?: number
 }
 
 export interface TusUploadSession {
@@ -139,6 +142,7 @@ export function listAssets(params: ListAssetsParams = {}) {
       pageSize: params.pageSize ?? 100,
       type: params.type,
       status: params.status,
+      projectId: params.projectId,
     },
   })
 }
@@ -187,6 +191,7 @@ export async function createTusUpload(params: CreateTusUploadParams) {
       'Upload-Metadata': encodeTusMetadata({
         filename: params.fileName,
         assetType: params.assetType,
+        ...(params.projectId ? { projectId: String(params.projectId) } : {}),
       }),
     }),
   })

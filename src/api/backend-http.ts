@@ -127,7 +127,6 @@ export const backendClient = axios.create({
   timeout: REQUEST_TIMEOUT,
   headers: {
     Accept: 'application/json, text/plain, */*',
-    'X-Requested-With': 'XMLHttpRequest',
   },
 })
 

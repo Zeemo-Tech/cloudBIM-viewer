@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { SwitchButton } from '@element-plus/icons-vue'
-import { useRouter, type RouteLocationRaw } from 'vue-router'
+import { FolderOpened, Plus, SwitchButton } from '@element-plus/icons-vue'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
+import { listProjects, type ProjectSummary } from '@/api/backend-project'
 import { getBimAlignment, getScanCalibration } from '@/api/backend-alignment'
 import {
   type AssetDetail,
@@ -58,6 +59,10 @@ defineEmits<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
+const projects = ref<ProjectSummary[]>([])
+const selectedProjectId = ref<number | null>(null)
+const loadingProjects = ref(false)
 const bimFile = ref<File | null>(null)
 const pointCloudFile = ref<File | null>(null)
 const activeUploadKind = ref<UploadKind | null>(null)
@@ -128,6 +133,9 @@ const selectedSplitPreviewOption = computed(() =>
   calibratedSplitPreviewOptions.value.find((item) => item.key === selectedSplitPreviewKey.value) ?? null,
 )
 const userName = computed(() => props.session.username)
+const selectedProject = computed(
+  () => projects.value.find((project) => project.id === selectedProjectId.value) || null,
+)
 
 function createInitialTaskState(): UploadTaskState {
   return {
@@ -152,6 +160,12 @@ function formatDateTime(timestamp?: number) {
   const minutes = String(date.getMinutes()).padStart(2, '0')
 
   return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function formatProjectDate(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN', { hour12: false })
 }
 
 function isPreviewReady(asset: AssetDetail | AssetSummary | null) {
@@ -307,17 +321,48 @@ watch(pointCloudFile, () => {
   resetTask('pointcloud')
 })
 
-onMounted(() => {
-  void loadAssets()
+onMounted(async () => {
+  await loadProjects()
+  await loadAssets()
 })
 
+watch(selectedProjectId, async (next, previous) => {
+  if (next === previous) return
+  resetTask('bim')
+  resetTask('pointcloud')
+  await loadAssets()
+})
+
+async function loadProjects() {
+  loadingProjects.value = true
+  try {
+    const response = await listProjects()
+    projects.value = response?.data?.list || (response as any)?.list || []
+    const routeProjectId = Number(route.query.projectId)
+    selectedProjectId.value =
+      projects.value.find((project) => project.id === routeProjectId)?.id ||
+      projects.value[0]?.id ||
+      null
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载项目列表失败')
+  } finally {
+    loadingProjects.value = false
+  }
+}
+
 async function loadAssets(silent = false) {
+  if (!selectedProjectId.value) {
+    assetCollections.bim = []
+    assetCollections.pointcloud = []
+    calibratedSplitPreviewOptions.value = []
+    return
+  }
   loadingAssets.value = true
 
   try {
     const [bimResponse, pointcloudResponse] = await Promise.all([
-      listAssets({ page: 1, pageSize: 100, type: 'bim' }),
-      listAssets({ page: 1, pageSize: 100, type: 'pointcloud' }),
+      listAssets({ page: 1, pageSize: 100, type: 'bim', projectId: selectedProjectId.value }),
+      listAssets({ page: 1, pageSize: 100, type: 'pointcloud', projectId: selectedProjectId.value }),
     ])
 
     assetCollections.bim = [...(bimResponse.data.list || [])].sort(
@@ -410,6 +455,11 @@ async function handleUpload(kind: UploadKind) {
     return
   }
 
+  if (!selectedProjectId.value) {
+    ElMessage.warning('请先选择项目，再上传文件')
+    return
+  }
+
   if (activeUploadKind.value) {
     ElMessage.info('当前已有上传任务在进行，请稍后再试')
     return
@@ -425,6 +475,7 @@ async function handleUpload(kind: UploadKind) {
     const result = await uploadFile({
       type: kind === 'bim' ? 'bim' : 'pointcloud',
       file,
+      projectId: selectedProjectId.value,
       resumeFromState: true,
       ...bindTaskCallbacks(kind),
     })
@@ -844,6 +895,25 @@ async function openPreview(mode: PreviewMode) {
       <header class="page-header card-surface">
         <div class="header-copy">
           <h2>实模一致系统</h2>
+          <div class="project-picker">
+            <el-icon><FolderOpened /></el-icon>
+            <span>当前项目</span>
+            <el-select
+              v-model="selectedProjectId"
+              :loading="loadingProjects"
+              placeholder="请选择项目"
+              size="small"
+              style="width: 240px"
+            >
+              <el-option
+                v-for="project in projects"
+                :key="project.id"
+                :label="project.name"
+                :value="project.id"
+              />
+            </el-select>
+            <el-button text type="primary" size="small" :icon="Plus" @click="$router.push('/projects')">管理项目</el-button>
+          </div>
         </div>
 
         <div class="header-actions">
@@ -1211,6 +1281,7 @@ async function openPreview(mode: PreviewMode) {
 .header-copy h2{
 margin: 0;
 }
+.project-picker{display:flex;align-items:center;gap:8px;margin-top:14px;color:#64748b;font-size:13px}.project-picker .el-icon{color:#2563eb}.project-picker>span{font-weight:600;color:#334155}
 .upload-view {
   min-height: 100vh;
   padding: 28px;

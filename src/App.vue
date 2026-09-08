@@ -8,8 +8,10 @@ import {
   validateStoredSession,
 } from '@/features/auth/auth.service'
 import LoginView from '@/views/login/LoginView.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
 
-const UploadView = defineAsyncComponent(() => import('@/views/upload/UploadView.vue'))
+const UploadView = defineAsyncComponent(() => import('@/views/upload/SimpleUploadView.vue'))
+const ProjectCenterView = defineAsyncComponent(() => import('@/views/project/ProjectCenterView.vue'))
 const AssetPreviewView = defineAsyncComponent(() => import('@/views/preview/AssetPreviewView.vue'))
 const SplitPreviewView = defineAsyncComponent(() => import('@/views/preview/SplitPreviewView.vue'))
 const BimPointcloudAlignView = defineAsyncComponent(
@@ -71,6 +73,10 @@ const currentView = computed(() => {
     return 'asset-preview'
   }
 
+  if (routeState.value.path.startsWith('/projects')) {
+    return 'projects'
+  }
+
   if (
     routeState.value.path.startsWith('/preview/split') ||
     routeState.value.view === 'split-preview'
@@ -114,13 +120,6 @@ function handleLogout() {
     @login-success="handleLoginSuccess"
   />
 
-  <UploadView
-    v-else-if="session && currentView === 'upload'"
-    :key="routeKey"
-    :session="session"
-    @logout="handleLogout"
-  />
-
   <AssetPreviewView
     v-else-if="session && currentView === 'asset-preview'"
     :key="routeKey"
@@ -128,7 +127,6 @@ function handleLogout() {
     :asset-id="routeState.assetId"
     :display-name="routeState.displayName"
   />
-
   <SplitPreviewView
     v-else-if="session && currentView === 'split-preview'"
     :key="routeKey"
@@ -137,7 +135,6 @@ function handleLogout() {
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
   />
-
   <BimPointcloudAlignView
     v-else-if="session && currentView === 'alignment'"
     :key="routeKey"
@@ -146,4 +143,8 @@ function handleLogout() {
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
   />
+  <AppLayout v-else-if="session" :session="session" @logout="handleLogout">
+    <ProjectCenterView v-if="currentView === 'projects'" :key="routeKey" />
+    <UploadView v-else :key="routeKey" :session="session" @logout="handleLogout" />
+  </AppLayout>
 </template>

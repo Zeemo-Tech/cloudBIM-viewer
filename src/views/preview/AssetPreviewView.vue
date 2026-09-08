@@ -127,7 +127,7 @@ function closePage() {
     return
   }
 
-  void router.push('/upload')
+  void router.push('/projects')
 }
 
 function resetView() {

@@ -20,6 +20,11 @@ const router = createRouter({
       component: RouteShell,
     },
     {
+      path: '/projects',
+      name: 'projects',
+      component: RouteShell,
+    },
+    {
       path: '/preview/asset',
       name: 'asset-preview',
       component: RouteShell,
@@ -27,6 +32,11 @@ const router = createRouter({
     {
       path: '/preview/split',
       name: 'split-preview',
+      component: RouteShell,
+    },
+    {
+      path: '/alignment',
+      name: 'alignment-page',
       component: RouteShell,
     },
     {

@@ -23,6 +23,7 @@ const processingStatuses = new Set<AssetStatus>([
 export interface UploadFileParams {
   type: AssetType
   file: File
+  projectId?: number
   onProgress?: (progress: number) => void
   onChunkProgress?: (current: number, total: number) => void
   onUploadIdCreated?: (uploadId: string) => void
@@ -105,7 +106,7 @@ function saveUploadState(
 }
 
 async function resolveUploadSession(
-  params: Pick<UploadFileParams, 'existingUploadId' | 'file' | 'resumeFromState' | 'type'>,
+  params: Pick<UploadFileParams, 'existingUploadId' | 'file' | 'resumeFromState' | 'type' | 'projectId'>,
 ) {
   const { existingUploadId, file, resumeFromState, type } = params
   const fileFingerprint = createFileFingerprint(file, type)
@@ -144,6 +145,7 @@ async function resolveUploadSession(
     fileName: file.name,
     fileSize: file.size,
     assetType: type,
+    projectId: params.projectId,
   })
 
   saveUploadState(

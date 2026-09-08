@@ -367,7 +367,7 @@ async function handleSubmit() {
   justify-content: center;
   align-items: center;
   padding: 24px;
-  background-color: #e2e2e5;
+  background-color: #f5fafd;
 }
 
 .container {
