@@ -1,4 +1,46 @@
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cloudbim-backend:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mesh-service:
+        condition: service_started
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ADDR: :8090
+      CLOUDBIM_DATA_DIR: /app/data
+      CLOUDBIM_SEED_DEMO: ${CLOUDBIM_SEED_DEMO:-true}
+      # The checked-in backend/.env is for the host-side MySQL setup. The
+      # running Compose stack uses PostgreSQL, so keep these values explicit
+      # for the container service instead of inheriting that unrelated file.
+      DB_DRIVER: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: AuS4tpYfwNSu
+      DB_NAME: cloudbim
+      DB_SSLMODE: disable
+      JWT_SECRET: cloudbim-local-development-secret-change-me
+      REGISTER_CODE: laochen
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      MESH_SERVICE_URL: http://mesh-service:8001
+      GOCESIUMTILER_BIN: /opt/tools/gocesiumtiler/gocesiumtiler-lin-x64
+      IFC_BUNDLE_BIN: /opt/tools/ifc_bundle/ifc_bundle
+      PROCESSING_WORKERS: ${PROCESSING_WORKERS:-2}
+      UPLOAD_CHUNK_LIMIT: ${UPLOAD_CHUNK_LIMIT:-67108864}
+      UPLOAD_FILE_LIMIT: ${UPLOAD_FILE_LIMIT:-107374182400}
+    ports:
+      - "${BACKEND_PORT:-8090}:8090"
+    volumes:
+      - cloudbim-data:/app/data
+      - ${CLOUDBIM_GOCESIUMTILER_DIR:-/Users/monica/Desktop/zhongjian-back/tools/gocesiumtiler}:/opt/tools/gocesiumtiler:ro
+      - ${CLOUDBIM_IFC_BUNDLE_DIR:-/Users/monica/Desktop/zhongjian-back/tools/ifc_bundle}:/opt/tools/ifc_bundle:ro
+
   postgres:
     image: postgres:16-alpine
     container_name: cloudbim-postgres
@@ -43,3 +85,4 @@ services:
 
 volumes:
   cloudbim-pgdata:
+  cloudbim-data:

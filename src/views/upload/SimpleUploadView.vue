@@ -37,15 +37,36 @@ function requestUpload(kind: UploadKind) {
   selectedProjectId.value = null
   projectDialogVisible.value = true
 }
-function chooseFile() { fileInput.value?.click() }
+function chooseFile() {
+  if (!uploading.value) fileInput.value?.click()
+}
+function resetTask(kind: UploadKind) {
+  tasks[kind] = { status: 'idle', progress: 0 }
+}
+function setSelectedFile(kind: UploadKind, file: File) {
+  if (tasks[kind].status === 'uploading') return
+  // Selecting a replacement starts a fresh visual task, so the previous
+  // completion/error message cannot leak into the next upload.
+  selectedFiles[kind] = file
+  resetTask(kind)
+}
 function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file) selectedFiles[activeTab.value] = file
+  if (file) setSelectedFile(activeTab.value, file)
   input.value = ''
 }
-function handleDrop(event: DragEvent) { const file = event.dataTransfer?.files?.[0]; if (file) selectedFiles[activeTab.value] = file }
-function clearActiveFile() { if (!uploading.value) selectedFiles[activeTab.value] = null }
+function handleDrop(event: DragEvent) {
+  if (uploading.value) return
+  const file = event.dataTransfer?.files?.[0]
+  if (file) setSelectedFile(activeTab.value, file)
+}
+function clearActiveFile() {
+  if (!uploading.value) {
+    selectedFiles[activeTab.value] = null
+    resetTask(activeTab.value)
+  }
+}
 function toggleUploadType() {
   activeTab.value = activeTab.value === 'bim' ? 'pointcloud' : 'bim'
 }
@@ -78,7 +99,7 @@ onMounted(() => { void loadProjects() })
           <input ref="fileInput" class="hidden-input" type="file" :accept="activeConfig.accept" @change="handleFileChange" />
           <div class="corner-mark corner-tl"></div><div class="corner-mark corner-tr"></div><div class="corner-mark corner-bl"></div><div class="corner-mark corner-br"></div>
           <template v-if="!activeFile"><div class="upload-icon-wrapper"><el-icon :size="46"><Document /></el-icon><span class="plus-badge">+</span></div><h2>添加{{ activeTab === 'bim' ? 'BIM模型' : '点云文件' }}</h2><p>拖拽到这里，或点击选择文件</p><span class="format-pill">支持 {{ activeConfig.accept.replace('.', '').toUpperCase() }} 格式</span></template>
-          <template v-else><div class="upload-icon-wrapper has-file"><el-icon :size="44"><Check /></el-icon></div><h2 class="selected-name">{{ activeFile.name }}</h2><p>{{ (activeFile.size / 1024 / 1024).toFixed(2) }} MB</p><button class="replace-file" type="button">重新选择</button></template>
+          <template v-else><div class="scan-line" aria-hidden="true"></div><div class="upload-icon-wrapper has-file"><el-icon :size="44"><Check /></el-icon></div><h2 class="selected-name">{{ activeFile.name }}</h2><p>{{ (activeFile.size / 1024 / 1024).toFixed(2) }} MB</p><button class="replace-file" type="button">重新选择</button></template>
         </div>
       </div>
       <div class="control-bar"><div class="file-control"><div class="type-selector"><button class="file-type-btn" type="button" title="切换文件类型" :aria-label="`切换到${activeTab === 'bim' ? '点云文件' : 'BIM模型'}`" @click.stop="toggleUploadType"><el-icon><Refresh /></el-icon><span class="type-dot"></span></button></div><div :key="activeTab" class="guide-text"><span>{{ activeFile ? activeFile.name : `添加${activeTab === 'bim' ? 'BIM模型' : '点云文件'}` }}</span><small>{{ activeTab === 'bim' ? 'BIM 模型文件' : '点云文件' }}</small></div><button v-if="activeFile" class="clear-btn" type="button" title="清除文件" @click="clearActiveFile"><el-icon><Close /></el-icon></button><button class="submit-btn" :class="{ active: activeFile && !uploading, loading: uploading }" type="button" :disabled="!activeFile || uploading" @click="requestUpload(activeTab)"><el-icon :size="21"><Loading v-if="uploading" /><Upload v-else /></el-icon></button></div></div>
@@ -352,6 +373,9 @@ onMounted(() => { void loadProjects() })
 .main-upload-card:hover .corner-tr{border-color:#0ea5e9;transform:translate(2px,-2px);filter:drop-shadow(0 0 5px rgb(14 165 233 / 48%))}
 .main-upload-card:hover .corner-bl{border-color:#10b981;transform:translate(-2px,2px);filter:drop-shadow(0 0 5px rgb(16 185 129 / 48%))}
 .main-upload-card:hover .corner-br{border-color:#f59e0b;transform:translate(2px,2px);filter:drop-shadow(0 0 5px rgb(245 158 11 / 48%))}
+.scan-line{position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent 0%,rgb(96 165 250 / 25%) 18%,rgb(59 130 246 / 90%) 50%,rgb(96 165 250 / 25%) 82%,transparent 100%);filter:blur(.5px);box-shadow:0 0 14px rgb(59 130 246 / 75%);pointer-events:none;animation:scan-card 3s linear infinite}
+.upload-icon-wrapper.has-file{animation:icon-breathe 2.2s ease-in-out infinite}
+.upload-icon-wrapper.has-file :deep(.el-icon){animation:icon-breathe-mark 2.2s ease-in-out infinite}
 .type-selector{width:50px;min-width:50px;flex:0 0 50px}
 .file-control{min-height:50px}
 .guide-text{height:32px;contain:layout}
@@ -364,5 +388,8 @@ onMounted(() => { void loadProjects() })
 @keyframes stack-drift-middle{0%,100%{transform:rotate(6deg) translate(2.5rem,-1.3rem)}50%{transform:rotate(7deg) translate(2.7rem,-1.5rem)}}
 @keyframes stack-drift-front{0%,100%{transform:rotate(-4deg) translate(-2rem,.8rem)}50%{transform:rotate(-3deg) translate(-1.85rem,.65rem)}}
 @keyframes upload-card-glow{0%,100%{box-shadow:0 25px 50px -12px rgb(0 0 0 / 10%)}50%{box-shadow:0 30px 58px -14px rgb(37 99 235 / 16%)}}
-@media (prefers-reduced-motion:reduce){.stack-layer,.main-upload-card{animation:none;transition:none}}
+@keyframes scan-card{0%{top:0;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:100%;opacity:0}}
+@keyframes icon-breathe{0%,100%{transform:scale(1);box-shadow:inset 0 0 0 1px #d3f1e1,0 0 0 0 rgb(35 163 109 / 0%)}50%{transform:scale(1.045);box-shadow:inset 0 0 0 1px #b7e8ce,0 0 0 9px rgb(35 163 109 / 0%)}}
+@keyframes icon-breathe-mark{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.12);opacity:1}}
+@media (prefers-reduced-motion:reduce){.stack-layer,.main-upload-card,.scan-line,.upload-icon-wrapper.has-file,.upload-icon-wrapper.has-file :deep(.el-icon){animation:none;transition:none}}
 </style>

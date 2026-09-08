@@ -711,6 +711,11 @@ func (a *app) authRequired() gin.HandlerFunc {
 		}
 		h := c.GetHeader("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
+			if cookie, err := c.Cookie("cloudbim_session"); err == nil && cookie != "" {
+				h = "Bearer " + cookie
+			}
+		}
+		if !strings.HasPrefix(h, "Bearer ") {
 			fail(c, 401, "缺少或非法的 Authorization 头")
 			c.Abort()
 			return
@@ -806,7 +811,29 @@ func (a *app) login(c *gin.Context) {
 		fail(c, 500, "生成 token 失败")
 		return
 	}
-	ok(c, gin.H{"token": signed})
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "cloudbim_session",
+		Value:    signed,
+		Path:     "/",
+		MaxAge:   int(a.cfg.JWTExpiresIn.Seconds()),
+		HttpOnly: true,
+		Secure:   a.cfg.Environment == "production",
+		SameSite: http.SameSiteLaxMode,
+	})
+	ok(c, gin.H{})
+}
+
+func (a *app) logout(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "cloudbim_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   a.cfg.Environment == "production",
+		SameSite: http.SameSiteLaxMode,
+	})
+	ok(c, gin.H{})
 }
 func (a *app) me(c *gin.Context) {
 	var u DBUser
@@ -4579,6 +4606,7 @@ func main() {
 	auth := r.Group("/auth")
 	auth.POST("/register", a.register)
 	auth.POST("/login", a.login)
+	auth.POST("/logout", a.logout)
 	auth.GET("/me", a.authRequired(), a.me)
 	r.Use(a.authRequired())
 	r.GET("/projects", a.listProjects)

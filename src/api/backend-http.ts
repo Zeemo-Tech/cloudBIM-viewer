@@ -125,6 +125,7 @@ function createResponseHeaders(
 export const backendClient = axios.create({
   baseURL: backendBaseUrl || undefined,
   timeout: REQUEST_TIMEOUT,
+  withCredentials: true,
   headers: {
     Accept: 'application/json, text/plain, */*',
   },
@@ -179,10 +180,11 @@ export async function backendTusRequestRaw<T = unknown>(
     headers.delete('X-Requested-With')
     headers.set('Accept', '*/*')
 
-    return await axios.request<T>({
+  return await axios.request<T>({
       ...options,
       url: normalizeBackendUrl(path),
       timeout: REQUEST_TIMEOUT,
+      withCredentials: true,
       headers,
     })
   } catch (error) {

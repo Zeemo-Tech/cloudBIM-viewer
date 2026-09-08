@@ -41,6 +41,13 @@ function createProxyConfig(target: string): ProxyOptions {
     ws: true,
     timeout: 0,
     proxyTimeout: 0,
+    // A browser refresh of `/projects` is an HTML navigation, not an API
+    // request. Let Vite's SPA fallback serve index.html for that request;
+    // Axios/fetch calls still proxy because they request JSON or other data.
+    bypass(req) {
+      const accept = req.headers.accept || ''
+      return accept.includes('text/html') ? req.url || '/' : undefined
+    },
     configure(proxy) {
       proxy.on('proxyReq', (proxyRequest) => {
         // Browser requests may arrive through an SSH-forwarded local port.

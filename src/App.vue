@@ -2,8 +2,7 @@
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  clearStoredSession,
-  getStoredSession,
+  logoutCurrentSession,
   type AuthSession,
   validateStoredSession,
 } from '@/features/auth/auth.service'
@@ -18,7 +17,8 @@ const BimPointcloudAlignView = defineAsyncComponent(
   () => import('@/views/alignment/BimPointcloudAlignView.vue'),
 )
 
-const session = ref<AuthSession | null>(getStoredSession())
+const session = ref<AuthSession | null>(null)
+const authReady = ref(false)
 const route = useRoute()
 const router = useRouter()
 
@@ -58,6 +58,10 @@ const routeState = computed(() => readRouteState())
 const routeKey = computed(() => route.fullPath)
 
 const currentView = computed(() => {
+  if (!authReady.value) {
+    return 'auth-loading'
+  }
+
   if (!session.value) {
     return 'login'
   }
@@ -95,20 +99,24 @@ function handleLoginSuccess(nextSession: AuthSession) {
 }
 
 onMounted(() => {
-  if (session.value) {
-    void validateStoredSession()
-      .then((nextSession) => {
-        session.value = nextSession
-      })
-      .catch(() => {
-        clearStoredSession()
-        session.value = null
-      })
-  }
+  void validateStoredSession()
+    .then((nextSession) => {
+      session.value = nextSession
+    })
+    .catch(() => {
+      session.value = null
+    })
+    .finally(() => {
+      authReady.value = true
+    })
 })
 
-function handleLogout() {
-  clearStoredSession()
+async function handleLogout() {
+  try {
+    await logoutCurrentSession()
+  } catch {
+    // Clear the local view even if the server is already unavailable.
+  }
   session.value = null
   void router.replace('/upload')
 }
@@ -119,6 +127,10 @@ function handleLogout() {
     v-if="currentView === 'login'"
     @login-success="handleLoginSuccess"
   />
+
+  <div v-else-if="currentView === 'auth-loading'" class="auth-loading" aria-live="polite">
+    正在恢复登录状态...
+  </div>
 
   <AssetPreviewView
     v-else-if="session && currentView === 'asset-preview'"
@@ -148,3 +160,14 @@ function handleLogout() {
     <UploadView v-else :key="routeKey" :session="session" @logout="handleLogout" />
   </AppLayout>
 </template>
+
+<style>
+.auth-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #7185a3;
+  background: #f8f9fb;
+  font-size: 14px;
+}
+</style>

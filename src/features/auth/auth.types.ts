@@ -14,7 +14,7 @@ export interface AuthUser {
 
 export interface AuthSession {
   id: number
-  accessToken: string
+  accessToken?: string
   username: string
   loginAt: string
 }

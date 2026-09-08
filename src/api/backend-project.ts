@@ -1,24 +1,18 @@
 import { backendRequest, type BackendResult } from '@/api/backend-http'
-import { getStoredAccessToken } from '@/features/auth/auth.storage'
 
-const projectApiBaseUrl = import.meta.env.DEV
-  ? (import.meta.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8090').replace(/\/$/, '')
-  : ''
+const projectApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '')
 
 function projectApiPath(path = '') {
   return `${projectApiBaseUrl}/projects${path}`
 }
 
 function projectRequestOptions(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', data?: ProjectPayload) {
-  const token = getStoredAccessToken()
   return {
     method,
     data,
     headers: {
-      // Direct development requests are cross-origin. Keep them CORS-simple apart
-      // from the required Authorization header.
+      // Keep project requests compatible with the same-origin Vite proxy.
       'X-Requested-With': undefined,
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   }
 }
