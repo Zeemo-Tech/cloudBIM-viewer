@@ -25,6 +25,7 @@ from algorithms.pointcloud_fusion import fuse_classifications
 from algorithms.fixture_regions import classify_regions
 from algorithms.region_refinement import refine_regions
 from algorithms.internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRIBUTES
+from algorithms.rebar_dimension_priors import load_dimension_priors
 
 
 ATTRIBUTES = {"normal_x": "<f4", "normal_y": "<f4", "normal_z": "<f4",
@@ -333,6 +334,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                 shapes[name] = ((count,), dtype)
                 arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
             t0 = time.perf_counter()
+            context.dimension_priors = load_dimension_priors(source_path=source)
             with threadpool_limits(limits=1):
                 internal_rebar = segment_internal_rebar(context, workers=workers,
                     output={name: arrays[name] for name in INTERNAL_ATTRIBUTES}, progress=progress)

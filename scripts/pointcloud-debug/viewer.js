@@ -237,6 +237,38 @@ function zoneColors(zones) {
 
 const internalTypeNames = { 0: '非内部钢筋', 1: '下层钢筋', 2: '上层钢筋', 3: '腹杆', 4: '实例待定' };
 const internalTypeColors = { 1: '#38bdf8', 2: '#fb7185', 3: '#facc15', 4: '#94a3b8' };
+const defaultInternalFamilyNames = { 1: '纵向钢筋', 2: '横向整长钢筋', 3: '短钢筋', 4: '腹杆直段' };
+const internalFamilyColors = { 1: '#22c55e', 2: '#a78bfa', 3: '#f97316', 4: '#facc15' };
+
+function internalFamilyNames(report = current?.internalRebar) {
+  return { ...defaultInternalFamilyNames, ...(report?.tracks?.familyNames || {}) };
+}
+
+function diameterPriorSummary(internalRebar) {
+  return Object.entries(internalRebar?.tracks?.diameterPriors || {})
+    .filter(([, prior]) => Number.isFinite(prior?.nominalM))
+    .map(([type, prior]) => {
+      const source = prior.source === 'ifc' ? 'IFC 先验' : '点云众数';
+      const observed = Number.isFinite(prior.observedModeM) && Math.abs(prior.observedModeM - prior.nominalM) > 1e-6
+        ? `，观测 Ø${fmtHeight(prior.observedModeM)}` : '';
+      const diameters = (prior.nominalsM || [prior.nominalM]).filter(Number.isFinite).map(fmtHeight).join(' / ');
+      return `${internalTypeNames[type] || `类型 ${type}`} Ø${diameters}（主直径：${source}${observed}）`;
+    }).join('；');
+}
+
+function observedLengthSummary(internalRebar) {
+  return (internalRebar?.tracks?.lengthFamilies || [])
+    .filter((family) => Number.isFinite(family?.lengthM))
+    .map((family) => `${family.name || internalFamilyNames(internalRebar)[family.id] || `族 ${family.id}`} ${fmt(family.count)} 根 · ${fmtHeight(family.lengthM)}`)
+    .join('；');
+}
+
+function ifcHorizontalLengthSummary(internalRebar) {
+  const priors = internalRebar?.tracks?.ifcPriors;
+  if (!priors?.available || !Array.isArray(priors.horizontalLengthsM)) return '';
+  const lengths = priors.horizontalLengthsM.filter(Number.isFinite).map(fmtHeight);
+  return lengths.length ? lengths.join(' / ') : '';
+}
 
 function instanceColor(id) {
   if (!id) return hexColor(internalTypeColors[4], '#94a3b8');
@@ -250,13 +282,14 @@ function confidenceColor(value) {
   return [color.r, color.g, color.b];
 }
 
-function internalColors(mode, types, instances, confidence) {
+function internalColors(mode, types, instances, confidence, families = null) {
   const colors = new Float32Array(types.length * 3);
   for (let index = 0; index < types.length; index += 1) {
     let color;
     if (types[index] === 4 || instances[index] === 0) color = hexColor(internalTypeColors[4], '#94a3b8');
     else if (mode === 'instances') color = instanceColor(instances[index]);
     else if (mode === 'confidence') color = confidenceColor(confidence[index]);
+    else if (mode === 'families' && families?.[index]) color = hexColor(internalFamilyColors[families[index]], '#94a3b8');
     else color = hexColor(internalTypeColors[types[index]], '#94a3b8');
     colors.set(color, index * 3);
   }
@@ -271,6 +304,8 @@ function updateInternalLegend() {
     ? [['低拟合分数', '#ef4444'], ['中等拟合分数', '#eab308'], ['高拟合分数', '#22c55e']]
     : mode === 'instances'
       ? [['不同颜色', '#a78bfa'], ['每种颜色代表一个钢筋实例', '#38bdf8'], ['实例待定', internalTypeColors[4]]]
+      : mode === 'families'
+        ? Object.entries(internalFamilyNames()).map(([value, name]) => [name, internalFamilyColors[value] || '#94a3b8'])
       : [1, 2, 3, 4].map((value) => [internalTypeNames[value], internalTypeColors[value]]);
   for (const [name, color] of entries) {
     const row = document.createElement('span');
@@ -298,12 +333,15 @@ function rebuildInternalAxes() {
   const origin = current.preview?.origin;
   if (!Array.isArray(origin) || origin.length !== 3) return;
   const typeFilter = $('internalTypeFilter').value;
+  const familyFilter = $('internalFamilyFilter').value;
   const instanceFilter = $('internalInstanceFilter').value;
   const positions = [], colors = [];
   for (const segment of current.internalRebar.segments) {
     if (segment.type === 0) continue;
     if (typeFilter !== 'all' && segment.type !== Number(typeFilter)) continue;
     if (instanceFilter !== 'all' && segment.instanceId !== Number(instanceFilter)) continue;
+    const family = current._internalInstanceById?.get(segment.instanceId)?.family;
+    if (familyFilter !== 'all' && family !== Number(familyFilter)) continue;
     positions.push(
       segment.startM[0] - origin[0], segment.startM[1] - origin[1], segment.startM[2] - origin[2],
       segment.endM[0] - origin[0], segment.endM[1] - origin[1], segment.endM[2] - origin[2],
@@ -328,9 +366,10 @@ function applyInternalRebarAppearance() {
   const types = current._internalTypes;
   const instances = current._internalInstances;
   internalRebarGeometry.setAttribute('color', new THREE.BufferAttribute(
-    internalColors($('internalColorMode').value, types, instances, current._internalConfidence), 3,
+    internalColors($('internalColorMode').value, types, instances, current._internalConfidence, current._internalFamilies), 3,
   ));
   const typeFilter = $('internalTypeFilter').value;
+  const familyFilter = $('internalFamilyFilter').value;
   const instanceFilter = $('internalInstanceFilter').value;
   const filtered = new Uint32Array(types.length);
   let selected = 0;
@@ -338,11 +377,17 @@ function applyInternalRebarAppearance() {
     const matchesType = types[index] > 0 && (typeFilter === 'all' || types[index] === Number(typeFilter));
     const matchesInstance = instanceFilter === 'all'
       || (instances[index] > 0 && instances[index] === Number(instanceFilter));
-    if (matchesType && matchesInstance) filtered[selected++] = index;
+    const matchesFamily = familyFilter === 'all'
+      || (current._internalFamilies?.[index] > 0 && current._internalFamilies[index] === Number(familyFilter));
+    if (matchesType && matchesInstance && matchesFamily) filtered[selected++] = index;
   }
   internalRebarGeometry.setIndex(new THREE.BufferAttribute(filtered.subarray(0, selected), 1));
   internalRebarGeometry.setDrawRange(0, selected);
-  $('internalRebarHint').textContent = `当前显示 ${fmt(selected)} / ${fmt(types.length)} 个全局样本点；仅显示内部钢筋；灰色点仍属于钢筋，尚未确定单根归属。拟合分数是几何质量指标，不代表校准概率。`;
+  const selectedInstance = instanceFilter === 'all' ? null : current._internalInstanceById?.get(Number(instanceFilter));
+  const selectedDetail = selectedInstance
+    ? ` 当前实例：${internalFamilyNames()[selectedInstance.family] || '未分族'}${Number.isFinite(selectedInstance.diameterM) ? ` · Ø${fmtHeight(selectedInstance.diameterM)}` : ''}${selectedInstance.lengthAnomaly ? ' · 可见长度异常' : ''}。`
+    : '';
+  $('internalRebarHint').textContent = `当前显示 ${fmt(selected)} / ${fmt(types.length)} 个全局样本点；仅显示内部钢筋；灰色点仍属于钢筋，尚未确定单根归属。${selectedDetail}拟合分数是几何质量指标，不代表校准概率。`;
   updateInternalLegend();
   rebuildInternalAxes();
   requestRender();
@@ -865,6 +910,17 @@ function metrics(manifest) {
     const timingRows = Object.entries(internalRebar.timings || {})
       .filter(([, value]) => Number.isFinite(value))
       .map(([name, value]) => [`05 内部钢筋 · ${name}`, value < .01 ? fmt(value * 1000, ' ms') : fmt(value, ' s')]);
+    const tracks = internalRebar.tracks;
+    const diameterSummary = diameterPriorSummary(internalRebar);
+    const lengthSummary = observedLengthSummary(internalRebar);
+    const ifcLengthSummary = ifcHorizontalLengthSummary(internalRebar);
+    const trackRows = tracks ? [
+      ['05 连续轨迹：合并 / 横向 / 端部延伸', `${fmt(tracks.mergedGroups)} / ${fmt(tracks.horizontalTracks)} / ${fmt(tracks.grownEnds)}`],
+      diameterSummary ? ['05 直径', diameterSummary] : null,
+      lengthSummary ? ['05 构件族可见跨距', `${lengthSummary}（点云内框观测）`] : null,
+      ifcLengthSummary ? ['05 IFC 横筋设计长度', ifcLengthSummary] : null,
+      Number.isFinite(tracks.anomalousLengthTracks) ? ['05 可见长度异常轨迹', fmt(tracks.anomalousLengthTracks)] : null,
+    ].filter(Boolean) : [];
     rows.splice(3, 0,
       ['05 识别版本', internalRebar.version || '—'],
       ['05 处理范围点数', fmt(internalRebar.pointCount)],
@@ -875,6 +931,7 @@ function metrics(manifest) {
       ['05 实例 / 拟合段', `${fmt(internalRebar.instanceCount)} / ${fmt(internalRebar.segmentCount)}`],
       ['05 下层 / 上层高度', `${fmtHeight(layers.lowerM)} / ${fmtHeight(layers.upperM)}`],
       ['05 模型', modelSummary || '—'],
+      ...trackRows,
       ['05 内部钢筋耗时', fmt(internalRebarS, ' s')],
       ...timingRows,
     );
@@ -1018,7 +1075,10 @@ async function loadManifest(manifest) {
           || instance.segmentIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
           || !Number.isSafeInteger(instance.pointCount) || instance.pointCount < 0
           || !Number.isFinite(instance.lengthM) || instance.lengthM < 0
-          || typeof instance.modelKind !== 'string' || !instance.modelKind.trim()) {
+          || typeof instance.modelKind !== 'string' || !instance.modelKind.trim()
+          || ('family' in instance && ![1, 2, 3, 4].includes(instance.family))
+          || ('diameterM' in instance && (!Number.isFinite(instance.diameterM) || instance.diameterM <= 0))
+          || ('lengthAnomaly' in instance && typeof instance.lengthAnomaly !== 'boolean')) {
           throw new Error('内部钢筋实例清单包含无效或重复的编号/类型');
         }
         instanceIds.add(instance.id);
@@ -1046,6 +1106,13 @@ async function loadManifest(manifest) {
       if (internalInstances?.some((id) => id > 0 && !instanceIds.has(id))
         || internalSegments?.some((id) => id > 0 && !segmentIds.has(id))) {
         throw new Error('内部钢筋预览引用了 Manifest 未声明的实例或拟合段编号');
+      }
+    }
+    const internalInstanceById = new Map((manifest.internalRebar?.instances || []).map((instance) => [instance.id, instance]));
+    const internalFamilies = internalInstances ? new Uint8Array(internalInstances.length) : null;
+    if (internalFamilies) {
+      for (let index = 0; index < internalInstances.length; index += 1) {
+        internalFamilies[index] = internalInstanceById.get(internalInstances[index])?.family || 0;
       }
     }
     const nextRaw = new THREE.BufferGeometry(), nextNormal = new THREE.BufferGeometry();
@@ -1097,7 +1164,7 @@ async function loadManifest(manifest) {
     fusionPoints.geometry = fusionGeometry || emptyClassGeometry;
     refinementPoints.geometry = refinementGeometry || emptyClassGeometry;
     internalRebarPoints.geometry = internalRebarGeometry || emptyClassGeometry;
-    current = { ...manifest, _positions: positions, _normals: normals, _valid: valid, _classes: classes, _recovered: recovered, _projectionClasses: projectionClasses, _projectionLayers: projectionLayers, _fusedClasses: fusedClasses, _fusedRegions: fusedRegions, _fusedRecovered: fusedRecovered, _refinedClasses: refinedClasses, _refinedRegions: refinedRegions, _refinedZones: refinedZones, _refinedChanged: refinedChanged, _internalTypes: internalTypes, _internalInstances: internalInstances, _internalSegments: internalSegments, _internalConfidence: internalConfidence };
+    current = { ...manifest, _positions: positions, _normals: normals, _valid: valid, _classes: classes, _recovered: recovered, _projectionClasses: projectionClasses, _projectionLayers: projectionLayers, _fusedClasses: fusedClasses, _fusedRegions: fusedRegions, _fusedRecovered: fusedRecovered, _refinedClasses: refinedClasses, _refinedRegions: refinedRegions, _refinedZones: refinedZones, _refinedChanged: refinedChanged, _internalTypes: internalTypes, _internalInstances: internalInstances, _internalSegments: internalSegments, _internalConfidence: internalConfidence, _internalFamilies: internalFamilies, _internalInstanceById: internalInstanceById };
     if (hasRefinement || hasInternalRebar) $('frameOverlay').checked = true;
     rebuildFrameOverlays();
     if (Array.from($('history').options).some((option) => option.value === manifest.runId)) {
@@ -1153,21 +1220,39 @@ async function loadManifest(manifest) {
     updateFusionLegend();
     updateRefinementLegend();
     if (internalTypes) {
+      const tracks = manifest.internalRebar.tracks;
+      const familyNames = internalFamilyNames(manifest.internalRebar);
+      const familyIds = [...new Set((manifest.internalRebar.instances || [])
+        .map((instance) => instance.family).filter((family) => [1, 2, 3, 4].includes(family)))].sort();
+      const hasTrackFamilies = Boolean(tracks && familyIds.length);
+      $('internalFamilyControl').hidden = !hasTrackFamilies;
+      $('internalFamilyColorOption').disabled = !hasTrackFamilies;
+      if (!hasTrackFamilies && $('internalColorMode').value === 'families') $('internalColorMode').value = 'types';
+      const previousFamily = $('internalFamilyFilter').value;
+      const familyOptions = [['all', '全部构件族'], ...familyIds.map((family) => [String(family), `仅${familyNames[family] || `族 ${family}`}`])];
+      $('internalFamilyFilter').replaceChildren(...familyOptions.map(([value, label]) => new Option(label, value)));
+      $('internalFamilyFilter').value = familyOptions.some(([value]) => value === previousFamily) ? previousFamily : 'all';
       const previousInstance = $('internalInstanceFilter').value;
       const instanceOptions = [['all', '全部实例'], ...(manifest.internalRebar.instances || []).map((instance) => [
         String(instance.id),
-        `#${instance.id} · ${internalTypeNames[instance.type] || `类型 ${instance.type}`} · ${fmt(instance.pointCount)} 点 · ${fmt(instance.lengthM, ' m')}`,
+        `#${instance.id} · ${instance.family ? `${familyNames[instance.family] || `族 ${instance.family}`} · ` : ''}${internalTypeNames[instance.type] || `类型 ${instance.type}`}${Number.isFinite(instance.diameterM) ? ` · Ø${fmtHeight(instance.diameterM)}` : ''} · ${fmt(instance.lengthM, ' m')}${instance.lengthAnomaly ? ' · 长度异常' : ''} · ${fmt(instance.pointCount)} 点`,
       ])];
       $('internalInstanceFilter').replaceChildren(...instanceOptions.map(([value, label]) => new Option(label, value)));
       $('internalInstanceFilter').value = instanceOptions.some(([value]) => value === previousInstance) ? previousInstance : 'all';
       const sampleScopeCount = internalTypes.reduce((sum, value) => sum + Number(value > 0), 0);
+      const diameterSummary = diameterPriorSummary(manifest.internalRebar);
+      const lengthSummary = observedLengthSummary(manifest.internalRebar);
+      const ifcLengthSummary = ifcHorizontalLengthSummary(manifest.internalRebar);
       $('internalLayerSummary').replaceChildren(...[
         ['全量内部范围', `${fmt(manifest.internalRebar.pointCount)} 点`],
         ['预览内部范围', `${fmt(sampleScopeCount)} / ${fmt(preview.pointCount)} 样本点`],
         ['下层标高', fmtHeight(manifest.internalRebar.layers?.lowerM)],
         ['上层标高', fmtHeight(manifest.internalRebar.layers?.upperM)],
         ['实例 / 拟合段', `${fmt(manifest.internalRebar.instanceCount)} / ${fmt(manifest.internalRebar.segmentCount)}`],
-      ].map(([name, value]) => {
+        diameterSummary ? ['直径（来源见括号）', diameterSummary] : null,
+        lengthSummary ? ['构件族代表跨距', `${lengthSummary}（点云内框观测）`] : null,
+        ifcLengthSummary ? ['IFC 横筋设计长度', ifcLengthSummary] : null,
+      ].filter(Boolean).map(([name, value]) => {
         const row = document.createElement('span');
         const label = document.createElement('b');
         const result = document.createElement('i');
@@ -1295,11 +1380,25 @@ $('refinementSubsetFilter').addEventListener('change', applyRefinementAppearance
 $('refinementZoneFilter').addEventListener('change', applyRefinementAppearance);
 $('internalColorMode').addEventListener('change', applyInternalRebarAppearance);
 $('internalTypeFilter').addEventListener('change', () => {
-  if ($('internalTypeFilter').value !== 'all') $('internalInstanceFilter').value = 'all';
+  const selected = current?._internalInstanceById?.get(Number($('internalInstanceFilter').value));
+  if (selected && $('internalTypeFilter').value !== 'all' && selected.type !== Number($('internalTypeFilter').value)) {
+    $('internalInstanceFilter').value = 'all';
+  }
+  applyInternalRebarAppearance();
+});
+$('internalFamilyFilter').addEventListener('change', () => {
+  const selected = current?._internalInstanceById?.get(Number($('internalInstanceFilter').value));
+  if (selected && $('internalFamilyFilter').value !== 'all' && selected.family !== Number($('internalFamilyFilter').value)) {
+    $('internalInstanceFilter').value = 'all';
+  }
   applyInternalRebarAppearance();
 });
 $('internalInstanceFilter').addEventListener('change', () => {
-  if ($('internalInstanceFilter').value !== 'all') $('internalTypeFilter').value = 'all';
+  const selected = current?._internalInstanceById?.get(Number($('internalInstanceFilter').value));
+  if (selected) {
+    if ($('internalTypeFilter').value !== 'all' && selected.type !== Number($('internalTypeFilter').value)) $('internalTypeFilter').value = 'all';
+    if ($('internalFamilyFilter').value !== 'all' && selected.family !== Number($('internalFamilyFilter').value)) $('internalFamilyFilter').value = 'all';
+  }
   applyInternalRebarAppearance();
   if (!compareSource) fit(lastView);
 });

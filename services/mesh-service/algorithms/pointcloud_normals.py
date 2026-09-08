@@ -60,6 +60,7 @@ class PointCloudContext:
     internal_segment: np.ndarray | None = None
     internal_confidence: np.ndarray | None = None
     internal_rebar_cache: dict | None = None
+    dimension_priors: dict | None = None
 
     @classmethod
     def build(cls, positions: np.ndarray):

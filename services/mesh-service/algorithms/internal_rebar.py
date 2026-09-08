@@ -12,8 +12,9 @@ import numpy as np
 from scipy import ndimage, optimize, signal, sparse
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
+from algorithms.rebar_tracks import diameter_priors, regularize_models, reconcile_tracks, grow_track_ends, track_statistics, remove_explained_fragments
 
-VERSION = 'internal-rebar-cylinders-v2'
+VERSION = 'internal-rebar-tracks-v3'
 TYPES = {'0': '非内部钢筋', '1': '下层钢筋', '2': '上层钢筋', '3': '腹杆', '4': '钢筋（实例待定）'}
 ATTRIBUTES = {'internal_type': 'u1', 'internal_instance': '<u4',
               'internal_segment': '<u4', 'internal_confidence': '<f4'}
@@ -66,7 +67,8 @@ def _fit_cylinder(points, kind, params):
     low, high = np.quantile(t, [.001, .999])
     error = np.abs(np.linalg.norm((points-center)-t[:, None]*axis, axis=1)-fit.x[2])
     return {'type': kind, 'center': center, 'axis': axis, 'low': float(low), 'high': float(high),
-            'radius': float(fit.x[2]), 'fitMedianErrorM': float(np.median(error)), 'seedCount': len(points)}
+            'radius': float(fit.x[2]), 'fitMedianErrorM': float(np.median(error)), 'seedCount': len(points), 'seedPoints': points,
+            'radiusAtBound': bool(min(fit.x[2]-params.min_radius,params.max_radius-fit.x[2])<.00005)}
 
 
 def _height_bands(points, axes, linearity, params):
@@ -319,7 +321,7 @@ def _recover_residual_models(points, normals, models, bands, params, workers):
                        'addedSegments':len(recovered),'newInstances':added}, {'tree':tree,'assignment':assignment}
 
 
-def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=None):
+def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=None, tangents=None, linearity=None):
     """Finite-cylinder surface competition with sign-independent source normals."""
     params = params or InternalRebarParameters()
     labels = np.zeros(len(points), np.uint32)
@@ -360,7 +362,12 @@ def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=N
                 error = np.abs(distance-radius[model])
                 beyond = np.maximum(low[model]-along,np.maximum(along-high[model],0))
                 axis_normal = np.abs(np.sum(normals[selected,None,:]*axis[model],axis=2))
-                score = error+.0015*axis_normal**2+2*beyond+model*1.e-12
+                radial_normal=np.abs(np.sum(normals[selected,None,:]*radial,axis=2))/np.maximum(distance,1.e-9)
+                score = error+.0015*axis_normal**2+.0007*(1-np.clip(radial_normal,0,1)**2)+2*beyond+model*1.e-12
+                if tangents is not None:
+                    alignment=np.sum(tangents[selected,None,:]*axis[model],axis=2)
+                    strength=np.clip((linearity[selected]-.35)/.5,0,1) if linearity is not None else np.ones(len(selected))
+                    score+=.0025*strength[:,None]*(1-np.clip(alignment,-1,1)**2)
                 valid = finite & (error<=params.assignment_tolerance) & (beyond<=params.endpoint_margin)
                 score[~valid]=np.inf
                 best=np.argmin(score,axis=1); rows=np.arange(len(selected)); accepted=np.isfinite(score[rows,best])
@@ -387,6 +394,8 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
     models, bands, histogram = [], [], {}
     model_cache = None
     recovery_cache = None
+    track_report = {}
+    track_tree = None
     diagnostics = {'scope': 'refined_class=3 AND refined_zone=1; strict inner frame',
                    'reusedResidualTree': False, 'webInstanceUnit': 'one straight diagonal segment'}
     if len(scope):
@@ -415,6 +424,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         timings['webModelsS'] = time.perf_counter()-t0
         diagnostics.update(reusedResidualTree=True, scopeSupportCells=len(cells), webMiddleCells=mid_count)
         t0=time.perf_counter()
+        priors,prior_report=diameter_priors(models,getattr(context,'dimension_priors',None))
+        models=regularize_models(models,priors,params,workers,_fit_cylinder,_split_parallel_points)
+        timings['diameterRefinementS']=time.perf_counter()-t0
+        t0=time.perf_counter()
         progress('第 5 步：补建遗漏的细长钢筋实例',0,len(cells))
         # Source normals are already cached; choose a deterministic source row
         # from each occupied cell, rather than estimating a second normal field.
@@ -422,9 +435,22 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         np.minimum.at(representative,grid.source_to_cell[scope],scope)
         support_normals=context.normals[representative[cells]]@rotation.T
         recovered,recovery,recovery_cache=_recover_residual_models(points,support_normals,models,bands,params,workers)
+        recovered=regularize_models(recovered,priors,params,workers,_fit_cylinder,_split_parallel_points)
         models+=recovered
         diagnostics['recovery']=recovery
         timings['residualModelsS']=time.perf_counter()-t0
+        t0=time.perf_counter()
+        progress('第 5 步：轴向、直径与整根连续性',0,len(models))
+        track_report=reconcile_tracks(models,params)
+        models,explained=remove_explained_fragments(models)
+        track_report.update(explained)
+        track_report['horizontalTracks']=len({m['group'] for m in models if m['type']!=3})
+        growth,track_tree=grow_track_ends(models,points,params,workers)
+        track_report.update(growth)
+        track_report.update(track_statistics(models))
+        track_report['diameterPriors']=prior_report
+        track_report['ifcPriors']=getattr(context,'dimension_priors',None)
+        timings['trackRefinementS']=time.perf_counter()-t0
         # Stable IDs derive from geometry, never component traversal or thread order.
         groups = {}
         for model in models:
@@ -438,14 +464,21 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
             model['axis'] = model['axis'] @ rotation
         t0 = time.perf_counter()
         progress('第 5 步：源点圆柱归属 / 交点竞争', 0, len(scope))
+        residual_lookup=np.full(len(grid.points),-1,np.int32)
+        residual_lookup[residual]=np.arange(len(residual))
+        source_features=residual_lookup[grid.source_to_cell[scope]]
+        source_tangents=(cache['features']['axis'][np.maximum(source_features,0)] if len(residual)
+                         else np.zeros((len(scope),3),np.float32))
+        source_linearity=(np.where(source_features>=0,cache['features']['linearity'][np.maximum(source_features,0)],0)
+                          if len(residual) else np.zeros(len(scope),np.float32))
         instance, confidence, model_cache = assign_cylinders(context.positions[scope], context.normals[scope], models,
-            workers=workers, params=params)
+            workers=workers, params=params, tangents=source_tangents,linearity=source_linearity)
         # Complete small surface/junction deviations only after missing models
         # exist. The finite-cylinder competition and endpoint bound still apply.
         missing=np.flatnonzero(instance==0)
         completion_params=replace(params,assignment_tolerance=params.completion_tolerance,endpoint_margin=.010)
         completion,score,_=assign_cylinders(context.positions[scope[missing]],context.normals[scope[missing]],models,
-            workers=workers,params=completion_params,cache=model_cache)
+            workers=workers,params=completion_params,cache=model_cache,tangents=source_tangents[missing],linearity=source_linearity[missing])
         instance[missing]=completion;confidence[missing]=np.minimum(score,.45)
         diagnostics['completedSurfacePoints']=int(np.count_nonzero(completion))
         types = np.array([4]+[m['type'] for m in models], np.uint8)
@@ -463,8 +496,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
                          'radiusM': m['radius'], 'pointCount': int(segment_counts[i]), 'fitMedianErrorM': m['fitMedianErrorM']})
     for instance_id in sorted({m['instanceId'] for m in models}):
         parts = [s for s in segments if s['instanceId']==instance_id]
+        info=next(m['trackInfo'] for m in models if m['instanceId']==instance_id)
         instances.append({'id':instance_id,'type':parts[0]['type'],'pointCount':sum(s['pointCount'] for s in parts),
-            'segmentIds':[s['id'] for s in parts], 'lengthM':float(sum(np.linalg.norm(np.array(s['endM'])-s['startM']) for s in parts)),
+            'segmentIds':[s['id'] for s in parts], 'lengthM':info['lengthM'],'diameterM':info['diameterM'],
+            'family':info['family'],'lengthAnomaly':info['lengthAnomaly'],
             'modelKind':'cylinder' if len(parts)==1 else 'piecewise-cylinder'})
     counts = np.bincount(output['internal_type'][scope], minlength=5)
     report = {'version': VERSION, 'pointCount': len(scope), 'types': TYPES,
@@ -473,9 +508,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         'layers': {'lowerM': bands[0]['height'] if bands else None, 'upperM': bands[1]['height'] if len(bands)>1 else None,
                    'bands': bands}, 'heightHistogram': histogram, 'diagnostics': diagnostics,
         'timings': timings, 'elapsedS': time.perf_counter()-started, 'parameters': asdict(params),
+        'tracks':track_report,
         'confidenceMeaning': 'geometric fit score, not a calibrated probability; unassigned points retained',
         'images': {}}
     for name, values in output.items():
         setattr(context, name, values)
-    context.internal_rebar_cache = {'models': models, 'assignment': model_cache, 'scope_ids': scope,'recovery':recovery_cache}
+    context.internal_rebar_cache = {'models': models, 'assignment': model_cache, 'scope_ids': scope,'recovery':recovery_cache,'track_tree':track_tree}
     return report
