@@ -11,8 +11,9 @@ MESH_SERVICE_PORT="${CLOUDBIM_MESH_SERVICE_PORT:-8001}"
 BACKEND_PORT="${CLOUDBIM_BACKEND_PORT:-8090}"
 FRONTEND_PORT="${CLOUDBIM_FRONTEND_PORT:-5173}"
 
-# The mesh container writes shared artifacts as root. Pass the host's
-# development group so the host backend can read and retire those trees.
+# Keep bind-mounted development data accessible to the containerized backend,
+# while allowing the mesh container to publish artifacts to the same group.
+export CLOUDBIM_RUNTIME_UID="${CLOUDBIM_RUNTIME_UID:-$(id -u)}"
 export CLOUDBIM_RUNTIME_GID="${CLOUDBIM_RUNTIME_GID:-$(id -g)}"
 
 log() {

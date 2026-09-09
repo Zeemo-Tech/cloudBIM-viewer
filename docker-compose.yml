@@ -58,6 +58,7 @@ services:
   backend:
     # The checked-in IFC/LAS converters are Linux x86_64 binaries.
     platform: linux/amd64
+    user: "${CLOUDBIM_RUNTIME_UID:-65532}:${CLOUDBIM_RUNTIME_GID:-65532}"
     image: ${BACKEND_IMAGE:-cloudbim-backend:latest}
     build:
       context: ./backend
@@ -103,7 +104,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8090}:8090"
     volumes:
-      - cloudbim-data:/app/data
+      - ${CLOUDBIM_DATA_MOUNT:-cloudbim-data}:/app/data
       - ${CLOUDBIM_GOCESIUMTILER_DIR:?Set CLOUDBIM_GOCESIUMTILER_DIR in .env}:/opt/tools/gocesiumtiler:ro
       - ${CLOUDBIM_IFC_BUNDLE_DIR:?Set CLOUDBIM_IFC_BUNDLE_DIR in .env}:/opt/tools/ifc_bundle:ro
     healthcheck:
