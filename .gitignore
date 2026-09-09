@@ -34,3 +34,4 @@ tools/
 __pycache__/
 .env
 .cloudbim/
+.playwright-mcp/

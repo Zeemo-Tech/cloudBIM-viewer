@@ -53,6 +53,8 @@ const showCenterlines = ref(false)
 const showIntersections = ref(true)
 const hideFixtures = ref(false)
 const ownershipReviewEnabled = ref(false)
+const visibilityCollapsed = ref(true)
+const collapsedVisibilityGroups = reactive<Record<string, boolean>>({})
 const pointVisibility = reactive<Partial<Record<RebarPointVisibilityCategory, boolean>>>({
   unknown: true, table: true, noise: true, fixtureUnknown: true, fixtureSquareTube: true,
   fixturePlate: true, fixtureBolt: true, rebarUnresolved: true, rebarPlanar: true, rebarWeb: true,
@@ -112,6 +114,10 @@ const visibilityGroups = computed(() => {
     ] },
   ]
 })
+
+function toggleVisibilityGroup(title: string) {
+  collapsedVisibilityGroups[title] = !collapsedVisibilityGroups[title]
+}
 
 const modeOptions = computed<Array<{ value: PointcloudColorMode; label: string }>>(() => {
   const options: Array<{ value: PointcloudColorMode; label: string }> = [
@@ -382,14 +388,38 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
     </div>
 
     <div v-if="latest" class="rebar-panel__visibility" aria-label="点类别可见性">
-      <div v-for="group in visibilityGroups" :key="group.title" class="rebar-panel__visibility-group">
-        <strong>{{ group.title }}</strong>
-        <label v-for="row in group.rows" :key="row.key" class="rebar-panel__visibility-row" :title="`${pointVisibility[row.key] === false ? '显示' : '隐藏'}${row.label}`">
-          <input v-model="pointVisibility[row.key]" type="checkbox" :aria-label="`显示${row.label}`" />
-          <i :style="{ backgroundColor: row.color }" />
-          <span>{{ row.label }}</span><small>{{ row.count.toLocaleString() }}</small>
-          <b aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /><path v-if="pointVisibility[row.key] === false" d="M3 3 21 21" /></svg></b>
-        </label>
+      <button
+        class="rebar-panel__section-toggle"
+        type="button"
+        :aria-expanded="!visibilityCollapsed"
+        aria-controls="rebar-point-visibility-groups"
+        @click="visibilityCollapsed = !visibilityCollapsed"
+      >
+        <strong>点类别可见性</strong>
+        <span>{{ visibilityCollapsed ? '展开' : '收起' }}</span>
+      </button>
+
+      <div v-show="!visibilityCollapsed" id="rebar-point-visibility-groups" class="rebar-panel__visibility-groups">
+        <div v-for="group in visibilityGroups" :key="group.title" class="rebar-panel__visibility-group">
+          <button
+            class="rebar-panel__group-toggle"
+            type="button"
+            :aria-expanded="!collapsedVisibilityGroups[group.title]"
+            :aria-controls="`rebar-visibility-${group.title}`"
+            @click="toggleVisibilityGroup(group.title)"
+          >
+            <strong>{{ group.title }}</strong>
+            <span>{{ collapsedVisibilityGroups[group.title] ? '展开' : '收起' }}</span>
+          </button>
+          <div v-show="!collapsedVisibilityGroups[group.title]" :id="`rebar-visibility-${group.title}`">
+            <label v-for="row in group.rows" :key="row.key" class="rebar-panel__visibility-row" :title="`${pointVisibility[row.key] === false ? '显示' : '隐藏'}${row.label}`">
+              <input v-model="pointVisibility[row.key]" type="checkbox" :aria-label="`显示${row.label}`" />
+              <i :style="{ backgroundColor: row.color }" />
+              <span>{{ row.label }}</span><small>{{ row.count.toLocaleString() }}</small>
+              <b aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /><path v-if="pointVisibility[row.key] === false" d="M3 3 21 21" /></svg></b>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -489,7 +519,14 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
   top: 18px;
   right: 18px;
   width: min(366px, calc(100% - 28px));
+  max-height: calc(100% - 36px);
   box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: rgb(100 116 139 / 65%) transparent;
+  scrollbar-width: thin;
   padding: 14px;
   border: 1px solid rgb(148 163 184 / 28%);
   border-radius: 12px;
@@ -497,6 +534,11 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
   background: rgb(8 15 28 / 92%);
   box-shadow: 0 12px 32px rgb(2 6 23 / 34%);
 }
+
+.rebar-panel::-webkit-scrollbar { width: 7px; }
+.rebar-panel::-webkit-scrollbar-track { background: transparent; }
+.rebar-panel::-webkit-scrollbar-thumb { border-radius: 999px; background: rgb(100 116 139 / 65%); }
+.rebar-panel::-webkit-scrollbar-thumb:hover { background: rgb(125 211 252 / 72%); }
 
 .rebar-panel__head,
 .rebar-panel__actions,
@@ -523,9 +565,19 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
 .rebar-panel__legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 8px 0; color: #cbd5e1; font-size: 11px; }
 .rebar-panel__legend span { display: inline-flex; align-items: center; gap: 4px; }
 .rebar-panel__legend i { width: 9px; height: 9px; border-radius: 50%; }
-.rebar-panel__visibility { display: grid; gap: 10px; padding: 10px 0; border-block: 1px solid rgb(148 163 184 / 16%); font-size: 12px; }
+.rebar-panel__visibility { display: grid; gap: 8px; padding: 8px 0; border-block: 1px solid rgb(148 163 184 / 16%); font-size: 12px; }
+.rebar-panel__visibility-groups { display: grid; gap: 8px; }
 .rebar-panel__visibility-group { display: grid; gap: 2px; }
-.rebar-panel__visibility strong { padding: 2px 4px; color: #cbd5e1; font-size: 11px; }
+.rebar-panel__section-toggle,
+.rebar-panel__group-toggle { width: 100%; min-height: 28px !important; padding: 0 5px !important; display: flex; align-items: center; justify-content: space-between; border: 0 !important; border-radius: 6px !important; color: #cbd5e1; background: transparent !important; }
+.rebar-panel__section-toggle:hover,
+.rebar-panel__group-toggle:hover { color: #fff; background: rgb(30 41 59 / 70%) !important; }
+.rebar-panel__section-toggle:focus-visible,
+.rebar-panel__group-toggle:focus-visible { outline: 2px solid #67e8f9; outline-offset: 1px; }
+.rebar-panel__section-toggle strong { color: #e5edf9; font-size: 12px; }
+.rebar-panel__group-toggle strong { color: #cbd5e1; font-size: 11px; }
+.rebar-panel__section-toggle span,
+.rebar-panel__group-toggle span { color: #7dd3fc; font-size: 10px; font-weight: 500; }
 .rebar-panel__visibility-row { display: grid; grid-template-columns: 10px minmax(100px, 1fr) 9ch 16px; align-items: center; gap: 8px; min-height: 29px; padding: 0 7px; border-radius: 6px; color: #cbd5e1; cursor: pointer; }
 .rebar-panel__visibility-row:hover { background: rgb(30 41 59 / 70%); }
 .rebar-panel__visibility-row:focus-within { outline: 1px solid #22d3ee; outline-offset: 1px; }
@@ -573,7 +625,7 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
 .rebar-panel__intersection-detail { margin: 0; color: #fde68a; font-size: 11px; }
 
 @media (max-width: 760px) {
-  .rebar-panel { top: 10px; right: 10px; max-height: calc(100% - 20px); overflow: auto; }
+  .rebar-panel { top: 10px; right: 10px; max-height: calc(100% - 20px); }
   .rebar-panel__modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 </style>

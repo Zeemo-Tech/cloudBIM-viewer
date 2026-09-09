@@ -1,7 +1,20 @@
 """Conservative cleanup and multi-scale point features with spatial support."""
 from __future__ import annotations
+import os
 import numpy as np
+from ..spatial_keys import unique_integer_rows
 from scipy.spatial import cKDTree
+
+try:
+    _PCA_QUERY_WORKERS = min(4, len(os.sched_getaffinity(0)))
+except (AttributeError, OSError):
+    _PCA_QUERY_WORKERS = min(4, os.cpu_count() or 1)
+
+
+def _query_workers(count):
+    # Only parallelize substantial neighbour searches. Small face probes lose
+    # time to thread startup; BLAS remains single-threaded in the adapter.
+    return _PCA_QUERY_WORKERS if count >= 1024 else 1
 
 
 def denoise(points, queries, p):
@@ -46,13 +59,6 @@ def denoise(points, queries, p):
         self_match = finite[:, 0] & (distances[:, 0] <= 1e-12)
         counts = finite.sum(axis=1) - self_match.astype(int)
         safe = np.minimum(indices, len(points) - 1)
-        cloud = points[safe]
-        weights = finite[..., None]
-        center = (cloud * weights).sum(axis=1) / np.maximum(finite.sum(axis=1)[:, None], 1)
-        delta = (cloud - center[:, None]) * weights
-        eig = np.linalg.eigvalsh(np.einsum("nki,nkj->nij", delta, delta))
-        elongated = (eig[:, -1] - eig[:, -2]) / np.maximum(eig[:, -1], 1e-15) > 0.65
-
         neighbour_spacing = support_spacing[safe]
         local_spacing = np.nanmedian(np.where(finite, neighbour_spacing, np.nan), axis=1)
         local_spacing = np.where(np.isfinite(local_spacing), local_spacing, p.min_radius)
@@ -66,7 +72,18 @@ def denoise(points, queries, p):
         # spacing.  Treat it as noise only when the entire small component is
         # physically compact, rather than just under-populated.
         extent = np.where(finite, distances, 0).max(axis=1)
-        compact_small = (counts <= 4) & (extent <= p.noise_radius * .25) & ~elongated
+        compact_small = (counts <= 4) & (extent <= p.noise_radius * .25)
+        compact_rows = np.flatnonzero(compact_small)
+        if len(compact_rows):
+            # Shape only affects this small-component predicate. Dense support
+            # cannot satisfy it, so fitting every point's covariance is wasted.
+            cloud = points[safe[compact_rows]]
+            weights = finite[compact_rows, :, None]
+            center = (cloud * weights).sum(axis=1) / np.maximum(finite[compact_rows].sum(axis=1)[:, None], 1)
+            delta = (cloud - center[:, None]) * weights
+            eig = np.linalg.eigvalsh(np.einsum("nki,nkj->nij", delta, delta))
+            elongated = (eig[:, -1] - eig[:, -2]) / np.maximum(eig[:, -1], 1e-15) > 0.65
+            compact_small[compact_rows] &= ~elongated
         # A local spacing gap is useful evidence, but not proof: a genuine
         # sparse table sample can border a denser patch. Only isolation or a
         # physically compact disconnected component is removed here.
@@ -76,7 +93,16 @@ def denoise(points, queries, p):
     return noise, suspect
 
 
-def pca_features(support, query, radius, p):
+def prepare_pca_context(support):
+    """Prepare finite feature support and its index for repeated PCA queries."""
+    support = np.asarray(support, dtype=float)
+    if support.ndim != 2 or support.shape[1:] != (3,):
+        raise ValueError("feature support must be an Nx3 array")
+    support = support[np.isfinite(support).all(axis=1)]
+    return support, cKDTree(support) if len(support) else None
+
+
+def pca_features(support, query, radius, p, context=None):
     support = np.asarray(support, dtype=float)
     query = np.asarray(query, dtype=float)
     if support.ndim != 2 or support.shape[1:] != (3,):
@@ -89,11 +115,15 @@ def pca_features(support, query, radius, p):
            "spacing":np.zeros(n,np.float32),"neighbor_count":np.zeros(n,np.uint16),
            "valid":np.zeros(n,np.uint8),"normal_valid":np.zeros(n,np.uint8),
            "tangent_valid":np.zeros(n,np.uint8),"neighborhood_radius":np.zeros(n,np.float32)}
-    support = support[np.isfinite(support).all(axis=1)]
     valid_queries = np.isfinite(query).all(axis=1)
-    if not len(support) or not n or not valid_queries.any():
+    if not n or not valid_queries.any():
         return out
-    tree = cKDTree(support)
+    if context is None:
+        support, tree = prepare_pca_context(support)
+    else:
+        support, tree = context
+    if not len(support):
+        return out
     k = min(p.feature_max_neighbors,len(support))
 
     def statistics(distances, indices):
@@ -110,7 +140,7 @@ def pca_features(support, query, radius, p):
     valid_indices = np.flatnonzero(valid_queries)
     for start in range(0,len(valid_indices),p.query_batch_size):
         output_rows=valid_indices[start:start+p.query_batch_size]
-        d,idx=tree.query(query[output_rows],k=k,distance_upper_bound=radius,workers=1)
+        d,idx=tree.query(query[output_rows],k=k,distance_upper_bound=radius,workers=_query_workers(len(output_rows)))
         d, valid, counts, values, vectors = statistics(d, idx)
         # Surface normals need rank two; tangents only need a non-zero first
         # principal direction.  Retry insufficient primary support inside the
@@ -121,7 +151,7 @@ def pca_features(support, query, radius, p):
         used_radius = np.full(len(output_rows), radius, dtype=np.float32)
         if retry.any() and p.halo > radius:
             retry_rows = np.flatnonzero(retry)
-            retry_d, retry_idx = tree.query(query[output_rows[retry_rows]], k=k, distance_upper_bound=p.halo, workers=1)
+            retry_d, retry_idx = tree.query(query[output_rows[retry_rows]], k=k, distance_upper_bound=p.halo, workers=_query_workers(len(retry_rows)))
             retry_d, retry_valid, retry_counts, retry_values, retry_vectors = statistics(retry_d, retry_idx)
             d[retry_rows] = retry_d
             valid[retry_rows] = retry_valid
@@ -161,7 +191,7 @@ def multiscale(support, query, p):
     # thinning changes neighbourhood sampling, not the output point set.
     if len(support):
         keys=np.floor(np.asarray(support)/p.detection_voxel_size).astype(np.int64)
-        _,rows=np.unique(keys,axis=0,return_index=True)
+        _,rows=unique_integer_rows(keys,return_index=True)
         axis_support=np.asarray(support)[np.sort(rows)]
     else:axis_support=support
     result={f"surface_{name}":value for name,value in pca_features(support,query,p.surface_radius,p).items()}

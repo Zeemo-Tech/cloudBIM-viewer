@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+from algorithms.rebar_v5.chunks import ChunkCache
 
 from algorithms.rebar_base import RebarAnalysis
 from algorithms.rebar_v5.contracts import FIXTURE, REBAR, Params
@@ -109,7 +110,7 @@ class V5ClassificationTests(unittest.TestCase):
                 candidate_instance_ids=np.array([1] * 3, dtype=np.uint32),
             )
             runtime = SimpleNamespace(
-                feature_chunks=[path], label_chunks={0: path},
+                chunks=ChunkCache(1024*1024), feature_chunks=[path], label_chunks={0: path},
                 store=SimpleNamespace(count=10), p=Params(),
             )
             analysis = RebarAnalysis({"instances": [{"id": 1, "rawSupportCount": 10}]}, resources=runtime)

@@ -8,10 +8,30 @@ import numpy as np
 from algorithms.rebar_v5.contracts import Params
 from algorithms.rebar_v5.scene import fixture_candidates, fixture_mask
 from algorithms.rebar_v5.pipeline import classify
+from algorithms.rebar_v5.bolts import bolt_mask
 from test_rebar_v5_classification import _analysis, _face, _instance
+from test_rebar_v5_bolt_performance import model as bolt_model
 
 
 class SpatialPruningTests(unittest.TestCase):
+    def test_classification_prunes_remote_bolts_without_changing_attributes(self):
+        points = np.random.default_rng(42).uniform(-.04, .04, (2000, 3))
+        points = np.vstack((points, [.031, .001, .012]))
+        models = [bolt_model(origin=(index*2., 0., 0.)) for index in range(30)]
+        analysis = _analysis([])
+        analysis.data['algorithmDetails']['fixture']['bolts'] = models
+        for review in (False, True):
+            analysis.data['algorithmDetails']['parameters']['ownership_review_enabled'] = review
+            with patch('algorithms.rebar_v5.pipeline.bolt_mask', wraps=bolt_mask) as masked:
+                actual, candidates = classify(points, analysis)
+                self.assertEqual(masked.call_count, 1)
+            with patch('algorithms.rebar_v5.pipeline.bolt_candidates', return_value=models):
+                expected, expected_candidates = classify(points, analysis)
+            for name, values in vars(actual).items():
+                np.testing.assert_array_equal(values, getattr(expected, name), err_msg=name)
+            for name, values in candidates.items():
+                np.testing.assert_array_equal(values, expected_candidates[name], err_msg=name)
+
     def test_rotated_faces_and_boundary_points_match_exhaustive_masks(self):
         p = Params()
         angle = .63

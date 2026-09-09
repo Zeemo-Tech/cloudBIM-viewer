@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import math
 import numpy as np
+from ..spatial_keys import unique_integer_rows, integer_pair_membership
+from .candidates import PointBoundsIndex
 from scipy.spatial import cKDTree
+from .features import _query_workers
 
 from ..rebar_v4_geometry import (
     canonical_direction, orientation_modes, perpendicular_basis,
@@ -35,7 +38,20 @@ def _adaptive_grid(local, base_grid):
     """Choose a footprint cell at observed scan density, never fill holes."""
     if len(local) < 2:
         return base_grid
-    spacing, _ = cKDTree(local).query(local, k=2, workers=1)
+    tree = cKDTree(local)
+    if len(local) >= 4096:
+        # Prove the existing lower clamp wins before measuring far neighbours.
+        # A strict majority of ALL rows with positive spacing below base/3 is
+        # also a majority after zero/nonfinite spacings are excluded. Thus the
+        # original median cannot enlarge the grid. Sparse scans use the exact
+        # original query below; this shortcut never estimates their density.
+        radius = np.nextafter(float(base_grid)/3, 0.)
+        bounded, _ = tree.query(local, k=2, distance_upper_bound=radius,
+                                workers=_query_workers(len(local)))
+        positive = np.isfinite(bounded[:, 1]) & (bounded[:, 1] > 1e-9)
+        if np.count_nonzero(positive) > len(local)//2:
+            return float(base_grid)
+    spacing, _ = tree.query(local, k=2, workers=1)
     nearest = spacing[:, 1]
     nearest = nearest[np.isfinite(nearest) & (nearest > 1e-9)]
     if not len(nearest):
@@ -93,11 +109,11 @@ def _candidate_table(points, rows, p):
     lo, hi = local.min(axis=0), local.max(axis=0)
     # Keep raw-grid occupancy for masking so an adaptive coverage cell never
     # paints an observed hole. The coarser grid is validation evidence only.
-    mask_cells = np.unique(_occupied(local, p.table_grid_size), axis=0)
+    mask_cells = unique_integer_rows(_occupied(local, p.table_grid_size))
     grid = min(_adaptive_grid(local, p.table_grid_size), float(np.min(hi-lo) / 5))
     grid = max(float(p.table_grid_size), grid)
     cells = _occupied(local, grid)
-    unique = np.unique(cells, axis=0)
+    unique = unique_integer_rows(cells)
     area = float(len(unique) * grid ** 2)
     if area < p.table_min_area:
         return None
@@ -153,17 +169,25 @@ def table_mask(points, model, p):
         normal = np.asarray(model["normal"], dtype=np.float64)
         axes = np.asarray(model["axes"], dtype=np.float64)
         grid = float(model["gridSize"])
-        cells = {tuple(cell) for cell in model["occupiedCells"]}
+        cells = np.asarray(model["occupiedCells"])
     except (KeyError, TypeError, ValueError):
         return result
     if origin.shape != (3,) or normal.shape != (3,) or axes.shape != (2, 3) or grid <= 0:
         return result
     finite = np.isfinite(points).all(axis=1)
-    local3 = points - origin
+    distance = float(model.get("distance", p.table_distance))
+    rows = np.flatnonzero(finite)
+    if not len(rows):
+        return result
+    local3 = points[rows] - origin
+    rows = rows[np.abs(local3 @ normal) <= distance]
+    if not len(rows):
+        return result
+    local3 = points[rows] - origin
     local2 = np.column_stack((local3 @ axes[0], local3 @ axes[1]))
     keys = _occupied(local2, grid)
-    observed = np.fromiter((tuple(key) in cells for key in keys), bool, count=len(points))
-    return finite & observed & (np.abs(local3 @ normal) <= float(model.get("distance", p.table_distance)))
+    result[rows] = integer_pair_membership(keys, cells)
+    return result
 
 
 def _fixture_face(support, normal, p, seeds=None, *, minimum_width=None):
@@ -232,9 +256,9 @@ def _fixture_face(support, normal, p, seeds=None, *, minimum_width=None):
             center = origin + ((lo+hi)/2) @ axes
             # Store occupancy in the final returned centre's coordinate frame.
             centered_local = np.column_stack(((patch-center) @ axes[0], (patch-center) @ axes[1]))
-            cells = np.unique(_occupied(centered_local, p.fixture_grid_cell), axis=0)
+            cells = unique_integer_rows(_occupied(centered_local, p.fixture_grid_cell))
             coverage_grid=_adaptive_grid(centered_local,p.fixture_grid_cell)
-            coverage_cells=np.unique(_occupied(centered_local,coverage_grid),axis=0)
+            coverage_cells=unique_integer_rows(_occupied(centered_local,coverage_grid))
             possible = max(1, int(np.ceil(dimensions[0]/coverage_grid))*int(np.ceil(dimensions[1]/coverage_grid)))
             coverage = len(coverage_cells)/possible
             if coverage < .60:
@@ -324,7 +348,7 @@ def _square_tube_companions(support, faces, p):
                     continue
                 face_centre = origin+((lo+hi)/2) @ np.vstack((axis, n0))
                 centred = np.column_stack(((cloud-face_centre) @ axis, (cloud-face_centre) @ n0))
-                cells = np.unique(_occupied(centred, p.fixture_grid_cell), axis=0)
+                cells = unique_integer_rows(_occupied(centred, p.fixture_grid_cell))
                 result.append({"origin": face_centre.tolist(), "normal": cross.tolist(), "axes": np.vstack((axis, n0)).tolist(),
                     "halfExtent": (dimensions/2+p.fixture_grid_cell).tolist(), "distance": float(p.fixture_surface_distance),
                     "supportCount": int(len(cloud)), "coverage": float(len(cells)/max(1, int(np.ceil(dimensions[0]/p.fixture_grid_cell))*int(np.ceil(dimensions[1]/p.fixture_grid_cell)))),
@@ -398,16 +422,20 @@ def _consistent_fixture_normals(support, faces, p, features=None):
     one thin normal-offset band. Its original surface normals still rotate;
     checking those prevents the clipped band from becoming a false plate.
     """
-    from .features import pca_features
+    from .features import pca_features, prepare_pca_context
     accepted = []
+    context = None
+    point_index = PointBoundsIndex(support) if len(faces) > 4 else None
     for face in faces:
-        rows = np.flatnonzero(fixture_mask(support, [face], p))
+        rows = np.flatnonzero(fixture_mask(support, [face], p, point_index=point_index))
         if len(rows) > 256:
             rows = rows[np.linspace(0, len(rows)-1, 256, dtype=int)]
         if not len(rows):
             continue
         if features is None:
-            local = pca_features(support, support[rows], p.surface_radius, p)
+            if context is None:
+                context = prepare_pca_context(support)
+            local = pca_features(support, support[rows], p.surface_radius, p, context=context)
             normals, valid = local['normal'], local['normal_valid'].astype(bool)
         else:
             normals = _features(features, 'normal', len(support), np.zeros((len(support),3)))[rows]
@@ -582,27 +610,40 @@ def fixture_candidates(points, fixtures, p):
     return candidates
 
 
-def fixture_mask(points, fixtures, p):
+def fixture_mask(points, fixtures, p, point_index=None):
     """Label only observed surface cells, never the fixture's interior volume."""
     points = np.asarray(points, dtype=np.float64)
     result = np.zeros(len(points), dtype=bool)
     finite = np.isfinite(points).all(axis=1)
     if len(fixtures) > 1:
         fixtures = fixture_candidates(points, fixtures, p)
+    if point_index is None and len(fixtures) > 4:
+        point_index = PointBoundsIndex(points)
     for face in fixtures:
-        try:
-            origin, normal, axes = (np.asarray(face[key], dtype=float) for key in ("origin", "normal", "axes"))
-            grid, cells = float(face["gridSize"]), {tuple(cell) for cell in face["occupiedCells"]}
-        except (KeyError, TypeError, ValueError):
-            continue
-        extent = np.asarray(face["halfExtent"], dtype=float)
-        distance=float(face.get("distance",p.fixture_surface_distance))
-        reach=np.abs(axes).T@extent+np.abs(normal)*distance
-        rows=np.flatnonzero(finite&np.all(np.abs(points-origin)<=reach+1e-12,axis=1))
-        if not len(rows):continue
-        local3 = points[rows]-origin
-        local = np.column_stack((local3@axes[0], local3@axes[1]))
-        keys = _occupied(local, grid)
-        observed = np.fromiter((tuple(key) in cells for key in keys), bool, count=len(rows))
-        result[rows] |= observed & (np.abs(local3@normal) <= distance) & np.all(np.abs(local) <= extent, axis=1)
+        result[fixture_rows(points,face,p,point_index=point_index,finite=finite)] = True
     return result
+
+
+def fixture_rows(points, face, p, *, point_index=None, finite=None):
+    """Ascending exact support rows, avoiding a full point mask per face."""
+    try:
+        origin, normal, axes = (np.asarray(face[key], dtype=float) for key in ("origin", "normal", "axes"))
+        grid, cells = float(face["gridSize"]), np.asarray(face["occupiedCells"])
+    except (KeyError, TypeError, ValueError):
+        return np.empty(0,np.intp)
+    extent = np.asarray(face["halfExtent"], dtype=float)
+    distance=float(face.get("distance",p.fixture_surface_distance))
+    reach=np.abs(axes).T@extent+np.abs(normal)*distance
+    if point_index is None:
+        if finite is None:finite=np.isfinite(points).all(axis=1)
+        rows=np.flatnonzero(finite&np.all(np.abs(points-origin)<=reach+1e-12,axis=1))
+    else:
+        rows=point_index.query(np.nextafter(origin-reach-1e-12,-np.inf),
+                               np.nextafter(origin+reach+1e-12,np.inf))
+        rows=rows[np.isfinite(points[rows]).all(axis=1)&np.all(np.abs(points[rows]-origin)<=reach+1e-12,axis=1)]
+    if not len(rows):return rows
+    local3 = points[rows]-origin
+    local = np.column_stack((local3@axes[0], local3@axes[1]))
+    keys = _occupied(local, grid)
+    observed = integer_pair_membership(keys, cells)
+    return rows[observed & (np.abs(local3@normal) <= distance) & np.all(np.abs(local) <= extent, axis=1)]

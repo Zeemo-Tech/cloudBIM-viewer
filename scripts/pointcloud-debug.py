@@ -21,6 +21,19 @@ from algorithms.pointcloud_normals import available_workers
 from pointcloud_step_pipeline import run_from_source
 
 
+def is_loopback_host_header(value):
+    """Accept loopback browser hosts even when a tunnel rewrites the port."""
+    if not value or any(character in value for character in "/\\@"):
+        return False
+    try:
+        parsed = urlparse(f"//{value}")
+        # Accessing ``port`` also rejects malformed and out-of-range values.
+        parsed.port
+    except ValueError:
+        return False
+    return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
 class DebugState:
     def __init__(self, source, output):
         self.source, self.output = source, output
@@ -84,13 +97,12 @@ def handler_for(state):
             self.wfile.write(body)
 
         def trusted_request(self, mutation=False):
-            port = self.server.server_port
-            hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-            if self.headers.get("Host") not in hosts:
+            host = self.headers.get("Host", "")
+            if not is_loopback_host_header(host):
                 self.json_response(403, {"error": "Only loopback hostnames are accepted"})
                 return False
             origin = self.headers.get("Origin")
-            if mutation and origin and origin not in {f"http://{host}" for host in hosts}:
+            if mutation and origin and origin != f"http://{host}":
                 self.json_response(403, {"error": "Cross-origin run requests are not accepted"})
                 return False
             return True

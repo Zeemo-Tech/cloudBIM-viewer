@@ -16,11 +16,13 @@ const props = withDefaults(
     disabled?: boolean
     placement?: 'left' | 'right'
     position?: 'fixed' | 'absolute' | 'static'
+    orientation?: 'horizontal' | 'vertical'
   }>(),
   {
     disabled: false,
     placement: 'right',
     position: 'fixed',
+    orientation: 'horizontal',
   },
 )
 
@@ -48,6 +50,7 @@ function select(mode: Exclude<AnalysisMode, 'none'>) {
     :class="[
       `placement-${props.placement}`,
       `position-${props.position}`,
+      `orientation-${props.orientation}`,
       { 'is-collapsed': collapsed },
     ]"
     aria-label="测量工具"
@@ -121,8 +124,16 @@ function select(mode: Exclude<AnalysisMode, 'none'>) {
   left: 18px;
 }
 
-.placement-left .measurement-actions {
+.orientation-vertical {
   flex-direction: column;
+}
+
+.orientation-vertical .measurement-actions {
+  flex-direction: column;
+}
+
+.orientation-vertical .measurement-action {
+  width: 100%;
 }
 
 .measurement-toggle,

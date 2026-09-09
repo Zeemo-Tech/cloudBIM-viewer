@@ -1,4 +1,5 @@
 import unittest
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -39,6 +40,15 @@ def features(count, shaft_rows):
 
 
 class BoltCandidatesTest(unittest.TestCase):
+    def test_detected_bolt_models_can_be_written_to_the_artifact_json(self):
+        plate, body, cap = fixture_plane(), shaft(), head()
+        points = np.vstack((plate, body, cap))
+        models, diagnostic = detect_bolts(points, features(len(points), np.arange(len(plate), len(plate)+len(body))), FIXTURE, P)
+        self.assertEqual(len(models), 1)
+        encoded = json.dumps({'fixture': {'bolts': models, 'diagnostics': diagnostic}})
+        decoded = json.loads(encoded)['fixture']['bolts']
+        np.testing.assert_array_equal(bolt_mask(points, decoded, P), bolt_mask(points, models, P))
+
     def test_headed_bolt_near_finite_fixture_is_confirmed_and_bounded(self):
         plate = fixture_plane()
         body = shaft()

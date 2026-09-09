@@ -21,6 +21,17 @@ def digest(path):
     return value.hexdigest()
 
 
+def cgroup_metrics():
+    """Read the final group peak before systemd removes the isolated scope."""
+    try:
+        group=next(line[3:] for line in Path('/proc/self/cgroup').read_text().splitlines() if line.startswith('0::'))
+        root=Path('/sys/fs/cgroup')/group.lstrip('/')
+        return {name:(root/name).read_text().strip() for name in
+                ('memory.max','memory.swap.max','memory.peak','memory.events')}
+    except (OSError,StopIteration):
+        return {}
+
+
 def main():
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s')
     parser=argparse.ArgumentParser(description=__doc__)
@@ -30,8 +41,13 @@ def main():
     parser.add_argument('--storage-root',type=Path,default=REPO/'backend/data')
     parser.add_argument('--chunk-size',type=int,default=250000)
     parser.add_argument('--parameters',type=Path)
+    parser.add_argument('--max-rss-mib',type=int,default=8192,
+                        help='Peak process RSS target; default leaves half of a 16 GiB workstation free')
+    parser.add_argument('--max-elapsed-s',type=float,default=450)
     args=parser.parse_args()
     if args.chunk_size<=0:parser.error('chunk size must be positive')
+    if args.max_rss_mib<=0:parser.error('RSS target must be positive')
+    if args.max_elapsed_s<=0:parser.error('time target must be positive')
     if args.output.exists():parser.error('output must be a new immutable version directory')
     from algorithms.rebar_v5.contracts import Params
     from dataclasses import asdict
@@ -40,10 +56,14 @@ def main():
     parameters=asdict(Params.from_value(json.loads(args.parameters.read_text()) if args.parameters else {}))
     original=rebar_stream.iter_source_chunks
     rebar_stream.iter_source_chunks=lambda path,file_format=None:original(path,file_format,chunk_size=args.chunk_size)
+    sources=sorted((REPO/'services/mesh-service/algorithms/rebar_v5').glob('*.py'))
+    sources.append(REPO/'services/mesh-service/algorithms/rebar_v4_geometry.py')
+    sources.extend(REPO/'services/mesh-service'/path for path in (
+        'algorithms/spatial_keys.py', 'rebar_poc.py', 'rebar_stream.py', 'rebar_tiles.py'))
     report={'schema':'rebar-v5-performance-v1','source':str(args.source.resolve()),'sourceSha256':digest(args.source),
             'parameters':parameters,'readerChunkSize':args.chunk_size,
-            'codeSha256':{str(p.relative_to(REPO)):digest(p) for p in sorted((REPO/'services/mesh-service/algorithms/rebar_v5').glob('*.py'))},
-            'targets':{'elapsedS':900,'peakRssBytes':2*1024**3},'humanTruth':False,
+            'codeSha256':{str(p.relative_to(REPO)):digest(p) for p in sources},
+            'targets':{'elapsedS':args.max_elapsed_s,'peakRssBytes':args.max_rss_mib*1024**2},'humanTruth':False,
             'runMode':'fresh-process-without-algorithm-cache','osPageCache':'not-flushed'}
     report_path=args.output.with_suffix('.performance.json')
     report_path.parent.mkdir(parents=True,exist_ok=True)
@@ -59,8 +79,10 @@ def main():
     finally:
         report['elapsedS']=time.perf_counter()-started
         report['peakRssBytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024
+        report['childPeakRssBytes']=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss*1024
+        report['cgroup']=cgroup_metrics()
         report['codeChangedDuringRun']=any(digest(REPO/path)!=expected for path,expected in report['codeSha256'].items())
-        report['performancePassed']=report.get('completed',False) and not report['codeChangedDuringRun'] and report['elapsedS']<=900 and report['peakRssBytes']<=2*1024**3
+        report['performancePassed']=report.get('completed',False) and not report['codeChangedDuringRun'] and report['elapsedS']<=report['targets']['elapsedS'] and report['peakRssBytes']<=report['targets']['peakRssBytes']
         report_path.write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
     return 0 if report.get('completed') else 1
 

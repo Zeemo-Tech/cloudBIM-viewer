@@ -667,6 +667,7 @@ watch(
         <MeasurementToolbar
           v-model:collapsed="analysisToolbarCollapsed"
           :mode="analysisMode"
+          orientation="vertical"
           position="static"
           @update:mode="selectAnalysisMode"
           @clear="clearAnalysis"
@@ -1053,6 +1054,7 @@ watch(
 }
 
 .pointcloud-preview-stage {
+  --rebar-panel-width: min(366px, calc(100% - 28px));
   position: relative;
   width: 100%;
   height: calc(100vh - 64px);
@@ -1361,7 +1363,7 @@ watch(
   position: absolute;
   z-index: 80;
   top: 16px;
-  right: 116px;
+  right: calc(var(--rebar-panel-width) + 28px);
 }
 
 .pointcloud-measurement-dock :deep(.measurement-toolbar) {
