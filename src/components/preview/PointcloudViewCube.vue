@@ -19,6 +19,16 @@ const SIZE = 84
 const HALF = 0.68
 const BAND = 0.2
 const LABELS = ['右', '左', '顶', '底', '前', '后']
+const DRAG_THRESHOLD_PX = 5
+const EDGE_DIRS: ReadonlyArray<readonly [number, number, number]> = [
+  [1, 1, 0], [1, -1, 0], [-1, 1, 0], [-1, -1, 0],
+  [1, 0, 1], [1, 0, -1], [-1, 0, 1], [-1, 0, -1],
+  [0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1],
+]
+const CORNER_DIRS: ReadonlyArray<readonly [number, number, number]> = [
+  [1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1],
+  [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1],
+]
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
 const miniScene = new THREE.Scene()
@@ -29,12 +39,18 @@ let renderer: THREE.WebGLRenderer | null = null
 let cube: THREE.Mesh | null = null
 let solidOutline: THREE.LineSegments | null = null
 let dashedOutline: THREE.LineSegments | null = null
+const regionMeshes: THREE.Mesh[] = []
+const pickables: THREE.Object3D[] = []
 let animationFrame = 0
 let activeFaces: number[] = []
+let hoveredId = ''
+let hoveredFaces: number[] = []
 let pointerDown = false
 let dragging = false
 let startX = 0
 let startY = 0
+let pressedDirection: THREE.Vector3 | null = null
+let pressedId = ''
 
 function faceTexture(label: string) {
   const canvas = document.createElement('canvas')
@@ -62,14 +78,74 @@ function directionFaces(direction: THREE.Vector3) {
   return faces
 }
 
-function updateHighlight(next: number[]) {
-  activeFaces = next
+function directionId(direction: THREE.Vector3) {
+  return `${direction.x},${direction.y},${direction.z}`
+}
+
+function directionFaceIndices(direction: THREE.Vector3) {
+  const faces: number[] = []
+  if (direction.x) faces.push(direction.x > 0 ? 0 : 1)
+  if (direction.y) faces.push(direction.y > 0 ? 2 : 3)
+  if (direction.z) faces.push(direction.z > 0 ? 4 : 5)
+  return faces
+}
+
+type PlateLayout = { position: [number, number, number]; size: [number, number, number] }
+
+function plateLayouts(direction: readonly [number, number, number], kind: 'edge' | 'corner'): PlateLayout[] {
+  const axes = [0, 1, 2].filter((axis) => direction[axis] !== 0)
+  if (kind === 'edge') {
+    const longAxis = [0, 1, 2].find((axis) => direction[axis] === 0)
+    if (axes.length !== 2 || longAxis === undefined) return []
+    return axes.map((faceAxis) => {
+      const otherAxis = axes.find((axis) => axis !== faceAxis)!
+      const position: [number, number, number] = [0, 0, 0]
+      const size: [number, number, number] = [0, 0, 0]
+      position[faceAxis] = direction[faceAxis] * (HALF + 0.01)
+      position[otherAxis] = direction[otherAxis] * (HALF - BAND / 2)
+      size[faceAxis] = 0.04
+      size[otherAxis] = BAND
+      size[longAxis] = HALF * 2 - BAND * 2
+      return { position, size }
+    })
+  }
+  if (axes.length !== 3) return []
+  return [0, 1, 2].map((faceAxis) => {
+    const position: [number, number, number] = [0, 0, 0]
+    const size: [number, number, number] = [0, 0, 0]
+    position[faceAxis] = direction[faceAxis] * (HALF + 0.01)
+    size[faceAxis] = 0.04
+    ;[0, 1, 2].filter((axis) => axis !== faceAxis).forEach((axis) => {
+      position[axis] = direction[axis] * (HALF - BAND / 2)
+      size[axis] = BAND
+    })
+    return { position, size }
+  })
+}
+
+function regionMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0x6bbdf5,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  })
+}
+
+function updateMaterials() {
   faceMaterials.forEach((material, index) => {
     const active = activeFaces.includes(index)
-    material.color.set(active ? 0x6bbdf5 : 0xffffff)
-    material.opacity = active ? 1 : 0.52
-    material.emissive.set(active ? 0x174f75 : 0x000000)
-    material.emissiveIntensity = active ? 0.2 : 0
+    const hovered = hoveredFaces.includes(index)
+    material.color.set(hovered ? 0x6bbdf5 : 0xffffff)
+    material.opacity = hovered ? 1 : active ? 0.9 : 0.52
+    material.emissive.set(hovered ? 0x174f75 : 0x000000)
+    material.emissiveIntensity = hovered ? 0.2 : 0
+  })
+  regionMeshes.forEach((mesh) => {
+    const material = mesh.material as THREE.MeshBasicMaterial
+    const hovered = mesh.userData.id === hoveredId
+    material.opacity = hovered ? 0.8 : 0
+    material.depthWrite = hovered
   })
 }
 
@@ -100,11 +176,13 @@ function render() {
   const aligned = direction.dot(snapped.clone().normalize()) > 0.985
   if (solidOutline) solidOutline.visible = aligned
   if (dashedOutline) dashedOutline.visible = !aligned
+  activeFaces = directionFaces(snapped)
+  updateMaterials()
   renderer.render(miniScene, miniCamera)
 }
 
-function hitDirection(event: PointerEvent) {
-  if (!renderer || !cube) return null
+function hitRegion(event: PointerEvent): { direction: THREE.Vector3; id: string; faces: number[] } | null {
+  if (!renderer || !cube || pickables.length === 0) return null
   const rect = renderer.domElement.getBoundingClientRect()
   if (!rect.width || !rect.height) return null
   pointer.set(
@@ -112,22 +190,19 @@ function hitDirection(event: PointerEvent) {
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
   )
   raycaster.setFromCamera(pointer, miniCamera)
-  const hit = raycaster.intersectObject(cube, false)[0]
+  const hit = raycaster.intersectObjects(pickables, false)[0]
   if (!hit) return null
+  if (hit.object.userData.direction) {
+    const direction = (hit.object.userData.direction as THREE.Vector3).clone()
+    return { direction, id: hit.object.userData.id as string, faces: directionFaceIndices(direction) }
+  }
   const local = cube.worldToLocal(hit.point.clone())
   const values = [local.x, local.y, local.z]
   const direction = new THREE.Vector3()
-  const faceAxis = values.reduce(
-    (best, value, index) => (Math.abs(value) > Math.abs(values[best]) ? index : best),
-    0,
-  )
-  const threshold = HALF - BAND
-  values.forEach((value, index) => {
-    if (index === faceAxis || Math.abs(value) >= threshold) {
-      direction.setComponent(index, Math.sign(value) || 1)
-    }
-  })
-  return direction
+  const faceAxis = values.reduce((best, value, index) =>
+    Math.abs(value) > Math.abs(values[best]) ? index : best, 0)
+  direction.setComponent(faceAxis, Math.sign(values[faceAxis]) || 1)
+  return { direction, id: directionId(direction), faces: directionFaceIndices(direction) }
 }
 
 function handlePointerEnter() {
@@ -137,43 +212,57 @@ function handlePointerEnter() {
 function handlePointerLeave() {
   if (dragging) return
   pointerDown = false
-  updateHighlight([])
+  hoveredId = ''
+  hoveredFaces = []
+  updateMaterials()
   hostRef.value?.classList.remove('is-active')
 }
 
 function handlePointerDown(event: PointerEvent) {
-  if (event.button !== 0 || !hitDirection(event)) return
+  const hit = hitRegion(event)
+  if (event.button !== 0 || !hit) return
   pointerDown = true
   dragging = false
   startX = event.clientX
   startY = event.clientY
+  pressedDirection = hit.direction
+  pressedId = hit.id
   hostRef.value?.setPointerCapture(event.pointerId)
   event.preventDefault()
+  event.stopPropagation()
 }
 
 function handlePointerMove(event: PointerEvent) {
-  if (pointerDown && !dragging && Math.hypot(event.clientX - startX, event.clientY - startY) >= 5) {
+  if (pointerDown && !dragging && Math.hypot(event.clientX - startX, event.clientY - startY) >= DRAG_THRESHOLD_PX) {
     dragging = true
   }
   if (dragging) {
     emit('orbit', { lon: -event.movementX * (180 / SIZE), lat: event.movementY * (180 / SIZE) })
+    event.preventDefault()
+    event.stopPropagation()
     return
   }
-  const direction = hitDirection(event)
-  updateHighlight(direction ? directionFaces(direction) : [])
+  const hit = hitRegion(event)
+  hoveredId = hit?.id ?? ''
+  hoveredFaces = hit?.faces ?? []
+  updateMaterials()
 }
 
 function handlePointerUp(event: PointerEvent) {
-  const direction = hitDirection(event)
+  const hit = hitRegion(event)
   const wasDragging = dragging
   pointerDown = false
   dragging = false
   if (hostRef.value?.hasPointerCapture(event.pointerId)) {
     hostRef.value.releasePointerCapture(event.pointerId)
   }
-  if (!wasDragging && direction) {
-    emit('select-direction', [direction.x, direction.y, direction.z])
+  if (!wasDragging && hit && pressedDirection && hit.id === pressedId) {
+    emit('select-direction', [hit.direction.x, hit.direction.y, hit.direction.z])
   }
+  pressedDirection = null
+  pressedId = ''
+  event.preventDefault()
+  event.stopPropagation()
 }
 
 function init() {
@@ -199,7 +288,25 @@ function init() {
     }))
   })
   cube = new THREE.Mesh(new THREE.BoxGeometry(HALF * 2, HALF * 2, HALF * 2), faceMaterials)
+  cube.userData.kind = 'face'
   cubeGroup.add(cube)
+  pickables.push(cube)
+  for (const [kind, directions] of [['edge', EDGE_DIRS], ['corner', CORNER_DIRS]] as const) {
+    for (const raw of directions) {
+      const direction = new THREE.Vector3(...raw)
+      for (const layout of plateLayouts(raw, kind)) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(...layout.size), regionMaterial())
+        mesh.position.set(...layout.position)
+        mesh.userData.kind = kind
+        mesh.userData.id = directionId(direction)
+        mesh.userData.direction = direction
+        mesh.userData.faces = directionFaceIndices(direction)
+        cubeGroup.add(mesh)
+        regionMeshes.push(mesh)
+        pickables.push(mesh)
+      }
+    }
+  }
   const edges = new THREE.EdgesGeometry(cube.geometry, 24)
   solidOutline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
     color: 0x71838c,
@@ -230,6 +337,12 @@ function cleanup() {
     material.dispose()
   })
   cube?.geometry.dispose()
+  regionMeshes.forEach((mesh) => {
+    mesh.geometry.dispose()
+    ;(mesh.material as THREE.Material).dispose()
+  })
+  regionMeshes.length = 0
+  pickables.length = 0
   solidOutline?.geometry.dispose()
   dashedOutline?.geometry.dispose()
   renderer?.dispose()

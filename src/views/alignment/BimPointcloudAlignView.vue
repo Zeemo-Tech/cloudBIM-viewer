@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Hide, RefreshLeft, View } from '@element-plus/icons-vue'
+import { ArrowLeft, DArrowLeft, DArrowRight, Hide, RefreshLeft, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import {
   ClippingGroup,
@@ -64,6 +65,13 @@ import toushiIcon from '@/assets/images/toushi.png'
 import zhengjiaoIcon from '@/assets/images/zhengjiao.png'
 import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
 import C2MHistogramLegend from '@/components/preview/C2MHistogramLegend.vue'
+import PointcloudViewCube from '@/components/preview/PointcloudViewCube.vue'
+import PointcloudAxesTriad from '@/components/preview/PointcloudAxesTriad.vue'
+import PointcloudColorRangeBar, {
+  type PointcloudColorRamp,
+  type PointcloudColorRange,
+} from '@/components/preview/PointcloudColorRangeBar.vue'
+import type { CameraPose } from '@/components/preview/UnifiedViewer3D.vue'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisMode,
@@ -100,6 +108,9 @@ const props = defineProps<{
   pointcloudDisplayName?: string
 }>()
 
+const router = useRouter()
+const route = useRoute()
+
 type RegistrationStage = 'coarse' | 'fine'
 const registrationStage = ref<RegistrationStage>('coarse')
 const fineAlignLoading = ref(false)
@@ -111,6 +122,13 @@ const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
 const analysisToolbarCollapsed = ref(true)
+const pointcloudCameraPose = ref<CameraPose | null>(null)
+const pointcloudColorMode = ref<'rgb' | 'intensity'>('rgb')
+const pointcloudColorRamp = ref<PointcloudColorRamp>('grayscale')
+const pointcloudColorRange = ref<PointcloudColorRange>({ min: 0, max: 1 })
+const pointcloudIntensityHistogram = ref<number[]>([])
+const pointcloudPointSize = ref(2.5)
+const pointcloudShowAxes = ref(true)
 const hasSavedAlignmentMatrix = ref(false)
 const coarseAlignmentDirty = ref(false)
 const latestAlignmentResult = ref<BimAlignmentResult | null>(null)
@@ -1326,6 +1344,7 @@ const webgpuSupported = computed(
 
 const dprCap = 1.25
 const originalMaterialStore = new WeakMap<THREE.Object3D, THREE.Material | THREE.Material[]>()
+const originalPointcloudColors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute | null>()
 const originalWireframeStore = new WeakMap<THREE.Material, boolean>()
 const bimUnlitMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
 const bimLambertMaterialCache = new WeakMap<THREE.Material, { v0?: THREE.Material; v1?: THREE.Material }>()
@@ -1430,10 +1449,22 @@ function closePage() {
     return
   }
 
-  console.info('[BimPointcloudAlign] closePage fallback redirect', {
-    target: window.location.origin,
-  })
-  window.location.href = `${window.location.origin}/projects`
+  const projectId = typeof route.query.projectId === 'string' ? route.query.projectId : ''
+  const projectName = typeof route.query.projectName === 'string' ? route.query.projectName : ''
+  if (projectId) {
+    void router.replace({
+      path: '/survey',
+      query: { projectId, ...(projectName ? { projectName } : {}) },
+    })
+    return
+  }
+
+  if (window.history.length > 1) {
+    void router.back()
+    return
+  }
+
+  void router.replace('/projects')
 }
 
 function parseColor(value: string) {
@@ -1607,6 +1638,114 @@ function normalizePointcloudColor(value: string, fallback = '#ffffff') {
   return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : fallback
 }
 
+function pointcloudAttribute(geometry: THREE.BufferGeometry, names: string[]) {
+  const attrs = geometry.attributes as Record<string, THREE.BufferAttribute>
+  const entry = Object.entries(attrs).find(([name]) => names.includes(name.toLowerCase()))
+  return entry?.[1] ?? null
+}
+
+function pointcloudScalarSource(geometry: THREE.BufferGeometry) {
+  const intensity = pointcloudAttribute(geometry, ['intensity', '_intensity', 'scalar_intensity'])
+  if (intensity?.count) return (index: number) => intensity.getX(index)
+  const colors = originalPointcloudColors.get(geometry) ?? (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)
+  if (colors?.count) return (index: number) => colors.getX(index) * 0.2126 + colors.getY(index) * 0.7152 + colors.getZ(index) * 0.0722
+  return null
+}
+
+function samplePointcloudColorRamp(value: number): [number, number, number] {
+  const t = THREE.MathUtils.clamp(value, 0, 1)
+  if (pointcloudColorRamp.value === 'grayscale') return [t, t, t]
+  if (pointcloudColorRamp.value === 'viridis') {
+    const stops = [[0, 0.267, 0.005, 0.329], [0.25, 0.283, 0.141, 0.458], [0.5, 0.128, 0.567, 0.551], [0.75, 0.37, 0.789, 0.383], [1, 0.993, 0.906, 0.144]]
+    const upper = stops.findIndex((stop) => t <= stop[0])
+    const b = stops[Math.max(1, upper < 0 ? stops.length - 1 : upper)]
+    const a = stops[Math.max(0, (upper < 0 ? stops.length - 1 : upper) - 1)]
+    const mix = (t - a[0]) / Math.max(1e-6, b[0] - a[0])
+    return [THREE.MathUtils.lerp(a[1], b[1], mix), THREE.MathUtils.lerp(a[2], b[2], mix), THREE.MathUtils.lerp(a[3], b[3], mix)]
+  }
+  const color = new THREE.Color().setHSL(((1 - t) * 240) / 360, 1, 0.5)
+  return [color.r, color.g, color.b]
+}
+
+function collectPointcloudColorStats(root: THREE.Object3D) {
+  const histogram = new Array(64).fill(0)
+  root.traverse((obj: any) => {
+    if (!obj?.isPoints) return
+    const geometry = obj.geometry as THREE.BufferGeometry
+    if (!originalPointcloudColors.has(geometry)) {
+      originalPointcloudColors.set(geometry, (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)?.clone() ?? null)
+    }
+    const scalar = pointcloudScalarSource(geometry)
+    if (!scalar) return
+    const count = geometry.getAttribute('position')?.count ?? 0
+    const stride = Math.max(1, Math.ceil(count / 50000))
+    let min = Infinity
+    let max = -Infinity
+    for (let index = 0; index < count; index += stride) {
+      const value = scalar(index)
+      if (Number.isFinite(value)) { min = Math.min(min, value); max = Math.max(max, value) }
+    }
+    const span = Math.max(1e-9, max - min)
+    for (let index = 0; index < count; index += stride) {
+      const value = scalar(index)
+      if (Number.isFinite(value)) histogram[Math.min(63, Math.max(0, Math.floor(((value - min) / span) * 64)))] += 1
+    }
+  })
+  pointcloudIntensityHistogram.value = histogram
+}
+
+function restorePointcloudOriginalColors(root: THREE.Object3D) {
+  root.traverse((obj: any) => {
+    if (!obj?.isPoints) return
+    const geometry = obj.geometry as THREE.BufferGeometry
+    const original = originalPointcloudColors.get(geometry)
+    if (original) geometry.setAttribute('color', original.clone())
+    else geometry.deleteAttribute('color')
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material]
+    materials.forEach((material: any) => {
+      if (!material) return
+      if ('vertexColors' in material) material.vertexColors = Boolean(original)
+      if ('colorNode' in material) material.colorNode = original ? tslVertexColor() : tslColor(0xffffff)
+      material.needsUpdate = true
+    })
+  })
+}
+
+function applyPointcloudIntensityColoring(root: THREE.Object3D) {
+  root.traverse((obj: any) => {
+    if (!obj?.isPoints || !obj.geometry || !obj.material) return
+    const geometry = obj.geometry as THREE.BufferGeometry
+    if (!originalPointcloudColors.has(geometry)) originalPointcloudColors.set(geometry, (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)?.clone() ?? null)
+    const scalar = pointcloudScalarSource(geometry)
+    const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+    if (!scalar || !position) return
+    let min = Infinity
+    let max = -Infinity
+    for (let index = 0; index < position.count; index++) {
+      const value = scalar(index)
+      if (Number.isFinite(value)) { min = Math.min(min, value); max = Math.max(max, value) }
+    }
+    const span = Math.max(1e-9, max - min)
+    const rangeSpan = Math.max(0.01, pointcloudColorRange.value.max - pointcloudColorRange.value.min)
+    const colors = new Float32Array(position.count * 3)
+    for (let index = 0; index < position.count; index++) {
+      const normalized = (scalar(index) - min) / span
+      const displayed = (normalized - pointcloudColorRange.value.min) / rangeSpan
+      const [r, g, b] = samplePointcloudColorRamp(displayed)
+      colors[index * 3] = r; colors[index * 3 + 1] = g; colors[index * 3 + 2] = b
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material]
+    materials.forEach((material: any) => {
+      if (material?.color?.isColor) material.color.set(0xffffff)
+      if ('vertexColors' in material) material.vertexColors = true
+      if ('colorNode' in material) material.colorNode = tslVertexColor()
+      material.needsUpdate = true
+    })
+  })
+  requestRender()
+}
+
 function applyPointcloudColor() {
   if (!pointcloudGroup || !pointcloudColorOverridden.value) return
   const color = new THREE.Color(normalizePointcloudColor(pointcloudColor.value))
@@ -1630,6 +1769,28 @@ function applyPointcloudColor() {
     else apply(material)
   })
   requestRender()
+}
+
+function handlePointcloudColorStats(stats: { histogram: number[]; hasIntensity: boolean; hasRgb: boolean }) {
+  pointcloudIntensityHistogram.value = [...stats.histogram]
+}
+
+function applyPointcloudDisplay() {
+  if (!pointcloudGroup) return
+  if (pointcloudColorMode.value === 'intensity') {
+    pointcloudColorOverridden.value = false
+    applyPointcloudMaterialMode(pointcloudGroup)
+    applyPointcloudIntensityColoring(pointcloudGroup)
+    return
+  }
+  pointcloudColorOverridden.value = false
+  restorePointcloudOriginalColors(pointcloudGroup)
+  applyPointcloudMaterialMode(pointcloudGroup)
+}
+
+function updatePointcloudColorRange(range: PointcloudColorRange) {
+  pointcloudColorRange.value = range
+  applyPointcloudDisplay()
 }
 
 function clearPointcloudColorSaveTimer() {
@@ -2481,7 +2642,11 @@ function syncRendererSize() {
   const dpr = Math.min(window.devicePixelRatio || 1, dprCap)
 
   renderer.setPixelRatio(dpr)
-  renderer.setSize(width, height, false)
+  // Keep the canvas CSS box in sync with the viewport as the right panel is
+  // opened or closed. Passing `false` here only resized the drawing buffer,
+  // leaving the initial inline canvas width behind as a visible black strip.
+  renderer.setSize(width, height)
+  renderer.domElement.style.display = 'block'
   edlPipeline?.setSize(width, height)
 
   if (isPerspectiveCamera(activeCamera)) {
@@ -2547,6 +2712,7 @@ function requestRender() {
     }
 
     syncBoundsHelpers()
+    syncPointcloudCameraPose()
     if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
       edlPipeline.render(scene, activeCamera)
     } else {
@@ -2574,6 +2740,7 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
   controls.target.copy(currentTarget)
   controls.addEventListener('change', () => {
     syncBoundsHelpers()
+    syncPointcloudCameraPose()
   })
   controls.update()
 
@@ -2867,6 +3034,90 @@ function setTopView() {
 
 function setSideView() {
   setPresetView('side')
+}
+
+function syncPointcloudCameraPose() {
+  if (!activeCamera || !controls) return
+  pointcloudCameraPose.value = {
+    camera: activeCamera.position.clone(),
+    target: controls.target.clone(),
+    up: activeCamera.up.clone(),
+  }
+}
+
+function setPointcloudViewDirection(direction: [number, number, number]) {
+  if (!activeCamera || !controls) return
+  const box = getVisibleContentBox()
+  if (!box) return
+
+  const center = box.getCenter(new THREE.Vector3())
+  const directionVector = new THREE.Vector3(...direction)
+  if (directionVector.lengthSq() < 1e-6) return
+  directionVector.normalize()
+
+  controls.target.copy(center)
+  const distance = Math.max(activeCamera.position.distanceTo(controls.target), 1)
+  activeCamera.up.set(
+    0,
+    Math.abs(directionVector.y) > 0.98 ? 0 : 1,
+    directionVector.y > 0.98 ? -1 : directionVector.y < -0.98 ? 1 : 0,
+  )
+  activeCamera.position.copy(center).addScaledVector(directionVector, distance)
+  activeCamera.lookAt(center)
+  activeCamera.updateProjectionMatrix()
+  controls.update()
+  activeView.value = ''
+  syncPointcloudCameraPose()
+  requestRender()
+}
+
+function orbitPointcloudFromCube(delta: { lon: number; lat: number }) {
+  if (!activeCamera || !controls) return
+  const offset = activeCamera.position.clone().sub(controls.target)
+  if (offset.lengthSq() < 1e-8) return
+  const spherical = new THREE.Spherical().setFromVector3(offset)
+  spherical.theta += THREE.MathUtils.degToRad(delta.lon)
+  spherical.phi = THREE.MathUtils.clamp(
+    spherical.phi - THREE.MathUtils.degToRad(delta.lat),
+    0.04,
+    Math.PI - 0.04,
+  )
+  activeCamera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(spherical))
+  activeCamera.lookAt(controls.target)
+  activeCamera.updateProjectionMatrix()
+  controls.update()
+  syncPointcloudCameraPose()
+  requestRender()
+}
+
+function rollPointcloudView(direction: -1 | 1) {
+  if (!activeCamera || !controls) return
+  const viewDirection = activeCamera.position.clone().sub(controls.target).normalize()
+  activeCamera.up.applyAxisAngle(viewDirection, direction * Math.PI / 2).normalize()
+  activeCamera.lookAt(controls.target)
+  activeCamera.updateProjectionMatrix()
+  controls.update()
+  syncPointcloudCameraPose()
+  requestRender()
+}
+
+function applyPointcloudPointSize(root: THREE.Object3D | null) {
+  if (!root) return
+  root.traverse((obj: any) => {
+    if (!obj?.isPoints || !obj.material) return
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material]
+    materials.forEach((material: any) => {
+      if (material && 'size' in material) {
+        material.size = pointcloudPointSize.value
+        material.needsUpdate = true
+      }
+      if (material && 'sizeNode' in material) {
+        material.sizeNode = float(pointcloudPointSize.value)
+        material.needsUpdate = true
+      }
+    })
+  })
+  requestRender()
 }
 
 function setProjectionMode(nextMode: ProjectionMode) {
@@ -3164,7 +3415,7 @@ function normalizePointMaterial(obj: any) {
   mats.forEach((m: any) => {
     if (m && 'size' in m) {
       m.sizeAttenuation = false
-      m.size = 2.5
+      m.size = pointcloudPointSize.value
       if (!m.userData?.roundPointsHooked) {
         m.userData = m.userData || {}
         m.userData.roundPointsHooked = true
@@ -5105,6 +5356,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
         sanitizeObjectForWebGPU(nextTileset.group)
       }
       applyPointcloudMaterialMode(nextTileset.group)
+      collectPointcloudColorStats(nextTileset.group)
       pointcloudRootReady = true
       recenterLoadedContentAsWhole()
       pointcloudWrapper?.updateMatrixWorld(true)
@@ -5124,6 +5376,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
         sanitizeObjectForWebGPU(tileScene)
       }
       applyPointcloudMaterialMode(tileScene)
+      collectPointcloudColorStats(tileScene)
     })
     nextTileset.addEventListener('load-error', (event: any) => {
       console.error(event)
@@ -5175,6 +5428,18 @@ watch(materialMode, () => {
 
 watch(tilesErrorTarget, () => {
   onTilesErrorTargetInput()
+})
+
+watch(pointcloudPointSize, () => {
+  applyPointcloudPointSize(pointcloudGroup)
+})
+
+watch(showPanel, async () => {
+  // v-if removes the panel before the grid transition settles. Resize once
+  // after Vue has patched the DOM so the canvas immediately fills the new
+  // viewport, while ResizeObserver continues to cover the transition frames.
+  await nextTick()
+  syncRendererSize()
 })
 
 watch(showBounds, () => {
@@ -5275,15 +5540,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="BimPointcloudAlign-container">
+  <section class="BimPointcloudAlign-container calibration-page">
     <ViewerAnalysisOverlay
       :mode="analysisMode"
       :point="analysisPoint"
       :distance="analysisDistance"
       @clear="clearAnalysis"
     />
-    <header class="topbar">
-      <div class="topbar-left">
+    <header class="topbar calibration-header">
+      <div class="topbar-left title-block">
+        <el-button text :icon="ArrowLeft" aria-label="返回" @click="closePage" />
         <h1 class="brand-title">
           BIM 与点云校准 - {{ bimDisplayName || 'BIM 模型' }}
         </h1>
@@ -5291,8 +5557,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="topbar-right">
-        <el-button :icon="ArrowLeft" @click="closePage">返回</el-button>
+      <div class="topbar-right header-actions">
         <MeasurementToolbar
           v-model:collapsed="analysisToolbarCollapsed"
           :mode="analysisMode"
@@ -5305,14 +5570,20 @@ onBeforeUnmount(() => {
         <el-button type="primary" :disabled="!canSaveCalibration" @click="handleCalibrationComplete">
           校准完成
         </el-button>
-        <el-button @click="showPanel = !showPanel">
-          {{ showPanel ? '收起' : '展开' }}
-        </el-button>
+        <el-button
+          class="panel-toggle"
+          text
+          circle
+          :icon="showPanel ? DArrowRight : DArrowLeft"
+          :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
+          :title="showPanel ? '收起控制面板' : '展开控制面板'"
+          @click="showPanel = !showPanel"
+        />
       </div>
     </header>
 
-    <div class="main-content">
-      <aside class="left-toolbar">
+    <div class="main-content calibration-main" :class="{ 'is-panel-hidden': !showPanel }">
+      <aside class="left-toolbar view-toolbar">
         <el-tooltip content="重置视角" placement="right">
           <div class="tool-item">
             <el-button class="tool-btn" circle text :icon="RefreshLeft" :disabled="!hasModel" @click="resetView" />
@@ -5336,7 +5607,7 @@ onBeforeUnmount(() => {
         <el-tooltip content="正交" placement="right">
           <div class="tool-item">
             <el-button
-              class="tool-btn tool-btn--img"
+              class="tool-btn tool-btn--img tool-btn--orthographic"
               :class="{ 'is-on': projectionMode === 'orthographic' }"
               circle
               text
@@ -5416,53 +5687,6 @@ onBeforeUnmount(() => {
 
         <el-divider />
 
-        <el-tooltip content="前视图" placement="right">
-          <div class="tool-item">
-            <el-button
-              class="tool-btn tool-btn--text"
-              :class="{ 'is-on': hasModel && activeView === 'front' }"
-              circle
-              text
-              :disabled="!hasModel"
-              @click="setFrontView"
-            >
-              前
-            </el-button>
-          </div>
-        </el-tooltip>
-
-        <el-tooltip content="俯视图" placement="right">
-          <div class="tool-item">
-            <el-button
-              class="tool-btn tool-btn--text"
-              :class="{ 'is-on': hasModel && activeView === 'top' }"
-              circle
-              text
-              :disabled="!hasModel"
-              @click="setTopView"
-            >
-              俯
-            </el-button>
-          </div>
-        </el-tooltip>
-
-        <el-tooltip content="侧视图" placement="right">
-          <div class="tool-item">
-            <el-button
-              class="tool-btn tool-btn--text"
-              :class="{ 'is-on': hasModel && activeView === 'side' }"
-              circle
-              text
-              :disabled="!hasModel"
-              @click="setSideView"
-            >
-              侧
-            </el-button>
-          </div>
-        </el-tooltip>
-
-        <el-divider />
-
         <el-tooltip :content="bimVisibilityLabel" placement="right">
           <div class="tool-item">
             <el-button
@@ -5522,9 +5746,62 @@ onBeforeUnmount(() => {
         </el-tooltip>
       </aside>
 
-      <div ref="viewportEl" class="viewport"></div>
+      <div ref="viewportEl" class="viewport viewport-shell three-view-pane">
+        <div class="pointcloud-display-panel alignment-pointcloud-display" role="group" aria-label="点云显示设置">
+          <div class="pointcloud-display-row">
+            <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
+              <button type="button" :class="{ on: pointcloudColorMode === 'rgb' }" @click="pointcloudColorMode = 'rgb'; applyPointcloudDisplay()">真彩</button>
+              <button type="button" :class="{ on: pointcloudColorMode === 'intensity' }" @click="pointcloudColorMode = 'intensity'; applyPointcloudDisplay()">强度</button>
+            </div>
+            <div class="pointcloud-segmented pointcloud-ramp-modes" :class="{ 'is-disabled': pointcloudColorMode !== 'intensity' }" role="group" aria-label="强度色带">
+              <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'grayscale' }" @click="pointcloudColorRamp = 'grayscale'; applyPointcloudDisplay()">灰度</button>
+              <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'spectrum' }" @click="pointcloudColorRamp = 'spectrum'; applyPointcloudDisplay()">彩虹</button>
+              <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'viridis' }" @click="pointcloudColorRamp = 'viridis'; applyPointcloudDisplay()">紫黄</button>
+            </div>
+          </div>
+          <div class="pointcloud-display-row">
+            <div class="pointcloud-segmented" role="group" aria-label="点云增强">
+              <button type="button" :class="{ on: edlEnabled }" @click="toggleEdl">显示增强</button>
+            </div>
+            <label class="pointcloud-size-control" title="点大小">
+              <span>点</span>
+              <input v-model.number="pointcloudPointSize" type="range" min="1" max="5" step="0.1" />
+              <output>{{ pointcloudPointSize.toFixed(1) }}</output>
+            </label>
+          </div>
+        </div>
+        <PointcloudViewCube
+          :pose="pointcloudCameraPose"
+          @home="resetView"
+          @select-direction="setPointcloudViewDirection"
+          @orbit="orbitPointcloudFromCube"
+          @roll="rollPointcloudView"
+        />
+        <PointcloudAxesTriad
+          v-show="pointcloudShowAxes"
+          class="alignment-pointcloud-axes-triad"
+          :pose="pointcloudCameraPose"
+        />
+        <PointcloudColorRangeBar
+          v-model:range="pointcloudColorRange"
+          class="pointcloud-bottom-color-bar alignment-pointcloud-bottom-color-bar"
+          :ramp="pointcloudColorRamp"
+          :histogram="pointcloudIntensityHistogram"
+          @update:range="updatePointcloudColorRange"
+        />
+      </div>
 
-      <aside v-if="showPanel" class="right-panel">
+      <aside v-if="showPanel" class="right-panel control-panel is-workflow-panel">
+        <div class="control-panel-header">
+          <div class="panel-heading">
+            <small>ALIGNMENT WORKSPACE</small>
+            <strong>配准控制</strong>
+          </div>
+          <div class="panel-step-count">
+            {{ registrationStage === 'fine' ? '精细配准' : '粗配准' }}
+          </div>
+        </div>
+        <div class="panel-body">
          <div class="panel-section registration-edit-panel">
           <div class="section-title">配准</div>
           <div class="control-row registration-mode-row">
@@ -5960,93 +6237,18 @@ onBeforeUnmount(() => {
         </div>
        
 
-        <div class="panel-section">
-          <div class="section-title">渲染</div>
+        <div class="panel-section material-panel">
+          <div class="section-title">BIM 材质</div>
           <div class="control-row">
-            <span class="label">SSE</span>
-            <el-slider
-              v-model="tilesErrorTarget"
-              :min="2"
-              :max="64"
-              :disabled="!hasTileset"
-              @input="onTilesErrorTargetInput"
-            />
-            <span class="value">{{ tilesErrorTarget }}</span>
-          </div>
-          <div class="control-row">
-            <span class="label">材质</span>
             <el-select v-model="materialMode" popper-class="bpa-right-popper" :disabled="!hasModel">
               <el-option label="原始材质" value="original" />
               <el-option label="无光照" value="unlit" />
               <el-option label="漫反射" value="lambert" />
             </el-select>
           </div>
-          <div class="control-row">
-            <span class="label">背景</span>
-            <div class="color-row">
-              <input v-model="backgroundColor" class="color-picker" type="color" @input="onBackgroundColorChange" />
-              <input v-model="backgroundColor" class="color-hex" type="text" @change="onBackgroundColorChange" />
-              <el-button size="small" @click="resetBackgroundColor">重置</el-button>
-            </div>
-          </div>
-          <div class="control-row">
-            <span class="label">点云颜色</span>
-            <div class="color-row">
-              <input
-                v-model="pointcloudColor"
-                class="color-picker"
-                type="color"
-                :disabled="!hasTileset"
-                @input="handlePointcloudColorInput"
-              />
-              <input
-                v-model="pointcloudColor"
-                class="color-hex"
-                type="text"
-                :disabled="!hasTileset"
-                @change="handlePointcloudColorChange"
-              />
-              <el-button
-                size="small"
-                :disabled="!hasTileset || pointcloudColorSaving"
-                @click="resetPointcloudColor"
-              >
-                重置
-              </el-button>
-            </div>
-          </div>
         </div>
 
-        <div class="panel-section">
-          <div class="section-title">构件</div>
-          <div class="control-row">
-            <el-switch v-model="enableElementPicking" />
-            <span class="label">点击高亮</span>
-          </div>
-          <div v-if="pickedElement" class="picked-element-card" :class="{ disabled: !enableElementPicking || !hasModel }">
-            <div class="picked-element-card__head">
-              <span class="picked-element-card__label">已选构件</span>
-              <el-button
-                size="small"
-                :disabled="!enableElementPicking || !pickedElement"
-                @click="clearPickedElement"
-              >
-                清除
-              </el-button>
-            </div>
-            <div class="picked-element-card__title">
-              {{ pickedElementTitle }}
-            </div>
-          </div>
-          <div
-            v-else
-            class="picked-element-empty"
-            :class="{ disabled: !enableElementPicking || !hasModel }"
-          >
-            未选择构件
-          </div>
         </div>
-
       </aside>
     </div>
 

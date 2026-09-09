@@ -1082,6 +1082,11 @@ watch(
   box-shadow: none;
 }
 
+/* ViewCube 属于视口导航层，必须高于钢筋分析面板(36)，但低于测量工具和页面级面板。 */
+.pointcloud-preview-stage :deep(.pointcloud-view-cube) {
+  z-index: 60;
+}
+
 .pointcloud-preview-stage.theme-deep,
 .pointcloud-preview-stage.theme-deep :deep(.unified-viewer-3d) {
   background: #0c1224;
