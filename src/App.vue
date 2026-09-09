@@ -166,6 +166,8 @@ async function handleLogout() {
     :preview-type="routeState.previewType === 'pointcloud' ? 'pointcloud' : 'bim'"
     :asset-id="routeState.assetId"
     :display-name="routeState.displayName"
+    :project-id="routeState.projectId"
+    :project-name="routeState.projectName"
   />
   <SplitPreviewView
     v-else-if="session && currentView === 'split-preview'"

@@ -1,0 +1,162 @@
+@use './variables';
+
+/* Keep Element Plus controls aligned with the application token layer. */
+.el-button,
+.el-input,
+.el-select,
+.el-date-editor,
+.el-table,
+.el-dialog,
+.el-form,
+.el-tabs,
+.el-pagination,
+.el-dropdown,
+.el-message,
+.el-message-box {
+  font-family: var(--font-family-base);
+}
+
+.el-input__inner,
+.el-select__selected-item,
+.el-textarea__inner,
+.el-range-input,
+.el-range-separator {
+  color: var(--text-primary);
+}
+
+.el-select__placeholder,
+.el-form-item__label,
+.el-table,
+.el-dialog,
+.el-message,
+.el-message-box,
+.el-dropdown-menu__item,
+.el-pagination {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.el-input__inner::placeholder,
+.el-textarea__inner::placeholder,
+.el-select__placeholder,
+.el-range-input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.el-input.is-disabled .el-input__inner,
+.el-select.is-disabled .el-select__selected-item,
+.el-button.is-disabled,
+.el-pagination button:disabled {
+  color: var(--text-disabled);
+}
+
+.el-form-item__error {
+  color: var(--text-danger);
+  font-size: var(--font-size-xs);
+}
+
+.el-button {
+  --el-button-font-size: var(--font-size-sm);
+  --el-button-border-radius: var(--radius-sm);
+  --el-button-hover-text-color: var(--text-link);
+  --el-button-hover-border-color: var(--border-color-focus);
+  --el-button-hover-bg-color: var(--color-primary-soft);
+  --el-button-active-text-color: var(--color-primary-active);
+  transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-bg-color: var(--color-primary-hover);
+  --el-button-hover-border-color: var(--color-primary-hover);
+  --el-button-active-bg-color: var(--color-primary-active);
+  --el-button-active-border-color: var(--color-primary-active);
+}
+
+.el-input,
+.el-select,
+.el-date-editor {
+  --el-input-text-color: var(--text-primary);
+  --el-input-placeholder-color: var(--text-placeholder);
+  --el-input-border-color: var(--border-color);
+  --el-input-hover-border-color: var(--border-color-hover);
+  --el-input-focus-border-color: var(--border-color-focus);
+  --el-input-bg-color: var(--bg-card);
+}
+
+.el-table {
+  --el-table-text-color: var(--text-secondary);
+  --el-table-header-text-color: var(--text-secondary);
+  --el-table-header-bg-color: var(--bg-control);
+  --el-table-row-hover-bg-color: var(--color-primary-soft);
+  --el-table-border-color: var(--border-color-light);
+  --el-table-bg-color: var(--bg-card);
+  --el-table-tr-bg-color: var(--bg-card);
+}
+
+.el-dialog {
+  --el-dialog-title-font-size: var(--font-size-lg);
+  --el-dialog-title-font-weight: 650;
+  --el-dialog-content-font-size: var(--font-size-sm);
+  --el-dialog-padding-primary: var(--spacing-lg);
+  --el-dialog-bg-color: var(--bg-card);
+}
+
+.el-dialog__header,
+.el-dialog__title {
+  color: var(--text-primary);
+}
+
+.el-dialog__body,
+.el-message-box__message {
+  color: var(--text-secondary);
+}
+
+.el-form-item__label,
+.el-tabs__item,
+.el-pagination,
+.el-dropdown-menu__item {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.el-tabs__item.is-active,
+.el-tabs__item:hover {
+  color: var(--text-link);
+}
+
+.el-tabs__active-bar {
+  background-color: var(--color-primary);
+}
+
+.el-tabs__nav-wrap::after {
+  background-color: var(--border-color-light);
+}
+
+.el-pagination button,
+.el-pagination .el-pager li {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.el-pagination .el-pager li.is-active {
+  color: #fff;
+  background-color: var(--color-primary);
+}
+
+.el-pagination button:hover,
+.el-pagination .el-pager li:not(.is-active):hover {
+  color: var(--text-link);
+}
+
+.el-dropdown-menu__item:not(.is-disabled):focus,
+.el-dropdown-menu__item:not(.is-disabled):hover {
+  color: var(--text-link);
+  background-color: var(--color-primary-soft);
+}
+
+.el-overlay,
+.el-popper {
+  z-index: var(--z-overlay);
+}

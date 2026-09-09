@@ -94,8 +94,25 @@ function go(path: string) {
     justify-content: center;
   }
 
-  .project-context .back-to-projects span {
+.project-context .back-to-projects span {
     display: none;
   }
 }
+</style>
+
+<style scoped>
+.app-layout { background: var(--bg-page); color: var(--text-primary); }
+.app-sidebar { width: var(--sidebar-width); flex-basis: var(--sidebar-width); background: var(--bg-page); }
+.brand strong { font-size: var(--font-size-xl); color: var(--text-primary); }
+.section-title, .menu-status, .user-role, .project-context .back-to-projects, .brand span { color: var(--text-tertiary); font-size: var(--font-size-xs); }
+.menu-item { border-radius: var(--radius-sm); transition: background-color var(--transition-fast), color var(--transition-fast); }
+.menu-item:hover { background: var(--bg-control-hover); }
+.menu-item.is-active, .user-section, .right-panel { background: var(--bg-card); }
+.menu-title, .user-name { color: var(--text-primary); font-size: var(--font-size-sm); }
+.menu-item.is-active .menu-icon, .menu-item.is-active .menu-title, .logout-button:hover, .project-context .back-to-projects:hover { color: var(--text-link); }
+.menu-icon, .logout-button { color: var(--text-tertiary); }
+.user-avatar { background: var(--color-primary-soft); color: var(--color-primary); }
+.menu-icon, .logout-button { color: var(--text-secondary); }
+.menu-item.is-active .menu-icon { color: var(--color-primary); }
+.right-panel { border-radius: var(--radius-lg); }
 </style>

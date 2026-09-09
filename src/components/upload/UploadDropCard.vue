@@ -230,29 +230,29 @@ function handleRemoveFile() {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  color: #2563eb;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border: var(--border-width) solid var(--border-color-light);
 }
 
 .head-copy h3 {
   margin: 0;
-  font-size: 1rem;
-  color: #0f172a;
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
 }
 
 .head-copy p {
   margin: 4px 0 0;
-  font-size: 0.88rem;
-  color: #64748b;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
 }
 
 .dropzone {
   width: 100%;
   min-height: 250px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 18px;
-  background: #f8fafc;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-control);
   padding: 22px;
   cursor: pointer;
   transition:
@@ -263,13 +263,13 @@ function handleRemoveFile() {
 
 .is-bim .dropzone:hover,
 .is-bim .dropzone.is-dragging {
-  border-color: #93c5fd;
+  border-color: var(--border-color-focus);
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
 }
 
 .is-pointcloud .dropzone:hover,
 .is-pointcloud .dropzone.is-dragging {
-  border-color: #93c5fd;
+  border-color: var(--border-color-focus);
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
 }
 
@@ -298,23 +298,23 @@ function handleRemoveFile() {
   justify-content: center;
   border-radius: 18px;
   margin-bottom: 16px;
-  color: #2563eb;
-  background: #fff;
-  border: 1px solid #e5eaf1;
+  color: var(--color-primary);
+  background: var(--bg-card);
+  border: var(--border-width) solid var(--border-color-light);
 }
 
 .empty-state strong {
   max-width: 320px;
-  font-size: 1rem;
+  font-size: var(--font-size-md);
   line-height: 1.5;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
 .empty-state p {
   margin: 10px 0 0;
   max-width: 360px;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .chips {
@@ -332,10 +332,10 @@ function handleRemoveFile() {
   height: 34px;
   padding: 0 14px;
   border-radius: 999px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  color: #475569;
-  font-size: 0.85rem;
+  background: var(--bg-card);
+  border: var(--border-width) solid var(--border-color-light);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .selected-state {
@@ -349,15 +349,15 @@ function handleRemoveFile() {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  color: #22c55e;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  color: var(--text-success);
+  background: var(--color-success-soft);
+  border: var(--border-width) solid var(--color-success-soft);
 }
 
 .selected-copy strong {
   display: block;
-  font-size: 1rem;
-  color: #0f172a;
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
   word-break: break-all;
 }
 
@@ -366,15 +366,15 @@ function handleRemoveFile() {
   align-items: center;
   gap: 10px;
   margin-top: 10px;
-  color: #64748b;
-  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .dot {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #94a3b8;
+  background: var(--text-tertiary);
 }
 
 .selected-actions {
@@ -390,7 +390,7 @@ function handleRemoveFile() {
   gap: 12px;
   margin-top: 18px;
   padding-top: 18px;
-  border-top: 1px solid #edf2f7;
+  border-top: var(--border-width) solid var(--border-color-light);
 }
 
 @media (max-width: 768px) {
@@ -404,4 +404,16 @@ function handleRemoveFile() {
     padding: 18px;
   }
 }
+</style>
+
+<style scoped>
+.upload-card { border-radius: var(--radius-xl); padding: var(--spacing-lg); background: var(--bg-card); border-color: var(--border-color-light); box-shadow: var(--shadow-lg); }
+.head-badge, .empty-icon { color: var(--color-primary); background: var(--color-primary-soft); border-color: var(--border-color-light); }
+.head-copy h3, .empty-state strong, .selected-copy strong { color: var(--text-primary); font-size: var(--font-size-md); }
+.head-copy p, .empty-state p, .selected-meta { color: var(--text-secondary); font-size: var(--font-size-sm); }
+.dropzone { border-color: var(--border-color); border-radius: var(--radius-lg); background: var(--bg-control); transition: border-color var(--transition-base), transform var(--transition-base), box-shadow var(--transition-base); }
+.is-bim .dropzone:hover, .is-bim .dropzone.is-dragging, .is-pointcloud .dropzone:hover, .is-pointcloud .dropzone.is-dragging { border-color: var(--border-color-focus); }
+.chip { color: var(--text-secondary); background: var(--bg-card); border-color: var(--border-color-light); font-size: var(--font-size-sm); }
+.selected-icon { color: var(--text-success); background: var(--color-success-soft); border-color: var(--color-success-soft); }
+.card-actions { border-top-color: var(--border-color-light); }
 </style>

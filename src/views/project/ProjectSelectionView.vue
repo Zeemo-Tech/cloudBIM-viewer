@@ -426,3 +426,34 @@ watch([pageSize, () => filters.keyword, () => filters.fileType, () => filters.fi
   }
 }
 </style>
+
+<style scoped>
+.project-entry-page { color: var(--text-primary); background-color: var(--bg-page); }
+.entry-header { height: var(--header-height); border-bottom-color: var(--border-color-light); }
+.entry-brand strong, .header-page-title, .entry-title h1 { color: var(--text-primary); }
+.entry-brand strong { font-size: var(--font-size-lg); }
+.entry-brand small, .entry-title p, .entry-title > div > span { color: var(--text-tertiary); }
+.entry-user { color: var(--text-secondary); font-size: var(--font-size-sm); }
+.entry-user button, .card-actions button { color: var(--text-tertiary); }
+.entry-user button:hover, .card-actions button:hover { color: var(--text-link); background: var(--color-primary-soft); }
+.brand-mark { color: var(--bg-card); }
+.project-folder { color: var(--color-primary); background: var(--color-primary-soft); }
+.card-actions { opacity: .78; }
+.card-actions button { color: var(--text-secondary); }
+.card-actions button:last-child:hover { color: var(--text-danger); background: var(--color-danger-soft); }
+.user-avatar { color: var(--color-primary); background: var(--color-primary-soft); }
+.empty-card .el-icon { color: var(--color-primary); }
+.entry-content { padding-top: var(--spacing-xl); }
+.project-card { border-radius: var(--radius-lg); background: var(--bg-card-translucent); box-shadow: var(--shadow-md); }
+.card-copy h2 { color: var(--text-primary); font-size: var(--font-size-md); }
+.card-copy p, .card-stats span, .empty-card span { color: var(--text-tertiary); font-size: var(--font-size-xs); }
+.card-stats span { background: var(--bg-control); }
+.card-stats strong { color: var(--text-secondary); font-size: var(--font-size-sm); }
+.project-status { color: var(--text-tertiary); background: var(--bg-muted); font-size: var(--font-size-xs); }
+.project-status.is-ready { color: var(--text-success); background: var(--color-success-soft); }
+.project-status.is-processing { color: var(--text-warning); background: var(--color-warning-soft); }
+.project-status.is-failed { color: var(--text-danger); background: var(--color-danger-soft); }
+.project-date { color: var(--text-disabled); font-size: var(--font-size-xs); }
+.enter-link { color: var(--text-link); font-size: var(--font-size-xs); }
+.empty-card { color: var(--text-tertiary); border-color: var(--border-color-hover); background: var(--bg-card-translucent); }
+</style>

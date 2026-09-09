@@ -41,6 +41,8 @@ const props = defineProps<{
   previewType: 'bim' | 'pointcloud'
   assetId: number | null
   displayName?: string
+  projectId?: number | null
+  projectName?: string
 }>()
 
 const router = useRouter()
@@ -124,6 +126,17 @@ const currentPanelRef = computed(() => {
 function closePage() {
   if (window.opener) {
     window.close()
+    return
+  }
+
+  if (props.projectId) {
+    void router.push({
+      path: props.previewType === 'bim' ? '/design/bim' : '/survey',
+      query: {
+        projectId: props.projectId,
+        projectName: props.projectName,
+      },
+    })
     return
   }
 

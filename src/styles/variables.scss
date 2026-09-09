@@ -1,0 +1,102 @@
+:root {
+  /* Typography */
+  --font-family-base: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'SF Pro Text', 'SF Pro Display', Arial, sans-serif;
+  --font-family-display: 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+  --font-family-number: 'DIN Alternate', 'SF Mono', 'Roboto Mono', 'PingFang SC', Arial, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 32px;
+  --line-height-tight: 1.25;
+  --line-height-base: 1.5;
+  --line-height-relaxed: 1.7;
+
+  /* Brand and status colors */
+  --color-primary: #3678c9;
+  --color-primary-hover: #2b66b2;
+  --color-primary-active: #225596;
+  --color-primary-soft: #eef5ff;
+  --color-accent: #0f9f80;
+  --color-accent-soft: #eaf9f4;
+  --color-success: #218462;
+  --color-success-soft: #e9f8f1;
+  --color-warning: #aa7625;
+  --color-warning-soft: #fff6df;
+  --color-danger: #c24d58;
+  --color-danger-hover: #b13e4a;
+  --color-danger-soft: #fff0f1;
+  --color-info: #52749e;
+  --color-info-soft: #f0f5fb;
+  --color-auth-accent-start: #22d3ee;
+  --color-auth-accent-end: #fb7185;
+
+  /* Text hierarchy */
+  --text-primary: #1b2f4a;
+  --text-secondary: #425a7a;
+  --text-tertiary: #657894;
+  --text-disabled: #9aa8ba;
+  --text-placeholder: #8798af;
+  --text-link: #2f70c4;
+  --text-primary-color: var(--color-primary);
+  --text-success: var(--color-success);
+  --text-warning: var(--color-warning);
+  --text-danger: var(--color-danger);
+  --text-info: var(--color-info);
+
+  /* Surfaces and borders */
+  --bg-page: #f5f8fc;
+  --bg-page-deep: #eef4fb;
+  --bg-card: #ffffff;
+  --bg-card-translucent: rgb(255 255 255 / 88%);
+  --bg-control: #f3f7fd;
+  --bg-control-hover: #eef5ff;
+  --bg-filter-control: #f5f9ff;
+  --bg-muted: #f1f4f8;
+  --bg-auth-panel: #474a59;
+  --text-on-dark: #f1f1f1;
+  --text-on-dark-muted: #c2c2c2;
+  --text-on-dark-placeholder: rgb(242 242 242 / 45%);
+  --border-color: #d6dfec;
+  --border-color-light: #e3ebf6;
+  --border-color-hover: #c5d4ea;
+  --border-color-focus: #8bb5ed;
+
+  /* Spacing */
+  --spacing-0: 0;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  /* Shape, elevation, and motion */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
+  --radius-pill: 999px;
+  --border-width: 1px;
+  --shadow-sm: 3px 3px 8px rgb(169 184 210 / 16%), -3px -3px 8px rgb(255 255 255 / 88%);
+  --shadow-filter-control: inset 1px 1px 1px rgb(255 255 255 / 95%), inset -2px -2px 4px rgb(180 200 230 / 12%), 6px 6px 12px rgb(174 190 215 / 12%), -6px -6px 12px rgb(255 255 255 / 92%);
+  --shadow-md: 7px 7px 16px rgb(163 177 198 / 18%), -7px -7px 16px rgb(255 255 255 / 82%);
+  --shadow-lg: 0 18px 40px rgb(15 23 42 / 8%);
+  --transition-fast: 160ms ease;
+  --transition-base: 240ms ease;
+  --transition-slow: 360ms ease;
+
+  /* Application layout */
+  --header-height: 82px;
+  --sidebar-width: 220px;
+  --card-padding: var(--spacing-lg);
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 1000;
+  --z-overlay: 2000;
+  --z-modal: 3000;
+}

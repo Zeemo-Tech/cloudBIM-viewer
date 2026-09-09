@@ -39,12 +39,12 @@ function setPageSize(event: Event) {
   <footer class="project-table-footer">
     <div class="pagination">
       <span class="pager-summary">共 {{ props.total }} 条</span>
-      <button class="pager-button" :disabled="props.currentPage <= 1" @click="setPage(props.currentPage - 1)">‹</button>
+      <button type="button" class="pager-button" :disabled="props.currentPage <= 1" @click.prevent="setPage(props.currentPage - 1)">‹</button>
       <template v-for="page in visiblePages" :key="String(page)">
-        <button v-if="typeof page === 'number'" class="pager-button" :class="{ active: page === props.currentPage }" @click="setPage(page)">{{ page }}</button>
+        <button v-if="typeof page === 'number'" type="button" class="pager-button" :class="{ active: page === props.currentPage }" @click.prevent="setPage(page)">{{ page }}</button>
         <span v-else class="pager-ellipsis">...</span>
       </template>
-      <button class="pager-button" :disabled="props.currentPage >= pageCount" @click="setPage(props.currentPage + 1)">›</button>
+      <button type="button" class="pager-button" :disabled="props.currentPage >= pageCount" @click.prevent="setPage(props.currentPage + 1)">›</button>
       <label class="page-size">
         <select :value="props.pageSize" @change="setPageSize">
           <option v-for="size in props.pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
@@ -56,4 +56,16 @@ function setPageSize(event: Event) {
 
 <style scoped>
 .project-table-footer{flex:0 0 auto;display:flex;justify-content:center;margin-top:auto;padding:18px 0 4px}.pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;color:#6f82a0}.pager-summary{margin-right:4px;font-size:13px;font-weight:400;white-space:nowrap}.pager-button,.page-size{height:34px;border:0;border-radius:10px;background:#fff;color:#7b8ca7;box-shadow:5px 5px 12px rgb(169 184 210 / 22%),-5px -5px 12px rgb(255 255 255 / 96%),inset 1px 1px 0 rgb(255 255 255 / 92%)}.pager-button{min-width:34px;padding:0 10px;font-size:13px;font-weight:400;cursor:pointer}.pager-button.active{color:#fff;background:linear-gradient(145deg,#88b4f8,#73a2f3)}.pager-button:disabled{color:#b8c2d2;background:#fff;box-shadow:none;cursor:not-allowed}.pager-ellipsis{padding:0 3px;color:#9caac0;font-weight:400}.page-size{display:inline-flex;align-items:center;overflow:hidden;margin-left:4px}.page-size select{height:34px;min-width:100px;padding:0 12px;border:0;outline:0;color:#536a8c;background:transparent;font-size:13px;font-weight:400;cursor:pointer}@media(max-width:620px){.pagination{flex-wrap:wrap}}
+</style>
+
+<style scoped>
+.project-table-footer { padding: var(--spacing-md) 0 var(--spacing-xs); }
+.pagination { gap: var(--spacing-sm); color: var(--text-secondary); }
+.pager-summary { font-size: var(--font-size-sm); }
+.pager-button, .page-size { border-radius: var(--radius-sm); background: var(--bg-card); color: var(--text-secondary); box-shadow: var(--shadow-sm); }
+.pager-button { font-size: var(--font-size-sm); }
+.pager-button.active { color: var(--bg-card); background: var(--color-primary); }
+.pager-button:disabled { color: var(--text-disabled); background: var(--bg-card); }
+.pager-ellipsis { color: var(--text-tertiary); }
+.page-size select { color: var(--text-secondary); font-size: var(--font-size-sm); }
 </style>
