@@ -305,7 +305,7 @@ function closePage() {
     return
   }
 
-  void router.push('/upload')
+  void router.push('/projects')
 }
 
 function syncRotation(source: SyncSource, rotation: Rotation | null) {

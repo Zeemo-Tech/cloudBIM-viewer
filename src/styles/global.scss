@@ -1,0 +1,110 @@
+@use './variables';
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}
+
+html {
+  font-size: 16px;
+  background: var(--bg-page);
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at top left, rgb(32 227 178 / 12%), transparent 24%),
+    radial-gradient(circle at right center, rgb(29 78 216 / 9%), transparent 28%),
+    linear-gradient(180deg, var(--bg-page-deep) 0%, var(--bg-page) 100%);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-base);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--border-color-focus);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--text-primary);
+  font-family: var(--font-family-display);
+  line-height: var(--line-height-tight);
+}
+
+h1 { font-size: var(--font-size-2xl); }
+h2 { font-size: var(--font-size-xl); }
+h3 { font-size: var(--font-size-lg); }
+h4 { font-size: var(--font-size-md); }
+
+small,
+.text-tertiary {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-disabled { color: var(--text-disabled); }
+.text-placeholder { color: var(--text-placeholder); }
+.text-link { color: var(--text-link); }
+.text-success { color: var(--text-success); }
+.text-warning { color: var(--text-warning); }
+.text-danger { color: var(--text-danger); }
+.text-info { color: var(--text-info); }
+
+code,
+pre,
+[data-number],
+.numeric {
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  color: #fff;
+  background: var(--color-primary);
+}

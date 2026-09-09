@@ -20,6 +20,31 @@ const router = createRouter({
       component: RouteShell,
     },
     {
+      path: '/projects',
+      name: 'projects',
+      component: RouteShell,
+    },
+    {
+      path: '/survey',
+      name: 'survey',
+      component: RouteShell,
+    },
+    {
+      path: '/design/bim',
+      name: 'design-bim',
+      component: RouteShell,
+    },
+    {
+      path: '/design/cad',
+      name: 'design-cad',
+      component: RouteShell,
+    },
+    {
+      path: '/design/overview',
+      name: 'design-overview',
+      component: RouteShell,
+    },
+    {
       path: '/preview/asset',
       name: 'asset-preview',
       component: RouteShell,
@@ -30,13 +55,18 @@ const router = createRouter({
       component: RouteShell,
     },
     {
+      path: '/alignment',
+      name: 'alignment-page',
+      component: RouteShell,
+    },
+    {
       path: '/alignment/model',
       name: 'alignment',
       component: RouteShell,
     },
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/upload',
+      redirect: '/projects',
     },
   ],
 })

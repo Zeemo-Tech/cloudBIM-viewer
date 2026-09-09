@@ -1,4 +1,4 @@
-import type { AssetDetail, AssetType, AssetStatus, UploadStatus } from '@/api/backend-file'
+import type { AssetArchiveMetadata, AssetDetail, AssetType, AssetStatus, UploadStatus } from '@/api/backend-file'
 import {
   createTusUpload,
   getAssetDetail,
@@ -23,6 +23,8 @@ const processingStatuses = new Set<AssetStatus>([
 export interface UploadFileParams {
   type: AssetType
   file: File
+  projectId?: number
+  archiveMetadata?: AssetArchiveMetadata
   onProgress?: (progress: number) => void
   onChunkProgress?: (current: number, total: number) => void
   onUploadIdCreated?: (uploadId: string) => void
@@ -105,7 +107,7 @@ function saveUploadState(
 }
 
 async function resolveUploadSession(
-  params: Pick<UploadFileParams, 'existingUploadId' | 'file' | 'resumeFromState' | 'type'>,
+  params: Pick<UploadFileParams, 'existingUploadId' | 'file' | 'resumeFromState' | 'type' | 'projectId' | 'archiveMetadata'>,
 ) {
   const { existingUploadId, file, resumeFromState, type } = params
   const fileFingerprint = createFileFingerprint(file, type)
@@ -144,6 +146,8 @@ async function resolveUploadSession(
     fileName: file.name,
     fileSize: file.size,
     assetType: type,
+    projectId: params.projectId,
+    archiveMetadata: params.archiveMetadata || { building: '', floor: '', componentType: 'YB', archiveSerial: '' },
   })
 
   saveUploadState(

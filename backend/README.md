@@ -64,7 +64,7 @@ export GOCESIUMTILER_BIN=/opt/tools/gocesiumtiler
 
 也会尝试从 `PATH` 查找，并回退到 `../../zhongjian-back/tools/`。参考项目中的转换器是 Linux x86_64 ELF，macOS arm64 无法直接执行；请在 Linux/Docker 中运行，或提供对应平台的二进制。转换产物分别为 BIM 的 `model.glb`、`metadata.json`，以及点云的 `tiles/tileset.json` 和其子资源。
 
-## Docker Compose（生产示例）
+## Docker Compose（统一开发/部署入口）
 
 先准备密钥和工具目录：
 
@@ -72,13 +72,15 @@ export GOCESIUMTILER_BIN=/opt/tools/gocesiumtiler
 export APP_ENV=production
 export JWT_SECRET="$(openssl rand -hex 32)"
 export JWT_EXPIRES_IN=24h
-export ZHONGJIAN_BACK_DIR=/path/to/zhongjian-back
-docker compose up --build
+cd /Users/monica/Desktop/cloudBIM-viewer
+cp .env.example .env
+# 设置 CLOUDBIM_GOCESIUMTILER_DIR 和 CLOUDBIM_IFC_BUNDLE_DIR
+docker compose up -d --build
 ```
 
 Compose 默认按本地开发运行，使用固定的本地 JWT 密钥和 `720h`（30 天）有效期；因此容器重启不会让旧 token 因密钥随机变化而失效。生产部署请显式设置 `APP_ENV=production`、强随机 `JWT_SECRET`、`JWT_EXPIRES_IN` 和其他敏感变量，并把它们持久化到密钥管理系统，不要在每次重启时重新执行 `openssl rand`。生产环境默认有效期为 24 小时，可按安全策略设置更短值。
 
-本机已有其他项目占用 PostgreSQL `5432` 时，本项目映射到宿主机 `15432`，容器内部连接仍为 `postgres:5432`。后端容器固定为 `linux/amd64`，用于在 Apple Silicon 上通过 OrbStack 运行参考项目的 Linux amd64 转换器。
+本机已有其他项目占用 PostgreSQL `5432` 时，本项目默认映射到宿主机 `15432`，容器内部连接仍为 `postgres:5432`。后端容器固定为 `linux/amd64`，用于在 Apple Silicon 上通过 OrbStack 运行参考项目的 Linux amd64 转换器。数据库卷默认复用 `backend_cloudbim-db`，不会因重建容器切换数据。
 
 ## API
 

@@ -15,3 +15,11 @@ export const POINT_CLOUD_UPLOAD_CONFIG: UploadFileConfig = {
   extensions: ['las'],
   placeholder: '拖拽点云文件到这里,或点击上传',
 }
+
+export const CAD_UPLOAD_CONFIG: UploadFileConfig = {
+  kind: 'cad',
+  title: 'CAD 图纸文件',
+  accept: '.dwg,.dxf,.pdf',
+  extensions: ['dwg', 'dxf', 'pdf'],
+  placeholder: '拖拽 CAD 图纸到这里,或点击上传',
+}

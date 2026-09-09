@@ -2,7 +2,7 @@ import { backendRequest, type BackendResult } from '@/api/backend-http'
 import type { AuthUser, LoginPayload, RegisterPayload } from '@/features/auth/auth.types'
 
 interface LoginResponse {
-  token: string
+  token?: string
 }
 
 export function healthCheck() {
@@ -32,5 +32,11 @@ export function getCurrentUser(token?: string) {
   return backendRequest<BackendResult<AuthUser>>('/auth/me', {
     method: 'GET',
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+}
+
+export function logout() {
+  return backendRequest<BackendResult<Record<string, never>>>('/auth/logout', {
+    method: 'POST',
   })
 }

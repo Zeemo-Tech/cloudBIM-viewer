@@ -70,6 +70,14 @@ type Asset struct {
 	ErrorMessage                *string            `json:"errorMessage"`
 	CreatedAt                   int64              `json:"createdAt"`
 	OwnerID                     int64              `json:"-"`
+	ProjectID                   int64              `json:"projectId"`
+	Building                    string             `json:"building,omitempty"`
+	Floor                       string             `json:"floor,omitempty"`
+	ComponentType               string             `json:"componentType,omitempty"`
+	ArchiveSerial               string             `json:"archiveSerial,omitempty"`
+	ArchiveCode                 string             `json:"archiveCode,omitempty"`
+	ScanDate                    int64              `json:"scanDate,omitempty"`
+	LinkedBimID                 *int64             `json:"linkedBimId,omitempty"`
 	Dir                         string             `json:"-"`
 	PointcloudColor             string             `json:"pointcloudColor,omitempty"`
 	MeshRemesh                  *MeshRemeshSummary `json:"meshRemesh,omitempty"`
@@ -116,6 +124,7 @@ type Upload struct {
 	Status       string  `json:"status"`
 	ErrorMessage *string `json:"errorMessage"`
 	OwnerID      int64   `json:"-"`
+	ProjectID    int64   `json:"projectId"`
 	Dir          string  `json:"-"`
 }
 type Alignment struct {
@@ -142,6 +151,14 @@ type DBUser struct {
 	PasswordHash string `gorm:"size:255;not null"`
 	CreatedAt    time.Time
 }
+type DBProject struct {
+	ID          int64     `gorm:"primaryKey" json:"id"`
+	Name        string    `gorm:"size:160;not null" json:"name"`
+	Description string    `gorm:"size:500" json:"description"`
+	OwnerID     int64     `gorm:"index;not null" json:"-"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
 type DBAsset struct {
 	ID                          int64   `gorm:"primaryKey"`
 	Type                        string  `gorm:"size:32;index;not null"`
@@ -151,6 +168,14 @@ type DBAsset struct {
 	ErrorMessage                *string `gorm:"type:text"`
 	CreatedAt                   int64   `gorm:"index;not null"`
 	OwnerID                     int64   `gorm:"index;not null"`
+	ProjectID                   int64   `gorm:"index;not null;default:0"`
+	Building                    string  `gorm:"size:80;index"`
+	Floor                       string  `gorm:"size:40;index"`
+	ComponentType               string  `gorm:"size:16;index"`
+	ArchiveSerial               string  `gorm:"size:40;index"`
+	ArchiveCode                 string  `gorm:"size:128;index"`
+	ScanDate                    int64   `gorm:"index"`
+	LinkedBimID                 *int64  `gorm:"index"`
 	Dir                         string  `gorm:"size:1024;not null"`
 	PointcloudColor             string  `gorm:"column:pointcloud_color;size:7"`
 	RemeshStatus                string  `gorm:"size:32;index"`
@@ -188,17 +213,25 @@ type DBAssetDerivative struct {
 	UpdatedAt    time.Time
 }
 type DBUpload struct {
-	ID           string `gorm:"primaryKey;size:64"`
-	AssetID      int64
-	AssetType    string  `gorm:"size:32;not null"`
-	FileName     string  `gorm:"size:255;not null"`
-	FileSize     int64   `gorm:"not null"`
-	Offset       int64   `gorm:"not null"`
-	Status       string  `gorm:"size:32;index;not null"`
-	ErrorMessage *string `gorm:"type:text"`
-	OwnerID      int64   `gorm:"index;not null"`
-	Dir          string  `gorm:"size:1024;not null"`
-	CreatedAt    time.Time
+	ID            string `gorm:"primaryKey;size:64"`
+	AssetID       int64
+	AssetType     string  `gorm:"size:32;not null"`
+	FileName      string  `gorm:"size:255;not null"`
+	FileSize      int64   `gorm:"not null"`
+	Offset        int64   `gorm:"not null"`
+	Status        string  `gorm:"size:32;index;not null"`
+	ErrorMessage  *string `gorm:"type:text"`
+	OwnerID       int64   `gorm:"index;not null"`
+	ProjectID     int64   `gorm:"index;not null;default:0"`
+	Building      string  `gorm:"size:80;index"`
+	Floor         string  `gorm:"size:40;index"`
+	ComponentType string  `gorm:"size:16;index"`
+	ArchiveSerial string  `gorm:"size:40;index"`
+	ArchiveCode   string  `gorm:"size:128;index"`
+	ScanDate      int64   `gorm:"index"`
+	LinkedBimID   *int64  `gorm:"index"`
+	Dir           string  `gorm:"size:1024;not null"`
+	CreatedAt     time.Time
 }
 type DBAlignment struct {
 	ID                     int64 `gorm:"primaryKey"`
@@ -514,7 +547,7 @@ func (a *app) connectDB() error {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("%s 数据库不可用: %w", a.cfg.DBDriver, err)
 	}
-	if err := db.AutoMigrate(&DBUser{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBMeasurement{}); err != nil {
+	if err := db.AutoMigrate(&DBUser{}, &DBProject{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBMeasurement{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	a.db = db
@@ -556,6 +589,10 @@ func (a *app) reconcileReadyAssets() error {
 }
 
 func validAssetArtifacts(asset DBAsset) bool {
+	if asset.Type == "cad" {
+		info, err := os.Stat(filepath.Join(asset.Dir, "source"))
+		return err == nil && info.Size() > 0
+	}
 	if asset.Type == "bim" {
 		modelPath := filepath.Join(asset.Dir, "model.glb")
 		metadataPath := filepath.Join(asset.Dir, "metadata.json")
@@ -699,6 +736,11 @@ func (a *app) authRequired() gin.HandlerFunc {
 		}
 		h := c.GetHeader("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
+			if cookie, err := c.Cookie("cloudbim_session"); err == nil && cookie != "" {
+				h = "Bearer " + cookie
+			}
+		}
+		if !strings.HasPrefix(h, "Bearer ") {
 			fail(c, 401, "缺少或非法的 Authorization 头")
 			c.Abort()
 			return
@@ -794,7 +836,29 @@ func (a *app) login(c *gin.Context) {
 		fail(c, 500, "生成 token 失败")
 		return
 	}
-	ok(c, gin.H{"token": signed})
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "cloudbim_session",
+		Value:    signed,
+		Path:     "/",
+		MaxAge:   int(a.cfg.JWTExpiresIn.Seconds()),
+		HttpOnly: true,
+		Secure:   a.cfg.Environment == "production",
+		SameSite: http.SameSiteLaxMode,
+	})
+	ok(c, gin.H{})
+}
+
+func (a *app) logout(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "cloudbim_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   a.cfg.Environment == "production",
+		SameSite: http.SameSiteLaxMode,
+	})
+	ok(c, gin.H{})
 }
 func (a *app) me(c *gin.Context) {
 	var u DBUser
@@ -803,6 +867,122 @@ func (a *app) me(c *gin.Context) {
 		return
 	}
 	ok(c, gin.H{"id": u.ID, "username": u.Username})
+}
+
+func (a *app) ensureProject(ownerID int64, projectID int64) (DBProject, error) {
+	var project DBProject
+	if projectID <= 0 {
+		return project, errors.New("上传必须指定项目")
+	}
+	if err := a.db.Where("id = ? AND owner_id = ?", projectID, ownerID).First(&project).Error; err != nil {
+		return project, err
+	}
+	return project, nil
+}
+
+func projectResponse(a *app, project DBProject) gin.H {
+	var assetCount, bimCount, pointcloudCount, failedCount, processingCount, alignmentCount int64
+	var scanDate int64
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ?", project.ID, project.OwnerID).Count(&assetCount)
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ? AND type = ?", project.ID, project.OwnerID, "bim").Count(&bimCount)
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ? AND type = ?", project.ID, project.OwnerID, "pointcloud").Count(&pointcloudCount)
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ? AND status = ?", project.ID, project.OwnerID, "failed").Count(&failedCount)
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ? AND status IN ?", project.ID, project.OwnerID, []string{"uploading", "queued", "processing"}).Count(&processingCount)
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ? AND type = ?", project.ID, project.OwnerID, "pointcloud").Select("COALESCE(MAX(created_at), 0)").Scan(&scanDate)
+
+	assetIDs := a.db.Model(&DBAsset{}).Select("id").Where("project_id = ? AND owner_id = ?", project.ID, project.OwnerID)
+	a.db.Model(&DBAlignment{}).Where("owner_id = ? AND scan_id IN (?) AND bim_id IN (?)", project.OwnerID, assetIDs, assetIDs).Count(&alignmentCount)
+
+	status := "ready"
+	if assetCount == 0 {
+		status = "pending"
+	} else if failedCount > 0 {
+		status = "failed"
+	} else if processingCount > 0 {
+		status = "processing"
+	}
+	return gin.H{"id": project.ID, "name": project.Name, "description": project.Description, "createdAt": project.CreatedAt, "updatedAt": project.UpdatedAt, "assetCount": assetCount, "bimCount": bimCount, "pointcloudCount": pointcloudCount, "status": status, "hasAlignment": alignmentCount > 0, "scanDate": scanDate}
+}
+
+func (a *app) listProjects(c *gin.Context) {
+	var projects []DBProject
+	if err := a.db.Where("owner_id = ?", userID(c)).Order("updated_at desc, id desc").Find(&projects).Error; err != nil {
+		fail(c, 500, "查询项目失败")
+		return
+	}
+	list := make([]gin.H, 0, len(projects))
+	for _, project := range projects {
+		list = append(list, projectResponse(a, project))
+	}
+	ok(c, gin.H{"total": len(list), "list": list})
+}
+
+func (a *app) createProject(c *gin.Context) {
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		fail(c, 400, "项目名称不能为空")
+		return
+	}
+	project := DBProject{Name: strings.TrimSpace(req.Name), Description: strings.TrimSpace(req.Description), OwnerID: userID(c), CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := a.db.Create(&project).Error; err != nil {
+		fail(c, 500, "创建项目失败")
+		return
+	}
+	created(c, projectResponse(a, project))
+}
+
+func (a *app) updateProject(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, 400, "项目 ID 无效")
+		return
+	}
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		fail(c, 400, "项目名称不能为空")
+		return
+	}
+	var project DBProject
+	if err := a.db.Where("id = ? AND owner_id = ?", id, userID(c)).First(&project).Error; err != nil {
+		fail(c, 404, "项目不存在")
+		return
+	}
+	project.Name, project.Description, project.UpdatedAt = strings.TrimSpace(req.Name), strings.TrimSpace(req.Description), time.Now()
+	if err := a.db.Save(&project).Error; err != nil {
+		fail(c, 500, "更新项目失败")
+		return
+	}
+	ok(c, projectResponse(a, project))
+}
+
+func (a *app) deleteProject(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		fail(c, 400, "项目 ID 无效")
+		return
+	}
+	var project DBProject
+	if err := a.db.Where("id = ? AND owner_id = ?", id, userID(c)).First(&project).Error; err != nil {
+		fail(c, 404, "项目不存在")
+		return
+	}
+	var count int64
+	a.db.Model(&DBAsset{}).Where("project_id = ? AND owner_id = ?", id, userID(c)).Count(&count)
+	if count > 0 {
+		fail(c, 409, "项目下仍有文件，请先删除或移入其他项目")
+		return
+	}
+	if err := a.db.Delete(&project).Error; err != nil {
+		fail(c, 500, "删除项目失败")
+		return
+	}
+	ok(c, nil)
 }
 
 func decodeTusMetadata(value string) map[string]string {
@@ -822,10 +1002,36 @@ func decodeTusMetadata(value string) map[string]string {
 func decodeBase64(v string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(v)
 }
-func validType(t string) bool { return t == "bim" || t == "pointcloud" }
+func validType(t string) bool { return t == "bim" || t == "cad" || t == "pointcloud" }
 func validExtension(typ, name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
-	return (typ == "bim" && ext == ".ifc") || (typ == "pointcloud" && ext == ".las")
+	return (typ == "bim" && ext == ".ifc") || (typ == "cad" && (ext == ".dwg" || ext == ".dxf" || ext == ".pdf")) || (typ == "pointcloud" && ext == ".las")
+}
+
+var archivePartPattern = regexp.MustCompile(`^[0-9A-Za-z#_-]{1,40}$`)
+
+func normalizeArchiveMetadata(meta map[string]string) (building, floor, componentType, serial, code string, scanDate int64, err error) {
+	building = strings.ToUpper(strings.TrimSpace(meta["building"]))
+	floor = strings.ToUpper(strings.TrimSpace(meta["floor"]))
+	componentType = strings.ToUpper(strings.TrimSpace(meta["componentType"]))
+	serial = strings.ToUpper(strings.TrimSpace(meta["archiveSerial"]))
+	if !archivePartPattern.MatchString(building) || !archivePartPattern.MatchString(floor) || !archivePartPattern.MatchString(serial) {
+		err = errors.New("楼栋、楼层或归档序号格式非法")
+		return
+	}
+	validComponentTypes := map[string]bool{"YKT": true, "YTY": true, "PCLT": true, "DLB": true, "YB": true}
+	if !validComponentTypes[componentType] {
+		err = errors.New("楼板类型仅支持 YKT、YTY、PCLT、DLB 或 YB")
+		return
+	}
+	code = floor + "-" + componentType + "-" + serial
+	if raw := strings.TrimSpace(meta["scanDate"]); raw != "" {
+		scanDate, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || scanDate <= 0 {
+			err = errors.New("扫描日期非法")
+		}
+	}
+	return
 }
 func (a *app) createUpload(c *gin.Context) {
 	length, err := strconv.ParseInt(c.GetHeader("Upload-Length"), 10, 64)
@@ -843,13 +1049,51 @@ func (a *app) createUpload(c *gin.Context) {
 		fail(c, 400, "文件名或资产类型非法")
 		return
 	}
+	projectID := int64(0)
+	if raw := strings.TrimSpace(meta["projectId"]); raw != "" {
+		projectID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || projectID <= 0 {
+			fail(c, 400, "项目 ID 无效")
+			return
+		}
+	}
+	project, projectErr := a.ensureProject(userID(c), projectID)
+	if projectErr != nil {
+		fail(c, 400, "项目不存在或无权访问")
+		return
+	}
+	building, floor, componentType, archiveSerial, archiveCode, scanDate, archiveErr := normalizeArchiveMetadata(meta)
+	if archiveErr != nil {
+		fail(c, 400, archiveErr.Error())
+		return
+	}
+	var linkedBimID *int64
+	if typ == "pointcloud" {
+		if scanDate <= 0 {
+			fail(c, 400, "上传点云必须填写扫描日期")
+			return
+		}
+		var model DBAsset
+		if err := a.db.Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status = ?", userID(c), project.ID, "bim", building, floor, componentType, archiveSerial, "ready").Order("created_at DESC").First(&model).Error; err != nil {
+			fail(c, 409, "未找到匹配的已就绪 IFC 设计模型，请先维护设计库")
+			return
+		}
+		linkedBimID = &model.ID
+	} else {
+		var count int64
+		a.db.Model(&DBAsset{}).Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status <> ?", userID(c), project.ID, typ, building, floor, componentType, archiveSerial, "failed").Count(&count)
+		if count > 0 {
+			fail(c, 409, "该归档编号已存在，请勿重复上传设计文件")
+			return
+		}
+	}
 	id := randomID()
 	dir := filepath.Join(a.cfg.DataDir, "uploads", id)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fail(c, 500, "创建上传目录失败")
 		return
 	}
-	up := DBUpload{ID: id, AssetType: typ, FileName: name, FileSize: length, Status: "uploading", OwnerID: userID(c), Dir: dir, CreatedAt: time.Now()}
+	up := DBUpload{ID: id, AssetType: typ, FileName: name, FileSize: length, Status: "uploading", OwnerID: userID(c), ProjectID: project.ID, Building: building, Floor: floor, ComponentType: componentType, ArchiveSerial: archiveSerial, ArchiveCode: archiveCode, ScanDate: scanDate, LinkedBimID: linkedBimID, Dir: dir, CreatedAt: time.Now()}
 	if err := a.db.Create(&up).Error; err != nil {
 		fail(c, 500, "创建上传会话失败")
 		return
@@ -1025,7 +1269,7 @@ func (a *app) uploadStatus(c *gin.Context) {
 			}
 		}
 	}
-	result := gin.H{"uploadId": up.ID, "assetId": assetID, "assetType": up.AssetType, "fileName": up.FileName, "fileSize": up.FileSize, "uploadOffset": up.Offset, "uploadLength": up.FileSize, "status": status, "errorMessage": errorMessage}
+	result := gin.H{"uploadId": up.ID, "assetId": assetID, "assetType": up.AssetType, "projectId": up.ProjectID, "fileName": up.FileName, "fileSize": up.FileSize, "uploadOffset": up.Offset, "uploadLength": up.FileSize, "status": status, "errorMessage": errorMessage}
 	ok(c, result)
 }
 
@@ -1047,7 +1291,7 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 		_ = a.db.Model(&DBUpload{}).Where("id = ?", uploadID).Updates(map[string]any{"status": "failed", "error_message": msg}).Error
 		return
 	}
-	asset := DBAsset{Type: up.AssetType, SourceName: up.FileName, SourceSize: up.FileSize, Status: "processing", CreatedAt: time.Now().Unix(), OwnerID: up.OwnerID, Dir: filepath.Join(a.cfg.DataDir, "assets", randomID())}
+	asset := DBAsset{Type: up.AssetType, SourceName: up.FileName, SourceSize: up.FileSize, Status: "processing", CreatedAt: time.Now().Unix(), OwnerID: up.OwnerID, ProjectID: up.ProjectID, Building: up.Building, Floor: up.Floor, ComponentType: up.ComponentType, ArchiveSerial: up.ArchiveSerial, ArchiveCode: up.ArchiveCode, ScanDate: up.ScanDate, LinkedBimID: up.LinkedBimID, Dir: filepath.Join(a.cfg.DataDir, "assets", randomID())}
 	if err := a.db.Create(&asset).Error; err != nil {
 		msg := err.Error()
 		_ = a.db.Model(&DBUpload{}).Where("id = ?", uploadID).Updates(map[string]any{"status": "failed", "error_message": msg}).Error
@@ -1067,8 +1311,10 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 	}
 	if asset.Type == "bim" {
 		err = buildBIM(ctx, source, asset.Dir)
-	} else {
+	} else if asset.Type == "pointcloud" {
 		err = buildPointCloud(ctx, source, asset.Dir, a.cfg.PointcloudSubsample)
+	} else {
+		err = linkOrSymlink(source, filepath.Join(asset.Dir, "source"))
 	}
 	if err == nil && !validAssetArtifacts(asset) {
 		err = errors.New("转换完成但产物缺失或无效")
@@ -1245,6 +1491,14 @@ func assetFromDB(item DBAsset) Asset {
 		ErrorMessage:                item.ErrorMessage,
 		CreatedAt:                   item.CreatedAt,
 		OwnerID:                     item.OwnerID,
+		ProjectID:                   item.ProjectID,
+		Building:                    item.Building,
+		Floor:                       item.Floor,
+		ComponentType:               item.ComponentType,
+		ArchiveSerial:               item.ArchiveSerial,
+		ArchiveCode:                 item.ArchiveCode,
+		ScanDate:                    item.ScanDate,
+		LinkedBimID:                 item.LinkedBimID,
 		Dir:                         item.Dir,
 		PointcloudColor:             pointcloudColor,
 		RemeshStatus:                item.RemeshStatus,
@@ -1267,7 +1521,7 @@ func assetFromDB(item DBAsset) Asset {
 }
 
 func assetSummary(a Asset) gin.H {
-	result := gin.H{"id": a.ID, "type": a.Type, "sourceName": a.SourceName, "sourceSize": a.SourceSize, "status": a.Status, "errorMessage": a.ErrorMessage, "createdAt": a.CreatedAt, "meshRemesh": meshRemeshSummary(a)}
+	result := gin.H{"id": a.ID, "projectId": a.ProjectID, "type": a.Type, "sourceName": a.SourceName, "sourceSize": a.SourceSize, "status": a.Status, "errorMessage": a.ErrorMessage, "createdAt": a.CreatedAt, "building": a.Building, "floor": a.Floor, "componentType": a.ComponentType, "archiveSerial": a.ArchiveSerial, "archiveCode": a.ArchiveCode, "scanDate": a.ScanDate, "linkedBimId": a.LinkedBimID, "meshRemesh": meshRemeshSummary(a)}
 	if a.Type == "pointcloud" {
 		result["pointcloudColor"] = a.PointcloudColor
 	}
@@ -1319,6 +1573,7 @@ func (a *app) updateAssetAppearance(c *gin.Context) {
 }
 func (a *app) listAssets(c *gin.Context) {
 	typ, status := c.Query("type"), c.Query("status")
+	projectID, _ := strconv.ParseInt(c.Query("projectId"), 10, 64)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("pageSize", "100"))
 	if page < 1 {
@@ -1334,6 +1589,9 @@ func (a *app) listAssets(c *gin.Context) {
 	}
 	if status != "" {
 		query = query.Where("status = ?", status)
+	}
+	if projectID > 0 {
+		query = query.Where("project_id = ?", projectID)
 	}
 	var total int64
 	if err := query.Model(&DBAsset{}).Count(&total).Error; err != nil {
@@ -4421,7 +4679,7 @@ func main() {
 		log.Fatal(err)
 	}
 	r := gin.New()
-	corsConfig := cors.Config{AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "Tus-Resumable", "Upload-Length", "Upload-Metadata", "Upload-Offset", "X-Request-ID"}, ExposeHeaders: []string{"Location", "Upload-Length", "Upload-Offset", "Tus-Resumable", "X-Request-ID", "X-C2M-Result-Version", "X-C2M-Distance-Format", "ETag", "Last-Modified", "Accept-Ranges", "Content-Range", "Retry-After"}, AllowCredentials: true, MaxAge: 12 * time.Hour}
+	corsConfig := cors.Config{AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Requested-With", "Tus-Resumable", "Upload-Length", "Upload-Metadata", "Upload-Offset", "X-Request-ID"}, ExposeHeaders: []string{"Location", "Upload-Length", "Upload-Offset", "Tus-Resumable", "X-Request-ID", "X-C2M-Result-Version", "X-C2M-Distance-Format", "ETag", "Last-Modified", "Accept-Ranges", "Content-Range", "Retry-After"}, AllowCredentials: true, MaxAge: 12 * time.Hour}
 	if len(cfg.CORSAllowOrigins) == 1 && cfg.CORSAllowOrigins[0] == "*" {
 		corsConfig.AllowAllOrigins = true
 		corsConfig.AllowCredentials = false
@@ -4433,8 +4691,13 @@ func main() {
 	auth := r.Group("/auth")
 	auth.POST("/register", a.register)
 	auth.POST("/login", a.login)
+	auth.POST("/logout", a.logout)
 	auth.GET("/me", a.authRequired(), a.me)
 	r.Use(a.authRequired())
+	r.GET("/projects", a.listProjects)
+	r.POST("/projects", a.createProject)
+	r.PATCH("/projects/:id", a.updateProject)
+	r.DELETE("/projects/:id", a.deleteProject)
 	r.POST("/uploads", a.createUpload)
 	r.GET("/rebar-segmentation/algorithms", a.rebarAlgorithms)
 	r.GET("/uploads/:id", a.uploadStatus)

@@ -41,6 +41,8 @@ const props = defineProps<{
   previewType: 'bim' | 'pointcloud'
   assetId: number | null
   displayName?: string
+  projectId?: number | null
+  projectName?: string
 }>()
 
 const router = useRouter()
@@ -127,7 +129,18 @@ function closePage() {
     return
   }
 
-  void router.push('/upload')
+  if (props.projectId) {
+    void router.push({
+      path: props.previewType === 'bim' ? '/design/bim' : '/survey',
+      query: {
+        projectId: props.projectId,
+        projectName: props.projectName,
+      },
+    })
+    return
+  }
+
+  void router.push('/projects')
 }
 
 function resetView() {
@@ -1067,6 +1080,11 @@ watch(
   border-radius: 0;
   background: var(--viewer-stage);
   box-shadow: none;
+}
+
+/* ViewCube 属于视口导航层，必须高于钢筋分析面板(36)，但低于测量工具和页面级面板。 */
+.pointcloud-preview-stage :deep(.pointcloud-view-cube) {
+  z-index: 60;
 }
 
 .pointcloud-preview-stage.theme-deep,

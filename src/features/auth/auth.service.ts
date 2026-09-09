@@ -1,8 +1,9 @@
-import { getCurrentUser, login, registerAccount } from '@/api/backend-auth'
+import { getCurrentUser, login, logout, registerAccount } from '@/api/backend-auth'
 import {
   clearStoredSession,
   getStoredLastUsername,
   getStoredSession,
+  setMemoryAccessToken,
   setStoredLastUsername,
   setStoredSession,
 } from './auth.storage'
@@ -15,10 +16,9 @@ export {
   getStoredSession,
 } from './auth.storage'
 
-function createSession(accessToken: string, user: { id: number; username: string }) {
+function createSession(user: { id: number; username: string }) {
   return {
     id: user.id,
-    accessToken,
     username: user.username,
     loginAt: new Date().toISOString(),
   } satisfies AuthSession
@@ -92,14 +92,10 @@ export async function loginWithPassword(
 
   try {
     const loginResult = await login(payload)
-    const accessToken = loginResult.data.token
+    setMemoryAccessToken(loginResult.data.token || '')
 
-    if (!accessToken) {
-      throw new Error('登录成功，但未获取到有效 token')
-    }
-
-    const meResult = await getCurrentUser(accessToken)
-    const session = createSession(accessToken, meResult.data)
+    const meResult = await getCurrentUser(loginResult.data.token)
+    const session = createSession(meResult.data)
     setStoredSession(session)
     setStoredLastUsername(session.username)
 
@@ -132,17 +128,9 @@ export async function registerWithPassword(
 }
 
 export async function validateStoredSession(): Promise<AuthSession | null> {
-  const currentSession = getStoredSession()
-
-  if (!currentSession?.accessToken) {
-    return null
-  }
-
   try {
-    const meResult = await getCurrentUser(currentSession.accessToken)
-    const nextSession = createSession(currentSession.accessToken, meResult.data)
-    setStoredSession(nextSession)
-    return nextSession
+    const meResult = await getCurrentUser()
+    return createSession(meResult.data)
   } catch (error: any) {
     if (error?.response?.status === 401) {
       clearStoredSession()
@@ -151,4 +139,8 @@ export async function validateStoredSession(): Promise<AuthSession | null> {
 
     throw error
   }
+}
+
+export async function logoutCurrentSession() {
+  await logout()
 }

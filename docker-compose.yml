@@ -1,35 +1,36 @@
+name: cloudbim
+
 services:
-  # 1. 核心关系型数据库 (PostgreSQL)
   postgres:
-    image: postgres:16-alpine
-    container_name: cloudbim-postgres
+    image: ${POSTGRES_IMAGE:-hub.macb.cc/library/postgres:18-alpine}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-cloudbim}
-      POSTGRES_USER: ${DB_USER:-cloudbim}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-cloudbim123456}
-      TZ: Asia/Shanghai
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "${DB_PORT:-15432}:5432"
     volumes:
-      - cloudbim-pgdata:/var/lib/postgresql/data
+      - cloudbim-db:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cloudbim} -d ${DB_NAME:-cloudbim}"]
-      interval: 3s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 12
+      start_period: 10s
 
-  # 2. 网格均匀化与精细配准算法微服务 (Python / FastAPI / PyMeshLab / Open3D)
   mesh-service:
+    image: ${MESH_IMAGE:-cloudbim-mesh-service:latest}
+    platform: linux/amd64
     build:
       context: ./services/mesh-service
       dockerfile: Dockerfile
-    image: cloudbim-mesh-service:latest
-    container_name: cloudbim-mesh-service
     restart: unless-stopped
     environment:
       PORT: 8001
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-Asia/Shanghai}
       C2M_OUTPUT_GID: ${CLOUDBIM_RUNTIME_GID:-1000}
       C2M_MAX_UNDOWNSAMPLED_POINTS: ${C2M_MAX_UNDOWNSAMPLED_POINTS:-5000000}
       ARTIFACT_OUTPUT_GID: ${CLOUDBIM_RUNTIME_GID:-1000}
@@ -41,7 +42,61 @@ services:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/algorithms\")'"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 15s
+
+  backend:
+    # The checked-in IFC/LAS converters are Linux x86_64 binaries.
+    platform: linux/amd64
+    image: ${BACKEND_IMAGE:-cloudbim-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mesh-service:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ADDR: :8090
+      CLOUDBIM_DATA_DIR: /app/data
+      CLOUDBIM_SEED_DEMO: ${CLOUDBIM_SEED_DEMO:-true}
+      DB_DRIVER: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_NAME: ${DB_NAME:-cloudbim}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-720h}
+      REGISTER_CODE: ${REGISTER_CODE:-laochen}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      MESH_SERVICE_URL: http://mesh-service:8001
+      GOCESIUMTILER_BIN: /opt/tools/gocesiumtiler/gocesiumtiler-lin-x64
+      IFC_BUNDLE_BIN: /opt/tools/ifc_bundle/ifc_bundle
+      PROCESSING_WORKERS: ${PROCESSING_WORKERS:-2}
+      UPLOAD_CHUNK_LIMIT: ${UPLOAD_CHUNK_LIMIT:-67108864}
+      UPLOAD_FILE_LIMIT: ${UPLOAD_FILE_LIMIT:-107374182400}
+    ports:
+      - "${BACKEND_PORT:-8090}:8090"
+    volumes:
+      - cloudbim-data:/app/data
+      - ${CLOUDBIM_GOCESIUMTILER_DIR:?Set CLOUDBIM_GOCESIUMTILER_DIR in .env}:/opt/tools/gocesiumtiler:ro
+      - ${CLOUDBIM_IFC_BUNDLE_DIR:?Set CLOUDBIM_IFC_BUNDLE_DIR in .env}:/opt/tools/ifc_bundle:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8090; printf \"GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3; timeout 3 grep -q \"database.*ready\" <&3'"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
 volumes:
-  cloudbim-pgdata:
+  cloudbim-db:
+    name: ${CLOUDBIM_DB_VOLUME:-backend_cloudbim-db}
+  cloudbim-data:
+    name: ${CLOUDBIM_DATA_VOLUME:-backend_cloudbim-data}

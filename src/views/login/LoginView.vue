@@ -367,7 +367,7 @@ async function handleSubmit() {
   justify-content: center;
   align-items: center;
   padding: 24px;
-  background-color: #e2e2e5;
+  background-color: var(--bg-page);
 }
 
 .container {
@@ -380,7 +380,7 @@ async function handleSubmit() {
   width: 50%;
   height: calc(100% - 40px);
   padding: 28px 32px;
-  background-color: #fff;
+  background-color: var(--bg-card);
   position: relative;
   top: 20px;
 }
@@ -398,15 +398,15 @@ async function handleSubmit() {
   height: 34px;
   margin: 0;
   border: 0;
-  color: #475569;
+  color: var(--text-secondary);
   background: transparent;
   box-shadow: none;
   transition: all 0.2s ease;
 }
 
 .mode-btn.is-active {
-  color: #0f172a;
-  background: #fff;
+  color: var(--text-primary);
+  background: var(--bg-card);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
@@ -422,7 +422,7 @@ async function handleSubmit() {
   padding: 0 18px;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: #475569;
+  color: var(--text-secondary);
   background: transparent;
   box-shadow: none;
   transition:
@@ -438,18 +438,18 @@ async function handleSubmit() {
 
 .mode-switch :deep(.el-button.mode-btn:not(.is-active):hover),
 .mode-switch :deep(.el-button.mode-btn:not(.is-active):focus-visible) {
-  color: #334155;
-  background: rgba(255, 255, 255, 0.55);
-  border-color: rgba(148, 163, 184, 0.18);
+  color: var(--text-primary);
+  background: var(--bg-control-hover);
+  border-color: var(--border-color-light);
 }
 
 .mode-switch :deep(.el-button.mode-btn.is-active),
 .mode-switch :deep(.el-button.mode-btn.is-active:hover),
 .mode-switch :deep(.el-button.mode-btn.is-active:focus-visible),
 .mode-switch :deep(.el-button.mode-btn.is-active:active) {
-  color: #0f172a;
-  background: #fff;
-  border-color: #fff;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border-color: var(--bg-card);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
@@ -460,8 +460,8 @@ async function handleSubmit() {
 }
 
 .left h1 {
-  color: #222;
-  font-size: 50px;
+  color: var(--text-primary);
+  font-size: var(--font-size-3xl);
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 4px;
@@ -469,15 +469,15 @@ async function handleSubmit() {
 }
 
 .intro {
-  color: #999;
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
   line-height: 22px;
   margin-bottom: 18px;
 }
 
 .meta-line {
-  color: #94a3b8;
-  font-size: 14px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
   line-height: 1.7;
   margin-top: 8px;
 }
@@ -485,8 +485,8 @@ async function handleSubmit() {
 .right {
   width: 50%;
   min-height: 100%;
-  background-color: #474a59;
-  color: #f1f1f1;
+  background-color: var(--bg-auth-panel);
+  color: var(--text-on-dark);
   position: relative;
   box-shadow: 0 0 40px 16px rgba(0, 0, 0, 0.2);
 }
@@ -529,7 +529,7 @@ async function handleSubmit() {
 .field-group::after {
   left: 0;
   right: 0;
-  background: linear-gradient(90deg, #22d3ee 0%, #fb7185 100%);
+  background: linear-gradient(90deg, var(--color-auth-accent-start) 0%, var(--color-auth-accent-end) 100%);
   transform: scaleX(0.04);
   transform-origin: left center;
   opacity: 0;
@@ -573,15 +573,15 @@ async function handleSubmit() {
 }
 
 .form label {
-  color: #c2c2c2;
+  color: var(--text-on-dark-muted);
   display: block;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   margin-bottom: 5px;
 }
 
 .form :deep(.el-input) {
-  --el-input-text-color: #f2f2f2;
-  --el-input-placeholder-color: rgba(242, 242, 242, 0.45);
+  --el-input-text-color: var(--text-on-dark);
+  --el-input-placeholder-color: var(--text-on-dark-placeholder);
   --el-input-hover-border-color: transparent;
   --el-input-focus-border-color: transparent;
 }
@@ -597,8 +597,8 @@ async function handleSubmit() {
 .form :deep(.el-input__inner) {
   height: 30px;
   line-height: 30px;
-  font-size: 20px;
-  color: #f2f2f2;
+  font-size: var(--font-size-lg);
+  color: var(--text-on-dark);
   background-color: transparent;
   border: none;
   outline: none;
@@ -658,8 +658,8 @@ async function handleSubmit() {
 .hint {
   display: block;
   margin-top: 6px;
-  color: #94a3b8;
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
 }
 
 .submit-wrap {
@@ -683,7 +683,7 @@ async function handleSubmit() {
   position: absolute;
   inset: -3px;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.24) 0%, rgba(251, 113, 133, 0.22) 100%);
+  background: linear-gradient(90deg, rgb(34 211 238 / 24%) 0%, rgb(251 113 133 / 22%) 100%);
   opacity: 0;
   filter: blur(12px);
   z-index: -1;
@@ -694,7 +694,7 @@ async function handleSubmit() {
 }
 
 .submit-wrap.is-ready {
-  background: linear-gradient(90deg, #22d3ee 0%, #fb7185 100%);
+  background: linear-gradient(90deg, var(--color-auth-accent-start) 0%, var(--color-auth-accent-end) 100%);
   box-shadow:
     0 0 12px rgba(34, 211, 238, 0.16),
     0 0 18px rgba(251, 113, 133, 0.1);
@@ -744,9 +744,9 @@ line-height: 30px;
   width: 100%;
   height: 40px;
   margin: 0;
-  color: #d0d0d0;
-  font-size: 18px;
-  background-color: #474a59;
+  color: var(--text-on-dark-muted);
+  font-size: var(--font-size-lg);
+  background-color: var(--bg-auth-panel);
   border: none;
   border-radius: 999px;
   box-shadow: none;
@@ -755,15 +755,15 @@ line-height: 30px;
 .form :deep(.el-button:hover),
 .form :deep(.el-button:focus-visible),
 .form :deep(.el-button:active) {
-  color: #d0d0d0;
-  background-color: #474a59;
+  color: var(--text-on-dark-muted);
+  background-color: var(--bg-auth-panel);
   border-color: transparent;
 }
 
 .form :deep(.el-button.is-disabled),
 .form :deep(.el-button.is-disabled:hover) {
-  color: #d0d0d0;
-  background-color: #474a59;
+  color: var(--text-on-dark-muted);
+  background-color: var(--bg-auth-panel);
   border-color: transparent;
   cursor: not-allowed;
   opacity: 0.5;
@@ -843,4 +843,22 @@ line-height: 30px;
     inset: 40px;
   }
 }
+</style>
+
+<style scoped>
+.page { background-color: var(--bg-page); }
+.left { background-color: var(--bg-card); }
+.mode-switch { background: var(--bg-muted); }
+.mode-switch :deep(.el-button.mode-btn), .mode-btn { color: var(--text-secondary); font-size: var(--font-size-sm); }
+.mode-switch :deep(.el-button.mode-btn:not(.is-active):hover), .mode-switch :deep(.el-button.mode-btn:not(.is-active):focus-visible) { color: var(--text-primary); background: var(--bg-control-hover); border-color: var(--border-color-light); }
+.mode-switch :deep(.el-button.mode-btn.is-active), .mode-switch :deep(.el-button.mode-btn.is-active:hover), .mode-switch :deep(.el-button.mode-btn.is-active:focus-visible) { color: var(--text-primary); background: var(--bg-card); border-color: var(--bg-card); }
+.left h1 { color: var(--text-primary); font-size: var(--font-size-3xl); }
+.intro { color: var(--text-secondary); font-size: var(--font-size-sm); }
+.meta-line, .hint { color: var(--text-tertiary); font-size: var(--font-size-sm); }
+.right { background-color: var(--bg-auth-panel); color: var(--text-on-dark); }
+.form label { color: var(--text-on-dark-muted); font-size: var(--font-size-sm); }
+.form :deep(.el-input) { --el-input-text-color: var(--text-on-dark); --el-input-placeholder-color: var(--text-on-dark-placeholder); }
+.form :deep(.el-input__inner) { color: var(--text-on-dark); font-size: var(--font-size-lg); }
+.password-toggle { color: rgb(242 242 242 / 72%); }
+.form :deep(.el-button), .form :deep(.el-button:hover), .form :deep(.el-button:focus-visible), .form :deep(.el-button:active) { color: var(--text-on-dark-muted); background-color: var(--bg-auth-panel); }
 </style>

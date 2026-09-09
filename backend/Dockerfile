@@ -1,4 +1,4 @@
-FROM hub.macb.cc/library/golang:1.24 AS build
+FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod ./
 RUN go mod download
@@ -6,12 +6,14 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/cloudbim-backend .
 RUN mkdir -p /out/data
 
-FROM hub.macb.cc/library/debian:trixie-slim
+FROM debian:bookworm-slim
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         tzdata \
+        bash \
+        wget \
         libxml2 \
         libpcre2-8-0 \
         libglib2.0-0 \
@@ -23,9 +25,10 @@ RUN groupadd -g 65532 appgroup \
     && useradd -u 65532 -g appgroup -M -s /usr/sbin/nologin appuser \
     && mkdir -p /opt/tools /app/data
 
-# 内置封装模型转换工具 (ifc_bundle, gocesiumtiler)
-COPY tools/ /opt/tools/
-RUN chmod -R 755 /opt/tools \
+# Conversion tools are mounted by the Compose/dev runtime. Keep the image
+# self-contained enough to build when those optional host-side binaries are
+# not checked into this repository.
+RUN mkdir -p /opt/tools/ifc_bundle /opt/tools/gocesiumtiler \
     && chown -R appuser:appgroup /app /opt/tools
 
 COPY --from=build /out/cloudbim-backend /app/cloudbim-backend

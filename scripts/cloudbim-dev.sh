@@ -3,13 +3,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_DIR="$ROOT_DIR/backend"
 RUNTIME_DIR="$ROOT_DIR/.cloudbim"
-BACKEND_PID_FILE="$RUNTIME_DIR/backend.pid"
 FRONTEND_PID_FILE="$RUNTIME_DIR/frontend.pid"
 
 DB_PORT="${CLOUDBIM_DB_PORT:-15432}"
-MESH_SERVICE_PORT="${CLOUDBIM_MESH_SERVICE_PORT:-18001}"
+MESH_SERVICE_PORT="${CLOUDBIM_MESH_SERVICE_PORT:-8001}"
 BACKEND_PORT="${CLOUDBIM_BACKEND_PORT:-8090}"
 FRONTEND_PORT="${CLOUDBIM_FRONTEND_PORT:-5173}"
 
@@ -58,7 +56,7 @@ stop_process() {
 
 port_is_available() {
   local port="$1"
-  ! ss -ltn "( sport = :$port )" 2>/dev/null | grep -q ":$port"
+  ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
 }
 
 set_env_value() {
@@ -85,21 +83,12 @@ ensure_env_files() {
     log "Created .env with database port $DB_PORT and mesh-service port $MESH_SERVICE_PORT"
   fi
 
-  if [[ ! -f "$BACKEND_DIR/.env" ]]; then
-    cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
-    set_env_value "$BACKEND_DIR/.env" ADDR ":$BACKEND_PORT"
-    set_env_value "$BACKEND_DIR/.env" DB_PORT "$DB_PORT"
-    set_env_value "$BACKEND_DIR/.env" MESH_SERVICE_URL "http://127.0.0.1:$MESH_SERVICE_PORT"
-    log "Created backend/.env"
-  fi
 }
 
 load_ports() {
   DB_PORT="$(read_env_value "$ROOT_DIR/.env" DB_PORT "$DB_PORT")"
   MESH_SERVICE_PORT="$(read_env_value "$ROOT_DIR/.env" MESH_SERVICE_PORT "$MESH_SERVICE_PORT")"
-  local backend_addr
-  backend_addr="$(read_env_value "$BACKEND_DIR/.env" ADDR ":$BACKEND_PORT")"
-  BACKEND_PORT="${backend_addr#:}"
+  BACKEND_PORT="$(read_env_value "$ROOT_DIR/.env" BACKEND_PORT "$BACKEND_PORT")"
 }
 
 wait_for_postgres() {
@@ -138,25 +127,21 @@ wait_for_backend() {
 
 start() {
   require_command docker
-  require_command go
   require_command npm
   require_command curl
-  require_command ss
+  require_command lsof
   require_command setsid
 
   mkdir -p "$RUNTIME_DIR"
   ensure_env_files
   load_ports
 
-  if ! pid_is_running "$BACKEND_PID_FILE" && ! port_is_available "$BACKEND_PORT"; then
-    fail "Port $BACKEND_PORT is already in use"
-  fi
   if ! pid_is_running "$FRONTEND_PID_FILE" && ! port_is_available "$FRONTEND_PORT"; then
     fail "Port $FRONTEND_PORT is already in use"
   fi
 
-  log "Starting PostgreSQL and mesh service"
-  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d --build postgres mesh-service
+  log "Starting PostgreSQL, mesh service, and backend"
+  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d --build postgres mesh-service backend
   wait_for_postgres
   wait_for_mesh_service
 
@@ -165,15 +150,6 @@ start() {
     (cd "$ROOT_DIR" && npm ci)
   fi
 
-  if ! pid_is_running "$BACKEND_PID_FILE"; then
-    log "Building and starting backend"
-    (cd "$BACKEND_DIR" && go build -o "$RUNTIME_DIR/cloudbim-backend" .)
-    (
-      cd "$BACKEND_DIR"
-      setsid "$RUNTIME_DIR/cloudbim-backend" >"$RUNTIME_DIR/backend.log" 2>&1 < /dev/null &
-      echo $! >"$BACKEND_PID_FILE"
-    )
-  fi
   wait_for_backend
 
   if ! pid_is_running "$FRONTEND_PID_FILE"; then
@@ -190,27 +166,28 @@ start() {
 
 stop() {
   stop_process frontend "$FRONTEND_PID_FILE"
-  stop_process backend "$BACKEND_PID_FILE"
-  log "Stopping PostgreSQL and mesh service"
+  log "Stopping PostgreSQL, mesh service, and backend"
   docker compose -f "$ROOT_DIR/docker-compose.yml" down
 }
 
 status() {
-  if pid_is_running "$BACKEND_PID_FILE"; then
-    log "Backend: running (PID $(<"$BACKEND_PID_FILE"))"
-  else
-    log "Backend: stopped"
-  fi
+  log "Docker services:"
+  docker compose -f "$ROOT_DIR/docker-compose.yml" ps
   if pid_is_running "$FRONTEND_PID_FILE"; then
     log "Frontend: running (PID $(<"$FRONTEND_PID_FILE"))"
+  elif ! port_is_available "$FRONTEND_PORT"; then
+    log "Frontend: running (port $FRONTEND_PORT)"
   else
     log "Frontend: stopped"
   fi
-  docker compose -f "$ROOT_DIR/docker-compose.yml" ps
 }
 
 logs() {
-  tail -n 100 -f "$RUNTIME_DIR/backend.log" "$RUNTIME_DIR/frontend.log"
+  docker compose -f "$ROOT_DIR/docker-compose.yml" logs -f backend postgres mesh-service &
+  local compose_logs_pid=$!
+  tail -n 100 -f "$RUNTIME_DIR/frontend.log" &
+  local frontend_logs_pid=$!
+  wait "$compose_logs_pid" "$frontend_logs_pid"
 }
 
 usage() {

@@ -100,12 +100,8 @@ function select(mode: Exclude<AnalysisMode, 'none'>) {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 10px;
-  background: rgba(8, 17, 29, 0.86);
-  box-shadow: 0 16px 36px rgba(1, 8, 13, 0.3);
-  backdrop-filter: blur(18px) saturate(135%);
+  background: rgba(8, 17, 29, 0.6);
 }
 
 .measurement-toolbar.position-fixed {

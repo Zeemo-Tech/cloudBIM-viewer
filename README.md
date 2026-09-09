@@ -34,26 +34,23 @@ go run .
 
 如果返回连接失败，请在 macOS 的 MySQL 系统菜单中启动 MySQL Server；仅打开 Workbench 不会启动服务。
 
-另一个可选方案是使用项目自带的 PostgreSQL Compose：
+本项目统一使用根目录的 Docker Compose 启动 PostgreSQL、mesh-service 和后端：
 
 ```bash
-cd /Users/monica/Desktop/cloudBIM-viewer/backend
-docker compose up postgres -d
-go run .
+cd /Users/monica/Desktop/cloudBIM-viewer
+cp .env.example .env
+# 按本机工具目录和密码检查 .env
+docker compose up -d --build
 ```
 
-要启用真实 IFC/LAS 转换，请使用完整 Linux 容器（推荐 Apple Silicon + OrbStack）：
+要启用真实 IFC/LAS 转换，请使用完整 Linux amd64 容器（推荐 Apple Silicon + OrbStack）：
 
 ```bash
-cd /Users/monica/Desktop/cloudBIM-viewer/backend
-export JWT_SECRET="$(openssl rand -hex 32)"
-export REGISTER_CODE=laochen
-export JWT_EXPIRES_IN=24h
-export ZHONGJIAN_BACK_DIR=/Users/monica/Desktop/zhongjian-back
-docker compose up --build
+cd /Users/monica/Desktop/cloudBIM-viewer
+docker compose up -d --build
 ```
 
-该模式会启动独立 PostgreSQL 和 `linux/amd64` 后端，转换器在容器内执行。宿主机 PostgreSQL 端口映射为 `15432`，不会与其他项目的 `5432` 冲突。
+该模式会启动独立 PostgreSQL 和 `linux/amd64` 后端，转换器在容器内执行。宿主机 PostgreSQL 默认映射为 `15432`，不会与其他项目的 `5432` 冲突。
 
 ## 启动前端
 
