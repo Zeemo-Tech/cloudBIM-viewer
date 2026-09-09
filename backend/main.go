@@ -71,6 +71,13 @@ type Asset struct {
 	CreatedAt                   int64              `json:"createdAt"`
 	OwnerID                     int64              `json:"-"`
 	ProjectID                   int64              `json:"projectId"`
+	Building                    string             `json:"building,omitempty"`
+	Floor                       string             `json:"floor,omitempty"`
+	ComponentType               string             `json:"componentType,omitempty"`
+	ArchiveSerial               string             `json:"archiveSerial,omitempty"`
+	ArchiveCode                 string             `json:"archiveCode,omitempty"`
+	ScanDate                    int64              `json:"scanDate,omitempty"`
+	LinkedBimID                 *int64             `json:"linkedBimId,omitempty"`
 	Dir                         string             `json:"-"`
 	PointcloudColor             string             `json:"pointcloudColor,omitempty"`
 	MeshRemesh                  *MeshRemeshSummary `json:"meshRemesh,omitempty"`
@@ -162,6 +169,13 @@ type DBAsset struct {
 	CreatedAt                   int64   `gorm:"index;not null"`
 	OwnerID                     int64   `gorm:"index;not null"`
 	ProjectID                   int64   `gorm:"index;not null;default:0"`
+	Building                    string  `gorm:"size:80;index"`
+	Floor                       string  `gorm:"size:40;index"`
+	ComponentType               string  `gorm:"size:16;index"`
+	ArchiveSerial               string  `gorm:"size:40;index"`
+	ArchiveCode                 string  `gorm:"size:128;index"`
+	ScanDate                    int64   `gorm:"index"`
+	LinkedBimID                 *int64  `gorm:"index"`
 	Dir                         string  `gorm:"size:1024;not null"`
 	PointcloudColor             string  `gorm:"column:pointcloud_color;size:7"`
 	RemeshStatus                string  `gorm:"size:32;index"`
@@ -199,18 +213,25 @@ type DBAssetDerivative struct {
 	UpdatedAt    time.Time
 }
 type DBUpload struct {
-	ID           string `gorm:"primaryKey;size:64"`
-	AssetID      int64
-	AssetType    string  `gorm:"size:32;not null"`
-	FileName     string  `gorm:"size:255;not null"`
-	FileSize     int64   `gorm:"not null"`
-	Offset       int64   `gorm:"not null"`
-	Status       string  `gorm:"size:32;index;not null"`
-	ErrorMessage *string `gorm:"type:text"`
-	OwnerID      int64   `gorm:"index;not null"`
-	ProjectID    int64   `gorm:"index;not null;default:0"`
-	Dir          string  `gorm:"size:1024;not null"`
-	CreatedAt    time.Time
+	ID            string `gorm:"primaryKey;size:64"`
+	AssetID       int64
+	AssetType     string  `gorm:"size:32;not null"`
+	FileName      string  `gorm:"size:255;not null"`
+	FileSize      int64   `gorm:"not null"`
+	Offset        int64   `gorm:"not null"`
+	Status        string  `gorm:"size:32;index;not null"`
+	ErrorMessage  *string `gorm:"type:text"`
+	OwnerID       int64   `gorm:"index;not null"`
+	ProjectID     int64   `gorm:"index;not null;default:0"`
+	Building      string  `gorm:"size:80;index"`
+	Floor         string  `gorm:"size:40;index"`
+	ComponentType string  `gorm:"size:16;index"`
+	ArchiveSerial string  `gorm:"size:40;index"`
+	ArchiveCode   string  `gorm:"size:128;index"`
+	ScanDate      int64   `gorm:"index"`
+	LinkedBimID   *int64  `gorm:"index"`
+	Dir           string  `gorm:"size:1024;not null"`
+	CreatedAt     time.Time
 }
 type DBAlignment struct {
 	ID                     int64 `gorm:"primaryKey"`
@@ -568,6 +589,10 @@ func (a *app) reconcileReadyAssets() error {
 }
 
 func validAssetArtifacts(asset DBAsset) bool {
+	if asset.Type == "cad" {
+		info, err := os.Stat(filepath.Join(asset.Dir, "source"))
+		return err == nil && info.Size() > 0
+	}
 	if asset.Type == "bim" {
 		modelPath := filepath.Join(asset.Dir, "model.glb")
 		metadataPath := filepath.Join(asset.Dir, "metadata.json")
@@ -977,10 +1002,36 @@ func decodeTusMetadata(value string) map[string]string {
 func decodeBase64(v string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(v)
 }
-func validType(t string) bool { return t == "bim" || t == "pointcloud" }
+func validType(t string) bool { return t == "bim" || t == "cad" || t == "pointcloud" }
 func validExtension(typ, name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
-	return (typ == "bim" && ext == ".ifc") || (typ == "pointcloud" && ext == ".las")
+	return (typ == "bim" && ext == ".ifc") || (typ == "cad" && (ext == ".dwg" || ext == ".dxf" || ext == ".pdf")) || (typ == "pointcloud" && ext == ".las")
+}
+
+var archivePartPattern = regexp.MustCompile(`^[0-9A-Za-z#_-]{1,40}$`)
+
+func normalizeArchiveMetadata(meta map[string]string) (building, floor, componentType, serial, code string, scanDate int64, err error) {
+	building = strings.ToUpper(strings.TrimSpace(meta["building"]))
+	floor = strings.ToUpper(strings.TrimSpace(meta["floor"]))
+	componentType = strings.ToUpper(strings.TrimSpace(meta["componentType"]))
+	serial = strings.ToUpper(strings.TrimSpace(meta["archiveSerial"]))
+	if !archivePartPattern.MatchString(building) || !archivePartPattern.MatchString(floor) || !archivePartPattern.MatchString(serial) {
+		err = errors.New("楼栋、楼层或归档序号格式非法")
+		return
+	}
+	validComponentTypes := map[string]bool{"YKT": true, "YTY": true, "PCLT": true, "DLB": true, "YB": true}
+	if !validComponentTypes[componentType] {
+		err = errors.New("楼板类型仅支持 YKT、YTY、PCLT、DLB 或 YB")
+		return
+	}
+	code = floor + "-" + componentType + "-" + serial
+	if raw := strings.TrimSpace(meta["scanDate"]); raw != "" {
+		scanDate, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || scanDate <= 0 {
+			err = errors.New("扫描日期非法")
+		}
+	}
+	return
 }
 func (a *app) createUpload(c *gin.Context) {
 	length, err := strconv.ParseInt(c.GetHeader("Upload-Length"), 10, 64)
@@ -1011,13 +1062,38 @@ func (a *app) createUpload(c *gin.Context) {
 		fail(c, 400, "项目不存在或无权访问")
 		return
 	}
+	building, floor, componentType, archiveSerial, archiveCode, scanDate, archiveErr := normalizeArchiveMetadata(meta)
+	if archiveErr != nil {
+		fail(c, 400, archiveErr.Error())
+		return
+	}
+	var linkedBimID *int64
+	if typ == "pointcloud" {
+		if scanDate <= 0 {
+			fail(c, 400, "上传点云必须填写扫描日期")
+			return
+		}
+		var model DBAsset
+		if err := a.db.Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status = ?", userID(c), project.ID, "bim", building, floor, componentType, archiveSerial, "ready").Order("created_at DESC").First(&model).Error; err != nil {
+			fail(c, 409, "未找到匹配的已就绪 IFC 设计模型，请先维护设计库")
+			return
+		}
+		linkedBimID = &model.ID
+	} else {
+		var count int64
+		a.db.Model(&DBAsset{}).Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status <> ?", userID(c), project.ID, typ, building, floor, componentType, archiveSerial, "failed").Count(&count)
+		if count > 0 {
+			fail(c, 409, "该归档编号已存在，请勿重复上传设计文件")
+			return
+		}
+	}
 	id := randomID()
 	dir := filepath.Join(a.cfg.DataDir, "uploads", id)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fail(c, 500, "创建上传目录失败")
 		return
 	}
-	up := DBUpload{ID: id, AssetType: typ, FileName: name, FileSize: length, Status: "uploading", OwnerID: userID(c), ProjectID: project.ID, Dir: dir, CreatedAt: time.Now()}
+	up := DBUpload{ID: id, AssetType: typ, FileName: name, FileSize: length, Status: "uploading", OwnerID: userID(c), ProjectID: project.ID, Building: building, Floor: floor, ComponentType: componentType, ArchiveSerial: archiveSerial, ArchiveCode: archiveCode, ScanDate: scanDate, LinkedBimID: linkedBimID, Dir: dir, CreatedAt: time.Now()}
 	if err := a.db.Create(&up).Error; err != nil {
 		fail(c, 500, "创建上传会话失败")
 		return
@@ -1215,7 +1291,7 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 		_ = a.db.Model(&DBUpload{}).Where("id = ?", uploadID).Updates(map[string]any{"status": "failed", "error_message": msg}).Error
 		return
 	}
-	asset := DBAsset{Type: up.AssetType, SourceName: up.FileName, SourceSize: up.FileSize, Status: "processing", CreatedAt: time.Now().Unix(), OwnerID: up.OwnerID, ProjectID: up.ProjectID, Dir: filepath.Join(a.cfg.DataDir, "assets", randomID())}
+	asset := DBAsset{Type: up.AssetType, SourceName: up.FileName, SourceSize: up.FileSize, Status: "processing", CreatedAt: time.Now().Unix(), OwnerID: up.OwnerID, ProjectID: up.ProjectID, Building: up.Building, Floor: up.Floor, ComponentType: up.ComponentType, ArchiveSerial: up.ArchiveSerial, ArchiveCode: up.ArchiveCode, ScanDate: up.ScanDate, LinkedBimID: up.LinkedBimID, Dir: filepath.Join(a.cfg.DataDir, "assets", randomID())}
 	if err := a.db.Create(&asset).Error; err != nil {
 		msg := err.Error()
 		_ = a.db.Model(&DBUpload{}).Where("id = ?", uploadID).Updates(map[string]any{"status": "failed", "error_message": msg}).Error
@@ -1235,8 +1311,10 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 	}
 	if asset.Type == "bim" {
 		err = buildBIM(ctx, source, asset.Dir)
-	} else {
+	} else if asset.Type == "pointcloud" {
 		err = buildPointCloud(ctx, source, asset.Dir, a.cfg.PointcloudSubsample)
+	} else {
+		err = linkOrSymlink(source, filepath.Join(asset.Dir, "source"))
 	}
 	if err == nil && !validAssetArtifacts(asset) {
 		err = errors.New("转换完成但产物缺失或无效")
@@ -1414,6 +1492,13 @@ func assetFromDB(item DBAsset) Asset {
 		CreatedAt:                   item.CreatedAt,
 		OwnerID:                     item.OwnerID,
 		ProjectID:                   item.ProjectID,
+		Building:                    item.Building,
+		Floor:                       item.Floor,
+		ComponentType:               item.ComponentType,
+		ArchiveSerial:               item.ArchiveSerial,
+		ArchiveCode:                 item.ArchiveCode,
+		ScanDate:                    item.ScanDate,
+		LinkedBimID:                 item.LinkedBimID,
 		Dir:                         item.Dir,
 		PointcloudColor:             pointcloudColor,
 		RemeshStatus:                item.RemeshStatus,
@@ -1436,7 +1521,7 @@ func assetFromDB(item DBAsset) Asset {
 }
 
 func assetSummary(a Asset) gin.H {
-	result := gin.H{"id": a.ID, "projectId": a.ProjectID, "type": a.Type, "sourceName": a.SourceName, "sourceSize": a.SourceSize, "status": a.Status, "errorMessage": a.ErrorMessage, "createdAt": a.CreatedAt, "meshRemesh": meshRemeshSummary(a)}
+	result := gin.H{"id": a.ID, "projectId": a.ProjectID, "type": a.Type, "sourceName": a.SourceName, "sourceSize": a.SourceSize, "status": a.Status, "errorMessage": a.ErrorMessage, "createdAt": a.CreatedAt, "building": a.Building, "floor": a.Floor, "componentType": a.ComponentType, "archiveSerial": a.ArchiveSerial, "archiveCode": a.ArchiveCode, "scanDate": a.ScanDate, "linkedBimId": a.LinkedBimID, "meshRemesh": meshRemeshSummary(a)}
 	if a.Type == "pointcloud" {
 		result["pointcloudColor"] = a.PointcloudColor
 	}

@@ -12,6 +12,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         tzdata \
+        bash \
+        wget \
         libxml2 \
         libpcre2-8-0 \
         libglib2.0-0 \

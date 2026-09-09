@@ -7,7 +7,16 @@ import {
   type BackendResult,
 } from '@/api/backend-http'
 
-export type AssetType = 'bim' | 'pointcloud'
+export type AssetType = 'bim' | 'cad' | 'pointcloud'
+export type ComponentType = 'YKT' | 'YTY' | 'PCLT' | 'DLB' | 'YB'
+
+export interface AssetArchiveMetadata {
+  building: string
+  floor: string
+  componentType: ComponentType
+  archiveSerial: string
+  scanDate?: number
+}
 export type AssetStatus =
   | 'uploading'
   | 'queued'
@@ -47,6 +56,13 @@ export interface AssetSummary {
   status: AssetStatus
   errorMessage: string | null
   createdAt: number
+  building?: string
+  floor?: string
+  componentType?: ComponentType
+  archiveSerial?: string
+  archiveCode?: string
+  scanDate?: number
+  linkedBimId?: number | null
   pointcloudColor?: string | null
   meshRemesh?: MeshRemeshSummary
 }
@@ -81,6 +97,7 @@ export interface CreateTusUploadParams {
   fileSize: number
   assetType: AssetType
   projectId?: number
+  archiveMetadata: AssetArchiveMetadata
 }
 
 export interface TusUploadSession {
@@ -192,6 +209,11 @@ export async function createTusUpload(params: CreateTusUploadParams) {
         filename: params.fileName,
         assetType: params.assetType,
         ...(params.projectId ? { projectId: String(params.projectId) } : {}),
+        building: params.archiveMetadata.building,
+        floor: params.archiveMetadata.floor,
+        componentType: params.archiveMetadata.componentType,
+        archiveSerial: params.archiveMetadata.archiveSerial,
+        ...(params.archiveMetadata.scanDate ? { scanDate: String(params.archiveMetadata.scanDate) } : {}),
       }),
     }),
   })

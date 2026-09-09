@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Check, Close, Document, FolderOpened, Loading, Refresh, Upload } from '@element-plus/icons-vue'
-import { listProjects, type ProjectSummary } from '@/api/backend-project'
+import { Check, Close, Document, Loading, Refresh, Upload } from '@element-plus/icons-vue'
+import { listAssets, type AssetArchiveMetadata, type AssetSummary, type ComponentType } from '@/api/backend-file'
 import { uploadFile } from '@/features/upload/upload.service'
-import { BIM_UPLOAD_CONFIG, POINT_CLOUD_UPLOAD_CONFIG } from '@/features/upload/upload.config'
+import { BIM_UPLOAD_CONFIG, CAD_UPLOAD_CONFIG, POINT_CLOUD_UPLOAD_CONFIG } from '@/features/upload/upload.config'
 import type { UploadKind } from '@/features/upload/upload.types'
+import type { AuthSession } from '@/features/auth/auth.service'
 
 interface SimpleUploadTask {
   status: 'idle' | 'uploading' | 'success' | 'error'
@@ -13,29 +14,57 @@ interface SimpleUploadTask {
   errorMessage?: string
 }
 
-const projects = ref<ProjectSummary[]>([])
-const activeTab = ref<UploadKind>('bim')
-const selectedFiles = reactive<Record<UploadKind, File | null>>({ bim: null, pointcloud: null })
-const tasks = reactive<Record<UploadKind, SimpleUploadTask>>({ bim: { status: 'idle', progress: 0 }, pointcloud: { status: 'idle', progress: 0 } })
-const projectDialogVisible = ref(false)
-const selectedProjectId = ref<number | null>(null)
-const pendingKind = ref<UploadKind>('bim')
+const props = withDefaults(defineProps<{
+  session: AuthSession
+  projectId: number
+  projectName?: string
+  allowedKinds?: UploadKind[]
+  compact?: boolean
+}>(), {
+  allowedKinds: () => ['bim', 'pointcloud'],
+  compact: false,
+})
+
+const emit = defineEmits<{ uploaded: [kind: UploadKind] }>()
+const availableKinds = computed<UploadKind[]>(() => {
+  const kinds = props.allowedKinds.filter((kind): kind is UploadKind => kind === 'bim' || kind === 'cad' || kind === 'pointcloud')
+  return kinds.length ? [...new Set(kinds)] : ['bim']
+})
+const activeTab = ref<UploadKind>(availableKinds.value[0])
+const selectedFiles = reactive<Record<UploadKind, File | null>>({ bim: null, cad: null, pointcloud: null })
+const tasks = reactive<Record<UploadKind, SimpleUploadTask>>({ bim: { status: 'idle', progress: 0 }, cad: { status: 'idle', progress: 0 }, pointcloud: { status: 'idle', progress: 0 } })
+const archiveForm = reactive({ building: '', floor: '', componentType: '' as ComponentType | '', archiveSerial: '', scanDate: '' })
+const designModels = ref<AssetSummary[]>([])
+const designModelsLoading = ref(false)
 const uploading = computed(() => tasks[activeTab.value].status === 'uploading')
 const fileInput = ref<HTMLInputElement | null>(null)
-const activeConfig = computed(() => activeTab.value === 'bim' ? BIM_UPLOAD_CONFIG : POINT_CLOUD_UPLOAD_CONFIG)
+const activeConfig = computed(() => activeTab.value === 'bim' ? BIM_UPLOAD_CONFIG : activeTab.value === 'cad' ? CAD_UPLOAD_CONFIG : POINT_CLOUD_UPLOAD_CONFIG)
 const activeFile = computed(() => selectedFiles[activeTab.value])
-
-async function loadProjects() {
-  try { projects.value = (await listProjects()).data?.list || [] }
-  catch (error) { ElMessage.error(error instanceof Error ? error.message : '加载项目失败') }
+const isIfcOnly = computed(() => availableKinds.value.length === 1 && availableKinds.value[0] === 'bim')
+const activeTypeName = computed(() => activeTab.value === 'bim' ? (isIfcOnly.value ? 'IFC模型' : 'BIM模型') : activeTab.value === 'cad' ? 'CAD图纸' : '点云文件')
+const archiveCode = computed(() => archiveForm.floor && archiveForm.componentType && archiveForm.archiveSerial ? `${archiveForm.floor.toUpperCase()}-${archiveForm.componentType}-${archiveForm.archiveSerial.toUpperCase()}` : '待生成')
+function archivePart(value?: string) {
+  return value?.trim().toUpperCase() || ''
 }
+const matchingDesign = computed(() => designModels.value.find((asset) => archivePart(asset.building) === archivePart(archiveForm.building) && archivePart(asset.floor) === archivePart(archiveForm.floor) && archivePart(asset.componentType) === archivePart(archiveForm.componentType) && archivePart(asset.archiveSerial) === archivePart(archiveForm.archiveSerial)))
+const buildings = computed(() => [...new Set(designModels.value.map((asset) => archivePart(asset.building)).filter(Boolean))] as string[])
+const floors = computed(() => [...new Set(designModels.value.filter((asset) => !archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)).map((asset) => archivePart(asset.floor)).filter(Boolean))] as string[])
+const componentTypes = computed(() => [...new Set(designModels.value.filter((asset) => (!archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)) && (!archiveForm.floor || archivePart(asset.floor) === archivePart(archiveForm.floor))).map((asset) => archivePart(asset.componentType)).filter(Boolean))] as ComponentType[])
+const serials = computed(() => [...new Set(designModels.value.filter((asset) => (!archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)) && (!archiveForm.floor || archivePart(asset.floor) === archivePart(archiveForm.floor)) && (!archiveForm.componentType || archivePart(asset.componentType) === archivePart(archiveForm.componentType))).map((asset) => archivePart(asset.archiveSerial)).filter(Boolean))] as string[])
+function componentTypeLabel(value: string) {
+  return ({ YKT: '预制空调板 YKT', YTY: '预制空调板 YTY', PCLT: '预制楼梯 PCLT', DLB: '叠合板 DLB', YB: '叠合板 YB' } as Record<string, string>)[value] || value
+}
+
+watch(availableKinds, (kinds) => {
+  if (!kinds.includes(activeTab.value)) activeTab.value = kinds[0]
+})
+
 function requestUpload(kind: UploadKind) {
-  if (!selectedFiles[kind]) { ElMessage.warning(kind === 'bim' ? '请先选择 BIM 模型文件' : '请先选择点云文件'); return }
-  if (!projects.value.length) { ElMessage.warning('请先在项目中心创建项目'); return }
-  pendingKind.value = kind
-  // Do not silently assign the first project: an upload must be explicitly scoped.
-  selectedProjectId.value = null
-  projectDialogVisible.value = true
+  if (!selectedFiles[kind]) { ElMessage.warning(kind === 'bim' ? '请先选择 IFC 模型文件' : kind === 'cad' ? '请先选择 CAD 图纸' : '请先选择点云文件'); return }
+  if (!archiveForm.building || !archiveForm.floor || !archiveForm.componentType || !archiveForm.archiveSerial) { ElMessage.warning('请完整填写楼栋、楼层、构件类型和归档序号'); return }
+  if (kind === 'pointcloud' && !archiveForm.scanDate) { ElMessage.warning('请选择扫描日期'); return }
+  if (kind === 'pointcloud' && !matchingDesign.value) { ElMessage.warning('当前归档编号没有匹配的 IFC 设计模型'); return }
+  void confirmUpload(kind)
 }
 function chooseFile() {
   if (!uploading.value) fileInput.value?.click()
@@ -45,6 +74,12 @@ function resetTask(kind: UploadKind) {
 }
 function setSelectedFile(kind: UploadKind, file: File) {
   if (tasks[kind].status === 'uploading') return
+  const extension = file.name.split('.').pop()?.toLowerCase() || ''
+  const config = kind === 'bim' ? BIM_UPLOAD_CONFIG : kind === 'cad' ? CAD_UPLOAD_CONFIG : POINT_CLOUD_UPLOAD_CONFIG
+  if (!config.extensions.includes(extension)) {
+    ElMessage.warning(isIfcOnly.value ? '这里只能上传 IFC 文件' : `请选择 ${config.accept.toUpperCase()} 格式的文件`)
+    return
+  }
   // Selecting a replacement starts a fresh visual task, so the previous
   // completion/error message cannot leak into the next upload.
   selectedFiles[kind] = file
@@ -68,44 +103,85 @@ function clearActiveFile() {
   }
 }
 function toggleUploadType() {
-  activeTab.value = activeTab.value === 'bim' ? 'pointcloud' : 'bim'
+  if (availableKinds.value.length < 2) return
+  const index = availableKinds.value.indexOf(activeTab.value)
+  activeTab.value = availableKinds.value[(index + 1) % availableKinds.value.length]
 }
-async function confirmUpload() {
-  const kind = pendingKind.value
+async function confirmUpload(kind: UploadKind) {
   const file = selectedFiles[kind]
-  if (!selectedProjectId.value) { ElMessage.warning('请选择文件所属项目'); return }
   if (!file) return
-  projectDialogVisible.value = false
   tasks[kind] = { status: 'uploading', progress: 0 }
   try {
-    await uploadFile({ type: kind, file, projectId: selectedProjectId.value, onProgress: (progress) => { tasks[kind].progress = progress } })
+    const archiveMetadata: AssetArchiveMetadata = {
+      building: archiveForm.building.toUpperCase(),
+      floor: archiveForm.floor.toUpperCase(),
+      componentType: archiveForm.componentType as ComponentType,
+      archiveSerial: archiveForm.archiveSerial.toUpperCase(),
+      ...(archiveForm.scanDate ? { scanDate: Math.floor(new Date(`${archiveForm.scanDate}T00:00:00`).getTime() / 1000) } : {}),
+    }
+    await uploadFile({ type: kind, file, projectId: props.projectId, archiveMetadata, onProgress: (progress) => { tasks[kind].progress = progress } })
     tasks[kind] = { status: 'success', progress: 100 }
     selectedFiles[kind] = null
-    ElMessage.success(`${kind === 'bim' ? 'BIM 模型' : '点云文件'}上传并处理完成`)
+    ElMessage.success(`${kind === 'bim' ? 'IFC 模型' : kind === 'cad' ? 'CAD 图纸' : '点云文件'}上传并处理完成`)
+    emit('uploaded', kind)
   } catch (error) {
     tasks[kind] = { status: 'error', progress: tasks[kind].progress, errorMessage: error instanceof Error ? error.message : '上传失败' }
     ElMessage.error(tasks[kind].errorMessage || '上传失败')
   }
 }
-onMounted(() => { void loadProjects() })
+
+async function loadDesignModels() {
+  if (!props.projectId) {
+    designModels.value = []
+    return
+  }
+  designModelsLoading.value = true
+  try {
+    const response = await listAssets({ projectId: props.projectId, type: 'bim', status: 'ready', page: 1, pageSize: 500 })
+    designModels.value = (response.data?.list || []).filter((asset) => asset.type === 'bim' && asset.status === 'ready' && archivePart(asset.building) && archivePart(asset.floor) && archivePart(asset.componentType) && archivePart(asset.archiveSerial))
+  } catch {
+    designModels.value = []
+  } finally {
+    designModelsLoading.value = false
+  }
+}
+
+watch(() => archiveForm.building, () => { if (activeTab.value === 'pointcloud') { archiveForm.floor = ''; archiveForm.archiveSerial = '' } })
+watch(() => archiveForm.floor, () => { if (activeTab.value === 'pointcloud') { archiveForm.componentType = ''; archiveForm.archiveSerial = '' } })
+watch(() => archiveForm.componentType, () => { if (activeTab.value === 'pointcloud') archiveForm.archiveSerial = '' })
+watch(() => props.projectId, () => { void loadDesignModels() })
+watch(activeTab, (kind) => { if (kind === 'pointcloud') void loadDesignModels() })
+onMounted(() => { void loadDesignModels() })
 </script>
 
 <template>
-  <section class="simple-upload-page">
+  <section class="simple-upload-page" :class="{ 'is-compact': props.compact }">
     <div class="upload-stage">
       <div class="upload-stack-wrapper">
         <div class="stack-layer stack-layer-3"></div><div class="stack-layer stack-layer-2"></div><div class="stack-layer stack-layer-1"><div class="decor-grid"></div></div>
         <div :key="activeTab" class="main-upload-card" @click="chooseFile" @dragover.prevent @drop.prevent="handleDrop">
           <input ref="fileInput" class="hidden-input" type="file" :accept="activeConfig.accept" @change="handleFileChange" />
           <div class="corner-mark corner-tl"></div><div class="corner-mark corner-tr"></div><div class="corner-mark corner-bl"></div><div class="corner-mark corner-br"></div>
-          <template v-if="!activeFile"><div class="upload-icon-wrapper"><el-icon :size="46"><Document /></el-icon><span class="plus-badge">+</span></div><h2>添加{{ activeTab === 'bim' ? 'BIM模型' : '点云文件' }}</h2><p>拖拽到这里，或点击选择文件</p><span class="format-pill">支持 {{ activeConfig.accept.replace('.', '').toUpperCase() }} 格式</span></template>
+          <template v-if="!activeFile"><div class="upload-icon-wrapper"><el-icon :size="46"><Document /></el-icon><span class="plus-badge">+</span></div><h2>添加{{ activeTypeName }}</h2><p>拖拽到这里，或点击选择文件</p><span class="format-pill">支持 {{ activeConfig.accept.replace('.', '').toUpperCase() }} 格式</span></template>
           <template v-else><div class="scan-line" aria-hidden="true"></div><div class="upload-icon-wrapper has-file"><el-icon :size="44"><Check /></el-icon></div><h2 class="selected-name">{{ activeFile.name }}</h2><p>{{ (activeFile.size / 1024 / 1024).toFixed(2) }} MB</p><button class="replace-file" type="button">重新选择</button></template>
         </div>
       </div>
-      <div class="control-bar"><div class="file-control"><div class="type-selector"><button class="file-type-btn" type="button" title="切换文件类型" :aria-label="`切换到${activeTab === 'bim' ? '点云文件' : 'BIM模型'}`" @click.stop="toggleUploadType"><el-icon><Refresh /></el-icon><span class="type-dot"></span></button></div><div :key="activeTab" class="guide-text"><span>{{ activeFile ? activeFile.name : `添加${activeTab === 'bim' ? 'BIM模型' : '点云文件'}` }}</span><small>{{ activeTab === 'bim' ? 'BIM 模型文件' : '点云文件' }}</small></div><button v-if="activeFile" class="clear-btn" type="button" title="清除文件" @click="clearActiveFile"><el-icon><Close /></el-icon></button><button class="submit-btn" :class="{ active: activeFile && !uploading, loading: uploading }" type="button" :disabled="!activeFile || uploading" @click="requestUpload(activeTab)"><el-icon :size="21"><Loading v-if="uploading" /><Upload v-else /></el-icon></button></div></div>
+      <div class="upload-controls-shell">
+        <div class="control-bar"><div class="file-control"><div v-if="availableKinds.length > 1" class="type-selector"><button class="file-type-btn" type="button" title="切换文件类型" :aria-label="`切换到${activeTab === 'bim' ? '点云文件' : 'BIM模型'}`" @click.stop="toggleUploadType"><el-icon><Refresh /></el-icon><span class="type-dot"></span></button></div><div v-else class="locked-type-badge" :title="`仅支持${activeTypeName}`"><el-icon><Document /></el-icon></div><div :key="activeTab" class="guide-text"><span>{{ activeFile ? activeFile.name : `添加${activeTypeName}` }}</span><small>{{ isIfcOnly ? '仅支持 IFC 模型文件' : activeTab === 'cad' ? 'CAD 设计图纸' : activeTab === 'bim' ? 'BIM 模型文件' : '点云文件' }}</small></div><button v-if="activeFile" class="clear-btn" type="button" title="清除文件" @click="clearActiveFile"><el-icon><Close /></el-icon></button><button class="submit-btn" :class="{ active: activeFile && !uploading, loading: uploading }" type="button" :disabled="!activeFile || uploading" @click="requestUpload(activeTab)"><el-icon :size="21"><Loading v-if="uploading" /><Upload v-else /></el-icon></button></div></div>
+        <section class="archive-form" :class="{ 'has-scan-date': activeTab === 'pointcloud' }">
+        <div class="archive-form-heading"><div><strong>归档信息</strong><span>模型与点云通过归档编号自动关联</span></div><code>{{ archiveCode }}</code></div>
+        <div class="archive-fields">
+          <div class="archive-field"><span>楼栋</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.building" placeholder="如 2#" clearable /><el-select v-else v-model="archiveForm.building" filterable :loading="designModelsLoading" no-data-text="当前项目没有带归档信息的 ready BIM" placeholder="选择楼栋"><el-option v-for="item in buildings" :key="item" :label="item" :value="item" /></el-select></div>
+          <div class="archive-field"><span>楼层</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.floor" placeholder="如 16F" clearable /><el-select v-else v-model="archiveForm.floor" filterable :loading="designModelsLoading" no-data-text="请先选择楼栋" placeholder="选择楼层"><el-option v-for="item in floors" :key="item" :label="item" :value="item" /></el-select></div>
+          <div class="archive-field"><span>楼板类型</span><el-select v-model="archiveForm.componentType" :loading="designModelsLoading" no-data-text="请先选择楼栋和楼层" placeholder="选择类型"><template v-if="activeTab === 'pointcloud'"><el-option v-for="item in componentTypes" :key="item" :label="componentTypeLabel(item)" :value="item" /></template><template v-else><el-option label="预制空调板 YKT" value="YKT" /><el-option label="预制空调板 YTY" value="YTY" /><el-option label="预制楼梯 PCLT" value="PCLT" /><el-option label="叠合板 DLB" value="DLB" /><el-option label="叠合板 YB" value="YB" /></template></el-select></div>
+          <div class="archive-field"><span>归档序号</span><el-select v-if="activeTab === 'pointcloud'" v-model="archiveForm.archiveSerial" filterable :loading="designModelsLoading" no-data-text="请先选择楼栋、楼层和楼板类型" placeholder="选择序号"><el-option v-for="item in serials" :key="item" :label="item" :value="item" /></el-select><el-input v-else v-model="archiveForm.archiveSerial" placeholder="如 21" /></div>
+          <div v-if="activeTab === 'pointcloud'" class="archive-field"><span>扫描日期</span><el-date-picker v-model="archiveForm.scanDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" /></div>
+        </div>
+        <div v-if="activeTab === 'pointcloud'" class="match-status" :class="{ matched: matchingDesign }">{{ matchingDesign ? `已匹配 IFC：${matchingDesign.sourceName}` : '请选择完整归档信息以匹配 IFC 模型' }}</div>
+        </section>
+      </div>
       <div v-if="uploading || tasks[activeTab].status === 'success' || tasks[activeTab].status === 'error'" class="upload-progress"><el-progress :percentage="tasks[activeTab].progress" :status="tasks[activeTab].status === 'success' ? 'success' : tasks[activeTab].status === 'error' ? 'exception' : undefined" /><span>{{ tasks[activeTab].status === 'error' ? tasks[activeTab].errorMessage : tasks[activeTab].status === 'success' ? '上传处理完成' : '正在上传并处理文件...' }}</span></div>
     </div>
-    <el-dialog v-model="projectDialogVisible" title="选择文件所属项目" width="460px" destroy-on-close><div class="project-dialog"><div class="project-dialog-icon"><el-icon><FolderOpened /></el-icon></div><div class="project-dialog-field"><span>所属项目</span><el-select v-model="selectedProjectId" placeholder="请选择项目" style="width:100%"><el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" /></el-select><small>文件上传后会显示在项目中心对应项目的资产子列表中。</small></div></div><template #footer><el-button @click="projectDialogVisible=false">取消</el-button><el-button type="primary" :disabled="!selectedProjectId" @click="confirmUpload">确认并上传</el-button></template></el-dialog>
   </section>
 </template>
 
@@ -345,7 +421,7 @@ onMounted(() => { void loadProjects() })
 .file-control{gap:10px}
 .file-type-btn{width:50px;height:50px;flex-basis:50px;border-radius:15px;color:#2563eb;background:#eaf2ff;box-shadow:0 5px 12px rgb(37 99 235 / 16%)}
 .file-type-btn :deep(.el-icon){font-size:24px}.file-type-btn.open{color:#fff;background:#4a90e2}.type-dot{right:5px;bottom:5px;width:8px;height:8px;border:2px solid #fff;background:#16a34a}
-.submit-btn{width:48px;height:48px;border-radius:15px}.clear-btn{width:36px;height:36px}
+.submit-btn{width:38px;height:38px;border-radius:15px}.clear-btn{width:36px;height:36px}
 .type-menu{top:60px;bottom:auto;left:0;transform-origin:top left}
 .menu-fade-enter-from,.menu-fade-leave-to{transform:translateY(-8px) scale(.95);opacity:0}
 @media(max-width:650px){.stack-layer-3{width:450px;height:360px}.stack-layer-2,.stack-layer-1{width:470px;height:370px}.type-menu{top:58px;bottom:auto}}
@@ -392,4 +468,19 @@ onMounted(() => { void loadProjects() })
 @keyframes icon-breathe{0%,100%{transform:scale(1);box-shadow:inset 0 0 0 1px #d3f1e1,0 0 0 0 rgb(35 163 109 / 0%)}50%{transform:scale(1.045);box-shadow:inset 0 0 0 1px #b7e8ce,0 0 0 9px rgb(35 163 109 / 0%)}}
 @keyframes icon-breathe-mark{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.12);opacity:1}}
 @media (prefers-reduced-motion:reduce){.stack-layer,.main-upload-card,.scan-line,.upload-icon-wrapper.has-file,.upload-icon-wrapper.has-file :deep(.el-icon){animation:none;transition:none}}
+.locked-type-badge{width:50px;height:50px;display:grid;place-items:center;flex:0 0 50px;border-radius:15px;color:#2563eb;background:#eaf2ff;box-shadow:0 5px 12px rgb(37 99 235 / 16%)}
+.locked-type-badge :deep(.el-icon){font-size:22px}
+.simple-upload-page.is-compact{min-height:640px;height:auto;padding:20px 18px 24px;}
+.simple-upload-page.is-compact .upload-stack-wrapper{margin-bottom:54px;transform:scale(.98);transform-origin:center}
+.simple-upload-page.is-compact .control-bar{margin-top:-12px}
+@media(max-height:760px){.simple-upload-page.is-compact{min-height:570px}.simple-upload-page.is-compact .upload-stack-wrapper{margin-block:-22px 30px;transform:scale(.84)}.simple-upload-page.is-compact .control-bar{margin-top:-8px}}
+.archive-form{box-sizing:border-box;width:100%;max-width:660px;margin:12px auto 0;padding:10px 12px;border:1px solid rgb(215 226 240 / 78%);border-radius:16px;background:rgb(255 255 255 / 70%);box-shadow:inset 1px 1px 1px rgb(255 255 255 / 85%)}
+.archive-form-heading{align-items:center;margin-bottom:8px}.archive-form-heading strong{font-size:12px}.archive-form-heading span{display:inline;margin-left:8px;font-size:10px}.archive-form-heading code{padding:5px 9px;font-size:11px}.archive-fields{gap:7px}.archive-fields :deep(.el-select__wrapper),.archive-fields :deep(.el-input__wrapper),.archive-fields :deep(.el-date-editor){min-height:34px;height:34px;border-radius:9px;font-size:11px}.match-status{margin-top:6px;font-size:10px}.simple-upload-page.is-compact .archive-form{margin:10px auto 0}.simple-upload-page.is-compact .upload-stack-wrapper{margin-bottom:42px}
+@media(max-width:760px){.archive-form-heading{align-items:flex-start;flex-direction:row}.archive-form-heading span{display:none}.archive-form-heading code{margin-left:auto}.archive-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.upload-controls-shell{box-sizing:border-box;width:100%;max-width:660px;border:1px solid rgb(214 226 241 / 82%);border-radius:20px;background:rgb(255 255 255 / 76%);box-shadow:7px 7px 16px rgb(163 177 198 / 15%),-7px -7px 16px rgb(255 255 255 / 78%);overflow:hidden}
+.upload-controls-shell .control-bar{box-sizing:border-box;width:100%;max-width:none;padding:8px 10px;border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.upload-controls-shell .archive-form{width:100%;max-width:none;margin:0;padding:9px 12px 11px;border:0;border-top:1px solid rgb(222 231 244 / 78%);border-radius:0;background:transparent;box-shadow:none}
+.upload-controls-shell .archive-form-heading{display:flex;flex-wrap:nowrap;min-width:0;margin-bottom:7px}.upload-controls-shell .archive-form-heading>div{min-width:0;flex:1}.upload-controls-shell .archive-form-heading code{flex:0 0 auto;white-space:nowrap}.upload-controls-shell .archive-fields{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:7px;min-width:0}.upload-controls-shell .archive-fields>*{min-width:0;flex:1 1 0}.upload-controls-shell .archive-field{min-width:0;display:flex;flex:1 1 0;flex-direction:column;gap:4px}.upload-controls-shell .archive-field>span{color:#6f819c;font-size:10px;font-weight:600;line-height:1.2;white-space:nowrap}.upload-controls-shell .archive-field :deep(.el-select),.upload-controls-shell .archive-field :deep(.el-input),.upload-controls-shell .archive-field :deep(.el-date-editor){width:100%;min-width:0}.upload-controls-shell .archive-field :deep(.el-select__wrapper),.upload-controls-shell .archive-field :deep(.el-input__wrapper),.upload-controls-shell .archive-field :deep(.el-date-editor){background:#f7faff}
+.simple-upload-page.is-compact .upload-controls-shell{max-width:660px}.simple-upload-page.is-compact .upload-controls-shell .archive-form{margin:0}.simple-upload-page.is-compact .upload-stack-wrapper{margin-bottom:42px}
+@media(max-width:760px){.upload-controls-shell .archive-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}.upload-controls-shell .archive-fields>*{width:100%;flex:none}.upload-controls-shell .archive-form-heading{align-items:center;flex-direction:row}.upload-controls-shell .archive-form-heading span{display:none}}
 </style>

@@ -8,9 +8,11 @@ import {
 } from '@/features/auth/auth.service'
 import LoginView from '@/views/login/LoginView.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import ProjectSelectionView from '@/views/project/ProjectSelectionView.vue'
 
 const UploadView = defineAsyncComponent(() => import('@/views/upload/SimpleUploadView.vue'))
-const ProjectCenterView = defineAsyncComponent(() => import('@/views/project/ProjectCenterView.vue'))
+const ProjectSurveyView = defineAsyncComponent(() => import('@/views/project/ProjectSurveyView.vue'))
+const DesignView = defineAsyncComponent(() => import('@/views/design/DesignView.vue'))
 const AssetPreviewView = defineAsyncComponent(() => import('@/views/preview/AssetPreviewView.vue'))
 const SplitPreviewView = defineAsyncComponent(() => import('@/views/preview/SplitPreviewView.vue'))
 const BimPointcloudAlignView = defineAsyncComponent(
@@ -38,6 +40,8 @@ function readRouteState() {
 
   return {
     path: route.path,
+    projectId: parseNumber(pickString(route.query.projectId)),
+    projectName: pickString(route.query.projectName) || undefined,
     view: pickString(route.query.view),
     previewType: pickString(route.query.previewType),
     assetId: parseNumber(pickString(route.query.assetId)),
@@ -66,6 +70,10 @@ const currentView = computed(() => {
     return 'login'
   }
 
+  if (routeState.value.path === '/' || routeState.value.path.startsWith('/projects')) {
+    return 'project-selection'
+  }
+
   if (routeState.value.path.startsWith('/alignment')) {
     return 'alignment'
   }
@@ -77,8 +85,20 @@ const currentView = computed(() => {
     return 'asset-preview'
   }
 
-  if (routeState.value.path.startsWith('/projects')) {
-    return 'projects'
+  if (routeState.value.path.startsWith('/survey')) {
+    return routeState.value.projectId ? 'survey' : 'project-selection'
+  }
+
+  if (routeState.value.path.startsWith('/design/bim')) {
+    return routeState.value.projectId ? 'design-bim' : 'project-selection'
+  }
+
+  if (routeState.value.path.startsWith('/design/cad')) {
+    return routeState.value.projectId ? 'design-cad' : 'project-selection'
+  }
+
+  if (routeState.value.path.startsWith('/design/overview')) {
+    return routeState.value.projectId ? 'design-overview' : 'project-selection'
   }
 
   if (
@@ -88,14 +108,16 @@ const currentView = computed(() => {
     return 'split-preview'
   }
 
-  return 'upload'
+  if (routeState.value.path.startsWith('/upload')) {
+    return routeState.value.projectId ? 'upload' : 'project-selection'
+  }
+
+  return 'project-selection'
 })
 
 function handleLoginSuccess(nextSession: AuthSession) {
   session.value = nextSession
-  if (route.path === '/') {
-    void router.replace('/upload')
-  }
+  void router.replace('/projects')
 }
 
 onMounted(() => {
@@ -118,7 +140,7 @@ async function handleLogout() {
     // Clear the local view even if the server is already unavailable.
   }
   session.value = null
-  void router.replace('/upload')
+  void router.replace('/')
 }
 </script>
 
@@ -131,6 +153,12 @@ async function handleLogout() {
   <div v-else-if="currentView === 'auth-loading'" class="auth-loading" aria-live="polite">
     正在恢复登录状态...
   </div>
+
+  <ProjectSelectionView
+    v-else-if="session && currentView === 'project-selection'"
+    :session="session"
+    @logout="handleLogout"
+  />
 
   <AssetPreviewView
     v-else-if="session && currentView === 'asset-preview'"
@@ -155,9 +183,52 @@ async function handleLogout() {
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
   />
-  <AppLayout v-else-if="session" :session="session" @logout="handleLogout">
-    <ProjectCenterView v-if="currentView === 'projects'" :key="routeKey" />
-    <UploadView v-else :key="routeKey" :session="session" @logout="handleLogout" />
+  <AppLayout
+    v-else-if="session && routeState.projectId"
+    :session="session"
+    :project-id="routeState.projectId"
+    :project-name="routeState.projectName || `项目 ${routeState.projectId}`"
+    @logout="handleLogout"
+  >
+    <DesignView
+      v-if="currentView === 'design-bim'"
+      :key="routeKey"
+      mode="bim"
+      :session="session"
+      :project-id="routeState.projectId"
+      :project-name="routeState.projectName"
+    />
+    <DesignView
+      v-else-if="currentView === 'design-cad'"
+      :key="routeKey"
+      mode="cad"
+      :session="session"
+      :project-id="routeState.projectId"
+      :project-name="routeState.projectName"
+    />
+    <DesignView
+      v-else-if="currentView === 'design-overview'"
+      :key="routeKey"
+      mode="overview"
+      :session="session"
+      :project-id="routeState.projectId"
+      :project-name="routeState.projectName"
+    />
+    <ProjectSurveyView
+      v-else-if="currentView === 'survey'"
+      :key="routeKey"
+      :session="session"
+      :project-id="routeState.projectId"
+      :project-name="routeState.projectName"
+    />
+    <UploadView
+      v-else
+      :key="routeKey"
+      :session="session"
+      :project-id="routeState.projectId"
+      :project-name="routeState.projectName"
+      @logout="handleLogout"
+    />
   </AppLayout>
 </template>
 
