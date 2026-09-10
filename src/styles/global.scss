@@ -58,6 +58,18 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+// Element Plus renders the editable input inside its wrapper; remove the
+// browser focus ring from the inner field while the wrapper owns focus styling.
+.el-input__wrapper input:focus,
+.el-input__wrapper input:focus-visible,
+.el-select__input:focus,
+.el-select__input:focus-visible,
+.date-range-field input:focus,
+.date-range-field input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 h1,
 h2,
 h3,

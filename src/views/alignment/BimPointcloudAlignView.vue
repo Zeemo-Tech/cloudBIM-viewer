@@ -94,7 +94,7 @@ type ClipBoxState = {
   baseBox: THREE.Box3
   offsets: ClipBoxOffsets
 }
-type SelectedItemId = '' | 'bim' | 'pointcloud'
+type SelectedItemId = '' | 'bim'
 type TransformMode = 'translate' | 'rotate'
 type ViewerTransformControls = TransformControls &
   THREE.Object3D & {
@@ -163,7 +163,7 @@ const canRunFineAlignment = computed(() =>
 const fineRunBlockedReason = computed(() => {
   if (registrationStage.value !== 'fine') return ''
   if (!props.bimAssetId || !props.pointcloudAssetId) return '缺少 BIM 或点云资产'
-  if (!hasSavedAlignmentMatrix.value) return '请先保存粗配准矩阵'
+  if (!hasSavedAlignmentMatrix.value) return '请先完成粗配准保存'
   if (coarseAlignmentDirty.value) return '粗配准存在未保存的变换修改'
   if (fineAlignLoading.value) return '精细化配准计算中...'
   return ''
@@ -176,13 +176,6 @@ const canSaveFineAlignment = computed(() =>
 const canSaveCoarseAlignment = computed(() =>
   !!bimLoaded.value && !!pointcloudLoaded.value && registrationStage.value === 'coarse' && !savingCalibration.value,
 )
-const coarseSaveHint = computed(() => {
-  if (!bimLoaded.value || !pointcloudLoaded.value) return '等待 BIM 与点云加载完成'
-  if (coarseAlignmentDirty.value) return '检测到未保存的变换修改'
-  if (hasSavedAlignmentMatrix.value) return '当前粗配准矩阵已保存'
-  return '调整模型位置后保存粗配准矩阵'
-})
-
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
 const showPanel = ref(true)
@@ -1249,8 +1242,9 @@ const clipAxis = ref<ClipAxis>('z')
 const clipInvert = ref(false)
 const clipPosition = ref(0)
 const clipRange = ref({ min: -1, max: 1 })
-const editMode = ref(false)
-const selectedItemId = ref<SelectedItemId>('')
+// 粗配准默认进入几何载体编辑态，模型加载后自动显示组合变换 Gizmo。
+const editMode = ref(true)
+const selectedItemId = ref<SelectedItemId>('bim')
 const transformMode = ref<TransformMode>('translate')
 const positionOffsetX = ref(0)
 const positionOffsetY = ref(0)
@@ -1265,7 +1259,8 @@ const rotationAdjustStep = ref(1)
 const positionStepPreset = ref('0.01')
 const rotationStepPreset = ref('1')
 const tilesErrorTarget = ref(32)
-const enableElementPicking = ref(true)
+// 构件拾取与载体变换共用指针事件；用户可在高级设置中主动切换。
+const enableElementPicking = ref(false)
 const pickedElement = ref<null | {
   label: string
   ifcId?: string
@@ -1299,7 +1294,6 @@ const bimVisibilityLabel = computed(() => (bimVisible.value ? '隐藏模型' : '
 const pointcloudVisibilityLabel = computed(() =>
   pointcloudVisible.value ? '隐藏点云' : '显示点云',
 )
-const selectedItemIsPointcloud = computed(() => selectedItemId.value === 'pointcloud')
 const showOnlyVerticalAxis = computed(() => {
   return Boolean(selectedItemId.value) && transformMode.value === 'rotate'
 })
@@ -1322,12 +1316,6 @@ const loadedItemOptions = computed(() => {
     list.push({
       label: props.bimDisplayName || `BIM-${props.bimAssetId ?? ''}`,
       value: 'bim',
-    })
-  }
-  if (hasTileset.value) {
-    list.push({
-      label: props.pointcloudDisplayName || `点云-${props.pointcloudAssetId ?? ''}`,
-      value: 'pointcloud',
     })
   }
   return list
@@ -1372,6 +1360,8 @@ let clippingGroup: ClippingGroup | null = null
 let gridHelper: THREE.GridHelper | null = null
 let transformControls: ViewerTransformControls | null = null
 let transformHelper: THREE.Object3D | null = null
+let rotationControls: ViewerTransformControls | null = null
+let rotationHelper: THREE.Object3D | null = null
 let selectionHelper: THREE.BoxHelper | null = null
 let pickedElementHelper: THREE.BoxHelper | null = null
 let bimPivot: THREE.Group | null = null
@@ -1775,17 +1765,16 @@ function handlePointcloudColorStats(stats: { histogram: number[]; hasIntensity: 
   pointcloudIntensityHistogram.value = [...stats.histogram]
 }
 
-function applyPointcloudDisplay() {
-  if (!pointcloudGroup) return
+function applyPointcloudDisplay(root: THREE.Object3D | null = pointcloudGroup) {
+  if (!root) return
   if (pointcloudColorMode.value === 'intensity') {
-    pointcloudColorOverridden.value = false
-    applyPointcloudMaterialMode(pointcloudGroup)
-    applyPointcloudIntensityColoring(pointcloudGroup)
+    applyPointcloudMaterialMode(root)
+    applyPointcloudIntensityColoring(root)
     return
   }
-  pointcloudColorOverridden.value = false
-  restorePointcloudOriginalColors(pointcloudGroup)
-  applyPointcloudMaterialMode(pointcloudGroup)
+  restorePointcloudOriginalColors(root)
+  applyPointcloudMaterialMode(root)
+  requestRender()
 }
 
 function updatePointcloudColorRange(range: PointcloudColorRange) {
@@ -2745,58 +2734,64 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
   controls.update()
 
   if (scene && renderer) {
-    if (transformControls) {
-      if (transformHelper) {
-        scene.remove(transformHelper)
-      }
-      transformControls.dispose()
+    ;[transformHelper, rotationHelper].forEach((helper) => {
+      if (helper) scene?.remove(helper)
+    })
+    transformControls?.dispose()
+    rotationControls?.dispose()
+
+    const configureTransformController = (
+      controller: ViewerTransformControls,
+      mode: TransformMode,
+      size: number,
+    ) => {
+      controller.visible = false
+      controller.enabled = false
+      controller.setSize?.(size)
+      controller.setSpace?.('world')
+      controller.setMode(mode)
+      const helper = controller.getHelper() as unknown as THREE.Object3D
+      helper.visible = false
+      helper.frustumCulled = false
+      helper.traverse?.((obj: any) => {
+        obj.frustumCulled = false
+        if (!obj.material) return
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach((item: any) => {
+            if (item) item.depthTest = false
+          })
+        } else {
+          obj.material.depthTest = false
+        }
+      })
+      controller.addEventListener('dragging-changed', (event: any) => {
+        const dragging = !!event?.value
+        const anyDragging = dragging || Boolean(transformControls?.dragging || rotationControls?.dragging)
+        if (controls) controls.enabled = !anyDragging
+        if (!anyDragging) {
+          syncTransformFixFromSelected()
+          if (enableClipping.value) {
+            updateClipRangeFromContent({ preserveT: true })
+            applyClippingState()
+          }
+        }
+      })
+      controller.addEventListener('change', () => {
+        if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
+        syncTransformFixFromSelected()
+        syncBoundsHelpers()
+        requestRender()
+      })
+      scene?.add(helper)
+      return helper
     }
 
-    transformControls = new TransformControls(
-      camera,
-      renderer.domElement,
-    ) as ViewerTransformControls
-    transformControls.visible = false
-    transformControls.enabled = false
-    transformControls.setSize?.(1.5)
-    transformControls.setSpace?.('world')
-    transformControls.setMode(transformMode.value)
-    transformHelper = transformControls.getHelper() as unknown as THREE.Object3D
-    transformHelper.visible = false
-    transformHelper.frustumCulled = false
-    transformHelper.traverse?.((obj: any) => {
-      obj.frustumCulled = false
-      if (!obj.material) return
-      if (Array.isArray(obj.material)) {
-        obj.material.forEach((item: any) => {
-          if (item) item.depthTest = false
-        })
-        return
-      }
-      obj.material.depthTest = false
-    })
-    transformControls.addEventListener('dragging-changed', (event: any) => {
-      const dragging = !!event?.value
-      if (controls) {
-        controls.enabled = !dragging
-      }
-
-      if (!dragging) {
-        syncTransformFixFromSelected()
-      }
-
-      if (!dragging && enableClipping.value) {
-        updateClipRangeFromContent({ preserveT: true })
-        applyClippingState()
-      }
-    })
-    transformControls.addEventListener('change', () => {
-      if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
-      syncTransformFixFromSelected()
-      syncBoundsHelpers()
-      requestRender()
-    })
-    scene.add(transformHelper)
+    transformControls = new TransformControls(camera, renderer.domElement) as ViewerTransformControls
+    rotationControls = new TransformControls(camera, renderer.domElement) as ViewerTransformControls
+    // The two helpers share the same target, so the viewport reads as one
+    // manipulator with arrows/planes plus a single green yaw ring.
+    transformHelper = configureTransformController(transformControls, 'translate', 1.35)
+    rotationHelper = configureTransformController(rotationControls, 'rotate', 1.55)
   }
 }
 
@@ -2856,9 +2851,14 @@ async function initScene() {
       fillLight.position.set(-10, 8, -10)
       scene.add(fillLight)
 
-      gridHelper = new THREE.GridHelper(10000, 2000, 0x67e8f9, 0x2a6f82)
-      ;(gridHelper.material as THREE.LineBasicMaterial).transparent = true
-      ;(gridHelper.material as THREE.LineBasicMaterial).opacity = 0.62
+      gridHelper = new THREE.GridHelper(10000, 2000, 0x8be9ff, 0x4b9db5)
+      const gridMaterial = gridHelper.material as THREE.LineBasicMaterial
+      gridMaterial.transparent = true
+      gridMaterial.opacity = 0.9
+      gridMaterial.depthWrite = false
+      gridMaterial.toneMapped = false
+      gridMaterial.needsUpdate = true
+      gridHelper.renderOrder = 2
       gridHelper.position.set(0, -10.01, 0)
       scene.add(gridHelper)
       syncGridVisibility()
@@ -3673,7 +3673,6 @@ function ensureInitialTransformState(obj: THREE.Object3D | null) {
 
 function getSelectedObject() {
   if (selectedItemId.value === 'bim') return bimPivot
-  if (selectedItemId.value === 'pointcloud') return pointcloudWrapper
   return null
 }
 
@@ -3681,7 +3680,7 @@ function selectSceneObject(
   next: SelectedItemId,
   options?: { focus?: boolean; enableEdit?: boolean },
 ) {
-  if (!next) return
+  if (next !== 'bim') return
 
   selectedItemId.value = next
 
@@ -3846,9 +3845,7 @@ function resetFineThresholdDefaults() {
 }
 
 function syncTransformModeForSelection() {
-  if (selectedItemIsPointcloud.value && transformMode.value === 'translate') {
-    transformMode.value = 'rotate'
-  }
+  // BIM 是粗配准唯一可编辑的几何载体，点云只作为参考数据。
 }
 
 function syncOrientationFixFromSelected() {
@@ -3908,12 +3905,16 @@ function syncAllTransformFixValuesFromSelected() {
 
 function applyTransformSelection() {
   const target = getSelectedObject()
-  if (transformControls) {
+  if (transformControls && rotationControls) {
     if (!editMode.value || !selectedItemId.value || !target) {
       transformControls.detach()
+      rotationControls.detach()
       transformControls.visible = false
       transformControls.enabled = false
+      rotationControls.visible = false
+      rotationControls.enabled = false
       if (transformHelper) transformHelper.visible = false
+      if (rotationHelper) rotationHelper.visible = false
       requestRender()
       return
     }
@@ -3924,40 +3925,31 @@ function applyTransformSelection() {
     syncTransformModeForSelection()
 
     transformControls.setSpace?.('world')
-    transformControls.setMode(transformMode.value)
+    transformControls.setMode('translate')
+    rotationControls.setSpace?.('world')
+    rotationControls.setMode('rotate')
 
-    if (selectedItemIsPointcloud.value) {
-      transformControls.showX = false
-      transformControls.showY = false
-      transformControls.showZ = false
-      transformControls.detach()
-      transformControls.visible = false
-      transformControls.enabled = false
-      if (transformHelper) transformHelper.visible = false
-      resetOrientationFix()
-      ensureOrientationBase(target)
-      resetPositionFix()
-      ensurePositionBase(target)
-      requestRender()
-      return
-    }
-
-    if (transformMode.value === 'rotate') {
-      transformControls.showX = false
-      transformControls.showY = true
-      transformControls.showZ = false
-    } else {
-      transformControls.showX = true
-      transformControls.showY = true
-      transformControls.showZ = true
-    }
+    // 组合 Gizmo：平移箭头/平面 + 仅绕 Three Y（业务 Z）旋转的绿色环。
+    transformControls.showX = true
+    transformControls.showY = true
+    transformControls.showZ = true
+    rotationControls.showX = false
+    rotationControls.showY = true
+    rotationControls.showZ = false
 
     transformControls.attach(target)
+    rotationControls.attach(target)
     transformControls.visible = true
     transformControls.enabled = true
+    rotationControls.visible = true
+    rotationControls.enabled = true
     if (transformHelper) {
       transformHelper.visible = true
       transformHelper.updateMatrixWorld?.(true)
+    }
+    if (rotationHelper) {
+      rotationHelper.visible = true
+      rotationHelper.updateMatrixWorld?.(true)
     }
     resetOrientationFix()
     ensureOrientationBase(target)
@@ -3994,12 +3986,6 @@ function refreshSelectedTransformUi(rebaseBase = true) {
 }
 
 function setTransformMode(mode: TransformMode) {
-  if (mode === 'translate' && selectedItemIsPointcloud.value) {
-    transformMode.value = 'rotate'
-    syncTransformFixFromSelected()
-    return
-  }
-
   transformMode.value = mode
   refreshSelectedTransformUi(false)
 }
@@ -4021,6 +4007,12 @@ function onEditModeChange() {
       transformControls.visible = false
       transformControls.enabled = false
     }
+    if (rotationControls) {
+      rotationControls.detach()
+      rotationControls.visible = false
+      rotationControls.enabled = false
+    }
+    if (rotationHelper) rotationHelper.visible = false
     resetOrientationFix()
     resetPositionFix()
     return
@@ -4054,9 +4046,6 @@ function resolveSelectionFromIntersection(object: THREE.Object3D | null) {
   while (current) {
     if (current === bimPivot) {
       return 'bim' as const
-    }
-    if (current === pointcloudWrapper || current === pointcloudGroup) {
-      return 'pointcloud' as const
     }
     current = current.parent
   }
@@ -4133,7 +4122,6 @@ function handleViewportPointerDown(event: PointerEvent) {
   const picked = resolveSelectionFromIntersection(topLevelObject ?? pickedHit.object)
 
   const topIsBim = picked === 'bim'
-  const topIsPointcloud = picked === 'pointcloud'
   const wantElementPick =
     enableElementPicking.value && topIsBim && (!editMode.value || event.altKey)
 
@@ -4162,7 +4150,6 @@ function handleViewportPointerDown(event: PointerEvent) {
   }
 
   if (!editMode.value) return
-  if (topIsPointcloud) return
   if (picked) {
     clearPickedElement()
     selectedItemId.value = picked
@@ -4212,10 +4199,6 @@ function onViewportPointerCancel(event: PointerEvent) {
 function applyPositionFixRealtime() {
   const target = getSelectedObject()
   if (!target) return
-  if (selectedItemIsPointcloud.value) {
-    resetPositionFix()
-    return
-  }
 
   const base = ensurePositionBase(target)
   if (!base) return
@@ -4230,6 +4213,7 @@ function applyPositionFixRealtime() {
   target.updateMatrixWorld(true)
   if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
   transformHelper?.updateMatrixWorld?.(true)
+  rotationHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   requestRender()
 }
@@ -4264,20 +4248,60 @@ function onPositionNumberKeydown(event: KeyboardEvent, axis: 'x' | 'y' | 'z') {
   }
 }
 
+function setOrientationOffsetAxis(axis: 'x' | 'y' | 'z', value: string) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return
+  const limit = showOnlyVerticalAxis.value ? 180 : 10
+  const next = roundToStep(clamp(numeric, -limit, limit))
+  if (axis === 'x') orientationDegX.value = next
+  if (axis === 'y') orientationDegY.value = next
+  if (axis === 'z') orientationDegZ.value = next
+  applyOrientationFixRealtime()
+}
+
+function onOrientationNumberInput(axis: 'x' | 'y' | 'z', event: Event) {
+  setOrientationOffsetAxis(axis, (event.target as HTMLInputElement).value)
+}
+
+function onOrientationNumberBlur(axis: 'x' | 'y' | 'z', event: Event) {
+  const input = event.target as HTMLInputElement
+  setOrientationOffsetAxis(axis, input.value)
+  input.value = formatRotationOffset(
+    axis === 'x' ? orientationDegX.value : axis === 'y' ? orientationDegY.value : orientationDegZ.value,
+  )
+}
+
+function onOrientationNumberKeydown(event: KeyboardEvent, axis: 'x' | 'y' | 'z') {
+  if (event.key === 'Enter') {
+    onOrientationNumberBlur(axis, event)
+    ;(event.target as HTMLInputElement).blur()
+  }
+}
+
 function applyOrientationFixRealtime() {
   const target = getSelectedObject()
   if (!target) return
 
   const base = ensureOrientationBase(target)
   if (!base) return
-  const delta = new THREE.Quaternion().setFromAxisAngle(
-    new THREE.Vector3(0, 1, 0),
-    THREE.MathUtils.degToRad(orientationDegY.value),
-  )
+  const delta = showOnlyVerticalAxis.value
+    ? new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        THREE.MathUtils.degToRad(orientationDegY.value),
+      )
+    : new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(
+          THREE.MathUtils.degToRad(orientationDegX.value),
+          THREE.MathUtils.degToRad(orientationDegY.value),
+          THREE.MathUtils.degToRad(orientationDegZ.value),
+          'XYZ',
+        ),
+      )
   target.quaternion.copy(delta).multiply(base)
   target.updateMatrixWorld(true)
   if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
   transformHelper?.updateMatrixWorld?.(true)
+  rotationHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   requestRender()
 }
@@ -4320,6 +4344,7 @@ function resetCurrentObjectTransform() {
   resetPositionFix()
   target.updateMatrixWorld(true)
   transformHelper?.updateMatrixWorld?.(true)
+  rotationHelper?.updateMatrixWorld?.(true)
   syncBoundsHelpers()
   logBimRelativeTransform()
   requestRender()
@@ -4340,6 +4365,12 @@ function clearPickedState() {
     transformControls.visible = false
     transformControls.enabled = false
   }
+  if (rotationControls) {
+    rotationControls.detach()
+    rotationControls.visible = false
+    rotationControls.enabled = false
+  }
+  if (rotationHelper) rotationHelper.visible = false
   updateSelectionHighlight()
 }
 
@@ -5082,10 +5113,8 @@ async function handleCalibrationComplete() {
 
   hasSavedAlignmentMatrix.value = true
   coarseAlignmentDirty.value = false
-  ElMessage.success('校准矩阵已保存，可通过步骤条进入实模对比')
-  // Reload the shell so the WebGL canvas is fully disposed and the upload
-  // page recalculates its calibrated preview options from the backend.
-  window.location.assign(`${window.location.origin}/projects`)
+  ElMessage.success('校准矩阵已保存，正在返回实测页面')
+  closePage()
 }
 
 function activateCoarseRegistration() {
@@ -5097,7 +5126,7 @@ function activateFineRegistration() {
   registrationStage.value = 'fine'
   fineAlignResult.value = null
   if (!hasSavedAlignmentMatrix.value || coarseAlignmentDirty.value) {
-    ElMessage.warning('请先保存当前粗配准矩阵，再进行精细化配准')
+    ElMessage.warning('请先完成粗配准保存，再进行精细化配准')
   }
 }
 
@@ -5232,6 +5261,10 @@ async function handleLoadBimFromApi(silent = false) {
           applyClippingState()
           syncBoundsHelpers()
           fitCameraToObject(bimPivot)
+          // 粗配准默认选中 BIM 几何载体，视口显示组合平移/旋转 Gizmo。
+          if (editMode.value) {
+            selectSceneObject('bim', { enableEdit: true })
+          }
           statusText.value = `已加载 BIM：${props.bimDisplayName || assetDetail.sourceName}`
           logScenePoseDiagnostics('after-bim-load')
           if (pointcloudRootReady) {
@@ -5355,8 +5388,8 @@ async function handleLoadPointCloudFromApi(silent = false) {
       if (rendererMode === 'webgpu') {
         sanitizeObjectForWebGPU(nextTileset.group)
       }
-      applyPointcloudMaterialMode(nextTileset.group)
       collectPointcloudColorStats(nextTileset.group)
+      applyPointcloudDisplay(nextTileset.group)
       pointcloudRootReady = true
       recenterLoadedContentAsWhole()
       pointcloudWrapper?.updateMatrixWorld(true)
@@ -5375,8 +5408,8 @@ async function handleLoadPointCloudFromApi(silent = false) {
       if (rendererMode === 'webgpu') {
         sanitizeObjectForWebGPU(tileScene)
       }
-      applyPointcloudMaterialMode(tileScene)
       collectPointcloudColorStats(tileScene)
+      applyPointcloudDisplay(tileScene)
     })
     nextTileset.addEventListener('load-error', (event: any) => {
       console.error(event)
@@ -5521,7 +5554,11 @@ onBeforeUnmount(() => {
   if (scene && transformHelper) {
     scene.remove(transformHelper)
   }
+  if (scene && rotationHelper) {
+    scene.remove(rotationHelper)
+  }
   transformControls?.dispose()
+  rotationControls?.dispose()
   tileset?.dispose?.()
   renderer?.domElement?.removeEventListener?.('pointerdown', handleViewportPointerDown)
   renderer?.domElement?.removeEventListener?.('pointermove', onViewportPointerMove)
@@ -5567,18 +5604,14 @@ onBeforeUnmount(() => {
           @clear="clearAnalysis"
         />
         <el-button :loading="loadingAlignmentMatrix" :disabled="!bimAssetId || !pointcloudAssetId" @click="handleShowAlignmentMatrix">校准矩阵</el-button>
-        <el-button type="primary" :disabled="!canSaveCalibration" @click="handleCalibrationComplete">
-          校准完成
-        </el-button>
         <el-button
-          class="panel-toggle"
-          text
-          circle
-          :icon="showPanel ? DArrowRight : DArrowLeft"
-          :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
-          :title="showPanel ? '收起控制面板' : '展开控制面板'"
-          @click="showPanel = !showPanel"
-        />
+          type="primary"
+          title="保存当前校准矩阵并返回实测页面"
+          :disabled="!canSaveCalibration"
+          @click="handleCalibrationComplete"
+        >
+          完成校准并返回
+        </el-button>
       </div>
     </header>
 
@@ -5649,6 +5682,26 @@ onBeforeUnmount(() => {
                 <line x1="15" y1="9" x2="21" y2="3" />
                 <line x1="15" y1="21" x2="21" y2="15" />
                 <line x1="3" y1="21" x2="9" y2="15" />
+              </svg>
+            </el-button>
+          </div>
+        </el-tooltip>
+
+        <el-tooltip content="BIM 材质" placement="right">
+          <div class="tool-item">
+            <el-button
+              class="tool-btn tool-btn--material"
+              :class="{ 'is-on': showAdvancedSettings }"
+              circle
+              text
+              :disabled="!hasModel"
+              aria-label="BIM 材质"
+              @click="showAdvancedSettings = !showAdvancedSettings"
+            >
+              <svg class="tool-btn__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3 21 8 12 13 3 8 12 3Z" />
+                <path d="m3 12 9 5 9-5" />
+                <path d="m3 16 9 5 9-5" />
               </svg>
             </el-button>
           </div>
@@ -5746,6 +5799,12 @@ onBeforeUnmount(() => {
         </el-tooltip>
       </aside>
 
+      <div v-if="showAdvancedSettings" class="left-material-popover" role="menu" aria-label="BIM 材质模式">
+        <button type="button" :class="{ 'is-active': materialMode === 'original' }" role="menuitemradio" :aria-checked="materialMode === 'original'" @click="materialMode = 'original'; showAdvancedSettings = false">原始材质</button>
+        <button type="button" :class="{ 'is-active': materialMode === 'unlit' }" role="menuitemradio" :aria-checked="materialMode === 'unlit'" @click="materialMode = 'unlit'; showAdvancedSettings = false">无光照</button>
+        <button type="button" :class="{ 'is-active': materialMode === 'lambert' }" role="menuitemradio" :aria-checked="materialMode === 'lambert'" @click="materialMode = 'lambert'; showAdvancedSettings = false">漫反射</button>
+      </div>
+
       <div ref="viewportEl" class="viewport viewport-shell three-view-pane">
         <div class="pointcloud-display-panel alignment-pointcloud-display" role="group" aria-label="点云显示设置">
           <div class="pointcloud-display-row">
@@ -5791,6 +5850,16 @@ onBeforeUnmount(() => {
         />
       </div>
 
+      <button
+        type="button"
+        class="right-panel-toggle"
+        :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
+        :title="showPanel ? '收起控制面板' : '展开控制面板'"
+        @click="showPanel = !showPanel"
+      >
+        <el-icon :size="16"><component :is="showPanel ? DArrowRight : DArrowLeft" /></el-icon>
+      </button>
+
       <aside v-if="showPanel" class="right-panel control-panel is-workflow-panel">
         <div class="control-panel-header">
           <div class="panel-heading">
@@ -5803,14 +5872,9 @@ onBeforeUnmount(() => {
         </div>
         <div class="panel-body">
          <div class="panel-section registration-edit-panel">
-          <div class="section-title">配准</div>
-          <div class="control-row registration-mode-row">
-            <el-switch v-model="editMode" @change="onEditModeChange" />
-            <span class="label">粗配准（手动）</span>
-          </div>
-          <div class="edit-target-row">
-            <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'coarse' }" :disabled="!hasModel && !hasTileset" @click="activateCoarseRegistration">粗配准</button>
-            <button class="edit-target-btn" :class="{ 'is-active': registrationStage === 'fine' }" :disabled="!hasSavedAlignmentMatrix" @click="activateFineRegistration">精细化配准</button>
+          <div class="registration-stage-row" role="group" aria-label="配准阶段">
+            <button class="registration-stage-btn" :class="{ 'is-active': registrationStage === 'coarse' }" :disabled="!hasModel" @click="activateCoarseRegistration">粗配准</button>
+            <button class="registration-stage-btn" :class="{ 'is-active': registrationStage === 'fine' }" :disabled="!hasSavedAlignmentMatrix" @click="activateFineRegistration">精细配准</button>
           </div>
           <template v-if="registrationStage === 'fine'">
             <div class="fine-params">
@@ -5847,73 +5911,60 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <template v-else>
-            <div class="coarse-actions">
-              <el-button
-                type="primary"
-                size="small"
-                :loading="savingCalibration"
-                :disabled="!canSaveCoarseAlignment"
-                @click="saveCoarseAlignmentMatrix"
-              >
-                保存粗配准矩阵
-              </el-button>
-              <div class="coarse-actions__hint">{{ coarseSaveHint }}</div>
-            </div>
-          </template>
-          <div class="section-divider" aria-hidden="true"></div>
-          <div class="edit-target-row" :class="{ disabled: !editMode }">
-            <button class="edit-target-btn" :class="{ 'is-active': selectedItemId === 'bim' }" :disabled="!editMode || !hasModel" @click="selectSceneObject('bim')">模型调整</button>
-            <button class="edit-target-btn" :class="{ 'is-active': selectedItemId === 'pointcloud' }" :disabled="!editMode || !hasTileset" @click="selectSceneObject('pointcloud')">点云调整</button>
-            <el-button size="small" :disabled="!editMode || !selectedItemId" @click="focusSelected">定位</el-button>
-          </div>
-          <div class="control-row" :class="{ disabled: !editMode }">
-            <span class="label">变换</span>
-            <el-radio-group
-              v-model="transformMode"
-              :disabled="!editMode"
-              @change="setTransformMode"
-            >
-              <el-radio-button label="translate" :disabled="!editMode || selectedItemIsPointcloud">移动</el-radio-button>
-              <el-radio-button label="rotate">旋转</el-radio-button>
-            </el-radio-group>
+
+          <div class="transform-mode" role="tablist" aria-label="变换方式">
+            <button type="button" class="transform-mode-button" :class="{ 'is-active': transformMode === 'translate' }" role="tab" :aria-selected="transformMode === 'translate'" :disabled="!editMode || !hasModel" @click="setTransformMode('translate')">移动</button>
+            <button type="button" class="transform-mode-button" :class="{ 'is-active': transformMode === 'rotate' }" role="tab" :aria-selected="transformMode === 'rotate'" :disabled="!editMode || !hasModel" @click="setTransformMode('rotate')">旋转</button>
           </div>
 
           <div
             class="control-row control-row--orientation"
             :class="{ disabled: !editMode || !selectedItemId }"
           >
-            <span class="label">
-              {{ transformMode === 'rotate' ? '方向修正 (deg)' : '位置修正' }}
-            </span>
             <div v-if="transformMode === 'rotate'" class="orientation-sliders">
               <div
                 class="control-row control-row--compact"
                 :class="{ disabled: !editMode || !selectedItemId }"
               >
                 <div class="step-control-group">
-                  <el-select
-                    v-model="rotationStepPreset"
-                    class="step-select"
-                    popper-class="bpa-right-popper"
-                    filterable
-                    allow-create
-                    default-first-option
-                    :disabled="!editMode || !selectedItemId"
-                    @change="onRotationStepPresetChange"
-                  >
-                    <el-option
-                      v-for="stepOption in rotationStepOptions"
-                      :key="`rotate-${stepOption}`"
-                      :label="formatRotationStepLabel(stepOption)"
-                      :value="String(stepOption)"
+                  <span class="step-control-label">步长</span>
+                  <div class="step-control-fields">
+                    <el-select
+                      v-model="rotationStepPreset"
+                      class="step-select"
+                      size="small"
+                      popper-class="bpa-right-popper"
+                      filterable
+                      allow-create
+                      default-first-option
+                      :disabled="!editMode || !selectedItemId"
+                      @change="onRotationStepPresetChange"
+                    >
+                      <el-option
+                        v-for="stepOption in rotationStepOptions"
+                        :key="`rotate-${stepOption}`"
+                        :label="formatRotationStepLabel(stepOption)"
+                        :value="String(stepOption)"
+                      />
+                    </el-select>
+                    <el-input-number
+                      :model-value="rotationAdjustStep"
+                      class="step-input-number"
+                      size="small"
+                      :min="0.01"
+                      :max="45"
+                      :step="0.01"
+                      :precision="3"
+                      controls-position="right"
+                      :disabled="!editMode || !selectedItemId"
+                      @update:model-value="onRotationStepPresetChange(String($event ?? 1))"
                     />
-                  </el-select>
+                  </div>
                 </div>
               </div>
               <template v-if="showOnlyVerticalAxis">
                 <label class="slider" :class="{ disabled: !editMode || !selectedItemId }">
-                  <span class="axis">y</span>
+                  <span class="axis axis--rotation">Z</span>
                   <input
                     v-model.number="orientationDegY"
                     type="range"
@@ -5923,7 +5974,10 @@ onBeforeUnmount(() => {
                     :disabled="!editMode || !selectedItemId"
                     @input="applyOrientationFixRealtime"
                   />
-                  <span class="val wide">{{ formatRotationOffset(orientationDegY) }}</span>
+                  <div class="slider__controls slider__controls--rotation">
+                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-180" max="180" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
+                    <span class="slider__hint">deg</span>
+                  </div>
                 </label>
               </template>
               <template v-else>
@@ -5938,7 +5992,10 @@ onBeforeUnmount(() => {
                     :disabled="!editMode || !selectedItemId"
                     @input="applyOrientationFixRealtime"
                   />
-                  <span class="val wide">{{ formatRotationOffset(orientationDegX) }}</span>
+                  <div class="slider__controls slider__controls--rotation">
+                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegX)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('x', $event)" @blur="onOrientationNumberBlur('x', $event)" @keydown="onOrientationNumberKeydown($event, 'x')" />
+                    <span class="slider__hint">deg</span>
+                  </div>
                 </label>
                 <label class="slider" :class="{ disabled: !editMode || !selectedItemId }">
                   <span class="axis">Y</span>
@@ -5951,7 +6008,10 @@ onBeforeUnmount(() => {
                     :disabled="!editMode || !selectedItemId"
                     @input="applyOrientationFixRealtime"
                   />
-                  <span class="val wide">{{ formatRotationOffset(orientationDegY) }}</span>
+                  <div class="slider__controls slider__controls--rotation">
+                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
+                    <span class="slider__hint">deg</span>
+                  </div>
                 </label>
                 <label class="slider" :class="{ disabled: !editMode || !selectedItemId }">
                   <span class="axis">Z</span>
@@ -5964,36 +6024,55 @@ onBeforeUnmount(() => {
                     :disabled="!editMode || !selectedItemId"
                     @input="applyOrientationFixRealtime"
                   />
-                  <span class="val wide">{{ formatRotationOffset(orientationDegZ) }}</span>
+                  <div class="slider__controls slider__controls--rotation">
+                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegZ)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('z', $event)" @blur="onOrientationNumberBlur('z', $event)" @keydown="onOrientationNumberKeydown($event, 'z')" />
+                    <span class="slider__hint">deg</span>
+                  </div>
                 </label>
               </template>
             </div>
             <div v-else class="orientation-sliders">
               <div
                 class="control-row control-row--compact"
-                :class="{ disabled: !editMode || !selectedItemId || selectedItemIsPointcloud }"
+                :class="{ disabled: !editMode || !selectedItemId }"
               >
                 <div class="step-control-group">
-                  <el-select
-                    v-model="positionStepPreset"
-                    class="step-select"
-                    popper-class="bpa-right-popper"
-                    filterable
-                    allow-create
-                    default-first-option
-                    :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
-                    @change="onPositionStepPresetChange"
-                  >
-                    <el-option
-                      v-for="stepOption in positionStepOptions"
-                      :key="`position-${stepOption}`"
-                      :label="formatPositionStepLabel(stepOption)"
-                      :value="String(stepOption)"
+                  <span class="step-control-label">步长</span>
+                  <div class="step-control-fields">
+                    <el-select
+                      v-model="positionStepPreset"
+                      class="step-select"
+                      size="small"
+                      popper-class="bpa-right-popper"
+                      filterable
+                      allow-create
+                      default-first-option
+                      :disabled="!editMode || !selectedItemId"
+                      @change="onPositionStepPresetChange"
+                    >
+                      <el-option
+                        v-for="stepOption in positionStepOptions"
+                        :key="`position-${stepOption}`"
+                        :label="formatPositionStepLabel(stepOption)"
+                        :value="String(stepOption)"
+                      />
+                    </el-select>
+                    <el-input-number
+                      :model-value="positionAdjustStep"
+                      class="step-input-number"
+                      size="small"
+                      :min="0.001"
+                      :max="10"
+                      :step="0.001"
+                      :precision="3"
+                      controls-position="right"
+                      :disabled="!editMode || !selectedItemId"
+                      @update:model-value="onPositionStepPresetChange(String($event ?? 0.01))"
                     />
-                  </el-select>
+                  </div>
                 </div>
               </div>
-              <label class="slider" :class="{ disabled: !editMode || !selectedItemId || selectedItemIsPointcloud }">
+              <label class="slider" :class="{ disabled: !editMode || !selectedItemId }">
                 <span class="axis">X</span>
                 <input
                   v-model.number="positionOffsetX"
@@ -6001,15 +6080,15 @@ onBeforeUnmount(() => {
                   :min="positionSliderRange.min"
                   :max="positionSliderRange.max"
                   :step="positionAdjustStep"
-                  :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
+                  :disabled="!editMode || !selectedItemId"
                   @input="applyPositionFixRealtime"
                 />
                 <div class="slider__controls">
-                  <input class="axis-number-input" :value="positionOffsetX" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud" @input="onPositionNumberInput('x', $event)" @blur="onPositionNumberBlur('x', $event)" @keydown="onPositionNumberKeydown($event, 'x')" />
+                  <input class="axis-number-input" :value="positionOffsetX" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('x', $event)" @blur="onPositionNumberBlur('x', $event)" @keydown="onPositionNumberKeydown($event, 'x')" />
                   <span class="slider__hint">m</span>
                 </div>
               </label>
-              <label class="slider" :class="{ disabled: !editMode || !selectedItemId || selectedItemIsPointcloud }">
+              <label class="slider" :class="{ disabled: !editMode || !selectedItemId }">
                 <span class="axis">Y</span>
                 <input
                   v-model.number="positionOffsetY"
@@ -6017,15 +6096,15 @@ onBeforeUnmount(() => {
                   :min="positionSliderRange.min"
                   :max="positionSliderRange.max"
                   :step="positionAdjustStep"
-                  :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
+                  :disabled="!editMode || !selectedItemId"
                   @input="applyPositionFixRealtime"
                 />
                 <div class="slider__controls">
-                  <input class="axis-number-input" :value="positionOffsetY" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud" @input="onPositionNumberInput('y', $event)" @blur="onPositionNumberBlur('y', $event)" @keydown="onPositionNumberKeydown($event, 'y')" />
+                  <input class="axis-number-input" :value="positionOffsetY" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('y', $event)" @blur="onPositionNumberBlur('y', $event)" @keydown="onPositionNumberKeydown($event, 'y')" />
                   <span class="slider__hint">m</span>
                 </div>
               </label>
-              <label class="slider" :class="{ disabled: !editMode || !selectedItemId || selectedItemIsPointcloud }">
+              <label class="slider" :class="{ disabled: !editMode || !selectedItemId }">
                 <span class="axis">Z</span>
                 <input
                   v-model.number="positionOffsetZ"
@@ -6033,24 +6112,28 @@ onBeforeUnmount(() => {
                   :min="positionSliderRange.min"
                   :max="positionSliderRange.max"
                   :step="positionAdjustStep"
-                  :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud"
+                  :disabled="!editMode || !selectedItemId"
                   @input="applyPositionFixRealtime"
                 />
                 <div class="slider__controls">
-                  <input class="axis-number-input" :value="positionOffsetZ" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId || selectedItemIsPointcloud" @input="onPositionNumberInput('z', $event)" @blur="onPositionNumberBlur('z', $event)" @keydown="onPositionNumberKeydown($event, 'z')" />
+                  <input class="axis-number-input" :value="positionOffsetZ" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('z', $event)" @blur="onPositionNumberBlur('z', $event)" @keydown="onPositionNumberKeydown($event, 'z')" />
                   <span class="slider__hint">m</span>
                 </div>
               </label>
             </div>
-            <div class="orientation-actions">
-              <el-button
-                size="small"
-                :disabled="!editMode || !selectedItemId || (transformMode === 'translate' && selectedItemIsPointcloud)"
-                @click="resetTransformFixRealtime"
-              >
-                重置当前对象到初始
-              </el-button>
-            </div>
+          </div>
+          <div v-if="registrationStage === 'coarse'" class="registration-footer-actions">
+            <el-button size="large" :disabled="!editMode || !selectedItemId" @click="resetTransformFixRealtime">重置变换</el-button>
+            <el-button
+              type="primary"
+              size="large"
+              title="保存当前粗配准矩阵并继续当前流程"
+              :loading="savingCalibration"
+              :disabled="!canSaveCoarseAlignment"
+              @click="saveCoarseAlignmentMatrix"
+            >
+              保存粗配准
+            </el-button>
           </div>
         </div>
         <div class="panel-section mesh-remesh-panel">
@@ -6235,19 +6318,6 @@ onBeforeUnmount(() => {
           <div v-if="c2mSceneLoaded && c2mDistances" class="c2m-pick-hint">按住 Shift 单击着色网格，可读取该位置的插值偏差。</div>
           <C2MHistogramLegend v-if="c2mDisplayResult" class="c2m-result-histogram" :result="c2mDisplayResult" compact />
         </div>
-       
-
-        <div class="panel-section material-panel">
-          <div class="section-title">BIM 材质</div>
-          <div class="control-row">
-            <el-select v-model="materialMode" popper-class="bpa-right-popper" :disabled="!hasModel">
-              <el-option label="原始材质" value="original" />
-              <el-option label="无光照" value="unlit" />
-              <el-option label="漫反射" value="lambert" />
-            </el-select>
-          </div>
-        </div>
-
         </div>
       </aside>
     </div>

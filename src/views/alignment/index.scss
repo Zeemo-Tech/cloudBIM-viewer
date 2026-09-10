@@ -620,20 +620,6 @@
   }
 }
 
-// 行动按钮区
-.coarse-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-
-  &__hint {
-    font-size: 11px;
-    color: rgba(125, 194, 255, 0.62);
-    line-height: 1.45;
-  }
-}
-
 .fine-actions {
   display: flex;
   flex-direction: column;
@@ -711,13 +697,6 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
-}
-
-.step-select {
-  width: 328px !important;
-  :deep(.el-select__wrapper) {
-  min-height: 25px !important;}
-
 }
 
 .step-input {
@@ -1466,19 +1445,6 @@
   background: rgba(125, 194, 255, 0.12);
 }
 
-.coarse-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.coarse-actions__hint {
-  font-size: 11px;
-  line-height: 1.45;
-  color: rgba(125, 194, 255, 0.62);
-}
-
 .fine-result {
   margin-top: 10px;
   padding: 10px 12px;
@@ -1717,8 +1683,10 @@
 
 .calibration-page .topbar-right.header-actions > .el-button {
   height: 34px;
+  min-height: 34px;
   margin: 0;
   border-radius: var(--radius-xs);
+  padding: 0 12px;
   font-size: var(--font-size-xs);
 }
 
@@ -1740,20 +1708,6 @@
   color: #fff;
   background: var(--color-primary);
   box-shadow: var(--shadow-sm);
-}
-
-.calibration-page .topbar-right.header-actions > .panel-toggle {
-  width: 34px;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  background: var(--bg-card);
-}
-
-.calibration-page .topbar-right.header-actions > .panel-toggle:hover {
-  border-color: var(--border-color-hover);
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
 }
 
 .calibration-page .main-content.calibration-main {
@@ -1793,6 +1747,48 @@
   overflow-y: auto;
   border-right: 1px solid var(--border-color);
   background: var(--bg-card);
+}
+
+.calibration-page .left-toolbar .tool-btn--material {
+  padding: 0;
+}
+
+.calibration-page .left-material-popover {
+  position: absolute;
+  top: 118px;
+  left: calc(var(--editor-toolbar-width) + 10px);
+  z-index: calc(var(--z-sticky) + 3);
+  box-sizing: border-box;
+  width: 126px;
+  padding: 5px;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--bg-card-translucent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.calibration-page .left-material-popover > button {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.calibration-page .left-material-popover > button:hover,
+.calibration-page .left-material-popover > button.is-active {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .calibration-page .left-toolbar.view-toolbar .tool-item {
@@ -2014,13 +2010,44 @@
   padding: 0;
   overflow: hidden;
   border: 0;
-  border-left: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color-light);
   border-radius: 0;
   color: var(--text-primary);
-  background: var(--bg-card);
-  box-shadow: none;
+  background: var(--bg-page);
+  box-shadow: -10px 0 24px rgb(163 177 198 / 14%), inset 1px 0 0 rgb(255 255 255 / 82%);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.calibration-page .right-panel-toggle {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  z-index: calc(var(--z-sticky) + 2);
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-control);
+  box-shadow: 4px 4px 10px rgb(169 184 210 / 24%), -4px -4px 10px rgb(255 255 255 / 92%);
+  cursor: pointer;
+  transition: color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.calibration-page .right-panel-toggle:hover {
+  color: var(--color-primary);
+  box-shadow: 2px 2px 6px rgb(169 184 210 / 26%), -2px -2px 6px rgb(255 255 255 / 94%);
+}
+
+.calibration-page .right-panel-toggle:active {
+  transform: translateY(-50%) scale(0.96);
+  box-shadow: inset 2px 2px 5px rgb(169 184 210 / 22%), inset -2px -2px 5px rgb(255 255 255 / 86%);
 }
 
 .calibration-page .control-panel-header {
@@ -2102,6 +2129,303 @@
   line-height: 1.35;
 }
 
+.calibration-page .registration-edit-panel {
+  padding: 14px 16px 16px;
+}
+
+.calibration-page .registration-stage-row {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.calibration-page .registration-stage-btn {
+  height: 34px;
+  min-height: 34px;
+  flex: 1 1 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 0 12px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  font-size: var(--font-size-xs);
+  line-height: 32px;
+  cursor: pointer;
+}
+
+.calibration-page .registration-stage-btn:hover:not(:disabled) {
+  border-color: var(--border-color-hover);
+  color: var(--text-primary);
+  background: var(--bg-control-hover);
+}
+
+.calibration-page .registration-stage-btn.is-active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .registration-stage-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.calibration-page .registration-edit-panel > .transform-mode {
+  display: flex;
+  width: 100%;
+  margin: 0 0 18px;
+  border-bottom: 0;
+}
+
+.calibration-page .registration-edit-panel > .transform-mode .transform-mode-button {
+  position: relative;
+  height: 34px;
+  min-height: 34px;
+  flex: 1 1 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-family: var(--font-family-number);
+  font-size: var(--font-size-xs);
+  line-height: 34px;
+  cursor: pointer;
+}
+
+.calibration-page .registration-edit-panel > .transform-mode .transform-mode-button.is-active {
+  position: relative;
+  color: var(--color-primary);
+  font-weight: 650;
+}
+
+.calibration-page .registration-edit-panel > .transform-mode .transform-mode-button.is-active::after {
+  position: absolute;
+  right: 12px;
+  bottom: -1px;
+  left: 12px;
+  height: 2px;
+  background: var(--color-primary);
+  content: '';
+}
+
+.calibration-page .registration-edit-panel .step-control-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  gap: 5px;
+}
+
+.calibration-page .registration-edit-panel .step-control-label {
+  display: block;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields > .el-select,
+.calibration-page .registration-edit-panel .step-control-fields > .step-input-number {
+  display: block;
+  width: 100% !important;
+  height: 32px !important;
+  min-width: 0;
+  max-width: none;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(:is(.el-input__wrapper, .el-select__wrapper)) {
+  box-sizing: border-box;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 4px;
+  background: var(--bg-control) !important;
+  box-shadow: none !important;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-select__selected-item),
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number__input) {
+  min-width: 0;
+  color: var(--text-primary) !important;
+  font-family: var(--font-family-number);
+  font-size: 12px !important;
+  font-weight: 600;
+  line-height: 30px;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-select__selected-item) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number .el-input__wrapper) {
+  padding: 0 22px 0 8px !important;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number__input) {
+  box-sizing: border-box;
+  height: 30px !important;
+  line-height: 30px !important;
+  padding: 0;
+  text-align: right;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number__increase),
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number__decrease) {
+  width: 18px;
+  height: 16px;
+  color: var(--text-tertiary);
+  background: var(--bg-muted);
+  line-height: 16px;
+}
+
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number__increase:hover),
+.calibration-page .registration-edit-panel .step-control-fields :deep(.el-input-number__decrease:hover) {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .registration-edit-panel .control-row--compact {
+  display: block;
+  margin: 0 0 12px;
+}
+
+.calibration-page .registration-edit-panel .control-row--orientation > .label {
+  display: block;
+  width: auto;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders {
+  display: flex;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-muted);
+  box-shadow: none;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-color: var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-card);
+  font-size: var(--font-size-xs);
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider .axis {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 2px;
+  color: #fff;
+  font-family: var(--font-family-number);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  height: 5px;
+  accent-color: var(--color-primary);
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider__controls {
+  min-width: 0;
+  width: 72px;
+  gap: 4px;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider__controls--rotation {
+  width: 88px;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider:nth-of-type(1) .axis {
+  background: #bd4c58;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider:nth-of-type(2) .axis {
+  background: #428c61;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .slider:nth-of-type(3) .axis {
+  background: #4479b8;
+}
+
+.calibration-page .registration-edit-panel .orientation-sliders .axis--rotation {
+  background: #428c61;
+}
+
+.calibration-page .registration-edit-panel .axis-number-input {
+  box-sizing: border-box;
+  min-height: 30px;
+  width: 60px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--bg-control) !important;
+  font-family: var(--font-family-number);
+  font-size: var(--font-size-xs);
+}
+
+.calibration-page .registration-edit-panel .axis-number-input--rotation {
+  width: 64px;
+}
+
+.calibration-page .registration-edit-panel .slider__hint {
+  min-width: 20px;
+  color: var(--text-tertiary);
+  font-family: var(--font-family-number);
+  font-size: 10px;
+  text-align: left;
+}
+
+.calibration-page .registration-footer-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.calibration-page .registration-footer-actions .el-button {
+  height: 34px;
+  min-height: 34px;
+  margin: 0;
+  border-radius: 3px;
+  padding: 0 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+}
+
+.calibration-page .registration-footer-actions .el-button--primary {
+  color: #fff;
+  background: var(--color-primary);
+}
+
 .calibration-page .control-panel .section-divider {
   margin: 16px 0;
   background: var(--border-color-light);
@@ -2117,7 +2441,6 @@
 .calibration-page .control-panel .value,
 .calibration-page .control-panel .mesh-remesh-stats,
 .calibration-page .control-panel .mesh-remesh-provenance,
-.calibration-page .control-panel .coarse-actions__hint,
 .calibration-page .control-panel .c2m-pick-hint {
   color: var(--text-tertiary);
 }
@@ -2203,7 +2526,9 @@
 }
 
 .calibration-page .control-panel :deep(.el-button:not(.is-text):not(.is-link)) {
-  min-height: 32px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: var(--radius-xs);
   border-color: var(--border-color);
   color: var(--text-secondary);
@@ -2227,6 +2552,110 @@
   border-color: var(--color-success);
   color: #fff;
   background: var(--color-success);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel
+  :deep(.el-button:not(.is-text):not(.is-link):not(.is-circle)) {
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-filter-control);
+  transition: color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel
+  :deep(.el-button:not(.is-text):not(.is-link):not(.is-circle):hover:not(.is-disabled)) {
+  border-color: var(--border-color-hover);
+  color: var(--color-primary);
+  background: var(--bg-control-hover);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel
+  :deep(.el-button--primary:not(.is-text):not(.is-link):not(.is-circle)) {
+  border-color: var(--color-primary);
+  color: #fff;
+  background: var(--color-primary);
+  box-shadow: 4px 4px 10px rgb(54 120 201 / 24%), -3px -3px 8px rgb(255 255 255 / 82%);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel
+  :deep(.el-button--primary:not(.is-text):not(.is-link):not(.is-circle):hover:not(.is-disabled)) {
+  color: #fff;
+  background: var(--color-primary-hover);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel .registration-stage-btn,
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button {
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-filter-control);
+  transition: color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel .registration-stage-btn:hover:not(:disabled),
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button:hover:not(:disabled) {
+  border-color: var(--border-color-hover);
+  color: var(--color-primary);
+  background: var(--bg-control-hover);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel .registration-stage-btn.is-active,
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button.is-active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: inset 2px 2px 5px rgb(169 184 210 / 18%), inset -2px -2px 5px rgb(255 255 255 / 86%);
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel .fine-reset-link {
+  min-height: 34px;
+  align-self: stretch;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  color: var(--text-secondary);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-filter-control);
+  font-size: var(--font-size-xs);
+  text-decoration: none;
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel .fine-reset-link:hover:not(:disabled) {
+  color: var(--color-primary);
+  background: var(--bg-control-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+// 移动/旋转是模式 Tab，不使用按钮卡片外观，仅保留下划线状态指示。
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button,
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button:hover:not(:disabled),
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button.is-active {
+  border: 0;
+  border-radius: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button:hover:not(:disabled),
+.calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button.is-active {
+  color: var(--color-primary);
+}
+
+// 页面内文字操作按钮统一采用“校准矩阵”按钮的 34px 尺寸；圆形和工具栏图标按钮保留专用尺寸。
+.calibration-page :deep(.el-button:not(.is-text):not(.is-link):not(.is-circle):not(.tool-btn):not(.panel-toggle)) {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--font-size-xs);
 }
 
 .calibration-page .control-panel :deep(.el-switch) {
