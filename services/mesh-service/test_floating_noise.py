@@ -86,19 +86,20 @@ class FloatingNoiseTests(unittest.TestCase):
         scores = np.array([.2, .2, .2, .65, .9, .2, .2])
         mask, report = floating_noise_mask(
             points, types, self.bands, self.segments, steel_scores=scores,
-            protected=np.array([False, False, False, False, False, True, False]))
+            protected=np.array([False, False, False, False, False, True, False]),
+            observed_support_points=np.array([[.5, .5, .034], [.5, .006, .1]]))
         np.testing.assert_array_equal(mask, [False, False, True, True, False, False, False])
         self.assertEqual(report['lowScoreCandidatePointCount'], 4)
         self.assertEqual(report['protectedCandidatePointCount'], 2)
 
-    def test_low_score_uses_six_mm_margin_while_single_route_uses_twelve(self):
+    def test_single_route_uses_tight_surface_tolerance(self):
         segment = dict(type=2, startM=[0, 0, .1], endM=[1, 0, .1],
                        radiusM=.004, pointCount=100, measuredSupportPointCount=20)
-        points = np.array([[.5, .012, .1], [.6, .012, .1]])
+        points = np.array([[.5, .008, .1], [.504, .0075, .1]])
         mask, report = floating_noise_mask(points, np.array([2, 2]), self.bands, [segment],
                                            steel_scores=np.array([.5, .65]))
         np.testing.assert_array_equal(mask, [True, False])
-        self.assertEqual(report['lowScoreSupportMarginM'], .006)
+        self.assertEqual(report['supportMarginM'], .012)
 
     def test_prior_only_model_cannot_self_protect_low_score_air_fit(self):
         prior_only = dict(type=2, startM=[0, 0, .1], endM=[1, 0, .1],
@@ -107,10 +108,46 @@ class FloatingNoiseTests(unittest.TestCase):
                         radiusM=.004, pointCount=100, measuredSupportPointCount=20)
         points = np.array([[.5, .005, .1], [.5, 1.005, .1]])
         mask, report = floating_noise_mask(points, np.array([2, 2]), self.bands,
-                                           [prior_only, measured], steel_scores=np.array([.2, .2]))
+                                           [prior_only, measured], steel_scores=np.array([.2, .2]),
+                                           observed_support_points=np.array([[.5, 1.006, .1]]))
         np.testing.assert_array_equal(mask, [True, False])
         self.assertEqual(report['priorOnlyRejectedSegmentCount'], 1)
         self.assertEqual(report['reliableSegmentCount'], 1)
+
+    def test_scored_lower_band_requires_surface_or_frozen_observation(self):
+        lower = dict(type=1, startM=[0, 0, .03], endM=[1, 0, .03],
+                     radiusM=.004, pointCount=100, measuredSupportPointCount=100)
+        points = np.array([[.5, .0045, .03], [.504, .0045, .03],
+                           [.5, .05, .03], [.6, .05, .03]])
+        mask, _ = floating_noise_mask(points, np.ones(4, int), self.bands, [lower],
+                                      steel_scores=np.full(4, .65))
+        np.testing.assert_array_equal(mask, [False, False, True, True])
+
+    def test_frozen_observation_preserves_hook_and_finite_endpoint_neighbor(self):
+        lower = dict(type=1, startM=[0, 0, .03], endM=[1, 0, .03],
+                     radiusM=.004, pointCount=100, measuredSupportPointCount=100)
+        points = np.array([[1.004, .008, .03], [.5, .03, .03]])
+        anchors = np.array([[1.002, .002, .03]])
+        mask, _ = floating_noise_mask(
+            points, np.ones(2, int), self.bands, [lower],
+            steel_scores=np.full(2, .65), observed_support_points=anchors)
+        np.testing.assert_array_equal(mask, [False, True])
+
+    def test_long_unobserved_cylinder_gap_does_not_protect_a_lone_point(self):
+        lower = dict(type=1, startM=[0, 0, .03], endM=[1, 0, .03],
+                     radiusM=.004, pointCount=100, measuredSupportPointCount=2)
+        point = np.array([[.5, .004, .03]])
+        anchors = np.array([[0, .004, .03], [1, .004, .03]])
+        mask, _ = floating_noise_mask(
+            point, np.array([1]), self.bands, [lower], steel_scores=np.array([.65]),
+            observed_support_points=anchors)
+        self.assertTrue(mask[0])
+
+    def test_missing_lower_model_only_removes_isolated_strong_negative(self):
+        points = np.array([[0, 0, .03], [1, 1, .03], [1.002, 1, .03]])
+        mask, _ = floating_noise_mask(points, np.ones(3, int), self.bands, [],
+                                      steel_scores=np.full(3, .65))
+        np.testing.assert_array_equal(mask, [True, False, False])
 
     def test_each_finite_cylinder_uses_its_own_radius(self):
         segments = [

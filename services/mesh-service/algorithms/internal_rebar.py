@@ -527,7 +527,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
                  (np.asarray(fused_score)[scope] >= PROTECTION_THRESHOLD) & (context.refined_class[scope] == 3))
     removed, denoising = floating_noise_mask(context.positions[scope], output['internal_type'][scope],
                                             bands, segments, workers=workers, protected=protected,
-                                            steel_scores=None if fused_score is None else np.asarray(fused_score)[scope])
+                                            steel_scores=None if fused_score is None else np.asarray(fused_score)[scope],
+                                            observed_support_points=None if fused_score is None else context.positions[
+                                                (context.refined_zone != 1) & (context.refined_class == 3) &
+                                                (np.asarray(fused_score) >= PROTECTION_THRESHOLD)])
     denoising['protectionThreshold'] = PROTECTION_THRESHOLD
     noise_ids = scope[removed]
     output['internal_type'][noise_ids] = 5

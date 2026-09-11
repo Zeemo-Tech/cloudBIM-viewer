@@ -1,0 +1,97 @@
+{
+  "runId": "20260911T071010-9c7637a2",
+  "pointCount": 9216369,
+  "originalFieldsPreserved": 15,
+  "highScorePoints": 1797560,
+  "highScoreLost": 0,
+  "computeThroughStep05S": 23.666895542963175,
+  "endToEndThroughStep06S": 36.0044342619949,
+  "scoreCounts": {
+    "0.0": 7206860,
+    "0.25": 2442,
+    "0.5": 24495,
+    "0.6499999761581421": 185012,
+    "1.0": 1797560
+  },
+  "counts": {
+    "shared_table_mask": {
+      "0": 3900373,
+      "1": 5315996
+    },
+    "partition_zone": {
+      "1": 4752106,
+      "2": 1703745,
+      "3": 2760518
+    },
+    "geometry_class": {
+      "1": 5315996,
+      "2": 1988945,
+      "3": 1911428
+    },
+    "geometry_recovered": {
+      "0": 8908963,
+      "1": 307406
+    },
+    "projection_class": {
+      "1": 5315996,
+      "2": 1877478,
+      "3": 2022895
+    },
+    "fused_class": {
+      "1": 5315996,
+      "2": 1890864,
+      "3": 2009509
+    },
+    "fused_recovered": {
+      "0": 8528572,
+      "1": 687797
+    },
+    "fused_steel_evidence": {
+      "0": 7206860,
+      "1": 40346,
+      "2": 73586,
+      "3": 133062,
+      "4": 24495,
+      "8": 2442,
+      "9": 20547,
+      "10": 50533,
+      "11": 1664498
+    },
+    "refined_class": {
+      "1": 5315996,
+      "2": 1890864,
+      "3": 2009509
+    },
+    "refined_zone": {
+      "1": 4752106,
+      "2": 1703745,
+      "3": 2760518
+    },
+    "internal_type": {
+      "0": 7478349,
+      "1": 1381284,
+      "2": 164979,
+      "3": 183199,
+      "4": 3316,
+      "5": 5242
+    },
+    "complete_class": {
+      "1": 5315996,
+      "2": 1890864,
+      "3": 1894618,
+      "4": 114891
+    }
+  },
+  "checks": [
+    "source hash",
+    "original LAS dimensions",
+    "source record indices",
+    "single preparation",
+    "shared masks",
+    "source recovery masks",
+    "instance counts and references",
+    "prior-only score exclusion",
+    "all denoising keep rules",
+    "NPY/LAS/preview/subset scores"
+  ]
+}

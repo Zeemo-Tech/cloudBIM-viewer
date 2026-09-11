@@ -111,10 +111,10 @@ class GuidedTests(unittest.TestCase):
                 ctx.fused_steel_score = np.r_[np.ones(count), [.25, .65, 1.]].astype(np.float32)
                 before = ctx.positions.copy()
                 result = refine_instances(ctx, report, inventory([rod]), mode=mode)
-                np.testing.assert_array_equal(ctx.complete_class[count:], [4, 3, 3])
+                np.testing.assert_array_equal(ctx.complete_class[count:], [4, 4, 3])
                 np.testing.assert_array_equal(ctx.complete_class[:count], 3)
                 np.testing.assert_array_equal(ctx.positions, before)
-                self.assertEqual(result['designReview']['exteriorDenoising']['removedPointCount'], 1)
+                self.assertEqual(result['designReview']['exteriorDenoising']['removedPointCount'], 2)
 
     def test_parallel_but_off_axis_external_arc_is_not_protected(self):
         ctx,report,arc=short_external_arc(offset=.04)
@@ -200,6 +200,27 @@ class GuidedTests(unittest.TestCase):
         np.testing.assert_array_equal(ctx.complete_instance[arc],1)
         owners={s['id']:s['instanceId'] for s in r['segments']}
         self.assertEqual({owners[int(s)] for s in ctx.complete_segment[arc]},{1})
+
+    def test_mixed_fusion_scores_do_not_split_an_observed_hook_near_fixture(self):
+        rods = [([0, 0, 0], [.4, 0, 0]), ([.5, 0, 0], [.65, 0, 0]),
+                ([.65, 0, 0], [.65, .035, 0])]
+        ctx, report, sizes = scene(rods, ids=[1, 0, 0], zones=[1, 3, 3])
+        steel_count = len(ctx.positions)
+        fixture = ctx.positions[-sizes[-1]:] + [0, 0, -.003]
+        ctx.positions = np.vstack([ctx.positions, fixture])
+        ctx.normals = np.vstack([ctx.normals, ctx.normals[-sizes[-1]:]])
+        for name, value in {'refined_class': 2, 'refined_zone': 3, 'internal_type': 0,
+                            'internal_instance': 0, 'internal_segment': 0, 'internal_confidence': 0}.items():
+            values = getattr(ctx, name)
+            setattr(ctx, name, np.r_[values, np.full(len(fixture), value)].astype(values.dtype))
+        ctx.fused_steel_score = np.zeros(len(ctx.positions), np.float32)
+        ctx.fused_steel_score[:steel_count] = np.resize([1., .65, .25], steel_count)
+        scores = ctx.fused_steel_score.copy()
+        refine_instances(ctx, report, inventory([([0, 0, 0], [.7, 0, 0])]))
+        np.testing.assert_array_equal(ctx.complete_class[:steel_count], 3)
+        np.testing.assert_array_equal(ctx.complete_instance[:steel_count], 1)
+        np.testing.assert_array_equal(ctx.complete_class[steel_count:], 2)
+        np.testing.assert_array_equal(ctx.fused_steel_score, scores)
 
     def test_early_extension_follows_later_interior_instance_merge(self):
         rods=[([0,0,0],[.15,0,0]),([.2,0,0],[.4,0,0]),([.5,0,0],[.525,0,0])]

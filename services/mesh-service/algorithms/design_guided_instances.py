@@ -14,7 +14,7 @@ from .internal_rebar import InternalRebarParameters, _fit_cylinder, _split_paral
 from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters, _terminal_rays
 from .design_prior_refinement import PriorParameters, _candidates
 
-VERSION = 'design-guided-instances-v5-score-priority'
+VERSION = 'design-guided-instances-v6-observed-score-support'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -778,25 +778,28 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             'extraInstancePenalty':params.extra_instance_penalty if extra else 0.})
         if not np.any(out['complete_instance'][rows]):a['instanceId']=0;choices[i]=None
     # Step 05 has already checked inner support. Here check only still-loose
-    # low-score exterior rows against surviving observed finite rods; a design
+    # non-high-score exterior rows against surviving observed finite rods; a design
     # line cannot provide the missing physical support.
     exterior_denoising = {'removedPointCount': 0}
-    pending_low = np.flatnonzero(low_score & (context.refined_zone != 1) &
-                                (out['complete_class'] == 3) & (out['complete_instance'] == 0))
-    if len(pending_low):
+    review_score = np.zeros(count, bool) if fused_scores is None else np.asarray(fused_scores) < PROTECTION_THRESHOLD
+    pending_suspect = np.flatnonzero(review_score & (context.refined_zone != 1) &
+                                    (out['complete_class'] == 3) & (out['complete_instance'] == 0))
+    if len(pending_suspect):
         from .floating_noise import floating_noise_mask
         live_counts = np.bincount(out['complete_segment'], minlength=next_segment)
         reliable_segments = [{**s, 'pointCount': int(live_counts[s['id']])} for s in segments
                              if s['instanceId'] in strong_owners and live_counts[s['id']] > 0]
-        removed, exterior_denoising = floating_noise_mask(context.positions[pending_low],
-            np.full(len(pending_low), 4, np.uint8), [], reliable_segments, workers=workers,
-            steel_scores=np.asarray(fused_scores)[pending_low], protected=protected_high[pending_low])
-        selected = pending_low[removed]
+        anchors = protected_high & (out['complete_class'] == 3)
+        removed, exterior_denoising = floating_noise_mask(context.positions[pending_suspect],
+            np.full(len(pending_suspect), 4, np.uint8), [], reliable_segments, workers=workers,
+            steel_scores=np.asarray(fused_scores)[pending_suspect], protected=protected_high[pending_suspect],
+            observed_support_points=context.positions[anchors])
+        selected = pending_suspect[removed]
         out['complete_class'][selected] = 4
         rejected += len(selected)
         if len(selected):
             operations.append({'action': 'filter', 'pointCount': len(selected),
-                'reason': 'low_score_exterior_without_observed_support'})
+                'reason': 'non_high_score_exterior_without_observed_support'})
     # Rebuild all point counts from final ownership. Empty original fits/instances
     # are not counted as observed rods. IDs stay stable where possible.
     segment_counts=np.bincount(out['complete_segment'],minlength=next_segment)
