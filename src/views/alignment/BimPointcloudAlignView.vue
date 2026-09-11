@@ -6,12 +6,19 @@ import {
   Aim,
   ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Brush,
+  Check,
   CircleCheck,
+  Close,
   DArrowLeft,
   DArrowRight,
   Delete,
+  Document,
+  DocumentChecked,
   Download,
+  EditPen,
+  Edit,
   FullScreen,
   Grid,
   Hide,
@@ -19,7 +26,11 @@ import {
   Promotion,
   RefreshLeft,
   Setting,
+  Moon,
+  Sunny,
   View,
+  ZoomIn,
+  ZoomOut,
 } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import {
@@ -149,6 +160,25 @@ const workflowSteps = [
   { id: 2 as const, title: '偏差对比', subtitle: '查看 Scan vs BIM 偏差' },
   { id: 3 as const, title: '出报告', subtitle: '生成分析成果报告' },
 ]
+const activeWorkflowStep = ref<WorkflowStepId>(1)
+const reportEditing = ref(false)
+const reportToolbarCollapsed = ref(false)
+const reportZoom = ref(70)
+const reportFullscreen = ref(false)
+const reportTitle = ref('BIM 与点云校准报告')
+const reportProjectName = ref('BIM 与点云校准项目')
+const reportOrganization = ref('未填写')
+const reportInspectors = ref('未填写')
+const reportReviewer = ref('未填写')
+const reportDate = ref(new Date().toLocaleDateString('zh-CN'))
+const reportFormat = ref<'pdf' | 'docx' | 'xls' | 'dxf'>('pdf')
+const reportContents = ref([
+  { id: 'summary', title: '偏差对比摘要', enabled: true, locked: true, group: '基础信息' },
+  { id: 'statistics', title: '偏差统计与分布', enabled: true, locked: false, group: '偏差分析' },
+  { id: 'histogram', title: '偏差直方图', enabled: true, locked: false, group: '偏差分析' },
+  { id: 'conclusion', title: '结论与建议', enabled: true, locked: false, group: '结论' },
+])
+const reportEnabledCount = computed(() => reportContents.value.filter((item) => item.enabled).length)
 const registrationStage = ref<RegistrationStage>('coarse')
 const fineAlignLoading = ref(false)
 const fineAlignResult = ref<FineAlignmentResult | null>(null)
@@ -223,35 +253,94 @@ const canOpenDeviationStep = computed(() =>
 
 function workflowStepDisabled(step: WorkflowStepId) {
   if (step === 1) return false
-  if (step === 3) return true
+  if (step === 3) return !canOpenDeviationStep.value || activeWorkflowStep.value < 2
   return !canOpenDeviationStep.value
 }
 
 function openWorkflowStep(step: WorkflowStepId) {
-  if (step === 1) return
+  if (step === 1) {
+    reportEditing.value = false
+    if (c2mSceneLoaded.value) {
+      clearC2MSceneAndOpenCoarseEditor()
+    } else {
+      activeWorkflowStep.value = 1
+    }
+    return
+  }
   if (step === 3) {
-    ElMessage.info('出报告功能即将开放')
+    if (!canOpenDeviationStep.value) {
+      ElMessage.warning('请先完成并保存点云与工程坐标配准')
+      return
+    }
+    activeWorkflowStep.value = 3
+    reportEditing.value = false
+    showPanel.value = true
     return
   }
   if (!canOpenDeviationStep.value) {
     ElMessage.warning('请先完成并保存点云与工程坐标配准')
     return
   }
-  if (!props.bimAssetId || !props.pointcloudAssetId) return
+  reportEditing.value = false
+  activeWorkflowStep.value = 2
+  showPanel.value = true
+}
 
-  const projectId = typeof route.query.projectId === 'string' ? route.query.projectId : undefined
-  const projectName = typeof route.query.projectName === 'string' ? route.query.projectName : undefined
-  void router.replace({
-    path: '/preview/split',
-    query: {
-      ...(projectId ? { projectId } : {}),
-      ...(projectName ? { projectName } : {}),
-      bimAssetId: String(props.bimAssetId),
-      pointcloudAssetId: String(props.pointcloudAssetId),
-      ...(props.bimDisplayName ? { displayName: props.bimDisplayName } : {}),
-      ...(props.pointcloudDisplayName ? { pointcloudDisplayName: props.pointcloudDisplayName } : {}),
-    },
-  })
+function enterReportEditor() {
+  activeWorkflowStep.value = 3
+  reportEditing.value = true
+  showPanel.value = false
+}
+
+function leaveReportEditor() {
+  reportEditing.value = false
+  showPanel.value = true
+}
+
+function reportAction(action: 'export' | 'save' | 'publish') {
+  if (action === 'export') {
+    exportReport()
+    return
+  }
+  const labels = {
+    export: '导出报告',
+    save: '保存报告草稿',
+    publish: '发布报告',
+  }
+  ElMessage.info(`${labels[action]}功能将在报告内容接入后开放`)
+}
+
+async function exportReport() {
+  document.body.classList.add('is-printing-alignment-report')
+  await nextTick()
+  window.setTimeout(() => {
+    window.print()
+    window.setTimeout(() => document.body.classList.remove('is-printing-alignment-report'), 300)
+  }, 0)
+}
+
+function changeReportZoom(delta: number) {
+  reportZoom.value = Math.min(140, Math.max(40, reportZoom.value + delta))
+}
+
+function toggleReportFullscreen() {
+  reportFullscreen.value = !reportFullscreen.value
+}
+
+function saveReportEdits() {
+  ElMessage.success('报告草稿已保存')
+}
+
+function updateReportField(field: 'title' | 'project' | 'organization' | 'inspectors' | 'reviewer' | 'date', event: FocusEvent) {
+  if (!reportEditing.value) return
+  const value = (event.target as HTMLElement).innerText.trim()
+  if (!value) return
+  if (field === 'title') reportTitle.value = value
+  else if (field === 'project') reportProjectName.value = value
+  else if (field === 'organization') reportOrganization.value = value
+  else if (field === 'inspectors') reportInspectors.value = value
+  else if (field === 'reviewer') reportReviewer.value = value
+  else reportDate.value = value
 }
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
@@ -986,6 +1075,7 @@ function clearC2MScene(invalidateLoad = true) {
 
 function clearC2MSceneAndOpenCoarseEditor() {
   clearC2MScene()
+  activeWorkflowStep.value = 1
   if (!bimPivot) return
 
   registrationStage.value = 'coarse'
@@ -1349,6 +1439,7 @@ const meshWireframeTooltip = computed(() =>
 )
 const showBounds = ref(false)
 const backgroundColor = ref('#0b1020')
+const isLightBackground = ref(false)
 const pointcloudColor = ref('#86898D')
 const persistedPointcloudColor = ref('#86898D')
 const pointcloudColorOverridden = ref(true)
@@ -1763,6 +1854,28 @@ function onBackgroundColorChange() {
   updateRendererBackground()
 }
 
+function applyEditorTheme() {
+  const light = isLightBackground.value
+  backgroundColor.value = light ? '#eef3f8' : '#0b1020'
+  if (gridHelper) {
+    const materials = Array.isArray(gridHelper.material) ? gridHelper.material : [gridHelper.material]
+    const colors = light ? [0x8aa0b8, 0xb9c7d5] : [0x8be9ff, 0x4b9db5]
+    materials.forEach((material, index) => {
+      if ('color' in material) (material as THREE.LineBasicMaterial).color.setHex(colors[Math.min(index, colors.length - 1)])
+      material.opacity = light ? 0.72 : 0.9
+      material.transparent = true
+      material.needsUpdate = true
+    })
+  }
+  onBackgroundColorChange()
+  requestRender()
+}
+
+function toggleEditorTheme() {
+  isLightBackground.value = !isLightBackground.value
+  applyEditorTheme()
+}
+
 function normalizePointcloudColor(value: string, fallback = '#ffffff') {
   const normalized = value.trim()
   return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : fallback
@@ -2001,8 +2114,8 @@ function resetPointcloudColor() {
 }
 
 function resetBackgroundColor() {
-  backgroundColor.value = '#0b1020'
-  onBackgroundColorChange()
+  isLightBackground.value = false
+  applyEditorTheme()
 }
 
 function syncGridVisibility() {
@@ -6451,11 +6564,12 @@ onBeforeUnmount(() => {
             type="button"
             class="alignment-workflow-step"
             :class="{
-              'is-active': step.id === 1,
+              'is-active': activeWorkflowStep === step.id,
+              'is-completed': activeWorkflowStep > step.id,
               'is-disabled': workflowStepDisabled(step.id),
             }"
             :disabled="workflowStepDisabled(step.id)"
-            :aria-current="step.id === 1 ? 'step' : undefined"
+            :aria-current="activeWorkflowStep === step.id ? 'step' : undefined"
             :title="workflowStepDisabled(step.id)
               ? step.id === 3 ? '出报告功能即将开放' : '需先完成并保存点云与工程坐标配准'
               : undefined"
@@ -6472,8 +6586,15 @@ onBeforeUnmount(() => {
 
     </header>
 
-    <div class="main-content calibration-main" :class="{ 'is-panel-hidden': !showPanel }">
-      <aside class="left-toolbar view-toolbar">
+    <div
+      class="main-content calibration-main"
+      :class="{
+        'is-panel-hidden': !showPanel,
+        'is-report-step': activeWorkflowStep === 3,
+        'is-report-editor': activeWorkflowStep === 3 && reportEditing,
+      }"
+    >
+      <aside v-if="activeWorkflowStep !== 3" class="left-toolbar view-toolbar">
         <el-tooltip content="重置视角" placement="right">
           <div class="tool-item">
             <el-button class="tool-btn" circle text :icon="RefreshLeft" :disabled="!hasModel" @click="resetView" />
@@ -6519,6 +6640,20 @@ onBeforeUnmount(() => {
             >
               <img class="tool-btn__img" :src="wanggeIcon" alt="网格" />
             </el-button>
+          </div>
+        </el-tooltip>
+
+        <el-tooltip :content="isLightBackground ? '切换夜间背景' : '切换白昼背景'" placement="right">
+          <div class="tool-item">
+            <el-button
+              class="tool-btn"
+              :class="{ 'is-on': isLightBackground }"
+              circle
+              text
+              :icon="isLightBackground ? Moon : Sunny"
+              :aria-label="isLightBackground ? '切换夜间背景' : '切换白昼背景'"
+              @click="toggleEditorTheme"
+            />
           </div>
         </el-tooltip>
 
@@ -6672,13 +6807,13 @@ onBeforeUnmount(() => {
         </el-tooltip>
       </aside>
 
-      <div v-if="showAdvancedSettings" class="left-material-popover" role="menu" aria-label="BIM 材质模式">
+      <div v-if="activeWorkflowStep !== 3 && showAdvancedSettings" class="left-material-popover" role="menu" aria-label="BIM 材质模式">
         <button type="button" :class="{ 'is-active': materialMode === 'original' }" role="menuitemradio" :aria-checked="materialMode === 'original'" @click="materialMode = 'original'; showAdvancedSettings = false">原始材质</button>
         <button type="button" :class="{ 'is-active': materialMode === 'unlit' }" role="menuitemradio" :aria-checked="materialMode === 'unlit'" @click="materialMode = 'unlit'; showAdvancedSettings = false">无光照</button>
         <button type="button" :class="{ 'is-active': materialMode === 'lambert' }" role="menuitemradio" :aria-checked="materialMode === 'lambert'" @click="materialMode = 'lambert'; showAdvancedSettings = false">漫反射</button>
       </div>
 
-      <div ref="viewportEl" class="viewport viewport-shell three-view-pane">
+      <div v-if="activeWorkflowStep !== 3" ref="viewportEl" class="viewport viewport-shell three-view-pane">
         <div class="pointcloud-display-panel alignment-pointcloud-display" role="group" aria-label="点云显示设置">
           <div class="pointcloud-display-row">
             <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
@@ -6724,6 +6859,7 @@ onBeforeUnmount(() => {
       </div>
 
       <button
+        v-if="activeWorkflowStep !== 3"
         type="button"
         class="right-panel-toggle"
         :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
@@ -6733,25 +6869,115 @@ onBeforeUnmount(() => {
         <el-icon :size="16"><component :is="showPanel ? DArrowRight : DArrowLeft" /></el-icon>
       </button>
 
-      <aside v-if="showPanel" class="right-panel control-panel is-workflow-panel">
+      <section v-if="activeWorkflowStep === 3" class="report-preview-workspace" :class="{ 'is-report-fullscreen': reportFullscreen }" aria-label="报告预览">
+        <div v-if="!reportToolbarCollapsed" class="report-reader-toolbar" aria-label="报告预览工具栏">
+          <button type="button" title="缩小" aria-label="缩小" @click="changeReportZoom(-10)"><el-icon><ZoomOut /></el-icon></button>
+          <strong>{{ reportZoom }}%</strong>
+          <button type="button" title="放大" aria-label="放大" @click="changeReportZoom(10)"><el-icon><ZoomIn /></el-icon></button>
+          <button type="button" class="report-reader-format" title="当前导出格式">{{ reportFormat.toUpperCase() }}</button>
+          <span class="report-reader-divider"></span>
+          <button type="button" class="editing-toggle" :class="{ 'is-exit': reportEditing }" :title="reportEditing ? '退出编辑模式' : '编辑报告内容'" @click="reportEditing ? leaveReportEditor() : enterReportEditor()"><el-icon><Close v-if="reportEditing" /><EditPen v-else /></el-icon></button>
+          <button v-if="reportEditing" type="button" title="保存报告草稿" aria-label="保存报告草稿" @click="saveReportEdits"><el-icon><Check /></el-icon></button>
+          <button type="button" title="全屏预览" aria-label="全屏预览" :class="{ active: reportFullscreen }" @click="toggleReportFullscreen"><el-icon><FullScreen /></el-icon></button>
+          <button type="button" title="下载报告" aria-label="下载报告" @click="reportAction('export')"><el-icon><Download /></el-icon></button>
+          <button type="button" title="收起工具栏" aria-label="收起工具栏" @click="reportToolbarCollapsed = true"><el-icon><ArrowUp /></el-icon></button>
+        </div>
+        <button v-else type="button" class="report-reader-toolbar-reopen" title="展开报告工具栏" @click="reportToolbarCollapsed = false"><el-icon><ArrowDown /></el-icon></button>
+        <div class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <div class="report-preview-page cover-paper" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
+            <header class="cover-header">
+              <div class="cover-brand"><div class="report-preview-mark"><img src="/favicon.ico" alt="系统标识" /></div><div><span>点云与工程坐标配准</span><strong>BIM 与点云校准系统</strong></div></div>
+              <div class="cover-report-number"><small>报告编号</small><strong>REPORT / 001</strong></div>
+            </header>
+            <div class="cover-main"><span class="cover-kicker">BIM 与点云校准成果</span><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><p>Scan vs BIM Deviation Report</p><i aria-hidden="true"></i></div>
+            <dl class="cover-details"><div><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></div><div><dt>实测点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></div><div><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></div><div><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></div><div><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></div><div><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></div></dl>
+            <div class="cover-status"><span></span><div><small>当前检测状态</small><strong>{{ c2mResult ? '偏差结果已生成' : '待生成偏差结果' }}</strong></div></div>
+            <div class="cover-footer"><span>BIM 与点云校准</span><span>第 01 页</span></div>
+          </div>
+        </div>
+      </section>
+
+      <aside v-if="(showPanel && activeWorkflowStep !== 3) || (activeWorkflowStep === 3 && !reportEditing)" class="right-panel control-panel is-workflow-panel">
         <div class="control-panel-header">
           <div class="panel-heading">
             <small>ALIGNMENT WORKSPACE</small>
-            <strong>配准控制</strong>
+            <strong>{{ activeWorkflowStep === 2 ? '偏差对比' : activeWorkflowStep === 3 ? '出报告' : '配准控制' }}</strong>
           </div>
-          <button
-            class="panel-step-count panel-next-step"
-            type="button"
-            :disabled="!canOpenDeviationStep"
-            :title="canOpenDeviationStep ? '进入偏差对比' : '请先完成并保存校准'"
-            @click="openWorkflowStep(2)"
-          >
-            下一步
-            <el-icon aria-hidden="true"><DArrowRight /></el-icon>
-          </button>
+          <div class="panel-step-actions">
+            <button
+              v-if="activeWorkflowStep === 3"
+              class="panel-step-count panel-next-step panel-prev-step"
+              type="button"
+              title="上一步：偏差对比"
+              @click="openWorkflowStep(2)"
+            >
+              <el-icon aria-hidden="true"><DArrowLeft /></el-icon>
+              上一步
+            </button>
+            <button
+              v-if="activeWorkflowStep === 2"
+              class="panel-step-count panel-next-step panel-prev-step"
+              type="button"
+              title="上一步：点云与工程坐标配准"
+              @click="openWorkflowStep(1)"
+            >
+              <el-icon aria-hidden="true"><DArrowLeft /></el-icon>
+              上一步
+            </button>
+            <button
+              v-if="activeWorkflowStep === 1"
+              class="panel-step-count panel-next-step"
+              type="button"
+              :disabled="!canOpenDeviationStep"
+              :title="canOpenDeviationStep ? '进入偏差对比' : '请先完成并保存校准'"
+              @click="openWorkflowStep(2)"
+            >
+              下一步
+              <el-icon aria-hidden="true"><DArrowRight /></el-icon>
+            </button>
+            <button
+              v-if="activeWorkflowStep === 2"
+              class="panel-step-count panel-next-step"
+              type="button"
+              title="下一步：出报告"
+              @click="openWorkflowStep(3)"
+            >
+              下一步
+              <el-icon aria-hidden="true"><DArrowRight /></el-icon>
+            </button>
+          </div>
         </div>
         <div class="panel-body">
-         <div class="panel-section registration-edit-panel">
+          <div v-if="activeWorkflowStep === 3" class="panel-section report-config-panel">
+            <div class="section-heading report-section-heading">
+              <div><h2>报告配置</h2><span class="stage-state ready">{{ reportEnabledCount }} 项</span></div>
+              <span class="stage-state ready">待发布</span>
+            </div>
+            <div class="report-flow"><span class="done">配置</span><i></i><span class="done">预览</span><i></i><span>导出</span></div>
+            <div class="workflow-form">
+              <label class="field-block"><span>报告名称</span><el-input v-model="reportTitle" maxlength="40" /></label>
+              <div class="field-block"><span>输出格式</span><el-radio-group v-model="reportFormat" class="compact-segment"><el-radio-button value="pdf">PDF</el-radio-button><el-radio-button value="docx">Word</el-radio-button><el-radio-button value="xls">Excel</el-radio-button><el-radio-button value="dxf">DXF</el-radio-button></el-radio-group></div>
+            </div>
+            <div class="content-config-heading"><div><strong>报告内容配置</strong><span>{{ reportContents.length }} 项 · {{ reportEnabledCount }} 项显示</span></div><button type="button" class="reset-content-button" title="全部开启" @click="reportContents.forEach((item) => item.enabled = true)"><el-icon><RefreshLeft /></el-icon></button></div>
+            <div class="dynamic-content-list">
+              <section v-for="group in [...new Set(reportContents.map((item) => item.group))]" :key="group">
+                <header v-if="group !== '基础信息'"><strong>{{ group }}</strong><span>{{ reportContents.filter((item) => item.group === group).length }}</span></header>
+                <article v-for="item in reportContents.filter((entry) => entry.group === group)" :key="item.id" :class="{ disabled: !item.enabled }">
+                  <el-switch v-model="item.enabled" :disabled="item.locked" aria-label="显示或隐藏章节" />
+                  <el-input v-model="item.title" :disabled="item.locked" />
+                  <div class="content-actions"><button type="button" title="删除章节" :disabled="item.locked" @click="reportContents = reportContents.filter((entry) => entry.id !== item.id)"><el-icon><Delete /></el-icon></button></div>
+                  <small v-if="item.locked">模板固定内容</small>
+                </article>
+              </section>
+            </div>
+            <div class="report-source-status"><div><small>偏差项</small><strong>{{ c2mResult?.stats ? '已计算' : '待计算' }}</strong></div><div><small>已显示</small><strong>{{ reportEnabledCount }}</strong></div><div><small>状态</small><strong class="is-alert">草稿</strong></div></div>
+            <el-alert v-if="!c2mResult" class="report-alert" type="info" :closable="false" show-icon title="请先完成 Scan vs BIM 快速预估，再生成正式报告内容" />
+            <div class="report-mode-label">共享草稿与正式归档</div>
+            <div class="panel-action-row report-actions"><el-button :icon="View" :disabled="!c2mResult" @click="reportAction('save')">适应页面</el-button><el-button :icon="EditPen" :disabled="!c2mResult" @click="enterReportEditor">编辑预览</el-button><el-button :icon="Check" :disabled="!c2mResult" @click="reportAction('save')">保存草稿</el-button><el-button type="primary" :icon="DocumentChecked" :disabled="!c2mResult" @click="reportAction('publish')">发布终稿</el-button></div>
+            <div class="report-mode-label">浏览器本地导出</div>
+            <div class="panel-action-row report-actions"><el-button :icon="Download" :disabled="!c2mResult" @click="reportAction('export')">导出 {{ reportFormat.toUpperCase() }}</el-button></div>
+          </div>
+         <div v-if="activeWorkflowStep === 1" class="panel-section registration-edit-panel">
           <el-button
             class="registration-complete-button"
             type="primary"
@@ -7030,7 +7256,7 @@ onBeforeUnmount(() => {
             </el-button>
           </div>
         </div>
-        <div class="panel-section mesh-remesh-panel">
+        <div v-if="activeWorkflowStep === 1" class="panel-section mesh-remesh-panel">
           <div class="section-title">网格均匀化</div>
           <div class="mesh-remesh-summary" :class="`mesh-remesh-summary--${meshStatus?.status || 'idle'}`">
             <span class="mesh-remesh-summary__icon" aria-hidden="true">
@@ -7139,7 +7365,7 @@ onBeforeUnmount(() => {
           </details>
           <div v-if="meshError" class="mesh-remesh-error">{{ meshError }}</div>
         </div>
-        <div class="panel-section c2m-panel">
+        <div v-if="activeWorkflowStep === 2" class="panel-section c2m-panel c2m-deviation-workspace">
           <div class="section-title c2m-panel__title">Scan vs BIM 快速预估</div>
 
           <section class="c2m-primary-card" aria-label="快速预估主要操作">
@@ -7157,7 +7383,7 @@ onBeforeUnmount(() => {
             </el-button>
           </section>
 
-          <details class="c2m-advanced-card">
+          <details class="c2m-advanced-card" open>
             <summary>
               <span><el-icon><Setting /></el-icon>高级操作</span>
               <el-icon class="c2m-advanced-card__arrow"><ArrowDown /></el-icon>
@@ -7276,7 +7502,7 @@ onBeforeUnmount(() => {
           </details>
 
           <div v-if="c2mError" class="mesh-remesh-error">{{ c2mError }}</div>
-          <details v-if="c2mResult" class="c2m-result-card">
+          <details v-if="c2mResult" class="c2m-result-card" open>
             <summary>
               <span><el-icon><Histogram /></el-icon>结果</span>
               <el-icon class="c2m-result-card__arrow"><ArrowDown /></el-icon>
