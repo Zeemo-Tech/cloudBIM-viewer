@@ -1,0 +1,337 @@
+{
+  "baselineRun": "20260910T165314-ec13ed03",
+  "resultRun": "20260911T033141-74344ae2",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "pointCount": 9216369,
+  "beforeSteel": 1659842,
+  "afterSteel": 2272529,
+  "recoveredSourcePoints": 612687,
+  "liftedFixtureFaceVetoPoints": 0,
+  "reclaimedFixturePoints": 0,
+  "transitionMatrix": [
+    [
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      5315996,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1627844,
+      612687
+    ],
+    [
+      0,
+      0,
+      0,
+      1659842
+    ]
+  ],
+  "projection": {
+    "version": "projection-geometry-v7-bottom-height",
+    "pointCount": 9216369,
+    "classNames": {
+      "1": "台面",
+      "2": "夹具（含方管）",
+      "3": "钢筋"
+    },
+    "colors": {
+      "1": "#64748b",
+      "2": "#f59e0b",
+      "3": "#2dd4bf"
+    },
+    "counts": {
+      "table": 5315996,
+      "fixture": 1627844,
+      "rebar": 2272529
+    },
+    "parameters": {
+      "pixel_size": 0.002,
+      "max_pixels": 8000000,
+      "table_clearance": 0.005,
+      "max_bar_width": 0.014,
+      "min_line_length": 0.03,
+      "density_z_bin": 0.002,
+      "vertical_span": 0.028,
+      "vertical_coverage": 0.55,
+      "histogram_bin": 0.0005,
+      "layer_merge_gap": 0.016,
+      "layer_margin": 0.004,
+      "side_views_deg": [
+        0.0,
+        45.0,
+        90.0,
+        135.0
+      ],
+      "side_slice_width": 0.06,
+      "web_voxel_size": 0.003,
+      "web_radius": 0.025,
+      "web_joint_radius": 0.015,
+      "web_min_linearity": 0.78,
+      "web_min_vertical_direction": 0.15,
+      "web_bend_reach": 0.035,
+      "web_bend_width": 0.022,
+      "web_bend_gap": 0.008,
+      "fixture_edge_reach": 0.018,
+      "fixture_plane_tolerance": 0.0025,
+      "retain_bottom_height": true
+    },
+    "pixelSizeM": 0.002,
+    "gridShape": [
+      911,
+      2338
+    ],
+    "recovery": {
+      "recoveredPoints": 918951,
+      "method": "XY crossings, bounded web/bends and final bottom-height retention",
+      "passes": 1
+    },
+    "multiview": {
+      "views": [
+        {
+          "key": "side_0",
+          "angleDeg": 0.0,
+          "sliceCount": 56,
+          "pixelSizeM": 0.002,
+          "candidatePoints": 2457490,
+          "gridShape": [
+            59,
+            2267
+          ]
+        },
+        {
+          "key": "side_45",
+          "angleDeg": 45.0,
+          "sliceCount": 132,
+          "pixelSizeM": 0.002,
+          "candidatePoints": 1933717,
+          "gridShape": [
+            59,
+            1923
+          ]
+        },
+        {
+          "key": "side_90",
+          "angleDeg": 90.0,
+          "sliceCount": 150,
+          "pixelSizeM": 0.002,
+          "candidatePoints": 3151343,
+          "gridShape": [
+            59,
+            827
+          ]
+        },
+        {
+          "key": "side_135",
+          "angleDeg": 135.0,
+          "sliceCount": 129,
+          "pixelSizeM": 0.002,
+          "candidatePoints": 1928361,
+          "gridShape": [
+            59,
+            1959
+          ]
+        }
+      ],
+      "sliceWidthM": 0.06,
+      "sliceOverlap": 0.5,
+      "candidatePoints": 2152328,
+      "recoveredPoints": 172147,
+      "bendRecoveredPoints": 82327,
+      "bendReachM": 0.035,
+      "fixtureEdgePoints": 10214,
+      "fixtureEdgeReachM": 0.018,
+      "method": "sliced side web seeds, bounded measured bends and coplanar fixture-face ownership"
+    },
+    "bottomHeight": {
+      "layerId": 1,
+      "lowM": 0.02388180864619158,
+      "highM": 0.04088180864619158,
+      "pointCount": 1902190,
+      "recoveredPoints": 612687,
+      "overriddenFixtureEdgePoints": 148690,
+      "method": "lowest identified steel band; native Z takes priority over silhouette and fixture edge"
+    },
+    "xyOriginM": [
+      1.9690316271463906,
+      -2.6461297230630536
+    ],
+    "tableRemoval": {
+      "origin": [
+        4.207965595208488,
+        -1.8117302853006607,
+        0.007130650109118103
+      ],
+      "slopes": [
+        -3.886247755630961e-05,
+        -0.0006321038849345308
+      ],
+      "sampleSupport": 140652,
+      "clearanceM": 0.005
+    },
+    "layers": [
+      {
+        "id": 1,
+        "heightM": 0.03688180864619158,
+        "relativeHeightM": 0.02975115853707348,
+        "lowM": 0.02388180864619158,
+        "highM": 0.04088180864619158,
+        "peaksM": [
+          0.02788180864619158,
+          0.03688180864619158
+        ],
+        "name": "下层钢筋候选",
+        "peakCount": 100625,
+        "pointCount": 1902190,
+        "classCounts": {
+          "table": 0,
+          "fixture": 0,
+          "rebar": 1902190
+        }
+      },
+      {
+        "id": 2,
+        "heightM": 0.06588180864619159,
+        "relativeHeightM": 0.05875115853707348,
+        "lowM": 0.06188180864619158,
+        "highM": 0.0793818086461916,
+        "peaksM": [
+          0.06588180864619159,
+          0.0753818086461916
+        ],
+        "name": "夹具上表面候选",
+        "peakCount": 61293,
+        "pointCount": 793926,
+        "classCounts": {
+          "table": 0,
+          "fixture": 746176,
+          "rebar": 47750
+        }
+      },
+      {
+        "id": 3,
+        "heightM": 0.10238180864619159,
+        "relativeHeightM": 0.09525115853707349,
+        "lowM": 0.09838180864619159,
+        "highM": 0.1063818086461916,
+        "peaksM": [
+          0.10238180864619159
+        ],
+        "name": "上层钢筋候选",
+        "peakCount": 16362,
+        "pointCount": 164161,
+        "classCounts": {
+          "table": 0,
+          "fixture": 35909,
+          "rebar": 128252
+        }
+      }
+    ],
+    "timings": {
+      "tableFitS": 0.014792730013141409,
+      "rasterizeS": 0.2800029609934427,
+      "layersS": 0.00025548701523803174,
+      "imageClassifyS": 0.5509223680128343,
+      "sourceProjectionS": 0.10117478299071081,
+      "multiviewWebS": 18.332660688000033
+    },
+    "elapsedS": 19.729717127018375,
+    "independentInputs": [
+      "source XYZ",
+      "Step 1 normals for tabletop fit only"
+    ],
+    "diagnostics": {
+      "verticalPixels": 6703,
+      "widePixels": 262310,
+      "steelPixels": 177640,
+      "remainingPoints": 3900373,
+      "detectedLayerCount": 3,
+      "forcedLayerCount": false
+    },
+    "layerMeaning": "Measured native Z bands, not instances; inclined rods are also checked in overlapping side slices",
+    "images": {
+      "binary": {
+        "url": "/runs/20260911T033141-74344ae2/projection/binary.png",
+        "title": "移除台面后的俯视二值图"
+      },
+      "density": {
+        "url": "/runs/20260911T033141-74344ae2/projection/density.png",
+        "title": "俯视点密度 · 对数色阶，亮处点数多"
+      },
+      "height": {
+        "url": "/runs/20260911T033141-74344ae2/projection/height.png",
+        "title": "每个俯视像素的 Z 跨度 · 辅助定位竖向面"
+      },
+      "classes": {
+        "url": "/runs/20260911T033141-74344ae2/projection/classes.png",
+        "title": "投影分类 · 钢筋绿 / 夹具黄"
+      },
+      "edges": {
+        "url": "/runs/20260911T033141-74344ae2/projection/edges.png",
+        "title": "夹具贴边回收 · 黄：从钢筋改回夹具的原始点 / 灰：非台面点"
+      },
+      "side_0": {
+        "url": "/runs/20260911T033141-74344ae2/projection/side_0.png",
+        "title": "侧向 0° · 灰：非台面原始点 / 绿：本轮恢复腹杆 · 56 个重叠切片"
+      },
+      "side_45": {
+        "url": "/runs/20260911T033141-74344ae2/projection/side_45.png",
+        "title": "侧向 45° · 灰：非台面原始点 / 绿：本轮恢复腹杆 · 132 个重叠切片"
+      },
+      "side_90": {
+        "url": "/runs/20260911T033141-74344ae2/projection/side_90.png",
+        "title": "侧向 90° · 灰：非台面原始点 / 绿：本轮恢复腹杆 · 150 个重叠切片"
+      },
+      "side_135": {
+        "url": "/runs/20260911T033141-74344ae2/projection/side_135.png",
+        "title": "侧向 135° · 灰：非台面原始点 / 绿：本轮恢复腹杆 · 129 个重叠切片"
+      },
+      "layers": {
+        "url": "/runs/20260911T033141-74344ae2/projection/layers.svg",
+        "title": "Z 轴密度曲线与候选高度层"
+      }
+    },
+    "imageScale": {
+      "orientation": "+X right, +Y up",
+      "densityLogDisplayMax": 4.442651256490317,
+      "heightDisplayMaxM": 0.07317889779806142,
+      "displayPercentile": 99.5,
+      "note": "Display saturation only; classification uses uncapped counts/spans"
+    }
+  },
+  "timing": {
+    "readS": 0.17393230900052004,
+    "treeS": 1.7926991560088936,
+    "normalsS": 5.673373224999523,
+    "classificationS": 4.085831695003435,
+    "projectionS": 19.733038837992353,
+    "classifiersWallS": 19.734512941999128,
+    "fusionS": 0.7161202970019076,
+    "regionsS": 0.2268433989956975,
+    "refinementS": 0.2133003940107301,
+    "internalRebarS": 3.654442780010868,
+    "guidedInstancesS": 6.666320239979541,
+    "persistS": 2.267803147988161,
+    "previewS": 0.7040468649938703,
+    "totalS": 41.83136057498632
+  },
+  "checks": "source LAS dimensions, row order, normals, 02A classes, height IDs, LAS/NPY/preview labels all match",
+  "roiM": [
+    3.15,
+    3.8,
+    -1.56,
+    -1.48,
+    0.019,
+    0.045
+  ],
+  "roiSourcePoints": 30250,
+  "view": "xy",
+  "limitation": "Recovery count is not ground-truth recall; close contacts may remain ambiguous."
+}

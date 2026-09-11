@@ -18,7 +18,7 @@ from .region_refinement import reuse_fusion_partition
 from .internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRIBUTES
 from .rebar_dimension_priors import load_dimension_priors
 
-VERSION = "shared-segmentation-v13-preserved-branches-layer-denoising"
+VERSION = "shared-segmentation-v16-fixture-density-denoising"
 CLASS_ATTRIBUTES = {"geometry_class": "u1", "geometry_support": "<f4", "geometry_recovered": "u1"}
 PROJECTION_ATTRIBUTES = {"projection_class": "u1", "projection_layer": "u1"}
 FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered": "u1", "fused_reason": "u1", "fused_steel_score": "<f4", "fused_steel_evidence": "u1"}

@@ -11,6 +11,10 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import { PointCloudEdlPipeline } from './edlPipeline'
+import {
+  createPointcloudLoadLifecycle,
+  type PointcloudLoadLifecycle,
+} from './pointcloudLoadLifecycle'
 import ViewerMeasurementBadge, {
   type ViewerMeasurementBadgeOverlay,
 } from './ViewerMeasurementBadge.vue'
@@ -257,7 +261,7 @@ let hasBimSourceCenter = false
 let animationId = 0
 let isMountedReady = false
 let loadToken = 0
-let tilesLoadingCount = 0
+let pointcloudLoadLifecycle: PointcloudLoadLifecycle | null = null
 let pendingPointcloudCameraPose: CameraPose | null = null
 let pointcloudSourceFallbackActive = false
 
@@ -367,7 +371,10 @@ function requestRender() {
 
     // EDL 渲染管线判断：仅在开启 EDL 且含点云场景时应用
     const shouldRunEdl =
-      localEdlEnabled.value && edlPipeline && (props.type === 'pointcloud' || props.type === 'hybrid')
+      localEdlEnabled.value &&
+      edlPipeline &&
+      (pointcloudLoadLifecycle?.allowEdl ?? true) &&
+      (props.type === 'pointcloud' || props.type === 'hybrid')
 
     if (shouldRunEdl) {
       edlPipeline!.render(scene, camera)
@@ -1367,6 +1374,7 @@ function cleanCurrentSceneModels() {
     scene.remove(pointcloudWrapper)
     pointcloudWrapper = null
   }
+  pointcloudLoadLifecycle = null
   analysisMeshSession?.dispose()
   analysisMeshSession = null
   if (tileset) {
@@ -1473,6 +1481,8 @@ async function loadPointcloudModel(assetId: number, expectedToken: number) {
   }
   if (!resourceUrl) throw new Error('点云切片尚未就绪')
 
+  const loadLifecycle = createPointcloudLoadLifecycle()
+  pointcloudLoadLifecycle = loadLifecycle
   const url = getPointcloudTilesetUrl(resourceUrl)
   const nextTileset = new TilesRenderer(url)
   nextTileset.displayActiveTiles = true
@@ -1501,21 +1511,9 @@ async function loadPointcloudModel(assetId: number, expectedToken: number) {
   pointcloudWrapper = wrapper
   updateRebarInspection()
 
-  nextTileset.addEventListener('tiles-load-start', () => {
-    if (tileset !== nextTileset) return
-    tilesLoadingCount++
-  })
-
   nextTileset.addEventListener('tiles-load-end', () => {
-    if (tileset !== nextTileset) return
-    tilesLoadingCount = Math.max(0, tilesLoadingCount - 1)
-    if (tilesLoadingCount === 0 && !loaded.value) {
-      loaded.value = true
-      emit('loaded-change', true)
-      statusText.value = pointcloudSourceFallbackActive
-        ? '钢筋派生结果不可用，已回退原始点云'
-        : ''
-    }
+    if (tileset !== nextTileset || pointcloudLoadLifecycle !== loadLifecycle) return
+    loadLifecycle.markInitialLoadSettled()
   })
 
   nextTileset.addEventListener('load-error', ({ error }: any) => {
@@ -1532,10 +1530,21 @@ async function loadPointcloudModel(assetId: number, expectedToken: number) {
   })
 
   nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
-    if (tileset !== nextTileset || !tileScene) return
+    if (
+      tileset !== nextTileset ||
+      pointcloudLoadLifecycle !== loadLifecycle ||
+      !tileScene
+    ) return
     attachPointcloudBatchAttributes(tileScene)
-    collectPointcloudColorStats(tileScene)
     applyPointcloudMaterial(tileScene)
+    if (loadLifecycle.markModelReady()) {
+      loaded.value = true
+      emit('loaded-change', true)
+      statusText.value = pointcloudSourceFallbackActive
+        ? '钢筋派生结果不可用，已回退原始点云'
+        : ''
+    }
+    collectPointcloudColorStats(tileScene)
   })
 
   // 完全对齐校准页的视錐与包围球聚焦定位

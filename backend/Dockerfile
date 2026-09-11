@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/cloudbim-backend .
 RUN mkdir -p /out/data
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

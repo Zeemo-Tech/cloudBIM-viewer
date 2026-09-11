@@ -15,7 +15,7 @@ from .rebar_base import RebarAlgorithm, RebarAlgorithmError, RebarAnalysis, Reba
 from .rebar_v5.contracts import VISUALIZATION
 from .rebar_v5.spatial import SpatialBudgetExceeded
 
-VERSION = '7'
+VERSION = '10'
 CHUNK_SIZE = 262144
 MAX_SOURCE_POINTS = 20_000_000
 SCENE_LOOKUP = np.array([0, 1, 4, 2, 3], np.uint8)
@@ -166,7 +166,7 @@ class GeometricV6Adapter(RebarAlgorithm):
                 'diagnostics': {'pipelineVersion': PIPELINE_VERSION, 'throughStep': 6, 'sourcePointCount': count,
                     'timings': runtime.stages.timing, 'counts': report['counts'],
                     'dimensionPriors': runtime.stages.context.dimension_priors,
-                    'classificationPolicy': 'shared stages through UI Step 05; unresolved floating inner points become noise; exterior labels preserved'},
+                    'classificationPolicy': 'shared stages through UI Step 05; inner and exterior steel receive score-aware multiview and fixture-density review'},
                 'algorithmDetails': {'parameters': parameters, 'internalRebar': report}}, runtime)
         except Exception:
             runtime.close()

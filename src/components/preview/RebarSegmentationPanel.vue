@@ -34,7 +34,9 @@ const emit = defineEmits<{
 }>()
 
 const algorithms = ref<RebarAlgorithmDescriptor[]>([])
-const selectedAlgorithmId = ref('geometric-v5')
+const selectedAlgorithmId = ref('geometric-v6')
+const workbenchUrl = import.meta.env.VITE_POINTCLOUD_WORKBENCH_URL ||
+  (import.meta.env.DEV ? `http://${window.location.hostname.includes(':') ? `[${window.location.hostname}]` : window.location.hostname}:8766/` : '')
 const latest = ref<RebarSegmentationResult | null>(null)
 const loading = ref(false)
 const computing = ref(false)
@@ -154,7 +156,7 @@ function errorText(error: unknown) {
     const code = (data as { msg?: unknown; errorCode?: unknown }).errorCode ??
       (data as { msg?: unknown }).msg
     if (code === 'resource_limit_exceeded') {
-      return 'V5 完整邻域超出资源预算，本次未生成新结果'
+      return '点云分析超出资源预算，本次未生成新结果'
     }
   }
   return error instanceof Error ? error.message : '钢筋分割请求失败'
@@ -265,12 +267,12 @@ async function loadState() {
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []
-      if (algorithms.value.some((item) => item.id === 'geometric-v5')) {
-        selectedAlgorithmId.value = 'geometric-v5'
+      if (algorithms.value.some((item) => item.id === 'geometric-v6')) {
+        selectedAlgorithmId.value = 'geometric-v6'
       } else if (persisted && algorithms.value.some((item) => item.id === persisted.algorithm.id)) {
         selectedAlgorithmId.value = persisted.algorithm.id
       } else if (!algorithms.value.some((item) => item.id === selectedAlgorithmId.value)) {
-        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v5'
+        selectedAlgorithmId.value = algorithms.value[0]?.id ?? 'geometric-v6'
       }
       initializeParameters()
       if (persisted) applyPersistedSettings(persisted)
@@ -381,6 +383,8 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
       </button>
     </div>
 
+    <p v-if="workbenchUrl" class="rebar-panel__hint"><a :href="workbenchUrl" target="_blank" rel="noopener">逐步调试 · 练武场</a>（独立调试样本）</p>
+
     <p v-if="computing" class="rebar-panel__hint">正在分析点云{{ latest ? '，可继续查看上次结果' : '' }}。</p>
 
     <div v-if="latest" class="rebar-panel__modes" role="group" aria-label="颜色模式">
@@ -466,11 +470,11 @@ onBeforeUnmount(() => { ++loadToken; ++detailToken })
           </option>
         </select>
       </label>
-      <label v-if="selectedAlgorithmId !== 'geometric-v5'">
+      <label v-if="!['geometric-v5', 'geometric-v6'].includes(selectedAlgorithmId)">
         <span>最大检测点数</span>
         <input v-model.number="maxInputPoints" type="number" min="1000" step="1000" :disabled="computing" />
       </label>
-      <label v-if="selectedAlgorithmId !== 'geometric-v5'">
+      <label v-if="!['geometric-v5', 'geometric-v6'].includes(selectedAlgorithmId)">
         <span>体素尺寸</span>
         <span class="rebar-panel__input">
           <input v-model.number="voxelSizeMm" type="number" min="0.001" step="0.1" placeholder="自动" :disabled="computing" />

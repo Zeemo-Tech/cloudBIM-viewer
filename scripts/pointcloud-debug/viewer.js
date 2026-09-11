@@ -1213,8 +1213,10 @@ function applyInternalRebarAppearance() {
     (family === 'all' || current._internalFamilies?.[index] === Number(family))
     && (instance === 'all' || current._internalInstances[index] === Number(instance)));
   const baselineStep = current.refinement?.mode === 'fusion-pass-through' ? '03' : '04';
-  $('internalRebarHint').textContent = `当前显示 ${fmt(selected)} 个预览点；夹具、台面和外部钢筋沿用第 ${baselineStep} 步结果。待定钢筋仍被保留；噪音可在统一分类筛选中单独查看。`;
-  if (mode === 'score' && current._fusedSteelScores) $('internalRebarHint').textContent = `当前显示 ${fmt(selected)} 个预览点，颜色沿用 03 的融合支持分数。噪音也显示删除前分数；点击点云可核对类别变化和高分保护。几何拟合分数是另一个指标。`;
+  $('internalRebarHint').textContent = current.internalRebar?.denoising?.exteriorReviewEnabled
+    ? `当前显示 ${fmt(selected)} 个预览点；内外钢筋均已做空间去噪，内部钢筋另外识别实例。夹具、台面沿用第 ${baselineStep} 步结果。噪音可在统一分类筛选中单独查看。`
+    : `当前显示 ${fmt(selected)} 个预览点；夹具、台面和外部钢筋沿用第 ${baselineStep} 步结果。待定钢筋仍被保留；噪音可在统一分类筛选中单独查看。`;
+  if (mode === 'score' && current._fusedSteelScores) $('internalRebarHint').textContent = `当前显示 ${fmt(selected)} 个预览点，颜色沿用 03 的融合支持分数。噪音也显示删除前分数；点击点云可核对类别变化和空间复核结果。几何拟合分数是另一个指标。`;
   updateInternalLegend();
   rebuildInternalAxes();
   requestRender();
@@ -1376,9 +1378,12 @@ function pointScoreTrace(manifest, index) {
   const internal = manifest._internalTypes?.[index] === 5 ? 4 : manifest._refinedClasses?.[index];
   const complete = manifest._complete?.complete_class?.[index];
   const threshold = fusionProtectionThreshold(manifest);
+  const highScore = fused === 3 && threshold !== null && score >= threshold;
+  const spatialReview = manifest.internalRebar?.denoising?.highScoreOverrideAllowed === true;
+  const spatialOverride = highScore && spatialReview && internal === 4;
   return {score, evidence, fused, internal, complete,
-    protected: fused === 3 && threshold !== null && score >= threshold,
-    protectionViolation: fused === 3 && threshold !== null && score >= threshold && (internal === 4 || complete === 4)};
+    protected: highScore, spatialReview, spatialOverride,
+    protectionViolation: highScore && !spatialOverride && (internal === 4 || complete === 4)};
 }
 
 function fusionLowScoreThreshold(manifest = current) {
@@ -1446,7 +1451,7 @@ function applyFusionAppearance() {
       || (evidenceFilter === 'low' && current._fusedSteelScores && current._fusedClasses[index] === 3 && current._fusedSteelScores[index] <= lowThreshold)));
   const scoreAvailable = Boolean(current._fusedSteelScores && current._fusedSteelEvidence);
   $('fusionHint').textContent = scoreAvailable
-    ? `支持分数是融合规则值，不是校准概率。高分保护阈值 ${threshold === null ? '未声明' : threshold.toFixed(2)}，低分审查阈值 ${lowThreshold.toFixed(2)}。${current.fusion?.score?.branchRetentionPreserved ? '02A/02B 保留结果与评分证据分开；B 上下层高度规则计一路支持，共享分区不重复投票。' : ''}点击右侧点云可检查单点分数和证据。`
+    ? `支持分数是融合规则值，不是校准概率。高分阈值 ${threshold === null ? '未声明' : threshold.toFixed(2)}，低分审查阈值 ${lowThreshold.toFixed(2)}。${current.internalRebar?.denoising?.highScoreOverrideAllowed ? '第 05 步允许充分空间证据推翻高分。' : ''}${current.fusion?.score?.branchRetentionPreserved ? '02A/02B 保留结果与评分证据分开；B 上下层高度规则计一路支持，共享分区不重复投票。' : ''}点击右侧点云可检查单点分数和证据。`
     : '该结果没有逐点支持分数；仍可按统一类别查看历史融合结果。';
   updateFusionLegend();
   requestRender();
@@ -1688,7 +1693,7 @@ function inspectFusionPoint(event) {
   const labels = current.fusion?.score?.evidenceNames;
   const evidence = labels ? fusionEvidenceBits.filter(([bit]) => trace.evidence & bit).map(([bit]) => labels[String(bit)]).filter(Boolean).join(' + ') : fusionEvidenceLabel(trace.evidence);
   inspector.style.whiteSpace = 'pre-line';
-  inspector.textContent = `样本点 #${index} · 03 融合支持分数 ${trace.score.toFixed(3)}\n${evidence || '无明确支持证据'}\n03 ${className(trace.fused)} → 05 ${className(trace.internal)} → 06 ${className(trace.complete)}\n${trace.protectionViolation ? '异常：高分保护点被标为噪音' : trace.protected ? '达到高分保护阈值' : '需结合实测结构检查'}；分数不是校准概率`;
+  inspector.textContent = `样本点 #${index} · 03 融合支持分数 ${trace.score.toFixed(3)}\n${evidence || '无明确支持证据'}\n03 ${className(trace.fused)} → 05 ${className(trace.internal)} → 06 ${className(trace.complete)}\n${trace.protectionViolation ? '异常：高分保护点被标为噪音' : trace.spatialOverride ? '多视图与三维证据已推翻高分' : trace.protected ? (trace.spatialReview ? '高分：需充分空间证据才能删除' : '达到高分保护阈值') : '需结合实测结构检查'}；分数不是校准概率`;
   inspector.hidden = false;
 }
 
@@ -1799,9 +1804,9 @@ function metrics(manifest) {
       ['03 几何恢复：投影 / 双分支', `${fmt(recovery.recoveredFromProjectionPoints)} / ${fmt(recovery.recoveredBothPoints)}`],
       ['02A/B 一致 / 分歧点', `${fmt(agreement.agreePoints)} / ${fmt(agreement.disagreePoints)}`],
       ...(fusion.score ? [
-        ['03 高分保护阈值', Number.isFinite(fusion.score.protectionThreshold) ? fusion.score.protectionThreshold.toFixed(2) : '—'],
+        ['03 高分阈值', Number.isFinite(fusion.score.protectionThreshold) ? fusion.score.protectionThreshold.toFixed(2) : '—'],
         ['03 低分审查阈值', fusionLowScoreThreshold(manifest).toFixed(2)],
-        ['03 高分保护点', fmt(fusion.score.highConfidencePoints)],
+        ['03 高分点', fmt(fusion.score.highConfidencePoints)],
       ] : []),
       ['03 评分融合耗时', fmt(fusionS, ' s')],
       ...fusionTimingRows,
@@ -1869,7 +1874,17 @@ function metrics(manifest) {
       ['05 处理范围点数', fmt(internalRebar.pointCount)],
       ['05 下层 / 上层 / 腹杆', `${fmt(counts.lower)} / ${fmt(counts.upper)} / ${fmt(counts.web)}`],
       ['05 待定钢筋点', fmt(counts.unassigned)],
-      ['05 噪音（已过滤）', fmt(counts.noise ?? 0)],
+      ['05 噪音（已过滤）', fmt(internalRebar.denoising?.removedPointCount ?? counts.noise ?? 0)],
+      ...(internalRebar.denoising?.exteriorReviewEnabled ? [
+        ['05 内部 / 外部噪音', `${fmt(internalRebar.denoising.interiorRemovedPointCount)} / ${fmt(internalRebar.denoising.exteriorRemovedPointCount)}`],
+      ] : []),
+      ...(internalRebar.denoising?.highScoreOverrideAllowed ? [
+        ['05 去噪版本', internalRebar.denoising.version],
+        ['05 侧视方向 / 切片厚度', `${fmt(internalRebar.denoising.parameters?.view_angles?.length)} / ${fmt((internalRebar.denoising.parameters?.slice_width ?? 0) * 1000, ' mm')}`],
+        ['05 可靠实测支撑点', fmt(internalRebar.denoising.frozenObservedPointCount)],
+        ['05 空间证据推翻高分', fmt(internalRebar.denoising.highScoreRemovedPointCount)],
+        ['05 移除片段', fmt(internalRebar.denoising.removedComponentCount ?? 0)],
+      ] : []),
       ...(Number.isFinite(internalRebar.denoising?.lowerBandReviewedPointCount) ? [
         ['05 下层高度带内审查 / 移除', `${fmt(internalRebar.denoising.lowerBandReviewedPointCount)} / ${fmt(internalRebar.denoising.lowerBandRemovedPointCount)}`],
         ['05 高分保护点', fmt(internalRebar.denoising.protectedCandidatePointCount)],

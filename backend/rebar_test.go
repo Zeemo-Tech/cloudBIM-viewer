@@ -42,7 +42,9 @@ func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDes
 	v5 := RebarAlgorithmDescriptor{ID: "geometric-v5", Version: version, AnalysisSchema: "rebar-analysis-v2", Capabilities: map[string]any{"bimPrior": false}, ParameterSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"radius": map[string]any{"type": "number", "default": 0.02}}}, InputOptionSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"maxInputPoints": map[string]any{"type": "integer", "default": 1000}}}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}
 	v3 := v5
 	v3.ID = "geometric-v3"
-	return []RebarAlgorithmDescriptor{v5, v3}, nil
+	v6 := v5
+	v6.ID = "geometric-v6"
+	return []RebarAlgorithmDescriptor{v6, v5, v3}, nil
 }
 func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (RebarArtifactManifest, error) {
 	p.calls++
@@ -229,7 +231,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	}
 }
 
-func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t *testing.T) {
+func TestRebarV6DefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	root := t.TempDir()
 	db, err := gorm.Open(sqlite.Open("file:rebar_defaults?mode=memory&cache=shared"), &gorm.Config{})
@@ -259,8 +261,8 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	if w := post(`{}`); w.Code != 200 || fake.calls != 1 {
 		t.Fatalf("defaults=%d %s", w.Code, w.Body.String())
 	}
-	if fake.request.Algorithm != "geometric-v5" {
-		t.Fatalf("V5 was not the default: %q", fake.request.Algorithm)
+	if fake.request.Algorithm != "geometric-v6" {
+		t.Fatalf("V6 was not the default: %q", fake.request.Algorithm)
 	}
 	if got := fake.request.Parameters["radius"]; got != float64(0.02) {
 		t.Fatalf("parameter defaults were not sent: %#v", fake.request.Parameters)

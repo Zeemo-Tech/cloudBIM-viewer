@@ -14,7 +14,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 from algorithms.rebar_tracks import diameter_priors, regularize_models, reconcile_tracks, grow_track_ends, track_statistics, remove_explained_fragments
 
-VERSION = 'internal-rebar-tracks-v5-score-aware-denoising'
+VERSION = 'internal-rebar-tracks-v8-fixture-density-denoising'
 PROTECTION_THRESHOLD = .9
 TYPES = {'0': '非内部钢筋', '1': '下层钢筋', '2': '上层钢筋', '3': '腹杆', '4': '钢筋（实例待定）', '5': '悬浮噪音'}
 ATTRIBUTES = {'internal_type': 'u1', 'internal_instance': '<u4',
@@ -520,31 +520,49 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
             'segmentIds':[s['id'] for s in parts], 'lengthM':info['lengthM'],'diameterM':info['diameterM'],
             'family':info['family'],'lengthAnomaly':info['lengthAnomaly'],
             'modelKind':'cylinder' if len(parts)==1 else 'piecewise-cylinder'})
-    from .floating_noise import floating_noise_mask
+    from .multiview_floating_noise import multiview_noise_mask, observed_cylinder_support, observed_cylinder_continuation
     t0 = time.perf_counter()
     progress('第 5 步：清理无结构支撑的悬浮点', 0, len(scope))
-    protected = (np.zeros(len(scope), bool) if fused_score is None else
-                 (np.asarray(fused_score)[scope] >= PROTECTION_THRESHOLD) & (context.refined_class[scope] == 3))
-    removed, denoising = floating_noise_mask(context.positions[scope], output['internal_type'][scope],
-                                            bands, segments, workers=workers, protected=protected,
-                                            steel_scores=None if fused_score is None else np.asarray(fused_score)[scope],
-                                            observed_support_points=None if fused_score is None else context.positions[
-                                                (context.refined_zone != 1) & (context.refined_class == 3) &
-                                                (np.asarray(fused_score) >= PROTECTION_THRESHOLD)])
+    support_rows = np.flatnonzero(context.refined_class == 3)
+    support_points = context.positions[support_rows]
+    interior = context.refined_zone[support_rows] == 1
+    observed = observed_cylinder_support(support_points, output['internal_segment'][support_rows],
+                                         output['internal_confidence'][support_rows], segments)
+    continuation = observed_cylinder_continuation(support_points,
+        None if context.normals is None else context.normals[support_rows],
+        output['internal_segment'][support_rows], segments, observed, workers=workers)
+    # The frame bounds instance fitting, not denoising. Exterior floating caps
+    # must be reviewed too; fusion scores alone cannot turn them into anchors.
+    fixture_rows = np.flatnonzero(context.refined_class == 2)
+    removed, denoising = multiview_noise_mask(support_points, review_mask=np.ones(len(support_rows), bool),
+        normals=None if context.normals is None else context.normals[support_rows],
+        fixture_points=context.positions[fixture_rows],
+        fixture_normals=None if context.normals is None else context.normals[fixture_rows],
+        observed_support_mask=observed, workers=workers,
+        observed_continuation_mask=continuation,
+        steel_scores=None if fused_score is None else np.asarray(fused_score)[support_rows], progress=progress)
     denoising['protectionThreshold'] = PROTECTION_THRESHOLD
-    noise_ids = scope[removed]
+    denoising.update(scope='all retained steel; internal and exterior candidates share spatial review',
+        exteriorReviewEnabled=True,
+        interiorCandidatePointCount=int(np.count_nonzero(interior)),
+        exteriorCandidatePointCount=int(np.count_nonzero(~interior)),
+        interiorRemovedPointCount=int(np.count_nonzero(removed & interior)),
+        exteriorRemovedPointCount=int(np.count_nonzero(removed & ~interior)))
+    noise_ids = support_rows[removed]
     output['internal_type'][noise_ids] = 5
     for name in ('internal_instance', 'internal_segment', 'internal_confidence'):
         output[name][noise_ids] = 0
-    # Low-score assigned rows can now be rejected; report actual surviving
+    # Assigned rows, including high scores, can be rejected; report surviving
     # ownership rather than the pre-denoising cylinder counts.
     final_counts = np.bincount(output['internal_segment'][scope], minlength=len(models)+1)
     if measured_counts is not None:
         measured_counts = np.bincount(output['internal_segment'][scope][measured], minlength=len(models)+1)
+        high_counts = np.bincount(output['internal_segment'][scope][high], minlength=len(models)+1)
     for segment in segments:
         segment['pointCount'] = int(final_counts[segment['id']])
         if measured_counts is not None:
             segment['measuredSupportPointCount'] = int(measured_counts[segment['id']])
+            segment['highConfidencePointCount'] = int(high_counts[segment['id']])
     for instance in instances:
         instance['segmentIds'] = [s for s in instance['segmentIds'] if final_counts[s] > 0]
         instance['pointCount'] = sum(int(final_counts[s]) for s in instance['segmentIds'])

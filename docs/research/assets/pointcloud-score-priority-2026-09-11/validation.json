@@ -1,0 +1,99 @@
+{
+  "runId": "20260911T063516-740da715",
+  "pointCount": 9216369,
+  "originalFieldsPreserved": 15,
+  "highScorePoints": 1520479,
+  "highScoreLost": 0,
+  "computeThroughStep05S": 21.29142563699861,
+  "endToEndThroughStep06S": 33.32551205999334,
+  "scoreCounts": {
+    "0.0": 7206860,
+    "0.25": 35521,
+    "0.5": 24495,
+    "0.6499999761581421": 429014,
+    "1.0": 1520479
+  },
+  "counts": {
+    "shared_table_mask": {
+      "0": 3900373,
+      "1": 5315996
+    },
+    "partition_zone": {
+      "1": 4752106,
+      "2": 1703745,
+      "3": 2760518
+    },
+    "geometry_class": {
+      "0": 52975,
+      "1": 5315996,
+      "2": 1988945,
+      "3": 1858453
+    },
+    "geometry_recovered": {
+      "0": 8908963,
+      "1": 307406
+    },
+    "projection_class": {
+      "0": 370789,
+      "1": 5315996,
+      "2": 1877478,
+      "3": 1652106
+    },
+    "fused_class": {
+      "1": 5315996,
+      "2": 1890864,
+      "3": 2009509
+    },
+    "fused_recovered": {
+      "0": 8505583,
+      "1": 710786
+    },
+    "fused_steel_evidence": {
+      "0": 7206860,
+      "1": 40346,
+      "2": 42421,
+      "3": 125813,
+      "4": 24495,
+      "8": 35521,
+      "9": 297628,
+      "10": 48619,
+      "11": 1394666
+    },
+    "refined_class": {
+      "1": 5315996,
+      "2": 1890864,
+      "3": 2009509
+    },
+    "refined_zone": {
+      "1": 4752106,
+      "2": 1703745,
+      "3": 2760518
+    },
+    "internal_type": {
+      "0": 7478349,
+      "1": 1378017,
+      "2": 164983,
+      "3": 183216,
+      "4": 3148,
+      "5": 8656
+    },
+    "complete_class": {
+      "1": 5315996,
+      "2": 1890864,
+      "3": 1889127,
+      "4": 120382
+    }
+  },
+  "checks": [
+    "source hash",
+    "original LAS dimensions",
+    "source record indices",
+    "single preparation",
+    "shared masks",
+    "source recovery masks",
+    "instance counts and references",
+    "prior-only score exclusion",
+    "all denoising keep rules",
+    "NPY/LAS/preview/subset scores"
+  ]
+}

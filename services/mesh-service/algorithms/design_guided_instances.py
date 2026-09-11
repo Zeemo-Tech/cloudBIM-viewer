@@ -14,7 +14,7 @@ from .internal_rebar import InternalRebarParameters, _fit_cylinder, _split_paral
 from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters, _terminal_rays
 from .design_prior_refinement import PriorParameters, _candidates
 
-VERSION = 'design-guided-instances-v6-observed-score-support'
+VERSION = 'design-guided-instances-v7-preserve-spatial-noise'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -447,6 +447,11 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
                  (np.asarray(fused_scores) <= LOW_SCORE_THRESHOLD) & (context.refined_class == 3))
     blocked_noise_rows = np.zeros(count, bool)
     internal_noise = context.internal_type == 5
+    spatial_override = internal_report.get('denoising', {}).get('highScoreOverrideAllowed') is True
+    if spatial_override:
+        # Step 05 has already weighed the fusion score against independent
+        # spatial evidence. The same old score cannot undo that decision here.
+        protected_high &= ~internal_noise
     blocked_noise_rows |= internal_noise & protected_high
     out['complete_class'][internal_noise & ~protected_high] = 4
     steel = out['complete_class'] == 3
@@ -847,6 +852,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             'newInstances':sum(o['action']=='instantiate' for o in operations),'filteredPoints':rejected,
             'highConfidenceSteelPoints':int(np.count_nonzero(protected_high)),
             'blockedNoisePoints':int(np.count_nonzero(blocked_noise_rows)),
+            'inheritedSpatialNoisePoints':int(np.count_nonzero(internal_noise)) if spatial_override else 0,
             'protectionThreshold':PROTECTION_THRESHOLD,
             'lowScoreThreshold':LOW_SCORE_THRESHOLD,
             'lowScoreFilteredPoints':int(np.count_nonzero(low_score & (out['complete_class'] == 4))),

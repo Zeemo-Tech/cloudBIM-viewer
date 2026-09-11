@@ -1,0 +1,32 @@
+{
+  "baseline": "20260910T153921-ddc785e1",
+  "run": "20260910T155148-de71e57e",
+  "sourcePointCount": 9216369,
+  "removedPointCount": 6178,
+  "unchangedColumns": 23,
+  "counts": {
+    "lower": 1383870,
+    "upper": 164132,
+    "web": 183272,
+    "unassigned": 3239,
+    "noise": 6178
+  },
+  "timings": {
+    "readS": 0.17712887199013494,
+    "treeS": 1.79523815101129,
+    "normalsS": 5.481126973987557,
+    "classificationS": 3.794254848995479,
+    "projectionS": 1.3483663149818312,
+    "classifiersWallS": 3.7956290200236253,
+    "fusionS": 0.7229657169955317,
+    "regionsS": 0.23090783102088608,
+    "refinementS": 0.212312538002152,
+    "internalRebarS": 3.6387104130117223,
+    "persistS": 1.7063062300148886,
+    "previewS": 0.6481889050046448,
+    "totalS": 18.41199131999747
+  },
+  "sourceIdentityAndAllOriginalLasFields": "passed",
+  "npyLasPreviewAndSubsets": "passed",
+  "assignedInstancesAndSegmentsUnchanged": "passed"
+}

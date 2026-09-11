@@ -29,7 +29,7 @@ class SharedProductionTests(unittest.TestCase):
         context = SimpleNamespace(refined_class=np.array([1,2,3,3,3], np.uint8),
             internal_type=np.array([0,0,5,4,0], np.uint8),
             internal_instance=np.zeros(5, np.uint32), internal_confidence=np.zeros(5, np.float32),
-            fused_steel_score=np.array([0,0,0,.65,1], np.float32),
+            fused_steel_score=np.array([0,0,1,.65,1], np.float32),
             fused_steel_evidence=np.array([0,0,0,1,3], np.uint8))
         runtime = SimpleNamespace(stages=SimpleNamespace(context=context),
             roles=np.zeros(1, np.uint8), directions=np.zeros(1, np.uint16))
@@ -81,7 +81,7 @@ class SharedProductionTests(unittest.TestCase):
                 output_directory=str(root/'artifact'),artifact_version='v6-test',algorithm='geometric-v6',
                 input_options={'maxInputPoints':3},parameters={},storage_root=str(root))
             result=compute_rebar_artifact(**kwargs)
-            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'7'})
+            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'10'})
             self.assertEqual(result['summary']['rawSource']['finitePointCount'],len(xyz))
             self.assertEqual(result['summary']['display']['totalPointCount'],len(xyz))
             self.assertEqual(hashlib.sha256(cloud.read_bytes()).hexdigest(),original)

@@ -88,6 +88,41 @@ def synthetic_context(reverse_normals=False):
 
 
 class InternalRebarTests(unittest.TestCase):
+    def test_exterior_density_review_uses_fixture_context_and_steel_scores(self):
+        from test_multiview_floating_noise import rounded_fixture_lip
+        points, normals, fixture, fn = rounded_fixture_lip()
+        for score, background_class, expected_noise in ((.65, 2, True), (1., 2, False), (.65, 1, False)):
+            context = PointCloudContext.build(np.vstack((points, fixture)))
+            context.normals = np.vstack((normals, fn))
+            context.refined_class = np.r_[np.full(len(points), 3, np.uint8),
+                                          np.full(len(fixture), background_class, np.uint8)]
+            context.refined_zone = np.full(len(context.positions), 3, np.uint8)
+            context.fused_steel_score = np.r_[np.full(len(points), score, np.float32),
+                                              np.zeros(len(fixture), np.float32)]
+            scores_before = context.fused_steel_score.copy()
+            report = segment_internal_rebar(context, workers=1)
+            np.testing.assert_array_equal(context.internal_type[:len(points)], 5 if expected_noise else 0)
+            np.testing.assert_array_equal(context.internal_type[len(points):], 0)
+            np.testing.assert_array_equal(context.fused_steel_score, scores_before)
+            self.assertEqual(report['denoising']['exteriorRemovedPointCount'], len(points) if expected_noise else 0)
+
+    def test_exterior_high_score_noise_is_reviewed_while_round_steel_survives(self):
+        from test_multiview_floating_noise import rod, ball
+        steel, normals = rod([0, 0, 0], [.18, 0, 0])
+        floating, floating_normals = ball([.08, 0, .025])
+        context = PointCloudContext.build(np.vstack((steel, floating)))
+        context.normals = np.vstack((normals, floating_normals))
+        context.refined_class = np.full(len(context.positions), 3, np.uint8)
+        context.refined_zone = np.full(len(context.positions), 3, np.uint8)
+        context.fused_steel_score = np.ones(len(context.positions), np.float32)
+        report = segment_internal_rebar(context, workers=1)
+        np.testing.assert_array_equal(context.internal_type[:len(steel)], 0)
+        np.testing.assert_array_equal(context.internal_type[len(steel):], 5)
+        np.testing.assert_array_equal(context.internal_instance, 0)
+        np.testing.assert_array_equal(context.refined_class, 3)
+        self.assertEqual(report['denoising']['exteriorRemovedPointCount'], len(floating))
+        self.assertEqual(report['denoising']['interiorRemovedPointCount'], 0)
+
     def test_short_lower_rod_above_height_peak_window_is_still_discovered(self):
         from algorithms.internal_rebar import _horizontal_models
         points, _, axes = cylinder((-.025, 0, .033), (.025, 0, .033))
@@ -175,12 +210,13 @@ class InternalRebarTests(unittest.TestCase):
     def test_denoising_assigned_rows_rebuilds_segment_and_instance_counts(self):
         context, member_size = synthetic_context()
         # Exercise an entire removed model plus a partially retained model.
-        def remove_assigned(points, types, bands, segments, **kwargs):
+        context.fused_steel_score = np.ones(len(context.positions), np.float32)
+        def remove_assigned(points, **kwargs):
             removed = np.zeros(len(points), bool)
             removed[:member_size] = True
             removed[member_size:member_size+5] = True
             return removed, {'removedPointCount': int(removed.sum())}
-        with mock.patch('algorithms.floating_noise.floating_noise_mask', side_effect=remove_assigned):
+        with mock.patch('algorithms.multiview_floating_noise.multiview_noise_mask', side_effect=remove_assigned):
             report = segment_internal_rebar(context, workers=1)
         np.testing.assert_array_equal(context.internal_type[:member_size+5], 5)
         np.testing.assert_array_equal(context.internal_instance[:member_size+5], 0)
@@ -188,6 +224,7 @@ class InternalRebarTests(unittest.TestCase):
         for segment in segments.values():
             self.assertGreater(segment['pointCount'], 0)
             self.assertEqual(segment['pointCount'], np.count_nonzero(context.internal_segment == segment['id']))
+            self.assertEqual(segment['highConfidencePointCount'], segment['pointCount'])
         for instance in report['instances']:
             self.assertGreater(instance['pointCount'], 0)
             self.assertEqual(instance['pointCount'], np.count_nonzero(context.internal_instance == instance['id']))

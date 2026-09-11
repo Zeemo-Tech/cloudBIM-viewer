@@ -406,7 +406,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                                "fused_region": "0 table, 1 interior steel, 2 exterior steel, 3 fixture, 4 unlocated steel",
                                "fused_recovered": "1 = recovered projection junction or B non-steel-to-fused steel",
                                "fused_reason": "Rule id, see fusion.reasonNames; not a confidence probability",
-                               "fused_steel_score": "0..1 rule support for steel, not calibrated probability; >=.9 protects retained steel in downstream denoising",
+                               "fused_steel_score": "0..1 rule support for steel, not calibrated probability; Step 05 can override >=.9 with independent 3D and multiview evidence",
                                "fused_steel_evidence": "Bitmask: 1 geometry and recovery support, 2 projection shape or accepted upper/lower height support, 4 axis recovery, 8 shared retention candidate",
                                "source_record_index": "Zero-based original source record index, also retained in steel/fixture subset LAS"} if fusion else {}),
                            **({"refined_class": "Compatibility alias of fused_class; no additional classification pass",

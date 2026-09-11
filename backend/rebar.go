@@ -346,7 +346,7 @@ func (a *app) rebarCompute(c *gin.Context) {
 		return
 	}
 	if b.Algorithm == "" {
-		b.Algorithm = "geometric-v5"
+		b.Algorithm = "geometric-v6"
 	}
 	descriptors, err := a.rebarProvider.ListAlgorithms(c.Request.Context())
 	if err != nil {

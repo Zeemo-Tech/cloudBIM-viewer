@@ -167,7 +167,7 @@ def fuse_classifications(context, *, workers=1, output=None, progress=None):
                         "protectionThreshold": PROTECTION_THRESHOLD, "lowScoreThreshold": .5, "levels": SCORE_LEVELS,
                         "branchLabelsAreIndependent": False, "branchRetentionPreserved": True,
                         "projectionHeightCountsAsEvidence": True,
-                        "denoisingPolicy": "双路实测钢筋硬保护；低分候选优先检查有限结构支撑，不能仅凭低分删除",
+                        "denoisingPolicy": "高分提供强支持；第05步允许独立三维与多视图反证推翻高分；不能仅凭低分删除",
                         "highConfidencePoints": high_confidence, "evidenceNames": EVIDENCE_NAMES,
                         "evidenceCounts": {str(i): int(n) for i, n in enumerate(evidence_counts) if n}},
               "policy": "agreement + broad fixture veto + steel evidence + bounded 3D axis recovery; no probability voting"}

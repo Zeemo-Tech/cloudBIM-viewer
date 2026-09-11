@@ -1,0 +1,84 @@
+{
+  "baselineRun": "20260910T162557-8103de74",
+  "resultRun": "20260910T162643-bcad9c43",
+  "source": {
+    "name": "source.las",
+    "path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/source.las",
+    "sha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+    "pointCount": 9216369,
+    "sizeBytes": 184327607,
+    "unchangedDuringRun": true
+  },
+  "timings": {
+    "readS": 0.17621207699994557,
+    "treeS": 1.8237398480123375,
+    "normalsS": 4.965393708000192,
+    "classificationS": 4.110042201995384,
+    "projectionS": 20.30821740301326,
+    "classifiersWallS": 20.310003930993844,
+    "fusionS": 0.7524210429983214,
+    "regionsS": 0.2360802940092981,
+    "refinementS": 0.22155783500056714,
+    "internalRebarS": 3.395578772004228,
+    "guidedInstancesS": 6.452151019999292,
+    "persistS": 2.175120986008551,
+    "previewS": 0.6650576129904948,
+    "totalS": 41.18136073797359
+  },
+  "modelInfo": {
+    "name": "0910_YB-1.ifc",
+    "bimAssetId": 7,
+    "modelFingerprint": "b89d40b384a2cb80bb01b03e5a76b6b422c6dd056e57f0e5ad3f484ef5177bb8",
+    "alignment": {
+      "scanAssetId": 5,
+      "bimAssetId": 7,
+      "alignmentId": 2,
+      "source": "current linked BIM and saved db_alignments"
+    },
+    "scanToBim": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      2.220446049250313e-16,
+      -1,
+      0,
+      0,
+      1,
+      2.220446049250313e-16,
+      0,
+      0.00309074978451207,
+      -0.007138338687760412,
+      -0.0029162709479768623,
+      1
+    ],
+    "binding": "current-linked-bim"
+  },
+  "counts": {
+    "table": 5310049,
+    "fixture": 1922828,
+    "rebar": 1975347,
+    "noise": 8145
+  },
+  "instances": 259,
+  "resolvedSteelPoints": 1895871,
+  "pendingSteelPoints": 79476,
+  "review": {
+    "designPhysicalBars": 70,
+    "designMatchingUnits": 210,
+    "observedInstancesBefore": 240,
+    "observedInstancesAfter": 259,
+    "mergedInstances": 60,
+    "splitInstances": 0,
+    "newInstances": 79,
+    "filteredPoints": 1967,
+    "pendingInstances": 43,
+    "conflictingUnits": 9,
+    "unobservedUnits": 9,
+    "qualityStatus": "requires_visual_review"
+  },
+  "repeatIdenticalRun": "20260910T162444-767c981e",
+  "originalShortInstancesPreserved": 12,
+  "originalShortPointsPreserved": 74746
+}

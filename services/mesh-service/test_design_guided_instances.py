@@ -301,6 +301,20 @@ class GuidedTests(unittest.TestCase):
         self.assertGreaterEqual(result['designReview']['blockedNoisePoints'],100)
         self.assertEqual(result['designReview']['protectionThreshold'],.9)
 
+    def test_spatially_rejected_high_scores_are_not_resurrected_by_design(self):
+        rod=([0,0,0],[.3,0,0])
+        for mode in ('geometry', 'topology'):
+            ctx,report,_=scene([rod])
+            ctx.internal_type[:100]=5;ctx.internal_instance[:100]=0;ctx.internal_segment[:100]=0
+            ctx.internal_confidence[:100]=0
+            ctx.fused_steel_score=np.ones(len(ctx.positions),np.float32)
+            report['denoising']={'highScoreOverrideAllowed':True}
+            refine_instances(ctx,report,inventory([rod]),mode=mode)
+            np.testing.assert_array_equal(ctx.complete_class[:100],4)
+            np.testing.assert_array_equal(ctx.complete_instance[:100],0)
+            np.testing.assert_array_equal(ctx.complete_class[100:],3)
+            np.testing.assert_array_equal(ctx.fused_steel_score,1)
+
     def test_round_external_rod_gets_observed_identity(self):
         rod=([0,0,0],[.3,0,0]);ctx,r,_=self.run_case([rod],[rod],ids=[0],zones=[3])
         self.assertEqual(r['instanceCount'],1)
