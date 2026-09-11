@@ -35,6 +35,8 @@ vm.runInContext([
   extractFunction('parseCompleteTileAttributes'),
   extractFunction('completeTilesSupported'),
   extractFunction('completeTileSemanticLabel'),
+  extractFunction('completeTileStyleTargets'),
+  extractFunction('completeTileErrorTarget'),
 ].join('\n'), context);
 
 const runId = '20260911T120000-1234abcd';
@@ -115,5 +117,16 @@ assert.equal(context.completeTilesSupported(), false, 'unsupported detailed sema
 vm.runInContext("controls.completeClassFilter.value = '2'", context);
 assert.equal(context.completeTilesSupported(), true, 'specific result filters do not intersect the unified semantic filter');
 assert.deepEqual([1, 2, 3, 3, 4].map((cls, index) => context.completeTileSemanticLabel(cls, index === 3 ? 5 : 0)), [1, 2, 9, 3, 10]);
+
+const readyA = {id: 'a'}, readyB = {id: 'b'};
+const records = new Map([['a', readyA], ['b', readyB]]);
+assert.deepEqual([...context.completeTileStyleTargets(records, readyB)].map(record => record.id), ['b'],
+  'a newly loaded tile must not restyle every cached tile');
+assert.deepEqual([...context.completeTileStyleTargets(records, null)].map(record => record.id), ['a', 'b'],
+  'an explicit filter change must still restyle every cached tile');
+assert.ok(context.completeTileErrorTarget(true) > context.completeTileErrorTarget(false),
+  'interaction must use a coarser LOD than the settled view');
+assert.match(source, /record\.ready = true;[\s\S]{0,120}applyCompleteTileAppearance\(record\)/,
+  'the tile load path must request incremental styling');
 
 console.log('Tiles viewer protocol: manifest contract, safe tile paths and binary sidecar validation passed.');

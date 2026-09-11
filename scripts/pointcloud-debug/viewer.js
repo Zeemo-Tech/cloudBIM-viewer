@@ -5,6 +5,7 @@ import { TilesRenderer } from '3d-tiles-renderer';
 const $ = (id) => document.getElementById(id);
 const api = '/api';
 const PREVIEW_RENDER_LIMIT = 300_000;
+const COMPLETE_TILE_SETTLE_MS = 180;
 const runQuery = new URLSearchParams(window.location.search).get('run');
 let requestedRun = /^\d{8}T\d{6}-[0-9a-f]{8}$/.test(runQuery || '') ? runQuery : null;
 let current = null, rawGeometry = null, normalGeometry = null, tableRemovalGeometry = null, partitionGeometry = null, classGeometry = null, projectionGeometry = null, fusionGeometry = null, refinementGeometry = null, internalRebarGeometry = null, designPriorGeometry = null, arrowLines = null;
@@ -20,12 +21,15 @@ let completeTileRecords = new Map();
 let completeTileReadyCount = 0;
 let completeTileLoadToken = 0;
 let completeTileFailed = false;
+let completeTileInteracting = false;
+let completeTileSettleTimer = 0;
+const completeTileColorCache = new Map();
 
 let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setClearColor(0x0b1020);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   $('view').append(renderer.domElement);
 } catch (error) {
   $('empty').hidden = false;
@@ -133,6 +137,8 @@ function render() {
 }
 
 controls.addEventListener('change', requestRender);
+controls.addEventListener('start', beginCompleteTileInteraction);
+controls.addEventListener('end', endCompleteTileInteraction);
 new ResizeObserver(requestRender).observe($('view'));
 
 function fmtHeight(metres) {
@@ -270,34 +276,103 @@ function completeTileSemanticLabel(cls, instance) {
   return 0;
 }
 
-function applyCompleteTileAppearance() {
+function completeTileStyleTargets(records, targetRecord) {
+  return targetRecord ? [targetRecord] : records.values();
+}
+
+function completeTileErrorTarget(interacting) {
+  return interacting ? 64 : 24;
+}
+
+function applyCompleteTileQuality(interacting) {
+  if (!completeTiles) return;
+  completeTiles.errorTarget = completeTileErrorTarget(interacting);
+  completeTiles.downloadQueue.maxJobs = interacting ? 2 : 8;
+  completeTiles.parseQueue.maxJobs = interacting ? 1 : 2;
+}
+
+function beginCompleteTileInteraction() {
+  if (completeTileSettleTimer) {
+    clearTimeout(completeTileSettleTimer);
+    completeTileSettleTimer = 0;
+  }
+  completeTileInteracting = true;
+  applyCompleteTileQuality(true);
+  requestRender();
+}
+
+function endCompleteTileInteraction() {
+  if (completeTileSettleTimer) clearTimeout(completeTileSettleTimer);
+  completeTileSettleTimer = setTimeout(() => {
+    completeTileSettleTimer = 0;
+    completeTileInteracting = false;
+    applyCompleteTileQuality(false);
+    requestRender();
+  }, COMPLETE_TILE_SETTLE_MS);
+}
+
+function completeTileColorBytes(id) {
+  if (!completeTileColorCache.has(id)) {
+    completeTileColorCache.set(id, instanceColor(id).map(value => Math.round(value * 255)));
+  }
+  return completeTileColorCache.get(id);
+}
+
+function refreshCompleteTilePresentation(supported) {
+  let loadedPoints = 0;
+  for (const record of completeTileRecords.values()) {
+    for (const part of record.parts) {
+      part.object.visible = supported && record.ready;
+      if (record.ready) loadedPoints += part.selectedCount || 0;
+    }
+  }
+  const useTiles = supported && completeTileReadyCount > 0;
+  if (completeTiles) completeTiles.group.visible = supported;
+  completePoints.visible = !useTiles;
+  if (useTiles) {
+    $('sample').textContent = `源 Tiles LOD ${fmt(current.tiles.completeRebar.pointCount)} 点 · 当前已载入 ${fmt(loadedPoints)} 点 · 分步样本 ${fmt(current.preview.pointCount)}`;
+  } else if (current?.preview) {
+    $('sample').textContent = `样本 ${fmt(current.preview.pointCount)} / 全量 ${fmt(current.preview.totalPointCount)}`;
+  }
+  return useTiles;
+}
+
+function applyCompleteTileAppearance(targetRecord = null) {
   const supported = completeTilesSupported();
+  if (!supported) return refreshCompleteTilePresentation(false);
   const filter = $('completeClassFilter').value;
   const instanceFilter = $('completeInstanceFilter').value;
   const colorMode = $('completeColorMode').value;
   const {separatedClusters, mergedIds, bridgeIds, splitIds} = completeOperationSets();
-  let visiblePoints = 0;
-  for (const record of completeTileRecords.values()) {
+  const filterKey = `${filter}/${instanceFilter}/${preferredSemanticTag}`;
+  const classColors = {1:[0x64, 0x74, 0x8b], 2:[0xf5, 0x9e, 0x0b], 3:[0x2d, 0xd4, 0xbf], 4:[0xef, 0x47, 0x6f]};
+  for (const record of completeTileStyleTargets(completeTileRecords, targetRecord)) {
     if (!record.ready) continue;
     for (const part of record.parts) {
       const {object, classes, instances, clusters} = part;
       const count = classes.length;
+      const updateColors = part.colorMode !== colorMode;
+      const updateFilter = part.filterKey !== filterKey;
       if (!part.colors || part.colors.length !== count * 3) {
         part.colors = new Uint8Array(count * 3);
         object.geometry.setAttribute('color', new THREE.BufferAttribute(part.colors, 3, true));
       }
       if (!part.indices || part.indices.length !== count) part.indices = new Uint32Array(count);
+      if (!updateColors && !updateFilter) continue;
       let selected = 0;
       for (let index = 0; index < count; index += 1) {
         const cls = classes[index], instance = instances[index], cluster = clusters[index];
-        const color = colorMode === 'clusters' && cluster ? instanceColor(cluster)
-          : cls === 3 && !instance ? instanceColor(0)
-            : cls === 3 && colorMode === 'instances' ? instanceColor(instance)
-              : hexColor(({1:'#64748b', 2:'#f59e0b', 3:'#2dd4bf', 4:'#ef476f'})[cls], '#94a3b8');
-        const colorOffset = index * 3;
-        part.colors[colorOffset] = Math.round(color[0] * 255);
-        part.colors[colorOffset + 1] = Math.round(color[1] * 255);
-        part.colors[colorOffset + 2] = Math.round(color[2] * 255);
+        if (updateColors) {
+          const color = colorMode === 'clusters' && cluster ? completeTileColorBytes(cluster)
+            : cls === 3 && !instance ? [0x94, 0xa3, 0xb8]
+              : cls === 3 && colorMode === 'instances' ? completeTileColorBytes(instance)
+                : classColors[cls] || [0x94, 0xa3, 0xb8];
+          const colorOffset = index * 3;
+          part.colors[colorOffset] = color[0];
+          part.colors[colorOffset + 1] = color[1];
+          part.colors[colorOffset + 2] = color[2];
+        }
+        if (!updateFilter) continue;
         const classMatch = filter === 'resolved' ? cls === 3 && instance > 0
           : filter === 'pending' ? cls === 3 && instance === 0
             : filter === 'merged' ? cls === 3 && instance > 0 && mergedIds.has(instance)
@@ -311,31 +386,29 @@ function applyCompleteTileAppearance() {
           part.indices[selected++] = index;
         }
       }
-      object.geometry.attributes.color.needsUpdate = true;
-      object.geometry.setIndex(new THREE.BufferAttribute(part.indices.subarray(0, selected), 1));
-      object.geometry.setDrawRange(0, selected);
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) {
-        material.vertexColors = true;
-        material.sizeAttenuation = false;
-        material.size = Number($('size').value);
-        material.needsUpdate = true;
+      if (updateColors) {
+        part.colorMode = colorMode;
+        object.geometry.attributes.color.needsUpdate = true;
       }
-      visiblePoints += selected;
+      if (updateFilter) {
+        part.filterKey = filterKey;
+        part.selectedCount = selected;
+        object.geometry.setIndex(new THREE.BufferAttribute(part.indices.subarray(0, selected), 1));
+        object.geometry.setDrawRange(0, selected);
+      }
+      if (!part.materialReady) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of materials) {
+          material.vertexColors = true;
+          material.sizeAttenuation = false;
+          material.size = Number($('size').value);
+          material.needsUpdate = true;
+        }
+        part.materialReady = true;
+      }
     }
   }
-  const useTiles = supported && completeTileReadyCount > 0;
-  if (completeTiles) completeTiles.group.visible = supported;
-  for (const record of completeTileRecords.values()) {
-    for (const part of record.parts) part.object.visible = supported && record.ready;
-  }
-  completePoints.visible = !useTiles;
-  if (useTiles) {
-    $('sample').textContent = `源 Tiles LOD ${fmt(current.tiles.completeRebar.pointCount)} 点 · 当前已载入 ${fmt(visiblePoints)} 点 · 分步样本 ${fmt(current.preview.pointCount)}`;
-  } else if (current?.preview) {
-    $('sample').textContent = `样本 ${fmt(current.preview.pointCount)} / 全量 ${fmt(current.preview.totalPointCount)}`;
-  }
-  return useTiles;
+  return refreshCompleteTilePresentation(true);
 }
 
 function attachCompleteTileAttributes(scene, attributes) {
@@ -367,6 +440,10 @@ function attachCompleteTileAttributes(scene, attributes) {
 
 function disposeCompleteTiles() {
   completeTileLoadToken += 1;
+  if (completeTileSettleTimer) {
+    clearTimeout(completeTileSettleTimer);
+    completeTileSettleTimer = 0;
+  }
   if (completeTiles) {
     completeRebarScene.remove(completeTiles.group);
     completeTiles.deleteCamera(camera);
@@ -376,6 +453,8 @@ function disposeCompleteTiles() {
   completeTileRecords.clear();
   completeTileReadyCount = 0;
   completeTileFailed = false;
+  completeTileInteracting = false;
+  completeTileColorCache.clear();
   completePoints.visible = true;
 }
 
@@ -386,10 +465,8 @@ function installCompleteTiles() {
   const tiles = new TilesRenderer(contract.tilesetUrl);
   completeTiles = tiles;
   completeTileFailed = false;
-  tiles.errorTarget = 16;
   tiles.displayActiveTiles = true;
-  tiles.downloadQueue.maxJobs = 8;
-  tiles.parseQueue.maxJobs = 2;
+  applyCompleteTileQuality(completeTileInteracting);
   tiles.setCamera(camera);
   const origin = current.preview.origin || [0, 0, 0];
   tiles.group.position.set(-origin[0], -origin[1], -origin[2]);
@@ -430,7 +507,7 @@ function installCompleteTiles() {
       record.parts = attachCompleteTileAttributes(event.scene, attributes);
       record.ready = true;
       completeTileReadyCount += 1;
-      applyCompleteTileAppearance();
+      applyCompleteTileAppearance(record);
       requestRender();
     } catch (error) {
       if (record) completeTileRecords.delete(event.scene);
