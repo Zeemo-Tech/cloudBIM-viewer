@@ -16,11 +16,17 @@ const props = withDefaults(
     disabled?: boolean
     placement?: 'left' | 'right'
     position?: 'fixed' | 'absolute' | 'static'
+    toggleIcon?: 'fold' | 'ruler'
+    clearOnToggleOff?: boolean
+    defaultModeOnOpen?: Exclude<AnalysisMode, 'none'>
   }>(),
   {
     disabled: false,
     placement: 'right',
     position: 'fixed',
+    toggleIcon: 'fold',
+    clearOnToggleOff: false,
+    defaultModeOnOpen: undefined,
   },
 )
 
@@ -40,6 +46,19 @@ const measurementActions: MeasurementAction[] = [
 function select(mode: Exclude<AnalysisMode, 'none'>) {
   emit('update:mode', props.mode === mode ? 'none' : mode)
 }
+
+function toggleToolbar() {
+  if (props.clearOnToggleOff && props.mode !== 'none') {
+    emit('update:mode', 'none')
+    emit('clear')
+    collapsed.value = true
+    return
+  }
+  if (collapsed.value && props.defaultModeOnOpen && props.mode === 'none') {
+    emit('update:mode', props.defaultModeOnOpen)
+  }
+  collapsed.value = !collapsed.value
+}
 </script>
 
 <template>
@@ -54,12 +73,13 @@ function select(mode: Exclude<AnalysisMode, 'none'>) {
   >
     <button
       class="measurement-toggle"
+      :class="{ 'is-active': !collapsed || props.mode !== 'none' }"
       type="button"
       :aria-expanded="!collapsed"
       :title="collapsed ? '展开测量工具' : '收起测量工具'"
-      @click="collapsed = !collapsed"
+      @click="toggleToolbar"
     >
-      <img v-if="collapsed" class="measurement-toggle-icon" src="/celiang.svg" alt="" />
+      <img v-if="props.toggleIcon === 'ruler' || collapsed" class="measurement-toggle-icon" src="/celiang.svg" alt="" />
       <el-icon v-else><Fold /></el-icon>
     </button>
 
@@ -118,7 +138,7 @@ function select(mode: Exclude<AnalysisMode, 'none'>) {
 
 .measurement-toolbar.placement-left {
   right: auto;
-  left: 18px;
+  left: 0;
 }
 
 .placement-left .measurement-actions {

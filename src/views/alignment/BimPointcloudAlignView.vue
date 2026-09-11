@@ -2,7 +2,25 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, DArrowLeft, DArrowRight, Hide, RefreshLeft, View } from '@element-plus/icons-vue'
+import {
+  Aim,
+  ArrowDown,
+  ArrowLeft,
+  Brush,
+  CircleCheck,
+  DArrowLeft,
+  DArrowRight,
+  Delete,
+  Download,
+  FullScreen,
+  Grid,
+  Hide,
+  Histogram,
+  Promotion,
+  RefreshLeft,
+  Setting,
+  View,
+} from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import {
   ClippingGroup,
@@ -15,6 +33,9 @@ import {
 import { color as tslColor, float, vertexColor as tslVertexColor } from 'three/tsl'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
+import { Line2 } from 'three/examples/jsm/lines/Line2.js'
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
@@ -64,6 +85,15 @@ import wanggeIcon from '@/assets/images/wangge.png'
 import toushiIcon from '@/assets/images/toushi.png'
 import zhengjiaoIcon from '@/assets/images/zhengjiao.png'
 import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
+import ViewerMeasurementBadge, {
+  type ViewerMeasurementBadgeOverlay,
+} from '@/components/preview/ViewerMeasurementBadge.vue'
+import {
+  createMeasurement,
+  deleteMeasurement,
+  listMeasurements,
+  type MeasurementKind,
+} from '@/api/backend-measurement'
 import C2MHistogramLegend from '@/components/preview/C2MHistogramLegend.vue'
 import PointcloudViewCube from '@/components/preview/PointcloudViewCube.vue'
 import PointcloudAxesTriad from '@/components/preview/PointcloudAxesTriad.vue'
@@ -73,6 +103,7 @@ import PointcloudColorRangeBar, {
 } from '@/components/preview/PointcloudColorRangeBar.vue'
 import type { CameraPose } from '@/components/preview/UnifiedViewer3D.vue'
 import ViewerAnalysisOverlay, {
+  type AnalysisArea,
   type AnalysisDistance,
   type AnalysisMode,
   type AnalysisPoint,
@@ -112,6 +143,12 @@ const router = useRouter()
 const route = useRoute()
 
 type RegistrationStage = 'coarse' | 'fine'
+type WorkflowStepId = 1 | 2 | 3
+const workflowSteps = [
+  { id: 1 as const, title: '点云与工程坐标配准', subtitle: '调整 BIM 与点云位置' },
+  { id: 2 as const, title: '偏差对比', subtitle: '查看 Scan vs BIM 偏差' },
+  { id: 3 as const, title: '出报告', subtitle: '生成分析成果报告' },
+]
 const registrationStage = ref<RegistrationStage>('coarse')
 const fineAlignLoading = ref(false)
 const fineAlignResult = ref<FineAlignmentResult | null>(null)
@@ -121,6 +158,9 @@ const fineFitnessRegressRatio = ref(0.95)
 const analysisMode = ref<AnalysisMode>('none')
 const analysisPoint = ref<AnalysisPoint | null>(null)
 const analysisDistance = ref<AnalysisDistance | null>(null)
+const analysisPoints = ref<AnalysisPoint[]>([])
+const analysisDistances = ref<AnalysisDistance[]>([])
+const analysisAreas = ref<AnalysisArea[]>([])
 const analysisToolbarCollapsed = ref(true)
 const pointcloudCameraPose = ref<CameraPose | null>(null)
 const pointcloudColorMode = ref<'rgb' | 'intensity'>('rgb')
@@ -169,6 +209,7 @@ const fineRunBlockedReason = computed(() => {
   return ''
 })
 const canSaveCalibration = computed(() => !!bimLoaded.value && !!pointcloudLoaded.value &&
+  !savingCalibration.value && !fineAlignLoading.value &&
   (registrationStage.value === 'coarse' || !!fineAlignResult.value))
 const canSaveFineAlignment = computed(() =>
   registrationStage.value === 'fine' && !!fineAlignResult.value && !fineAlignLoading.value,
@@ -176,6 +217,42 @@ const canSaveFineAlignment = computed(() =>
 const canSaveCoarseAlignment = computed(() =>
   !!bimLoaded.value && !!pointcloudLoaded.value && registrationStage.value === 'coarse' && !savingCalibration.value,
 )
+const canOpenDeviationStep = computed(() =>
+  Boolean(props.bimAssetId && props.pointcloudAssetId && hasSavedAlignmentMatrix.value && !coarseAlignmentDirty.value),
+)
+
+function workflowStepDisabled(step: WorkflowStepId) {
+  if (step === 1) return false
+  if (step === 3) return true
+  return !canOpenDeviationStep.value
+}
+
+function openWorkflowStep(step: WorkflowStepId) {
+  if (step === 1) return
+  if (step === 3) {
+    ElMessage.info('出报告功能即将开放')
+    return
+  }
+  if (!canOpenDeviationStep.value) {
+    ElMessage.warning('请先完成并保存点云与工程坐标配准')
+    return
+  }
+  if (!props.bimAssetId || !props.pointcloudAssetId) return
+
+  const projectId = typeof route.query.projectId === 'string' ? route.query.projectId : undefined
+  const projectName = typeof route.query.projectName === 'string' ? route.query.projectName : undefined
+  void router.replace({
+    path: '/preview/split',
+    query: {
+      ...(projectId ? { projectId } : {}),
+      ...(projectName ? { projectName } : {}),
+      bimAssetId: String(props.bimAssetId),
+      pointcloudAssetId: String(props.pointcloudAssetId),
+      ...(props.bimDisplayName ? { displayName: props.bimDisplayName } : {}),
+      ...(props.pointcloudDisplayName ? { pointcloudDisplayName: props.pointcloudDisplayName } : {}),
+    },
+  })
+}
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
 const showPanel = ref(true)
@@ -240,6 +317,25 @@ const REMESH_WIREFRAME_MAX_FACES = 2_700_000
 let meshStatusPollingTimer: number | null = null
 
 const meshReady = computed(() => meshStatus.value?.status === 'succeeded')
+const selectedMeshAlgorithm = computed(() =>
+  meshAlgorithms.value.find((item) => item.name === meshAlgorithm.value) ?? null,
+)
+const meshAlgorithmDisplayName = computed(() =>
+  selectedMeshAlgorithm.value?.label || meshAlgorithm.value || '网格均匀化',
+)
+const meshAlgorithmVersion = computed(() => {
+  const version = meshReady.value
+    ? meshStatus.value?.implementationVersion || selectedMeshAlgorithm.value?.implementationVersion
+    : selectedMeshAlgorithm.value?.implementationVersion
+  return version ? `v${version}` : '版本未知'
+})
+const meshAlgorithmTargetLabel = computed(() => {
+  const persistedTarget = Number(meshStatus.value?.parameters?.target_edge_length)
+  const target = meshReady.value && Number.isFinite(persistedTarget) && persistedTarget > 0
+    ? persistedTarget
+    : meshTargetEdgeLength.value
+  return `目标边长 ${(target * 1000).toFixed(1)} mm`
+})
 const meshTaskActive = computed(() =>
   meshStatus.value?.status === 'queued' || meshStatus.value?.status === 'processing',
 )
@@ -888,6 +984,20 @@ function clearC2MScene(invalidateLoad = true) {
   requestRender()
 }
 
+function clearC2MSceneAndOpenCoarseEditor() {
+  clearC2MScene()
+  if (!bimPivot) return
+
+  registrationStage.value = 'coarse'
+  fineAlignResult.value = null
+  editMode.value = true
+  selectedItemId.value = 'bim'
+  transformMode.value = 'translate'
+  enableElementPicking.value = false
+  selectSceneObject('bim', { enableEdit: true })
+  requestRender()
+}
+
 function hideBimWhileC2MIsLoaded() {
   if (!bimPivot) return
   if (bimVisibilityBeforeC2M === null) {
@@ -1118,8 +1228,15 @@ function restoreRemeshScene(showMessage = true) {
   remeshSceneSnapshot = null
   remeshRestoreAvailable.value = false
   applySceneVisibility()
+  registrationStage.value = 'coarse'
+  fineAlignResult.value = null
+  editMode.value = true
+  selectedItemId.value = 'bim'
+  transformMode.value = 'translate'
+  enableElementPicking.value = false
+  refreshSelectedTransformUi(false)
   requestRender()
-  if (showMessage) ElMessage.success('已复原到加载均匀化结果之前的场景')
+  if (showMessage) ElMessage.success('已恢复原始场景')
 }
 
 async function loadRemeshResult() {
@@ -1403,10 +1520,33 @@ let highlightedElement:
     }
   | null = null
 let analysisStartPoint: THREE.Vector3 | null = null
+let analysisHoverPoint: THREE.Vector3 | null = null
+let analysisAreaPoints: THREE.Vector3[] = []
 let analysisGroup: THREE.Group | null = null
-let analysisLine: THREE.Line | null = null
-let analysisMarkers: THREE.Mesh[] = []
+const archivedAnalysisGroups: THREE.Group[] = []
+let analysisDistanceLine: Line2 | null = null
+let analysisDistanceStartMarker: THREE.Sprite | null = null
+let analysisDistanceEndMarker: THREE.Sprite | null = null
+let analysisDistanceHoverMarker: THREE.Sprite | null = null
+let analysisAreaLine: THREE.Line | null = null
+let analysisAreaFill: THREE.Mesh | null = null
+let analysisAreaMarkers: THREE.Sprite[] = []
+let measurementModelDiagonal = 10
 let analysisPointerDown: { x: number; y: number } | null = null
+let lastMeasurementPickWarningAt = 0
+const measurementBackendIds = new Map<string, number>()
+const measurementPanelOffsets = new Map<string, { x: number; y: number }>()
+const hiddenMeasurementIds = new Set<string>()
+const measurementBadgeOffsetX = 34
+const measurementBadges = ref<Array<{
+  id: string
+  kind: 'point' | 'distance' | 'area'
+  title: string
+  mainLabel?: string
+  mainValue?: string
+  rows: Array<{ label: string; value: string }>
+  overlay: ViewerMeasurementBadgeOverlay
+}>>([])
 
 function isPerspectiveCamera(
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
@@ -2425,44 +2565,663 @@ function getPointerNdc(ev: PointerEvent) {
 }
 
 function clearAnalysis() {
+  analysisPointerDown = null
+  if (controls) controls.enabled = true
   analysisStartPoint = null
+  analysisHoverPoint = null
+  analysisAreaPoints = []
   analysisPoint.value = null
   analysisDistance.value = null
-  if (analysisGroup && scene) scene.remove(analysisGroup)
-  analysisGroup?.traverse((child: any) => { child.geometry?.dispose?.(); child.material?.dispose?.() })
+  analysisPoints.value = []
+  analysisDistances.value = []
+  analysisAreas.value = []
+  const groups = analysisGroup ? [analysisGroup, ...archivedAnalysisGroups] : [...archivedAnalysisGroups]
+  groups.forEach((group) => {
+    if (scene) scene.remove(group)
+    group.traverse((child: any) => {
+      child.geometry?.dispose?.()
+      child.material?.dispose?.()
+    })
+  })
+  archivedAnalysisGroups.splice(0)
+  hiddenMeasurementIds.clear()
+  measurementPanelOffsets.clear()
   analysisGroup = null
-  analysisLine = null
-  analysisMarkers = []
+  analysisDistanceLine = null
+  analysisDistanceStartMarker = null
+  analysisDistanceEndMarker = null
+  analysisDistanceHoverMarker = null
+  analysisAreaLine = null
+  analysisAreaFill = null
+  analysisAreaMarkers = []
+  measurementBadges.value = []
+}
+
+async function clearAllMeasurements() {
+  clearAnalysis()
+  const ids = new Set<number>(measurementBackendIds.values())
+  measurementBackendIds.clear()
+  const assetIds = [props.bimAssetId, props.pointcloudAssetId].filter(
+    (id): id is number => typeof id === 'number' && id > 0,
+  )
+  await Promise.all(assetIds.map(async (assetId) => {
+    try {
+      const response = await listMeasurements(assetId)
+      response.data.forEach((record) => ids.add(record.id))
+    } catch (error) {
+      console.warn('[BimPointcloudAlign] 读取测量记录失败', error)
+    }
+  }))
+  await Promise.all([...ids].map(async (id) => {
+    try {
+      await deleteMeasurement(id)
+    } catch (error) {
+      console.warn('[BimPointcloudAlign] 删除测量记录失败', error)
+    }
+  }))
+}
+
+function measurementAssetId() {
+  return props.pointcloudAssetId ?? props.bimAssetId
+}
+
+async function persistMeasurement(kind: MeasurementKind, payload: unknown) {
+  const assetId = measurementAssetId()
+  if (!assetId) return
+  const localId = typeof payload === 'object' && payload && 'id' in payload
+    ? String(payload.id)
+    : ''
+  try {
+    const response = await createMeasurement(assetId, kind, payload)
+    if (localId) measurementBackendIds.set(localId, response.data.id)
+  } catch (error) {
+    console.warn('[BimPointcloudAlign] 保存测量记录失败', error)
+  }
+}
+
+function hideMeasurementBadge(id: string) {
+  hiddenMeasurementIds.add(id)
+  syncMeasurementBadges()
+}
+
+function moveMeasurementBadge(id: string, delta: { x: number; y: number }) {
+  const previous = measurementPanelOffsets.get(id) ?? { x: 0, y: 0 }
+  measurementPanelOffsets.set(id, { x: previous.x + delta.x, y: previous.y + delta.y })
+  syncMeasurementBadges()
+}
+
+function resetMeasurementBadge(id: string) {
+  measurementPanelOffsets.delete(id)
+  syncMeasurementBadges()
+}
+
+function deleteMeasurementBadge(badge: (typeof measurementBadges.value)[number]) {
+  const index = badge.kind === 'point'
+    ? analysisPoints.value.findIndex((item) => item.id === badge.id)
+    : badge.kind === 'distance'
+      ? analysisDistances.value.findIndex((item) => item.id === badge.id)
+      : analysisAreas.value.findIndex((item) => item.id === badge.id)
+  if (badge.kind === 'point') analysisPoints.value = analysisPoints.value.filter((_, i) => i !== index)
+  if (badge.kind === 'distance') analysisDistances.value = analysisDistances.value.filter((_, i) => i !== index)
+  if (badge.kind === 'area') analysisAreas.value = analysisAreas.value.filter((_, i) => i !== index)
+  hiddenMeasurementIds.delete(badge.id)
+  measurementPanelOffsets.delete(badge.id)
+  const backendId = measurementBackendIds.get(badge.id)
+  measurementBackendIds.delete(badge.id)
+  if (backendId !== undefined) void deleteMeasurement(backendId).catch(() => undefined)
+  rebuildAnalysisVisualsFromState()
+  syncMeasurementBadges()
+}
+
+function rebuildAnalysisVisualsFromState() {
+  const currentScene = scene
+  if (!currentScene) return
+  archivedAnalysisGroups.forEach((group) => {
+    currentScene.remove(group)
+    group.traverse((child: any) => {
+      child.geometry?.dispose?.()
+      child.material?.map?.dispose?.()
+      child.material?.dispose?.()
+    })
+  })
+  archivedAnalysisGroups.splice(0)
+  analysisPoints.value.forEach((point) => {
+    const group = new THREE.Group()
+    group.add(Object.assign(createMeasurementPinSprite('#22d3ee'), { position: new THREE.Vector3(point.x, point.y, point.z) }))
+    currentScene.add(group)
+    archivedAnalysisGroups.push(group)
+  })
+  analysisDistances.value.forEach((record) => {
+    const group = new THREE.Group()
+    const start = new THREE.Vector3(record.start.x, record.start.y, record.start.z)
+    const end = new THREE.Vector3(record.end.x, record.end.y, record.end.z)
+    group.add(createAnalysisDistanceLine(start, end))
+    const startMarker = createMeasurementPinSprite('#ff4040'); startMarker.position.copy(start); group.add(startMarker)
+    const endMarker = createMeasurementPinSprite('#ff5a5a', .96); endMarker.position.copy(end); group.add(endMarker)
+    currentScene.add(group)
+    archivedAnalysisGroups.push(group)
+  })
+  syncAnalysisLineResolutions()
+}
+
+function createMeasurementPinSprite(color = '#ff4040', opacity = 1) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 128
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('无法创建测量标记画布')
+  context.shadowColor = 'rgba(255, 86, 86, .38)'
+  context.shadowBlur = 18
+  context.fillStyle = color
+  context.beginPath()
+  context.moveTo(64, 10)
+  context.bezierCurveTo(33, 10, 18, 32, 18, 55)
+  context.bezierCurveTo(18, 82, 39, 96, 64, 118)
+  context.bezierCurveTo(89, 96, 110, 82, 110, 55)
+  context.bezierCurveTo(110, 32, 95, 10, 64, 10)
+  context.closePath()
+  context.fill()
+  context.shadowBlur = 0
+  context.fillStyle = '#fff1f1'
+  context.beginPath()
+  context.arc(64, 52, 18, 0, Math.PI * 2)
+  context.fill()
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const marker = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  }))
+  marker.center.set(.5, .1)
+  marker.renderOrder = 10003
+  return marker
+}
+
+function getAdaptiveMeasurementMarkerPixels() {
+  const sizeFactor = Math.log10(Math.max(measurementModelDiagonal, 1))
+  return THREE.MathUtils.clamp(10 + sizeFactor * 2, 10, 16)
+}
+
+function scaleMeasurementMarker(marker: THREE.Sprite, targetPixels?: number) {
+  if (!activeCamera || !viewportEl.value || !marker.visible) return
+  const rect = viewportEl.value.getBoundingClientRect()
+  const viewportHeight = Math.max(rect.height, 1)
+  const pixelSize = targetPixels ?? getAdaptiveMeasurementMarkerPixels()
+  let worldUnitsPerPixel = 1
+  if (isPerspectiveCamera(activeCamera)) {
+    const distance = activeCamera.position.distanceTo(marker.position)
+    const fov = THREE.MathUtils.degToRad(activeCamera.fov)
+    worldUnitsPerPixel = (2 * distance * Math.tan(fov * 0.5)) / viewportHeight
+  } else {
+    worldUnitsPerPixel = (2 * orthoViewSize) / viewportHeight
+  }
+  marker.scale.set(
+    Math.max(worldUnitsPerPixel * pixelSize, Number.EPSILON),
+    Math.max(worldUnitsPerPixel * pixelSize, Number.EPSILON),
+    1,
+  )
+}
+
+function createAnalysisDistanceLine(start: THREE.Vector3, end: THREE.Vector3) {
+  const line = new Line2(
+    new LineGeometry(),
+    new LineMaterial({
+      color: '#d63d3d',
+      dashed: true,
+      dashSize: 0.9,
+      gapSize: 0.48,
+      transparent: true,
+      opacity: 0.96,
+      linewidth: 2.8,
+      worldUnits: false,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  )
+  line.geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z])
+  line.computeLineDistances()
+  line.renderOrder = 10002
+  return line
+}
+
+function syncAnalysisLineResolutions() {
+  if (!renderer) return
+  const width = renderer.domElement.clientWidth || 1
+  const height = renderer.domElement.clientHeight || 1
+  const groups = analysisGroup ? [analysisGroup, ...archivedAnalysisGroups] : archivedAnalysisGroups
+  groups.forEach((group) => {
+    group.traverse((child) => {
+      if (child instanceof Line2) child.material.resolution.set(width, height)
+      if (child instanceof THREE.Sprite) scaleMeasurementMarker(child)
+    })
+  })
+}
+
+function createMeasurementId() {
+  return globalThis.crypto?.randomUUID?.() || `measurement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function projectMeasurementPoint(point: THREE.Vector3) {
+  if (!activeCamera || !viewportEl.value) return null
+  const rect = viewportEl.value.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
+  const projected = point.clone().project(activeCamera)
+  if (projected.z < -1 || projected.z > 1) return null
+  return {
+    x: ((projected.x + 1) * .5) * rect.width,
+    y: ((-projected.y + 1) * .5) * rect.height,
+  }
+}
+
+function formatMeasurementMeters(value: number, digits = 3) {
+  return `${value.toFixed(digits)} m`
+}
+
+function syncMeasurementBadges() {
+  const next: typeof measurementBadges.value = []
+  analysisPoints.value.forEach((point, index) => {
+    const id = point.id || `point-${index}`
+    if (hiddenMeasurementIds.has(id)) return
+    const screenPoint = projectMeasurementPoint(new THREE.Vector3(point.x, point.y, point.z))
+    if (!screenPoint) return
+    const offset = measurementPanelOffsets.get(id) ?? { x: 0, y: 0 }
+    next.push({
+      id,
+      kind: 'point',
+      title: `定位 #${index + 1}`,
+      rows: [
+        { label: 'X', value: formatMeasurementMeters(point.x) },
+        { label: 'Y', value: formatMeasurementMeters(point.z) },
+        { label: 'Z', value: formatMeasurementMeters(point.y) },
+      ],
+      overlay: { visible: true, x: screenPoint.x + measurementBadgeOffsetX + offset.x, y: screenPoint.y - 18 + offset.y },
+    })
+  })
+  analysisDistances.value.forEach((record, index) => {
+    const id = record.id || `distance-${index}`
+    if (hiddenMeasurementIds.has(id)) return
+    const start = new THREE.Vector3(record.start.x, record.start.y, record.start.z)
+    const end = new THREE.Vector3(record.end.x, record.end.y, record.end.z)
+    // Keep the result card to the right of the clicked pair. Choosing the
+    // rightmost endpoint makes the placement stable regardless of line direction.
+    const startScreenPoint = projectMeasurementPoint(start)
+    const endScreenPoint = projectMeasurementPoint(end)
+    const screenPoint = startScreenPoint && endScreenPoint
+      ? (startScreenPoint.x >= endScreenPoint.x ? startScreenPoint : endScreenPoint)
+      : endScreenPoint ?? startScreenPoint
+    if (!screenPoint) return
+    const dx = record.end.x - record.start.x
+    const dy = record.end.y - record.start.y
+    const dz = record.end.z - record.start.z
+    const horizontal = Math.hypot(dx, dz)
+    const slope = horizontal <= 1e-8 ? (Math.abs(dy) <= 1e-8 ? 0 : 90) : Math.atan2(Math.abs(dy), horizontal) * 180 / Math.PI
+    const offset = measurementPanelOffsets.get(id) ?? { x: 0, y: 0 }
+    next.push({
+      id,
+      kind: 'distance',
+      title: `测距 #${index + 1}`,
+      mainLabel: '直线距离',
+      mainValue: formatMeasurementMeters(record.distance),
+      rows: [
+        { label: '水平距离', value: formatMeasurementMeters(horizontal) },
+        { label: '垂直距离', value: formatMeasurementMeters(Math.abs(dy)) },
+        { label: '坡度', value: `${slope.toFixed(2)}°` },
+      ],
+      overlay: { visible: true, x: screenPoint.x + measurementBadgeOffsetX + offset.x, y: screenPoint.y - 18 + offset.y },
+    })
+  })
+  analysisAreas.value.forEach((record, index) => {
+    const id = record.id || `area-${index}`
+    if (hiddenMeasurementIds.has(id)) return
+    const points = record.points.map((point) => new THREE.Vector3(point.x, point.y, point.z))
+    const screenPoint = projectMeasurementPoint(createAreaMetrics(points)?.centroid ?? points[0])
+    if (!screenPoint) return
+    const offset = measurementPanelOffsets.get(id) ?? { x: 0, y: 0 }
+    next.push({
+      id,
+      kind: 'area',
+      title: `面积 #${index + 1}`,
+      mainLabel: '面积',
+      mainValue: `${record.area.toFixed(2)} m²`,
+      rows: [{ label: '周长', value: `${record.perimeter.toFixed(2)} m` }],
+      overlay: { visible: true, x: screenPoint.x + measurementBadgeOffsetX + offset.x, y: screenPoint.y - 18 + offset.y },
+    })
+  })
+  measurementBadges.value = next
+}
+
+function createAreaMetrics(points: THREE.Vector3[]) {
+  if (points.length < 3) return null
+  const normal = new THREE.Vector3()
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length]
+    normal.x += (point.y - next.y) * (point.z + next.z)
+    normal.y += (point.z - next.z) * (point.x + next.x)
+    normal.z += (point.x - next.x) * (point.y + next.y)
+  })
+  if (normal.lengthSq() < 1e-10) return null
+  normal.normalize()
+  const origin = points[0].clone()
+  const axisU = points[1].clone().sub(origin)
+  if (axisU.lengthSq() < 1e-10) return null
+  axisU.normalize()
+  const axisV = normal.clone().cross(axisU).normalize()
+  const projected = points.map((point) => {
+    const relative = point.clone().sub(origin)
+    return new THREE.Vector2(relative.dot(axisU), relative.dot(axisV))
+  })
+  let twiceArea = 0
+  let centroidX = 0
+  let centroidY = 0
+  projected.forEach((point, index) => {
+    const next = projected[(index + 1) % projected.length]
+    const cross = point.x * next.y - next.x * point.y
+    twiceArea += cross
+    centroidX += (point.x + next.x) * cross
+    centroidY += (point.y + next.y) * cross
+  })
+  const area = Math.abs(twiceArea) * 0.5
+  if (area <= 1e-8) return null
+  let perimeter = 0
+  points.forEach((point, index) => { perimeter += point.distanceTo(points[(index + 1) % points.length]) })
+  return {
+    area,
+    perimeter,
+    centroid: origin.clone()
+      .addScaledVector(axisU, centroidX / (3 * twiceArea))
+      .addScaledVector(axisV, centroidY / (3 * twiceArea)),
+    projected,
+  }
 }
 
 function pickAnalysisPoint(event: PointerEvent) {
   if (!raycaster || !activeCamera || !contentGroup) return null
   const pointer = getPointerNdc(event)
   if (!pointer) return null
+  // Keep point-cloud picking usable at every zoom level. Three's default
+  // Points threshold is a fixed world-space value, so it becomes unreliable
+  // when the camera moves close to or far from a scan.
+  const viewportHeight = Math.max(viewportEl.value?.clientHeight || 1, 1)
+  const viewDistance = controls?.target
+    ? activeCamera.position.distanceTo(controls.target)
+    : activeCamera.position.length()
+  const worldUnitsPerPixel = isPerspectiveCamera(activeCamera)
+    ? (2 * Math.max(viewDistance, 0.001) * Math.tan(THREE.MathUtils.degToRad(activeCamera.fov) * 0.5)) / viewportHeight
+    : (2 * Math.max(orthoViewSize, 0.001)) / viewportHeight
+  raycaster.params.Points.threshold = THREE.MathUtils.clamp(
+    worldUnitsPerPixel * Math.max(pointcloudPointSize.value * 1.5, 5),
+    1e-4,
+    Math.max(pointcloudMaxDim * 0.05, 0.01),
+  )
+  contentGroup.updateMatrixWorld(true)
   raycaster.setFromCamera(pointer, activeCamera)
-  return raycaster.intersectObjects(contentGroup.children, true)[0]?.point?.clone() ?? null
+  const targets: THREE.Object3D[] = []
+  if (bimRoot) targets.push(bimRoot)
+  if (tileset?.group) targets.push(tileset.group)
+  if (c2mSceneGroup) targets.push(c2mSceneGroup)
+  if (!targets.length) targets.push(...contentGroup.children)
+  const hit = raycaster.intersectObjects(targets, true)[0]?.point?.clone() ?? null
+  if (!hit) return null
+
+  // Match the BIM preview's forgiving pick behavior: when the cursor is near
+  // an existing measurement point, reuse that exact point instead of creating
+  // a visually disconnected endpoint.
+  const rect = renderer?.domElement?.getBoundingClientRect?.()
+  if (!rect || !activeCamera) return hit
+  const candidates = [
+    analysisStartPoint,
+    analysisPoint.value
+      ? new THREE.Vector3(analysisPoint.value.x, analysisPoint.value.y, analysisPoint.value.z)
+      : null,
+    ...analysisPoints.value.map((point) => new THREE.Vector3(point.x, point.y, point.z)),
+    ...analysisDistances.value.flatMap((record) => [
+      new THREE.Vector3(record.start.x, record.start.y, record.start.z),
+      new THREE.Vector3(record.end.x, record.end.y, record.end.z),
+    ]),
+    ...analysisAreas.value.flatMap((record) =>
+      record.points.map((point) => new THREE.Vector3(point.x, point.y, point.z))),
+    ...analysisAreaPoints,
+  ].filter((point): point is THREE.Vector3 => !!point)
+  let snapped = hit
+  let nearest = 18
+  candidates.forEach((candidate) => {
+    const projected = candidate.clone().project(activeCamera!)
+    if (projected.z < -1 || projected.z > 1) return
+    const x = ((projected.x + 1) * 0.5) * rect.width
+    const y = ((-projected.y + 1) * 0.5) * rect.height
+    const distance = Math.hypot(x - (event.clientX - rect.left), y - (event.clientY - rect.top))
+    if (distance <= nearest) {
+      nearest = distance
+      snapped = candidate.clone()
+    }
+  })
+  return snapped
 }
 
-function renderAnalysisPoint(start: THREE.Vector3, end?: THREE.Vector3) {
+function renderAnalysisPoint(point: THREE.Vector3, color = '#22d3ee') {
   if (!scene) return
   if (!analysisGroup) { analysisGroup = new THREE.Group(); analysisGroup.renderOrder = 10001; scene.add(analysisGroup) }
-  const points = end ? [start, end] : [start]
-  if (!analysisLine) {
-    analysisLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }))
-    analysisGroup.add(analysisLine)
-  }
-  analysisLine.geometry.setFromPoints(points)
-  analysisLine.visible = Boolean(end)
-  while (analysisMarkers.length < points.length) {
-    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff5252, depthTest: false, depthWrite: false }))
-    analysisMarkers.push(marker); analysisGroup.add(marker)
-  }
-  analysisMarkers.forEach((marker, index) => { marker.visible = index < points.length; if (marker.visible) marker.position.copy(points[index]) })
+  const marker = createMeasurementPinSprite(color)
+  marker.position.copy(point)
+  marker.visible = true
+  analysisGroup.add(marker)
+  scaleMeasurementMarker(marker)
   requestRender()
 }
 
+function updateAnalysisDistanceVisuals(
+  start: THREE.Vector3,
+  end: THREE.Vector3 | null,
+  preview = false,
+) {
+  if (!scene) return
+  if (!analysisGroup) {
+    analysisGroup = new THREE.Group()
+    analysisGroup.renderOrder = 10001
+    scene.add(analysisGroup)
+  }
+  if (!analysisDistanceLine) {
+    analysisDistanceLine = createAnalysisDistanceLine(start, start)
+    analysisGroup.add(analysisDistanceLine)
+  }
+  if (!analysisDistanceStartMarker) {
+    analysisDistanceStartMarker = createMeasurementPinSprite('#ff4040')
+    analysisGroup.add(analysisDistanceStartMarker)
+  }
+  analysisDistanceStartMarker.position.copy(start)
+  analysisDistanceStartMarker.visible = true
+  scaleMeasurementMarker(analysisDistanceStartMarker)
+  if (!end) {
+    analysisDistanceLine.visible = false
+    syncAnalysisLineResolutions()
+    requestRender()
+    return
+  }
+  if (!analysisDistanceEndMarker) {
+    analysisDistanceEndMarker = createMeasurementPinSprite('#ff5a5a', .96)
+    analysisGroup.add(analysisDistanceEndMarker)
+  }
+  analysisDistanceEndMarker.position.copy(end)
+  analysisDistanceEndMarker.visible = true
+  scaleMeasurementMarker(analysisDistanceEndMarker)
+  analysisDistanceLine.geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z])
+  analysisDistanceLine.computeLineDistances()
+  analysisDistanceLine.visible = true
+  if (preview) {
+    if (!analysisDistanceHoverMarker) {
+      analysisDistanceHoverMarker = createMeasurementPinSprite('#ff7b7b', .74)
+      analysisGroup.add(analysisDistanceHoverMarker)
+    }
+    analysisDistanceHoverMarker.position.copy(end)
+    analysisDistanceHoverMarker.visible = true
+    scaleMeasurementMarker(analysisDistanceHoverMarker)
+  } else if (analysisDistanceHoverMarker) {
+    analysisDistanceHoverMarker.visible = false
+  }
+  syncAnalysisLineResolutions()
+  requestRender()
+}
+
+function completeAnalysisDistance(end: THREE.Vector3) {
+  if (!analysisStartPoint) return
+  const start = analysisStartPoint.clone()
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const dz = end.z - start.z
+  const horizontalDistance = Math.hypot(dx, dz)
+  const verticalDistance = Math.abs(dy)
+  const record: AnalysisDistance = {
+    id: globalThis.crypto?.randomUUID?.() || `distance-${Date.now()}`,
+    start: { x: start.x, y: start.y, z: start.z },
+    end: { x: end.x, y: end.y, z: end.z },
+    distance: start.distanceTo(end),
+    heightDifference: verticalDistance,
+    horizontalDistance,
+    verticalDistance,
+    slopeDegrees: horizontalDistance <= 1e-8
+      ? (verticalDistance <= 1e-8 ? 0 : 90)
+      : Math.atan2(verticalDistance, horizontalDistance) * 180 / Math.PI,
+  }
+  updateAnalysisDistanceVisuals(start, end)
+  if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
+  analysisGroup = null
+  analysisDistanceLine = null
+  analysisDistanceStartMarker = null
+  analysisDistanceEndMarker = null
+  analysisDistanceHoverMarker = null
+  analysisStartPoint = null
+  analysisHoverPoint = null
+  analysisDistance.value = record
+  analysisDistances.value = [...analysisDistances.value, record]
+  syncMeasurementBadges()
+  void persistMeasurement('distance', record)
+}
+
+function updateAnalysisAreaVisuals(points: THREE.Vector3[], previewPoint: THREE.Vector3 | null = null) {
+  if (!scene) return
+  if (!analysisGroup) { analysisGroup = new THREE.Group(); analysisGroup.renderOrder = 10001; scene.add(analysisGroup) }
+  const displayedPoints = previewPoint ? [...points, previewPoint] : points
+  if (!analysisAreaLine) {
+    analysisAreaLine = new THREE.Line(
+      new THREE.BufferGeometry(),
+      new THREE.LineDashedMaterial({
+        color: 0xff5252,
+        dashSize: 0.9,
+        gapSize: 0.48,
+        transparent: true,
+        opacity: 0.92,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    )
+    analysisAreaLine.renderOrder = 10001
+    analysisGroup.add(analysisAreaLine)
+  }
+  const outlinePoints = displayedPoints.length > 2 ? [...displayedPoints, displayedPoints[0]] : displayedPoints
+  analysisAreaLine.geometry.setFromPoints(outlinePoints)
+  analysisAreaLine.computeLineDistances()
+  analysisAreaLine.visible = outlinePoints.length > 1
+
+  if (displayedPoints.length >= 3) {
+    if (!analysisAreaFill) {
+      analysisAreaFill = new THREE.Mesh(
+        new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({
+          color: 0xff5a5a,
+          transparent: true,
+          opacity: 0.16,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      )
+      analysisAreaFill.renderOrder = 10000
+      analysisGroup.add(analysisAreaFill)
+    }
+    const metrics = createAreaMetrics(displayedPoints)
+    const triangles = metrics ? THREE.ShapeUtils.triangulateShape(metrics.projected, []) : []
+    const geometry = analysisAreaFill.geometry as THREE.BufferGeometry
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(displayedPoints.flatMap((point) => [point.x, point.y, point.z]), 3),
+    )
+    geometry.setIndex(triangles.flat())
+    geometry.computeVertexNormals()
+    geometry.computeBoundingSphere()
+    analysisAreaFill.visible = triangles.length > 0
+  } else if (analysisAreaFill) {
+    analysisAreaFill.visible = false
+  }
+
+  while (analysisAreaMarkers.length < points.length) {
+    const marker = createMeasurementPinSprite('#ff4040')
+    analysisAreaMarkers.push(marker)
+    analysisGroup.add(marker)
+  }
+  analysisAreaMarkers.forEach((marker, index) => {
+    marker.visible = index < points.length
+    if (marker.visible) {
+      marker.position.copy(points[index])
+      scaleMeasurementMarker(marker)
+    }
+  })
+  requestRender()
+}
+
+function completeAnalysisArea() {
+  const metrics = createAreaMetrics(analysisAreaPoints)
+  if (!metrics) return
+  const record: AnalysisArea = {
+    id: globalThis.crypto?.randomUUID?.() || `area-${Date.now()}`,
+    points: analysisAreaPoints.map((point) => ({ x: point.x, y: point.y, z: point.z })),
+    area: metrics.area,
+    perimeter: metrics.perimeter,
+  }
+  updateAnalysisAreaVisuals(analysisAreaPoints)
+  if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
+  analysisGroup = null
+  analysisAreaLine = null
+  analysisAreaFill = null
+  analysisAreaMarkers = []
+  analysisAreas.value = [...analysisAreas.value, record]
+  analysisAreaPoints = []
+  syncMeasurementBadges()
+  void persistMeasurement('area', record)
+}
+
+function cancelActiveAnalysis() {
+  analysisPointerDown = null
+  if (controls) controls.enabled = true
+  analysisStartPoint = null
+  analysisHoverPoint = null
+  analysisAreaPoints = []
+  if (analysisGroup && scene) scene.remove(analysisGroup)
+  analysisGroup?.traverse((child: any) => {
+    child.geometry?.dispose?.()
+    child.material?.dispose?.()
+  })
+  analysisGroup = null
+  analysisDistanceLine = null
+  analysisDistanceStartMarker = null
+  analysisDistanceEndMarker = null
+  analysisDistanceHoverMarker = null
+  analysisAreaLine = null
+  analysisAreaFill = null
+  analysisAreaMarkers = []
+}
+
+function updateAnalysisDistancePreview(point: THREE.Vector3 | null) {
+  analysisHoverPoint = point
+  if (analysisStartPoint) updateAnalysisDistanceVisuals(analysisStartPoint, point, true)
+}
+
 function selectAnalysisMode(mode: AnalysisMode) {
-  clearAnalysis()
+  cancelActiveAnalysis()
   analysisMode.value = mode
 }
 
@@ -2646,6 +3405,7 @@ function syncRendererSize() {
   }
 
   updateTilesetResolution()
+  syncAnalysisLineResolutions()
 }
 
 function updateTilesetResolution() {
@@ -2701,6 +3461,8 @@ function requestRender() {
     }
 
     syncBoundsHelpers()
+    syncAnalysisLineResolutions()
+    syncMeasurementBadges()
     syncPointcloudCameraPose()
     if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
       edlPipeline.render(scene, activeCamera)
@@ -2825,6 +3587,7 @@ async function initScene() {
       renderer.domElement.addEventListener('pointermove', onViewportPointerMove)
       renderer.domElement.addEventListener('pointerup', onViewportPointerUp)
       renderer.domElement.addEventListener('pointercancel', onViewportPointerCancel)
+      renderer.domElement.addEventListener('contextmenu', handleViewportContextMenu)
 
       if (clippingGroup) {
         clippingGroup.remove(contentGroup!)
@@ -4090,9 +4853,13 @@ function handleViewportPointerDown(event: PointerEvent) {
       }
     }
   }
+  // Keep the pre-measurement right-button orbit/pan gesture. Only the left
+  // button commits measurement points; right-button drags stay with OrbitControls.
   if (analysisMode.value !== 'none') {
-    analysisPointerDown = { x: event.clientX, y: event.clientY }
-    if (controls) controls.enabled = false
+    if (event.button === 0) {
+      analysisPointerDown = { x: event.clientX, y: event.clientY }
+      if (controls) controls.enabled = false
+    }
     return
   }
   if (transformControls && !controls?.enabled) return
@@ -4159,8 +4926,37 @@ function handleViewportPointerDown(event: PointerEvent) {
 }
 
 function onViewportPointerMove(event: PointerEvent) {
+  if ((event.buttons & 2) !== 0) return
+  if (analysisMode.value === 'distance' && analysisStartPoint) {
+    const point = pickAnalysisPoint(event)
+    if (point) updateAnalysisDistancePreview(point)
+    return
+  }
+  if (analysisMode.value === 'area' && analysisAreaPoints.length) {
+    const point = pickAnalysisPoint(event)
+    if (point) updateAnalysisAreaVisuals(analysisAreaPoints, point)
+    return
+  }
   if (!clipDragState) return
   onClipDragMove(event)
+}
+
+function handleViewportContextMenu(event: MouseEvent) {
+  // A right-button drag is a valid measurement gesture. Prevent the browser
+  // menu from interrupting the preview/commit sequence while measuring.
+  if (analysisMode.value !== 'none') event.preventDefault()
+}
+
+function notifyMeasurementPickUnavailable() {
+  const now = Date.now()
+  if (now - lastMeasurementPickWarningAt < 800) return
+  lastMeasurementPickWarningAt = now
+  ElMessage({
+    type: 'warning',
+    message: '无法获取测量点，请点击 BIM 或点云的可见表面',
+    duration: 1800,
+    grouping: true,
+  })
 }
 
 function onViewportPointerUp(event: PointerEvent) {
@@ -4170,20 +4966,53 @@ function onViewportPointerUp(event: PointerEvent) {
     if (controls) controls.enabled = true
     if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 6) return
     const point = pickAnalysisPoint(event)
-    if (!point) return
+    if (!point) {
+      notifyMeasurementPickUnavailable()
+      return
+    }
     const toPoint = (value: THREE.Vector3): AnalysisPoint => ({ x: value.x, y: value.y, z: value.z })
     if (analysisMode.value === 'locate') {
-      clearAnalysis(); analysisMode.value = 'locate'; renderAnalysisPoint(point); analysisPoint.value = toPoint(point)
-    } else if (!analysisStartPoint) {
-      analysisStartPoint = point; renderAnalysisPoint(point)
-    } else {
-      const start = analysisStartPoint; renderAnalysisPoint(start, point)
-      analysisDistance.value = { start: toPoint(start), end: toPoint(point), distance: start.distanceTo(point), heightDifference: Math.abs(start.y - point.y) }
+      renderAnalysisPoint(point, '#22d3ee')
+      const record: AnalysisPoint = {
+        id: globalThis.crypto?.randomUUID?.() || `locate-${Date.now()}`,
+        ...toPoint(point),
+      }
+      if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
+      analysisGroup = null
+      analysisPoint.value = record
+      analysisPoints.value = [...analysisPoints.value, record]
+      syncMeasurementBadges()
+      void persistMeasurement('locate', record)
+    } else if (analysisMode.value === 'distance' && !analysisStartPoint) {
+      analysisStartPoint = point
+      analysisHoverPoint = null
+      updateAnalysisDistanceVisuals(point, null)
+    } else if (analysisMode.value === 'distance' && analysisStartPoint) {
+      completeAnalysisDistance(point)
+    } else if (analysisMode.value === 'area') {
+      const closeThreshold = Math.max(0.15, (activeCamera?.position.distanceTo(point) ?? 1) * 0.025)
+      if (analysisAreaPoints.length >= 3 && point.distanceTo(analysisAreaPoints[0]) < closeThreshold) {
+        completeAnalysisArea()
+      } else {
+        analysisAreaPoints.push(point.clone())
+        updateAnalysisAreaVisuals(analysisAreaPoints)
+      }
     }
     return
   }
   if (!clipDragState && clipPointerCaptureId === null) return
   endClipDrag(event)
+}
+
+function onAnalysisKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && analysisMode.value === 'area') {
+    completeAnalysisArea()
+    return
+  }
+  if (event.key === 'Escape' && analysisMode.value !== 'none') {
+    cancelActiveAnalysis()
+    analysisMode.value = 'none'
+  }
 }
 
 function onViewportPointerCancel(event: PointerEvent) {
@@ -5113,8 +5942,7 @@ async function handleCalibrationComplete() {
 
   hasSavedAlignmentMatrix.value = true
   coarseAlignmentDirty.value = false
-  ElMessage.success('校准矩阵已保存，正在返回实测页面')
-  closePage()
+  ElMessage.success('校准结果已保存')
 }
 
 function activateCoarseRegistration() {
@@ -5523,6 +6351,7 @@ watch([c2mColorRangeMm, c2mToleranceMm, c2mColorMode, c2mBandCount], ([colorRang
 })
 
 onMounted(async () => {
+  window.addEventListener('keydown', onAnalysisKeydown)
   syncPositionStepPreset()
   syncRotationStepPreset()
   await Promise.all([loadMeshAlgorithms(), refreshMeshStatus()])
@@ -5535,6 +6364,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onAnalysisKeydown)
   bimLoadToken++
   pointcloudLoadToken++
   clearAnalysis()
@@ -5564,6 +6394,7 @@ onBeforeUnmount(() => {
   renderer?.domElement?.removeEventListener?.('pointermove', onViewportPointerMove)
   renderer?.domElement?.removeEventListener?.('pointerup', onViewportPointerUp)
   renderer?.domElement?.removeEventListener?.('pointercancel', onViewportPointerCancel)
+  renderer?.domElement?.removeEventListener?.('contextmenu', handleViewportContextMenu)
   renderer?.dispose()
   raycaster = null
   clearClipHandles()
@@ -5582,37 +6413,63 @@ onBeforeUnmount(() => {
       :mode="analysisMode"
       :point="analysisPoint"
       :distance="analysisDistance"
-      @clear="clearAnalysis"
+      :points="analysisPoints"
+      :distances="analysisDistances"
+      :areas="analysisAreas"
+      @clear="clearAllMeasurements"
+    />
+
+    <ViewerMeasurementBadge
+      v-for="badge in measurementBadges"
+      :key="badge.id"
+      :overlay="badge.overlay"
+      :title="badge.title"
+      :main-label="badge.mainLabel"
+      :main-value="badge.mainValue"
+      :rows="badge.rows"
+      closable
+      deletable
+      :resettable="Boolean(measurementPanelOffsets.get(badge.id))"
+      @close="hideMeasurementBadge(badge.id)"
+      @delete="deleteMeasurementBadge(badge)"
+      @drag-by="moveMeasurementBadge(badge.id, $event)"
+      @reset-position="resetMeasurementBadge(badge.id)"
     />
     <header class="topbar calibration-header">
       <div class="topbar-left title-block">
         <el-button text :icon="ArrowLeft" aria-label="返回" @click="closePage" />
         <h1 class="brand-title">
-          BIM 与点云校准 - {{ bimDisplayName || 'BIM 模型' }}
+          BIM 与点云校准
         </h1>
-        <div class="topbar-center">
-        </div>
       </div>
 
-      <div class="topbar-right header-actions">
-        <MeasurementToolbar
-          v-model:collapsed="analysisToolbarCollapsed"
-          :mode="analysisMode"
-          :disabled="!hasModel"
-          position="static"
-          @update:mode="selectAnalysisMode"
-          @clear="clearAnalysis"
-        />
-        <el-button :loading="loadingAlignmentMatrix" :disabled="!bimAssetId || !pointcloudAssetId" @click="handleShowAlignmentMatrix">校准矩阵</el-button>
-        <el-button
-          type="primary"
-          title="保存当前校准矩阵并返回实测页面"
-          :disabled="!canSaveCalibration"
-          @click="handleCalibrationComplete"
-        >
-          完成校准并返回
-        </el-button>
-      </div>
+      <nav class="alignment-workflow-nav" aria-label="BIM 与点云分析流程">
+        <div class="alignment-workflow-track">
+          <button
+            v-for="step in workflowSteps"
+            :key="step.id"
+            type="button"
+            class="alignment-workflow-step"
+            :class="{
+              'is-active': step.id === 1,
+              'is-disabled': workflowStepDisabled(step.id),
+            }"
+            :disabled="workflowStepDisabled(step.id)"
+            :aria-current="step.id === 1 ? 'step' : undefined"
+            :title="workflowStepDisabled(step.id)
+              ? step.id === 3 ? '出报告功能即将开放' : '需先完成并保存点云与工程坐标配准'
+              : undefined"
+            @click="openWorkflowStep(step.id)"
+          >
+            <span class="alignment-workflow-step__number">{{ String(step.id).padStart(2, '0') }}</span>
+            <span class="alignment-workflow-step__copy">
+              <strong>{{ step.title }}</strong>
+              <small>{{ step.subtitle }}</small>
+            </span>
+          </button>
+        </div>
+      </nav>
+
     </header>
 
     <div class="main-content calibration-main" :class="{ 'is-panel-hidden': !showPanel }">
@@ -5737,6 +6594,22 @@ onBeforeUnmount(() => {
             </el-button>
           </div>
         </el-tooltip>
+
+        <div class="tool-item measurement-tool-item">
+          <MeasurementToolbar
+            v-model:collapsed="analysisToolbarCollapsed"
+            class="alignment-measurement-toolbar"
+            :mode="analysisMode"
+            :disabled="!hasModel"
+            clear-on-toggle-off
+            default-mode-on-open="distance"
+            toggle-icon="ruler"
+            placement="left"
+            position="static"
+            @update:mode="selectAnalysisMode"
+            @clear="clearAllMeasurements"
+          />
+        </div>
 
         <el-divider />
 
@@ -5866,12 +6739,29 @@ onBeforeUnmount(() => {
             <small>ALIGNMENT WORKSPACE</small>
             <strong>配准控制</strong>
           </div>
-          <div class="panel-step-count">
-            {{ registrationStage === 'fine' ? '精细配准' : '粗配准' }}
-          </div>
+          <button
+            class="panel-step-count panel-next-step"
+            type="button"
+            :disabled="!canOpenDeviationStep"
+            :title="canOpenDeviationStep ? '进入偏差对比' : '请先完成并保存校准'"
+            @click="openWorkflowStep(2)"
+          >
+            下一步
+            <el-icon aria-hidden="true"><DArrowRight /></el-icon>
+          </button>
         </div>
         <div class="panel-body">
          <div class="panel-section registration-edit-panel">
+          <el-button
+            class="registration-complete-button"
+            type="primary"
+            :loading="savingCalibration"
+            :disabled="!canSaveCalibration"
+            title="保存当前配准结果"
+            @click="handleCalibrationComplete"
+          >
+            完成校准
+          </el-button>
           <div class="registration-stage-row" role="group" aria-label="配准阶段">
             <button class="registration-stage-btn" :class="{ 'is-active': registrationStage === 'coarse' }" :disabled="!hasModel" @click="activateCoarseRegistration">粗配准</button>
             <button class="registration-stage-btn" :class="{ 'is-active': registrationStage === 'fine' }" :disabled="!hasSavedAlignmentMatrix" @click="activateFineRegistration">精细配准</button>
@@ -5934,6 +6824,8 @@ onBeforeUnmount(() => {
                       class="step-select"
                       size="small"
                       popper-class="bpa-right-popper"
+                      placement="bottom-start"
+                      :fallback-placements="[]"
                       filterable
                       allow-create
                       default-first-option
@@ -6044,6 +6936,8 @@ onBeforeUnmount(() => {
                       class="step-select"
                       size="small"
                       popper-class="bpa-right-popper"
+                      placement="bottom-start"
+                      :fallback-placements="[]"
                       filterable
                       allow-create
                       default-first-option
@@ -6138,185 +7032,285 @@ onBeforeUnmount(() => {
         </div>
         <div class="panel-section mesh-remesh-panel">
           <div class="section-title">网格均匀化</div>
-          <div class="mesh-remesh-status" :class="`mesh-remesh-status--${meshStatus?.status || 'idle'}`">
-            {{ meshStatusText }}
+          <div class="mesh-remesh-summary" :class="`mesh-remesh-summary--${meshStatus?.status || 'idle'}`">
+            <span class="mesh-remesh-summary__icon" aria-hidden="true">
+              {{ meshReady ? '✓' : meshTaskActive || meshRunning ? '…' : meshStatus?.status === 'failed' ? '!' : '○' }}
+            </span>
+            <div>
+              <strong>{{ meshReady ? 'BIM 网格已自动均匀化' : meshStatusText }}</strong>
+              <span>{{ meshReady ? '上传 BIM 时已由系统处理，可直接用于后续分析。' : meshTaskActive || meshRunning ? '系统正在后台处理，无需停留等待。' : meshStatus?.status === 'failed' ? '自动处理未完成，可在高级操作中重新处理。' : '等待系统生成均匀化网格。' }}</span>
+            </div>
           </div>
-          <div v-if="meshProvenanceText" class="mesh-remesh-provenance">{{ meshProvenanceText }}</div>
-          <div class="control-row">
-            <span class="label">算法</span>
-            <el-select
-              v-model="meshAlgorithm"
-              size="small"
-              popper-class="bpa-right-popper"
-              :disabled="meshControlsDisabled || !meshAlgorithms.length"
-            >
-              <el-option v-for="algorithm in meshAlgorithms" :key="algorithm.name" :label="algorithm.label" :value="algorithm.name" />
-            </el-select>
-          </div>
-          <div class="control-row">
-            <span class="label">目标边长 (m)</span>
-            <el-input-number v-model="meshTargetEdgeLength" :min="0.005" :max="5" :step="0.005" :precision="3" size="small" :disabled="meshControlsDisabled" />
-          </div>
-          <el-button type="primary" size="small" style="width: 100%" :loading="meshRunning" :disabled="!bimAssetId || !meshAlgorithms.length || meshTaskActive" @click="runMeshRemesh">
-            {{ meshActionText }}
-          </el-button>
-          <el-button
-            v-if="meshReady"
-            size="small"
-            style="width: 100%; margin-top: 8px"
-            :loading="remeshLoading"
-            :disabled="!canLoadRemesh"
-            @click="loadRemeshResult"
-          >
-            {{ remeshMeshLoaded ? '重新加载结果' : '加载结果到场景' }}
-          </el-button>
-          <div v-if="remeshMeshLoaded" class="mesh-remesh-visual-controls">
-            <el-button size="small" @click="toggleRemeshSolid">
-              {{ remeshSolidHidden ? '显示实体' : '隐藏实体' }}
-            </el-button>
-            <el-button v-if="remeshWireAvailable" size="small" @click="toggleRemeshWire">
-              {{ remeshWireHidden ? '显示线框' : '隐藏线框' }}
-            </el-button>
-            <el-button v-else size="small" disabled>面数过多，跳过线框</el-button>
-            <el-button
-              v-if="remeshRestoreAvailable"
-              size="small"
-              type="warning"
-              @click="restoreRemeshScene"
-            >
-              复原场景
-            </el-button>
-          </div>
-          <div v-if="meshStats" class="mesh-remesh-stats">
-            顶点 {{ meshStats.vertexBefore.toLocaleString() }} → {{ meshStats.vertexAfter.toLocaleString() }}<br />
-            面数 {{ meshStats.faceBefore.toLocaleString() }} → {{ meshStats.faceAfter.toLocaleString() }}
-          </div>
+          <details class="mesh-remesh-advanced">
+            <summary>
+              <span class="mesh-remesh-advanced__title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <circle cx="9" cy="6" r="2" fill="white" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <circle cx="15" cy="12" r="2" fill="white" />
+                  <line x1="4" y1="18" x2="20" y2="18" />
+                  <circle cx="7" cy="18" r="2" fill="white" />
+                </svg>
+                高级操作
+              </span>
+            </summary>
+            <div class="mesh-remesh-advanced__body">
+              <div class="mesh-algorithm-card">
+                <div class="mesh-algorithm-card__content">
+                  <strong>{{ meshAlgorithmDisplayName }}</strong>
+                  <div class="mesh-algorithm-card__tags">
+                    <span>{{ meshAlgorithmVersion }}</span>
+                    <span>{{ meshAlgorithmTargetLabel }}</span>
+                  </div>
+                  <p>对模型进行细分并保持各向同性，提升网格质量。</p>
+                </div>
+              </div>
+              <div class="mesh-remesh-param-grid">
+                <label class="mesh-remesh-param">
+                  <span>处理方式</span>
+                  <el-select
+                    v-model="meshAlgorithm"
+                    size="small"
+                    popper-class="bpa-right-popper"
+                    placement="bottom-start"
+                    :fallback-placements="[]"
+                    :disabled="meshControlsDisabled || !meshAlgorithms.length"
+                  >
+                    <el-option v-for="algorithm in meshAlgorithms" :key="algorithm.name" :label="algorithm.label" :value="algorithm.name" />
+                  </el-select>
+                </label>
+                <label class="mesh-remesh-param">
+                  <span>目标边长 (m)</span>
+                  <el-input-number v-model="meshTargetEdgeLength" :min="0.005" :max="5" :step="0.005" :precision="3" size="small" controls-position="right" :disabled="meshControlsDisabled" />
+                </label>
+              </div>
+              <div class="mesh-remesh-primary-actions">
+                <el-button type="primary" size="small" :loading="meshRunning" :disabled="!bimAssetId || !meshAlgorithms.length || meshTaskActive" @click="runMeshRemesh">
+                  <svg class="mesh-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M5.6 9a7 7 0 0 1 11.6-2.6L20 11M4 13l2.8 4.6A7 7 0 0 0 18.4 15" />
+                  </svg>
+                  {{ meshActionText }}
+                </el-button>
+                <el-button
+                  size="small"
+                  :loading="remeshLoading"
+                  :disabled="!canLoadRemesh"
+                  @click="loadRemeshResult"
+                >
+                  <svg class="mesh-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" />
+                  </svg>
+                  {{ remeshMeshLoaded ? '重新加载' : '查看' }}
+                </el-button>
+              </div>
+              <div v-if="remeshMeshLoaded" class="mesh-remesh-visual-controls">
+                <el-button size="small" @click="toggleRemeshSolid">
+                  {{ remeshSolidHidden ? '显示实体' : '隐藏实体' }}
+                </el-button>
+                <el-button v-if="remeshWireAvailable" size="small" @click="toggleRemeshWire">
+                  {{ remeshWireHidden ? '显示线框' : '隐藏线框' }}
+                </el-button>
+                <el-button v-else size="small" disabled>面数过多，跳过线框</el-button>
+                <el-button
+                  v-if="remeshRestoreAvailable"
+                  size="small"
+                  type="warning"
+                  @click="restoreRemeshScene"
+                >
+                  恢复原始场景
+                </el-button>
+              </div>
+              <div v-if="meshStats" class="mesh-remesh-stats">
+                <div class="mesh-stat-item">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <circle v-for="index in 9" :key="index" :cx="4 + ((index - 1) % 3) * 7" :cy="4 + Math.floor((index - 1) / 3) * 7" r="1.45" />
+                  </svg>
+                  <div><span>顶点数</span><strong>{{ meshStats.vertexBefore.toLocaleString() }} <em>→ {{ meshStats.vertexAfter.toLocaleString() }}</em></strong></div>
+                </div>
+                <div class="mesh-stat-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="4" r="1.6" fill="currentColor" /><circle cx="5" cy="18" r="1.6" fill="currentColor" /><circle cx="19" cy="18" r="1.6" fill="currentColor" /><path d="m11 6-5 10m7-10 5 10M8 18h8" />
+                  </svg>
+                  <div><span>面数</span><strong>{{ meshStats.faceBefore.toLocaleString() }} <em>→ {{ meshStats.faceAfter.toLocaleString() }}</em></strong></div>
+                </div>
+              </div>
+            </div>
+          </details>
           <div v-if="meshError" class="mesh-remesh-error">{{ meshError }}</div>
         </div>
         <div class="panel-section c2m-panel">
-          <div class="section-title">Scan vs BIM 快速预估</div>
-          <div class="control-row">
-            <span class="label">启用降采样</span>
-            <el-switch v-model="c2mDownsampleEnabled" size="small" :disabled="!canRunC2M" aria-label="启用 C2M 点云降采样" />
-          </div>
-          <div class="control-row">
-            <span class="label">降采样 (m)</span>
-            <el-input-number v-model="c2mVoxelSize" :min="0.001" :max="1" :step="0.001" :precision="3" size="small" :disabled="!canRunC2M || !c2mDownsampleEnabled" />
-          </div>
-          <el-button type="primary" size="small" style="width: 100%" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">开始快速预估</el-button>
-          <div class="c2m-range-presets" role="group" aria-label="C2M 配色色域预设，单位毫米">
-            <el-button size="small" aria-label="使用自动稳健范围" @click="selectC2MRangePreset('auto')">自动</el-button>
-            <el-button size="small" aria-label="配色色域正负 50 毫米" @click="selectC2MRangePreset('50')">±50</el-button>
-            <el-button size="small" aria-label="配色色域正负 100 毫米" @click="selectC2MRangePreset('100')">±100</el-button>
-            <el-button size="small" aria-label="配色色域正负 200 毫米" @click="selectC2MRangePreset('200')">±200</el-button>
-            <el-button size="small" aria-label="扩展到结果的完整偏差范围" @click="selectC2MRangePreset('full')">全范围</el-button>
-          </div>
-          <div class="c2m-visualization-controls">
-            <div class="control-row">
-              <span class="label">配色色域 ±C (mm)</span>
-              <el-input-number
-                v-model="c2mColorRangeMm"
-                :min="10"
-                :max="10000"
-                :step="10"
-                :precision="0"
+          <div class="section-title c2m-panel__title">Scan vs BIM 快速预估</div>
+
+          <section class="c2m-primary-card" aria-label="快速预估主要操作">
+            <div class="c2m-primary-toggle">
+              <span><i aria-hidden="true"></i>启用降采样</span>
+              <el-switch v-model="c2mDownsampleEnabled" size="small" :disabled="!canRunC2M" aria-label="启用 C2M 点云降采样" />
+            </div>
+            <label class="c2m-primary-field">
+              <span>降采样距离 <small>单位 m</small></span>
+              <el-input-number v-model="c2mVoxelSize" :min="0.001" :max="1" :step="0.001" :precision="3" size="small" :disabled="!canRunC2M || !c2mDownsampleEnabled" />
+            </label>
+            <el-button class="c2m-run-button" type="primary" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">
+              <el-icon><Promotion /></el-icon>
+              开始快速预估
+            </el-button>
+          </section>
+
+          <details class="c2m-advanced-card">
+            <summary>
+              <span><el-icon><Setting /></el-icon>高级操作</span>
+              <el-icon class="c2m-advanced-card__arrow"><ArrowDown /></el-icon>
+            </summary>
+            <div class="c2m-advanced-card__body">
+              <div class="c2m-preset-block">
+                <span class="c2m-preset-block__label">预估范围 <small>单位 mm</small></span>
+                <div class="c2m-range-presets" role="group" aria-label="C2M 配色色域预设，单位毫米">
+                  <el-button size="small" aria-label="使用自动稳健范围" @click="selectC2MRangePreset('auto')">自动</el-button>
+                  <el-button size="small" aria-label="配色色域正负 50 毫米" @click="selectC2MRangePreset('50')">±50</el-button>
+                  <el-button size="small" aria-label="配色色域正负 100 毫米" @click="selectC2MRangePreset('100')">±100</el-button>
+                  <el-button size="small" aria-label="配色色域正负 200 毫米" @click="selectC2MRangePreset('200')">±200</el-button>
+                  <el-button size="small" aria-label="扩展到结果的完整偏差范围" @click="selectC2MRangePreset('full')">全范围</el-button>
+                </div>
+              </div>
+              <div class="c2m-secondary-settings" aria-label="偏差显示参数">
+                <div class="c2m-setting-row">
+                  <span class="c2m-setting-row__icon"><el-icon><Brush /></el-icon></span>
+                  <span class="c2m-setting-row__label">配色范围 ±C <small>mm</small></span>
+                  <el-input-number
+                    v-model="c2mColorRangeMm"
+                    :min="10"
+                    :max="10000"
+                    :step="10"
+                    :precision="0"
+                    size="small"
+                    aria-label="配色色域半宽，单位毫米"
+                    @change="onC2MColorRangeChange"
+                  />
+                </div>
+                <div class="c2m-setting-row c2m-follow-row">
+                  <span class="c2m-setting-row__icon"><el-icon><Grid /></el-icon></span>
+                  <span class="c2m-setting-row__label">直方图跟随配色</span>
+                  <el-switch v-model="c2mHistogramFollowsColor" size="small" aria-label="直方图范围跟随配色色域" @change="onC2MHistogramFollowChange" />
+                </div>
+                <div class="c2m-setting-row">
+                  <span class="c2m-setting-row__icon"><el-icon><FullScreen /></el-icon></span>
+                  <span class="c2m-setting-row__label">直方图范围 ±H <small>mm</small></span>
+                  <el-input-number
+                    v-model="c2mHistogramRangeMm"
+                    :min="10"
+                    :max="10000"
+                    :step="10"
+                    :precision="0"
+                    size="small"
+                    :disabled="c2mHistogramFollowsColor"
+                    aria-label="直方图视窗半宽，单位毫米"
+                  />
+                </div>
+                <div class="c2m-setting-row">
+                  <span class="c2m-setting-row__icon"><el-icon><Aim /></el-icon></span>
+                  <span class="c2m-setting-row__label">工程容差 ±T <small>mm</small></span>
+                  <el-input-number
+                    v-model="c2mToleranceMm"
+                    :min="1"
+                    :max="c2mColorRangeMm"
+                    :step="1"
+                    :precision="0"
+                    size="small"
+                    aria-label="工程容差半宽，单位毫米"
+                  />
+                </div>
+              </div>
+              <div class="c2m-setting-row">
+                <span class="c2m-setting-row__icon"><el-icon><Brush /></el-icon></span>
+                <span class="c2m-setting-row__label">网格配色</span>
+                <el-select
+                  v-model="c2mColorMode"
+                  size="small"
+                  popper-class="bpa-right-popper"
+                  placement="bottom-start"
+                  :fallback-placements="[]"
+                  aria-label="C2M 网格配色模式"
+                >
+                  <el-option label="连续渐变" value="continuous" />
+                  <el-option label="离散分区" value="discrete" />
+                </el-select>
+              </div>
+              <div v-if="c2mColorMode === 'discrete'" class="c2m-setting-row">
+                <span class="c2m-setting-row__icon"><el-icon><Grid /></el-icon></span>
+                <span class="c2m-setting-row__label">颜色分区数</span>
+                <el-input-number
+                  v-model="c2mBandCount"
+                  :min="2"
+                  :max="32"
+                  :step="1"
+                  :precision="0"
+                  size="small"
+                  aria-label="C2M 离散颜色分区数"
+                />
+              </div>
+              <div class="c2m-setting-row">
+                <span class="c2m-setting-row__icon"><el-icon><Histogram /></el-icon></span>
+                <span class="c2m-setting-row__label">直方图桶数</span>
+                <el-input-number v-model="c2mHistogramBins" :min="10" :max="200" :step="10" :precision="0" size="small" aria-label="直方图桶数" />
+              </div>
+              <el-button
+                class="c2m-apply-button"
                 size="small"
-                aria-label="配色色域半宽，单位毫米"
-                @change="onC2MColorRangeChange"
-              />
+                :loading="c2mRecoloring"
+                :disabled="!canRecolorC2M"
+                @click="applyC2MVisualization"
+              >
+                <el-icon><CircleCheck /></el-icon>
+                {{ c2mSettingsDirty ? '应用配色与分布' : '当前设置已应用' }}
+              </el-button>
+              <div class="c2m-actions">
+                <el-button size="small" :disabled="!canUseC2MResult || !c2mSceneArtifactAvailable || c2mRunning || c2mSceneLoading || c2mRecoloring" :loading="c2mSceneLoading" @click="loadC2MToScene">
+                  <el-icon><Download /></el-icon>加载到场景
+                </el-button>
+                <el-button size="small" :disabled="!c2mSceneLoaded" @click="clearC2MSceneAndOpenCoarseEditor">
+                  <el-icon><Delete /></el-icon>清空场景
+                </el-button>
+              </div>
             </div>
-            <div class="control-row c2m-follow-row">
-              <span class="label">直方图跟随 C</span>
-              <el-switch v-model="c2mHistogramFollowsColor" size="small" aria-label="直方图范围跟随配色色域" @change="onC2MHistogramFollowChange" />
-            </div>
-            <div class="control-row">
-              <span class="label">直方图范围 ±H (mm)</span>
-              <el-input-number
-                v-model="c2mHistogramRangeMm"
-                :min="10"
-                :max="10000"
-                :step="10"
-                :precision="0"
-                size="small"
-                :disabled="c2mHistogramFollowsColor"
-                aria-label="直方图视窗半宽，单位毫米"
-              />
-            </div>
-            <div class="control-row">
-              <span class="label">工程容差 ±T (mm)</span>
-              <el-input-number
-                v-model="c2mToleranceMm"
-                :min="1"
-                :max="c2mColorRangeMm"
-                :step="1"
-                :precision="0"
-                size="small"
-                aria-label="工程容差半宽，单位毫米"
-              />
-            </div>
-            <div class="control-row">
-              <span class="label">网格配色</span>
-              <el-select v-model="c2mColorMode" size="small" aria-label="C2M 网格配色模式">
-                <el-option label="连续渐变" value="continuous" />
-                <el-option label="离散分区" value="discrete" />
-              </el-select>
-            </div>
-            <div v-if="c2mColorMode === 'discrete'" class="control-row">
-              <span class="label">颜色分区数</span>
-              <el-input-number
-                v-model="c2mBandCount"
-                :min="2"
-                :max="32"
-                :step="1"
-                :precision="0"
-                size="small"
-                aria-label="C2M 离散颜色分区数"
-              />
-            </div>
-            <div class="control-row">
-              <span class="label">直方图桶数</span>
-              <el-input-number v-model="c2mHistogramBins" :min="10" :max="200" :step="10" :precision="0" size="small" aria-label="直方图桶数" />
-            </div>
-          </div>
-          <el-button
-            size="small"
-            type="success"
-            style="width: 100%; margin-top: 8px"
-            :loading="c2mRecoloring"
-            :disabled="!canRecolorC2M"
-            @click="applyC2MVisualization"
-          >
-            {{ c2mSettingsDirty ? '应用配色与分布' : '当前设置已应用' }}
-          </el-button>
-          <div class="c2m-actions">
-            <el-button size="small" :disabled="!canUseC2MResult || !c2mSceneArtifactAvailable || c2mRunning || c2mSceneLoading || c2mRecoloring" :loading="c2mSceneLoading" @click="loadC2MToScene">加载到场景</el-button>
-            <el-button size="small" :disabled="!c2mSceneLoaded" @click="clearC2MScene">清空场景</el-button>
-          </div>
+          </details>
+
           <div v-if="c2mError" class="mesh-remesh-error">{{ c2mError }}</div>
-          <div v-if="c2mResult && !c2mResultIsFresh" class="c2m-result-warning c2m-result-warning--stale" role="alert">
-            此结果已过期，不能加载或重新着色。{{ c2mResult.staleReason || '配准或网格输入已发生变化，请重新计算。' }}
-          </div>
-          <div v-if="c2mOverlapWarning" class="c2m-result-warning" role="status">
-            BBox 重叠度低于 30%，当前配准可能偏离，请先检查模型位置再判断偏差结果。
-          </div>
-          <div v-if="c2mResult?.analysis?.status === 'queued' || c2mResult?.analysis?.status === 'processing'" class="c2m-result-warning" role="status">
-            逐构件分析网格偏差正在后台生成；完成后重新打开结果即可优先加载。
-          </div>
-          <div v-else-if="c2mResult?.analysis?.status === 'failed'" class="c2m-result-warning" role="alert">
-            逐构件分析结果生成失败，当前仍可使用兼容结果。{{ c2mResult.analysis.error || '' }}
-          </div>
-          <div v-if="c2mResult" class="c2m-result-summary">
-            <div>结果档位：{{ c2mResult.profile === 'reference' ? 'Reference 高精度' : '快速预估（非正式 Reference）' }}</div>
-            <div>测量方向：{{ c2mResult.metricDirection === 'scan-points-to-mesh-triangles' ? 'Scan 点 → BIM 三角面' : 'BIM 网格顶点 → Scan 最近点' }}</div>
-            <div>点云降采样：{{ c2mResult.pointsBefore.toLocaleString() }} → {{ c2mResult.pointsAfter.toLocaleString() }}</div>
-            <div>Min / Max：{{ c2mResult.stats.min.toFixed(4) }} m / {{ c2mResult.stats.max.toFixed(4) }} m</div>
-            <div>Mean / P95：{{ c2mResult.stats.mean.toFixed(4) }} m / {{ c2mResult.stats.p95.toFixed(4) }} m</div>
-            <div>MeanAbs / RMSE：{{ formatC2MDistance(c2mResult.stats.meanAbs) }} / {{ formatC2MDistance(c2mResult.stats.rmse) }}</div>
-            <div>P95Abs / 容差内：{{ formatC2MDistance(c2mResult.stats.p95Abs) }} / {{ formatC2MPercentage(c2mDisplayResult?.stats.withinToleranceRatio) }}</div>
-            <div v-if="c2mResult.diagnostics?.bboxOverlapIoU !== undefined">BBox 重叠度：{{ (c2mResult.diagnostics.bboxOverlapIoU * 100).toFixed(1) }}%</div>
-          </div>
-          <div v-if="c2mSceneLoaded && c2mDistances" class="c2m-pick-hint">按住 Shift 单击着色网格，可读取该位置的插值偏差。</div>
-          <C2MHistogramLegend v-if="c2mDisplayResult" class="c2m-result-histogram" :result="c2mDisplayResult" compact />
+          <details v-if="c2mResult" class="c2m-result-card">
+            <summary>
+              <span><el-icon><Histogram /></el-icon>结果</span>
+              <el-icon class="c2m-result-card__arrow"><ArrowDown /></el-icon>
+            </summary>
+            <div class="c2m-result-card__body">
+              <div v-if="!c2mResultIsFresh" class="c2m-result-warning c2m-result-warning--stale" role="alert">
+                此结果已过期，不能加载或重新着色。{{ c2mResult.staleReason || '配准或网格输入已发生变化，请重新计算。' }}
+              </div>
+              <div v-if="c2mOverlapWarning" class="c2m-result-warning" role="status">
+                BBox 重叠度低于 30%，当前配准可能偏离，请先检查模型位置再判断偏差结果。
+              </div>
+              <div v-if="c2mResult.analysis?.status === 'queued' || c2mResult.analysis?.status === 'processing'" class="c2m-result-warning" role="status">
+                逐构件分析网格偏差正在后台生成；完成后重新打开结果即可优先加载。
+              </div>
+              <div v-else-if="c2mResult.analysis?.status === 'failed'" class="c2m-result-warning" role="alert">
+                逐构件分析结果生成失败，当前仍可使用兼容结果。{{ c2mResult.analysis.error || '' }}
+              </div>
+              <div class="c2m-result-summary">
+                <div>结果档位：{{ c2mResult.profile === 'reference' ? 'Reference 高精度' : '快速预估（非正式 Reference）' }}</div>
+                <div>测量方向：{{ c2mResult.metricDirection === 'scan-points-to-mesh-triangles' ? 'Scan 点 → BIM 三角面' : 'BIM 网格顶点 → Scan 最近点' }}</div>
+                <div>点云降采样：{{ c2mResult.pointsBefore.toLocaleString() }} → {{ c2mResult.pointsAfter.toLocaleString() }}</div>
+                <div>Min / Max：{{ c2mResult.stats.min.toFixed(4) }} m / {{ c2mResult.stats.max.toFixed(4) }} m</div>
+                <div>Mean / P95：{{ c2mResult.stats.mean.toFixed(4) }} m / {{ c2mResult.stats.p95.toFixed(4) }} m</div>
+                <div>MeanAbs / RMSE：{{ formatC2MDistance(c2mResult.stats.meanAbs) }} / {{ formatC2MDistance(c2mResult.stats.rmse) }}</div>
+                <div>P95Abs / 容差内：{{ formatC2MDistance(c2mResult.stats.p95Abs) }} / {{ formatC2MPercentage(c2mDisplayResult?.stats.withinToleranceRatio) }}</div>
+                <div v-if="c2mResult.diagnostics?.bboxOverlapIoU !== undefined">BBox 重叠度：{{ (c2mResult.diagnostics.bboxOverlapIoU * 100).toFixed(1) }}%</div>
+              </div>
+              <div v-if="c2mSceneLoaded && c2mDistances" class="c2m-pick-hint">按住 Shift 单击着色网格，可读取该位置的插值偏差。</div>
+              <C2MHistogramLegend v-if="c2mDisplayResult" class="c2m-result-histogram" :result="c2mDisplayResult" compact />
+              <div class="c2m-panel-tip">
+                <strong>提示：</strong>调整参数后应用设置即可查看更新效果，建议从默认值开始微调。
+              </div>
+            </div>
+          </details>
         </div>
         </div>
       </aside>

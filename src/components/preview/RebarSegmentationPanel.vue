@@ -211,7 +211,9 @@ async function loadState() {
     if (token !== loadToken) return
     const persisted = latestState.status === 'fulfilled' ? latestState.value?.data ?? null : null
     emitLatest(persisted)
-    if (persisted) setMode(persisted.capabilities.class ? 'rebar-class' : 'rgb')
+    // Loading an existing analysis result must not replace the viewer's
+    // current appearance (for example, a color saved on the point-cloud
+    // asset). Users can still select a semantic rebar mode explicitly.
 
     if (algorithmState.status === 'fulfilled') {
       algorithms.value = algorithmState.value.data.algorithms ?? []

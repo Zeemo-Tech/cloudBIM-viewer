@@ -37,7 +37,10 @@ services:
     ports:
       - "127.0.0.1:${MESH_SERVICE_PORT:-8001}:8001"
     volumes:
-      - ./backend/data:/storage
+      # Use the same persistent asset volume as the backend. C2M receives
+      # /storage paths, so a host bind here would make uploaded LAS files
+      # invisible to the mesh service when the backend uses cloudbim-data.
+      - cloudbim-data:/storage
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/algorithms\")'"]
       interval: 5s
@@ -82,6 +85,11 @@ services:
       PROCESSING_WORKERS: ${PROCESSING_WORKERS:-2}
       UPLOAD_CHUNK_LIMIT: ${UPLOAD_CHUNK_LIMIT:-67108864}
       UPLOAD_FILE_LIMIT: ${UPLOAD_FILE_LIMIT:-107374182400}
+    # C2M/analysis artifacts are atomically published by mesh-service with the
+    # shared runtime GID. The backend must be in that supplementary group to
+    # traverse the setgid artifact directories and validate/read the results.
+    group_add:
+      - "${CLOUDBIM_RUNTIME_GID:-1000}"
     ports:
       - "${BACKEND_PORT:-8090}:8090"
     volumes:

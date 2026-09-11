@@ -318,6 +318,288 @@
   background: rgba(245, 108, 108, 0.12);
 }
 
+.calibration-page .mesh-remesh-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.calibration-page .mesh-remesh-summary__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-tertiary);
+  background: var(--bg-card);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.calibration-page .mesh-remesh-summary > div {
+  min-width: 0;
+}
+
+.calibration-page .mesh-remesh-summary strong,
+.calibration-page .mesh-remesh-summary span:not(.mesh-remesh-summary__icon) {
+  display: block;
+}
+
+.calibration-page .mesh-remesh-summary strong {
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.calibration-page .mesh-remesh-summary span:not(.mesh-remesh-summary__icon) {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.calibration-page .mesh-remesh-summary--succeeded {
+  border-color: rgb(33 132 98 / 20%);
+  background: var(--color-success-soft);
+}
+
+.calibration-page .mesh-remesh-summary--succeeded .mesh-remesh-summary__icon {
+  color: #fff;
+  background: var(--color-success);
+}
+
+.calibration-page .mesh-remesh-summary--queued,
+.calibration-page .mesh-remesh-summary--processing {
+  border-color: rgb(54 120 201 / 20%);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .mesh-remesh-summary--queued .mesh-remesh-summary__icon,
+.calibration-page .mesh-remesh-summary--processing .mesh-remesh-summary__icon {
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.calibration-page .mesh-remesh-summary--failed {
+  border-color: rgb(194 77 88 / 20%);
+  background: var(--color-danger-soft);
+}
+
+.calibration-page .mesh-remesh-summary--failed .mesh-remesh-summary__icon {
+  color: #fff;
+  background: var(--color-danger);
+}
+
+.calibration-page .mesh-remesh-advanced {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #dce5f1;
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 2px 8px rgb(38 75 127 / 5%);
+}
+
+.calibration-page .mesh-remesh-advanced summary {
+  position: relative;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 44px 0 20px;
+  color: #23446f;
+  background: #fff;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.calibration-page .mesh-remesh-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.calibration-page .mesh-remesh-advanced summary::after {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  color: #4c7cc8;
+  content: '⌃';
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1;
+  transform: translateY(-38%) rotate(180deg);
+  transition: transform var(--transition-fast);
+}
+
+.calibration-page .mesh-remesh-advanced[open] summary::after {
+  transform: translateY(-62%);
+}
+
+.calibration-page .mesh-remesh-advanced summary:hover {
+  color: var(--color-primary);
+}
+
+.calibration-page .mesh-remesh-advanced__body {
+  padding: 4px 20px 20px;
+}
+
+.calibration-page .mesh-remesh-advanced__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.calibration-page .mesh-remesh-advanced__title svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: #3974d3;
+}
+
+.calibration-page .mesh-algorithm-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #dfe7f2;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 1px 5px rgb(45 78 123 / 3%);
+}
+
+.calibration-page .mesh-algorithm-card__icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: #3877dd;
+  background: linear-gradient(145deg, #d8e5ff, #edf2ff);
+}
+
+.calibration-page .mesh-algorithm-card__icon svg {
+  width: 27px;
+  height: 27px;
+}
+
+.calibration-page .mesh-algorithm-card__content {
+  min-width: 0;
+}
+
+.calibration-page .mesh-algorithm-card__content strong {
+  display: block;
+  overflow: hidden;
+  color: #1b3355;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calibration-page .mesh-algorithm-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.calibration-page .mesh-algorithm-card__tags span {
+  padding: 3px 9px;
+  border-radius: 4px;
+  color: #4d75b5;
+  background: #edf3ff;
+  font-family: var(--font-family-number);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.calibration-page .mesh-algorithm-card__content p {
+  margin: 10px 0 0;
+  color: #6b7f9a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.calibration-page .mesh-remesh-param-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 13px;
+}
+
+.calibration-page .mesh-remesh-param {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.calibration-page .mesh-remesh-param > span {
+  color: #294363;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.calibration-page .mesh-remesh-param :deep(.el-select),
+.calibration-page .mesh-remesh-param :deep(.el-input-number) {
+  width: 100%;
+}
+
+.calibration-page .mesh-remesh-param :deep(.el-select__wrapper),
+.calibration-page .mesh-remesh-param :deep(.el-input__wrapper) {
+  min-height: 34px;
+  border-color: #d7e0ed !important;
+  background: #fff !important;
+}
+
+.calibration-page .mesh-remesh-param :deep(.el-select__selected-item),
+.calibration-page .mesh-remesh-param :deep(.el-input-number__input),
+.calibration-page .mesh-remesh-param :deep(.el-select__caret) {
+  color: var(--text-primary) !important;
+}
+
+.calibration-page .mesh-remesh-primary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.calibration-page .mesh-remesh-primary-actions > .el-button {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  height: 36px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.calibration-page .mesh-remesh-primary-actions > .el-button--primary {
+  border-color: #326fe0;
+  background: #326fe0;
+  box-shadow: 0 5px 12px rgb(50 111 224 / 18%);
+}
+
+.calibration-page .mesh-remesh-primary-actions > .el-button:not(.el-button--primary) {
+  border-color: #d6e0ed;
+  color: #315b93;
+  background: #fff;
+}
+
+.calibration-page .mesh-action-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  margin-right: 6px;
+}
+
 .mesh-remesh-provenance {
   margin: -2px 0 10px;
   color: rgba(255, 255, 255, 0.58);
@@ -330,6 +612,68 @@
   color: rgba(255, 255, 255, 0.62);
   font-size: 11px;
   line-height: 1.6;
+}
+
+.calibration-page .mesh-remesh-advanced .mesh-remesh-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e5ebf3;
+  color: #203650;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.calibration-page .mesh-stat-item {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-right: 10px;
+}
+
+.calibration-page .mesh-stat-item + .mesh-stat-item {
+  padding-right: 0;
+  padding-left: 13px;
+  border-left: 1px solid #edf1f6;
+}
+
+.calibration-page .mesh-stat-item > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 20px;
+  margin-top: 1px;
+  color: #73a4ed;
+}
+
+.calibration-page .mesh-stat-item > div {
+  min-width: 0;
+}
+
+.calibration-page .mesh-stat-item span,
+.calibration-page .mesh-stat-item strong {
+  display: block;
+}
+
+.calibration-page .mesh-stat-item span {
+  margin-bottom: 5px;
+  color: #708199;
+  font-size: 10px;
+}
+
+.calibration-page .mesh-stat-item strong {
+  color: #1f334e;
+  font-family: var(--font-family-number);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.calibration-page .mesh-stat-item em {
+  color: #26975f;
+  font-style: normal;
 }
 
 .mesh-remesh-error {
@@ -377,7 +721,7 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
-  margin-top: 8px;
+  margin: 8px 0px;
 
   .el-button {
     min-width: 0;
@@ -448,6 +792,407 @@
     min-width: 0;
     margin-left: 0;
   }
+}
+
+.calibration-page .control-panel .c2m-panel {
+  padding: 18px 16px 20px;
+  background: #fff;
+}
+
+.calibration-page .control-panel .c2m-panel__title {
+  margin-bottom: 16px;
+  color: #172e50;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.calibration-page .c2m-primary-card,
+.calibration-page .c2m-secondary-settings,
+.calibration-page .c2m-advanced-card {
+  border: 1px solid #dce5f1;
+  background: #fff;
+}
+
+.calibration-page .c2m-primary-card {
+  padding: 16px;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+
+.calibration-page .c2m-primary-toggle {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1e3759;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.calibration-page .c2m-primary-toggle > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.calibration-page .c2m-primary-toggle i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #2f9a69;
+}
+
+.calibration-page .c2m-panel :deep(.el-switch) {
+  --el-switch-on-color: #2f9a69;
+  --el-switch-off-color: #b7c2d1;
+}
+
+.calibration-page .c2m-primary-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.calibration-page .c2m-primary-field > span,
+.calibration-page .c2m-preset-block__label {
+  color: #516b8f;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.calibration-page .c2m-primary-field small,
+.calibration-page .c2m-preset-block__label small,
+.calibration-page .c2m-setting-row__label small {
+  color: #8493a8;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.calibration-page .c2m-primary-field :deep(.el-input-number) {
+  width: 100%;
+}
+
+.calibration-page .c2m-primary-field :deep(.el-input__wrapper) {
+  height: 38px;
+  padding-inline: 36px !important;
+  border-color: #ced9e8 !important;
+  border-radius: 6px;
+  background: #fff !important;
+}
+
+.calibration-page .c2m-primary-field :deep(.el-input-number__input) {
+  color: #1b3355;
+  font-family: var(--font-family-number);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.calibration-page .c2m-primary-field :deep(.el-input-number__increase),
+.calibration-page .c2m-primary-field :deep(.el-input-number__decrease) {
+  width: 34px;
+  color: #31567f;
+  background: #f8fafe;
+}
+
+.calibration-page .c2m-run-button.el-button {
+  width: 100%;
+  height: 42px;
+  margin-top: 14px;
+  border-color: #326fe0;
+  border-radius: 6px;
+  color: #fff;
+  background: #326fe0;
+  box-shadow: 0 6px 14px rgb(50 111 224 / 17%);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.calibration-page .c2m-run-button .el-icon {
+  margin-right: 7px;
+  font-size: 16px;
+}
+
+.calibration-page .c2m-preset-block {
+  margin-top: 15px;
+}
+
+.calibration-page .c2m-range-presets {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.calibration-page .c2m-range-presets .el-button {
+  height: 34px;
+  padding: 0 3px;
+  border-color: #d7e0ed;
+  border-radius: 6px;
+  color: #4e6687;
+  background: #fff;
+  font-family: var(--font-family-number);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.calibration-page .c2m-range-presets .el-button:hover,
+.calibration-page .c2m-range-presets .el-button:focus-visible {
+  border-color: #82aef1;
+  color: #2867c7;
+  background: #f7faff;
+}
+
+.calibration-page .c2m-secondary-settings {
+  padding: 8px 16px;
+  border-top-color: #e7edf5;
+  border-radius: 0 0 8px 8px;
+}
+
+.calibration-page .c2m-secondary-settings .c2m-setting-row {
+  grid-template-columns: 28px minmax(0, 1fr) 88px;
+}
+
+.calibration-page .c2m-setting-row {
+  min-width: 0;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 104px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.calibration-page .c2m-setting-row:last-child {
+  border-bottom: 0;
+}
+
+.calibration-page .c2m-setting-row__icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: #356db8;
+  background: #f0f5fd;
+}
+
+.calibration-page .c2m-setting-row__icon .el-icon {
+  font-size: 15px;
+}
+
+.calibration-page .c2m-setting-row__label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  color: #263f61;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.35;
+}
+
+.calibration-page .c2m-secondary-settings .c2m-setting-row > :deep(.el-input-number) {
+  width: 88px;
+  align-self: center;
+}
+
+.calibration-page .c2m-setting-row > :deep(.el-input-number),
+.calibration-page .c2m-setting-row > :deep(.el-select) {
+  width: 104px;
+}
+
+.calibration-page .c2m-setting-row > :deep(.el-switch) {
+  justify-self: end;
+}
+
+.calibration-page .c2m-setting-row :deep(.el-input__wrapper),
+.calibration-page .c2m-setting-row :deep(.el-select__wrapper) {
+  min-height: 30px;
+  border-color: #d6e0ed !important;
+  border-radius: 5px;
+  background: #fff !important;
+}
+
+.calibration-page .c2m-setting-row :deep(.el-input-number__input),
+.calibration-page .c2m-setting-row :deep(.el-select__selected-item),
+.calibration-page .c2m-setting-row :deep(.el-select__caret) {
+  color: #223b5d !important;
+  font-family: var(--font-family-number);
+  font-size: 11px;
+}
+
+.calibration-page .c2m-setting-row :deep(.el-input-number__increase),
+.calibration-page .c2m-setting-row :deep(.el-input-number__decrease) {
+  width: 24px;
+  color: #31567f;
+  background: #f8fafe;
+}
+
+.calibration-page .c2m-advanced-card {
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.calibration-page .c2m-result-card {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #dce5f1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.calibration-page .c2m-advanced-card summary {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  color: #245da8;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  list-style: none;
+  user-select: none;
+}
+
+.calibration-page .c2m-advanced-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.calibration-page .c2m-advanced-card summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.calibration-page .c2m-advanced-card summary > span .el-icon {
+  font-size: 17px;
+}
+
+.calibration-page .c2m-advanced-card__arrow {
+  flex: 0 0 auto;
+  transition: transform var(--transition-fast);
+}
+
+.calibration-page .c2m-advanced-card[open] .c2m-advanced-card__arrow {
+  transform: rotate(180deg);
+}
+
+.calibration-page .c2m-advanced-card__body {
+  padding: 2px 16px 14px;
+  border-top: 1px solid #e8eef6;
+}
+
+.calibration-page .c2m-result-card summary {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  color: #245da8;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  list-style: none;
+  user-select: none;
+}
+
+.calibration-page .c2m-result-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.calibration-page .c2m-result-card summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.calibration-page .c2m-result-card summary > span .el-icon {
+  font-size: 17px;
+}
+
+.calibration-page .c2m-result-card__arrow {
+  flex: 0 0 auto;
+  transition: transform var(--transition-fast);
+}
+
+.calibration-page .c2m-result-card[open] .c2m-result-card__arrow {
+  transform: rotate(180deg);
+}
+
+.calibration-page .c2m-result-card__body {
+  padding: 2px 16px 14px;
+  border-top: 1px solid #e8eef6;
+}
+
+.calibration-page .c2m-apply-button.el-button {
+  width: 100%;
+  height: 36px;
+  margin-top: 12px;
+  border-color: #bcd2f2;
+  border-radius: 6px;
+  color: #2c6bca;
+  background: #f6f9ff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.calibration-page .c2m-apply-button .el-icon {
+  margin-right: 6px;
+}
+
+.calibration-page .c2m-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.calibration-page .c2m-actions .el-button {
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 0 7px;
+  border-color: #d7e0ed;
+  border-radius: 6px;
+  color: #34577f;
+  background: #fff;
+  font-size: 10px;
+}
+
+.calibration-page .c2m-actions .el-icon {
+  margin-right: 5px;
+}
+
+.calibration-page .c2m-panel-tip {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2eaf5;
+  border-radius: 7px;
+  color: #617694;
+  background: #f5f8fd;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.calibration-page .c2m-panel-tip strong {
+  color: #2f69bd;
+  font-weight: 650;
+}
+
+.calibration-page .c2m-panel .mesh-remesh-error,
+.calibration-page .c2m-panel .c2m-result-warning,
+.calibration-page .c2m-panel .c2m-result-summary,
+.calibration-page .c2m-panel .c2m-pick-hint,
+.calibration-page .c2m-panel .c2m-result-histogram {
+  margin-top: 12px;
 }
 
 .section-divider {
@@ -928,37 +1673,38 @@
 }
 
 :global(.bpa-right-popper.el-popper) {
-  --el-bg-color-overlay: #111a35;
-  --el-fill-color-light: rgba(64, 158, 255, 0.16);
-  --el-text-color-regular: rgba(231, 240, 255, 0.92);
-  background: #111a35 !important;
-  border: 1px solid rgba(64, 158, 255, 0.45) !important;
+  --el-bg-color-overlay: #ffffff;
+  --el-fill-color-light: #eef5ff;
+  --el-text-color-regular: var(--text-primary);
+  background: #ffffff !important;
+  border: 1px solid var(--border-color) !important;
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.55),
-    0 0 18px rgba(64, 158, 255, 0.2) !important;
+    0 8px 20px rgb(31 60 103 / 12%),
+    0 1px 4px rgb(31 60 103 / 6%) !important;
 }
 
 :global(.bpa-right-popper .el-select-dropdown) {
-  background: #111a35 !important;
+  background: #ffffff !important;
 }
 
 :global(.bpa-right-popper .el-select-dropdown__item) {
-  color: rgba(231, 240, 255, 0.92) !important;
+  color: var(--text-primary) !important;
+  background: #ffffff !important;
 }
 
 :global(.bpa-right-popper .el-select-dropdown__item.is-hovering),
 :global(.bpa-right-popper .el-select-dropdown__item:hover) {
-  background: rgba(64, 158, 255, 0.16) !important;
+  background: var(--color-primary-soft) !important;
 }
 
 :global(.bpa-right-popper .el-select-dropdown__item.is-selected) {
-  color: #63adff !important;
+  color: var(--color-primary) !important;
   font-weight: 600;
 }
 
 :global(.bpa-right-popper.el-popper .el-popper__arrow::before) {
-  background: #111a35 !important;
-  border-color: rgba(64, 158, 255, 0.45) !important;
+  background: #ffffff !important;
+  border-color: var(--border-color) !important;
 }
 
 
@@ -1676,6 +2422,119 @@
   display: none;
 }
 
+.calibration-page .alignment-workflow-nav {
+  min-width: 0;
+  height: 46px;
+  display: flex;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  scrollbar-color: var(--border-color-hover) transparent;
+  scrollbar-width: thin;
+}
+
+.calibration-page .alignment-workflow-track {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 540px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.calibration-page .alignment-workflow-step {
+  position: relative;
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  padding: 0 20px 0 18px;
+  color: #334155;
+  background: #e8eef6;
+  cursor: pointer;
+  text-align: left;
+}
+
+.calibration-page .alignment-workflow-step:not(:first-child) {
+  margin-left: -9px;
+  padding-left: 27px;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
+}
+
+.calibration-page .alignment-workflow-step:first-child {
+  padding-left: 9px;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+}
+
+.calibration-page .alignment-workflow-step:hover:not(:disabled) {
+  color: #172b4d;
+  background: #dce7f4;
+}
+
+.calibration-page .alignment-workflow-step.is-active {
+  z-index: 2;
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.calibration-page .alignment-workflow-step.is-completed {
+  color: var(--text-secondary);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .alignment-workflow-step.is-disabled {
+  opacity: 1;
+  color: #52657d;
+  background: #dce3ec;
+  cursor: not-allowed;
+}
+
+.calibration-page .alignment-workflow-step__number {
+  flex: 0 0 auto;
+  color: currentColor;
+  font-family: var(--font-family-number);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.82;
+}
+
+.calibration-page .alignment-workflow-step.is-active .alignment-workflow-step__number {
+  opacity: 1;
+}
+
+.calibration-page .alignment-workflow-step__copy {
+  min-width: 0;
+  display: block;
+}
+
+.calibration-page .alignment-workflow-step__copy strong,
+.calibration-page .alignment-workflow-step__copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calibration-page .alignment-workflow-step__copy strong {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.calibration-page .alignment-workflow-step__copy small {
+  margin-top: 2px;
+  color: currentColor;
+  font-size: 9px;
+  line-height: 1.2;
+  opacity: 0.9;
+}
+
 .calibration-page .topbar-right.header-actions {
   flex: 0 0 auto;
   justify-content: flex-end;
@@ -1743,8 +2602,7 @@
   align-items: center;
   gap: 7px;
   padding: 14px 0 10px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
   border-right: 1px solid var(--border-color);
   background: var(--bg-card);
 }
@@ -1797,6 +2655,11 @@
   flex: 0 0 34px;
   display: grid;
   place-items: center;
+}
+
+.calibration-page .left-toolbar.view-toolbar .measurement-tool-item {
+  position: relative;
+  overflow: visible;
 }
 
 .calibration-page .left-toolbar.view-toolbar .tool-btn {
@@ -1859,6 +2722,117 @@
   min-width: 25px;
   margin: 3px 0;
   border-color: var(--border-color);
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar) {
+  position: relative;
+  box-sizing: border-box;
+  width: 34px !important;
+  height: 34px;
+  min-height: 34px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  top: 0 !important;
+  right: auto !important;
+  left: 0 !important;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar.placement-left) {
+  right: auto !important;
+  left: 0 !important;
+  transform: none !important;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-actions) {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  z-index: calc(var(--z-sticky) + 5);
+  min-width: 134px;
+  box-sizing: border-box;
+  padding: 5px;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-translucent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-toggle) {
+  box-sizing: border-box;
+  width: 34px !important;
+  min-width: 34px;
+  height: 34px !important;
+  min-height: 34px;
+  flex: 0 0 34px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-tertiary);
+  background: transparent;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-toggle:hover) {
+  border-color: var(--border-color-hover);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-toggle.is-active) {
+  border-color: var(--border-color-hover);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-toggle-icon) {
+  width: 22px;
+  height: 22px;
+  transform: scale(1.08);
+  opacity: 1;
+  filter: none;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-actions) {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-action) {
+  width: 100%;
+  min-height: 34px;
+  justify-content: flex-start;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-tertiary);
+  background: transparent;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-action span) {
+  display: inline;
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-action:hover:not(:disabled)) {
+  border-color: var(--border-color-hover);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-action.is-active) {
+  border-color: rgb(220 38 38 / 42%);
+  color: #b91c1c;
+  background: #fef2f2;
 }
 
 .calibration-page .viewport.viewport-shell.three-view-pane {
@@ -2095,6 +3069,41 @@
   white-space: nowrap;
 }
 
+.calibration-page .control-panel-header .panel-next-step {
+  height: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-sm);
+  padding: 0 9px 0 11px;
+  color: var(--text-secondary);
+  background: var(--bg-control);
+  box-shadow: var(--shadow-filter-control);
+  cursor: pointer;
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.calibration-page .control-panel-header .panel-next-step:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: var(--shadow-sm);
+}
+
+.calibration-page .control-panel-header .panel-next-step:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.calibration-page .control-panel-header .panel-next-step .el-icon {
+  font-size: 13px;
+}
+
 .calibration-page .control-panel .panel-body {
   min-height: 0;
   flex: 1 1 auto;
@@ -2131,6 +3140,16 @@
 
 .calibration-page .registration-edit-panel {
   padding: 14px 16px 16px;
+}
+
+.calibration-page .registration-complete-button.el-button {
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  margin: 0 0 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
 }
 
 .calibration-page .registration-stage-row {
@@ -2587,6 +3606,52 @@
   background: var(--color-primary-hover);
 }
 
+/* The calibration workspace is light. These rules intentionally come after
+ * the legacy dark-panel theme so Element Plus select text remains readable. */
+.calibration-page .right-panel.control-panel :deep(.el-select__wrapper) {
+  background: #fff !important;
+}
+
+.calibration-page .right-panel.control-panel :deep(.el-select__selected-item),
+.calibration-page .right-panel.control-panel :deep(.el-select__placeholder),
+.calibration-page .right-panel.control-panel :deep(.el-select__caret),
+.calibration-page .right-panel.control-panel :deep(.el-select__icon) {
+  color: #1b2f4a !important;
+  -webkit-text-fill-color: #1b2f4a !important;
+}
+
+.calibration-page .mesh-remesh-param :deep(.el-select__selected-item),
+.calibration-page .mesh-remesh-param :deep(.el-select__placeholder) {
+  font-size: 11px !important;
+  font-weight: 500;
+}
+
+:global(.bpa-right-popper.el-popper),
+:global(.bpa-right-popper .el-select-dropdown),
+:global(.bpa-right-popper .el-select-dropdown__wrap),
+:global(.bpa-right-popper .el-scrollbar__view) {
+  background: #fff !important;
+}
+
+:global(.bpa-right-popper .el-select-dropdown__item) {
+  color: #1b2f4a !important;
+  -webkit-text-fill-color: #1b2f4a !important;
+  background: #fff !important;
+  font-size: 12px;
+}
+
+:global(.bpa-right-popper .el-select-dropdown__item.is-hovering),
+:global(.bpa-right-popper .el-select-dropdown__item:hover) {
+  color: #225596 !important;
+  -webkit-text-fill-color: #225596 !important;
+  background: #eef5ff !important;
+}
+
+:global(.bpa-right-popper .el-select-dropdown__item.is-selected) {
+  color: #3678c9 !important;
+  -webkit-text-fill-color: #3678c9 !important;
+}
+
 .calibration-page .right-panel.control-panel.is-workflow-panel .registration-stage-btn,
 .calibration-page .right-panel.control-panel.is-workflow-panel .transform-mode-button {
   border: 1px solid var(--border-color-light);
@@ -2711,6 +3776,13 @@
   .calibration-page .topbar-right.header-actions {
     width: 100%;
     justify-content: flex-end;
+    order: 2;
+  }
+
+  .calibration-page .alignment-workflow-nav {
+    width: 100%;
+    flex: 0 0 100%;
+    order: 3;
   }
 
   .calibration-page .main-content.calibration-main,
