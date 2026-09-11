@@ -708,11 +708,13 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
     from algorithms import REBAR_ALGORITHM_REGISTRY
     from rebar_tiles import rewrite_pnts
     opts = normalize_rebar_input_options(input_options)
+    if algorithm == "geometric-v6" and opts["voxelSize"] is not None:
+        raise InvalidRebarInputOptionsError("V6 classifies full source points; voxelSize is unsupported")
     max_points = int(opts["maxInputPoints"])
     voxel_size = opts["voxelSize"]
     algo = REBAR_ALGORITHM_REGISTRY.get(algorithm)
     effective = dict(algo.normalize_parameters(parameters))
-    if algorithm == "geometric-v5" and (point_cloud_format or Path(point_cloud_path).suffix.lstrip('.')).lower() in ('ply', 'pcd'):
+    if algorithm in ("geometric-v5", "geometric-v6") and (point_cloud_format or Path(point_cloud_path).suffix.lstrip('.')).lower() in ('ply', 'pcd'):
         # The existing Open3D decoder materializes these formats. Bound its
         # advertised point count before decoding; LAS/LAZ remains streaming.
         checked_path = resolve_point_cloud_path(point_cloud_path, storage_root=storage_root, point_cloud_format=point_cloud_format)
@@ -748,10 +750,10 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
             raise InvalidBimPriorError("BIM geometry or alignment is unusable") from exc
         prior["fingerprint"] = bim_prior.get("fingerprint", "")
     context = RebarInputContext(loaded.points,
-        lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format), prior)
+        lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format), prior, point_cloud_path)
     output = _confined_output_directory(output_directory, storage_root)
-    if algorithm == 'geometric-v5' and output.exists():
-        raise PointCloudInputError('V5 artifact versions are immutable; use a new output directory')
+    if algo.descriptor.get('analysisSchema') == 'rebar-analysis-v2' and output.exists():
+        raise PointCloudInputError('artifact versions are immutable; use a new output directory')
     source_candidate = Path(source_tileset_path).expanduser()
     if source_candidate.is_symlink():
         raise StoragePathViolationError("source tileset path must not be a symlink")

@@ -14,8 +14,9 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 from algorithms.rebar_tracks import diameter_priors, regularize_models, reconcile_tracks, grow_track_ends, track_statistics, remove_explained_fragments
 
-VERSION = 'internal-rebar-tracks-v3'
-TYPES = {'0': '非内部钢筋', '1': '下层钢筋', '2': '上层钢筋', '3': '腹杆', '4': '钢筋（实例待定）'}
+VERSION = 'internal-rebar-tracks-v5-score-aware-denoising'
+PROTECTION_THRESHOLD = .9
+TYPES = {'0': '非内部钢筋', '1': '下层钢筋', '2': '上层钢筋', '3': '腹杆', '4': '钢筋（实例待定）', '5': '悬浮噪音'}
 ATTRIBUTES = {'internal_type': 'u1', 'internal_instance': '<u4',
               'internal_segment': '<u4', 'internal_confidence': '<f4'}
 
@@ -321,7 +322,7 @@ def _recover_residual_models(points, normals, models, bands, params, workers):
                        'addedSegments':len(recovered),'newInstances':added}, {'tree':tree,'assignment':assignment}
 
 
-def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=None, tangents=None, linearity=None):
+def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=None, tangents=None, linearity=None, instance_margin=0.):
     """Finite-cylinder surface competition with sign-independent source normals."""
     params = params or InternalRebarParameters()
     labels = np.zeros(len(points), np.uint32)
@@ -331,6 +332,8 @@ def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=N
     center = np.array([m['center'] for m in models]); axis = np.array([m['axis'] for m in models])
     low = np.array([m['low'] for m in models]); high = np.array([m['high'] for m in models])
     radius = np.array([m['radius'] for m in models])
+    physical_ids = np.array([m.get('instanceId', i+1) for i,m in enumerate(models)])
+    ambiguous = np.zeros(len(points),bool)
     if cache is None:
         samples, owners = [], []
         for i, m in enumerate(models):
@@ -371,19 +374,25 @@ def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=N
                 valid = finite & (error<=params.assignment_tolerance) & (beyond<=params.endpoint_margin)
                 score[~valid]=np.inf
                 best=np.argmin(score,axis=1); rows=np.arange(len(selected)); accepted=np.isfinite(score[rows,best])
+                if instance_margin > 0:
+                    alternatives = np.where(physical_ids[model] != physical_ids[model[rows,best]][:,None], score, np.inf)
+                    runner_up = np.min(alternatives,axis=1)
+                    ties = accepted & (runner_up <= score[rows,best] + instance_margin)
+                    ambiguous[selected] = ties
+                    accepted &= ~ties
                 labels[selected]=np.where(accepted,model[rows,best]+1,0)
                 confidence[selected]=np.where(accepted,np.clip(1-score[rows,best]/(params.assignment_tolerance+.002),0,1),0)
             pending=pending[~complete]; k=min(k*2,tree.n)
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         list(pool.map(chunk, range(0, len(points), 16384)))
-    return labels, confidence, {'tree': tree, 'sample_owners': owners}
+    return labels, confidence, {'tree': tree, 'sample_owners': owners, 'ambiguous': ambiguous}
 
 
 def segment_internal_rebar(context, *, workers=1, params=None, output=None, progress=None):
     params = params or InternalRebarParameters()
     progress = progress or (lambda *args: None)
     if context.refined_class is None or context.refined_zone is None:
-        raise ValueError('内部钢筋实例需要双框整理结果')
+        raise ValueError('内部钢筋实例需要融合类别与共享分区')
     started = time.perf_counter(); timings = {}
     count = len(context.positions)
     output = output if output is not None else {name: np.zeros(count, dtype) for name, dtype in ATTRIBUTES.items()}
@@ -489,11 +498,21 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         output['internal_confidence'][scope] = confidence
         timings['sourceAssignmentS'] = time.perf_counter()-t0
     segment_counts = np.bincount(output['internal_segment'][scope], minlength=len(models)+1)
+    fused_score = getattr(context, 'fused_steel_score', None)
+    measured_counts = high_counts = None
+    if fused_score is not None:
+        measured = np.asarray(fused_score)[scope] >= .65 - 1.e-6
+        high = np.asarray(fused_score)[scope] >= PROTECTION_THRESHOLD
+        measured_counts = np.bincount(output['internal_segment'][scope][measured], minlength=len(models)+1)
+        high_counts = np.bincount(output['internal_segment'][scope][high], minlength=len(models)+1)
     segments, instances = [], []
     for i, m in enumerate(models, 1):
         start = m['center']+m['low']*m['axis']; end = m['center']+m['high']*m['axis']
         segments.append({'id': i, 'instanceId': m['instanceId'], 'type': m['type'], 'startM': start.tolist(), 'endM': end.tolist(),
                          'radiusM': m['radius'], 'pointCount': int(segment_counts[i]), 'fitMedianErrorM': m['fitMedianErrorM']})
+        if measured_counts is not None:
+            segments[-1].update(measuredSupportPointCount=int(measured_counts[i]),
+                                highConfidencePointCount=int(high_counts[i]))
     for instance_id in sorted({m['instanceId'] for m in models}):
         parts = [s for s in segments if s['instanceId']==instance_id]
         info=next(m['trackInfo'] for m in models if m['instanceId']==instance_id)
@@ -501,9 +520,38 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
             'segmentIds':[s['id'] for s in parts], 'lengthM':info['lengthM'],'diameterM':info['diameterM'],
             'family':info['family'],'lengthAnomaly':info['lengthAnomaly'],
             'modelKind':'cylinder' if len(parts)==1 else 'piecewise-cylinder'})
-    counts = np.bincount(output['internal_type'][scope], minlength=5)
+    from .floating_noise import floating_noise_mask
+    t0 = time.perf_counter()
+    progress('第 5 步：清理无结构支撑的悬浮点', 0, len(scope))
+    protected = (np.zeros(len(scope), bool) if fused_score is None else
+                 (np.asarray(fused_score)[scope] >= PROTECTION_THRESHOLD) & (context.refined_class[scope] == 3))
+    removed, denoising = floating_noise_mask(context.positions[scope], output['internal_type'][scope],
+                                            bands, segments, workers=workers, protected=protected,
+                                            steel_scores=None if fused_score is None else np.asarray(fused_score)[scope])
+    denoising['protectionThreshold'] = PROTECTION_THRESHOLD
+    noise_ids = scope[removed]
+    output['internal_type'][noise_ids] = 5
+    for name in ('internal_instance', 'internal_segment', 'internal_confidence'):
+        output[name][noise_ids] = 0
+    # Low-score assigned rows can now be rejected; report actual surviving
+    # ownership rather than the pre-denoising cylinder counts.
+    final_counts = np.bincount(output['internal_segment'][scope], minlength=len(models)+1)
+    if measured_counts is not None:
+        measured_counts = np.bincount(output['internal_segment'][scope][measured], minlength=len(models)+1)
+    for segment in segments:
+        segment['pointCount'] = int(final_counts[segment['id']])
+        if measured_counts is not None:
+            segment['measuredSupportPointCount'] = int(measured_counts[segment['id']])
+    for instance in instances:
+        instance['segmentIds'] = [s for s in instance['segmentIds'] if final_counts[s] > 0]
+        instance['pointCount'] = sum(int(final_counts[s]) for s in instance['segmentIds'])
+    instances = [instance for instance in instances if instance['pointCount'] > 0]
+    segments = [segment for segment in segments if segment['pointCount'] > 0]
+    timings['floatingDenoiseS'] = time.perf_counter()-t0
+    counts = np.bincount(output['internal_type'][scope], minlength=6)
     report = {'version': VERSION, 'pointCount': len(scope), 'types': TYPES,
-        'counts': dict(zip(('lower', 'upper', 'web', 'unassigned'), map(int, counts[1:5]))),
+        'counts': dict(zip(('lower', 'upper', 'web', 'unassigned', 'noise'), map(int, counts[1:6]))),
+        'denoising': denoising,
         'instanceCount': len(instances), 'segmentCount': len(segments), 'instances': instances, 'segments': segments,
         'layers': {'lowerM': bands[0]['height'] if bands else None, 'upperM': bands[1]['height'] if len(bands)>1 else None,
                    'bands': bands}, 'heightHistogram': histogram, 'diagnostics': diagnostics,

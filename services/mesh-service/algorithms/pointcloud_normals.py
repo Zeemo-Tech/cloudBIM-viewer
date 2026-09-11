@@ -36,6 +36,11 @@ class PointCloudContext:
     normal_valid: np.ndarray | None = None
     curvature: np.ndarray | None = None
     neighbor_radius: np.ndarray | None = None
+    shared_table_mask: np.ndarray | None = None
+    partition_zone: np.ndarray | None = None
+    scene_cache: dict | None = None
+    fused_steel_score: np.ndarray | None = None
+    fused_steel_evidence: np.ndarray | None = None
     geometry_class: np.ndarray | None = None
     geometry_support: np.ndarray | None = None
     geometry_recovered: np.ndarray | None = None
@@ -60,6 +65,11 @@ class PointCloudContext:
     internal_segment: np.ndarray | None = None
     internal_confidence: np.ndarray | None = None
     internal_rebar_cache: dict | None = None
+    complete_class: np.ndarray | None = None
+    complete_instance: np.ndarray | None = None
+    complete_segment: np.ndarray | None = None
+    complete_confidence: np.ndarray | None = None
+    complete_cluster: np.ndarray | None = None
     dimension_priors: dict | None = None
 
     @classmethod

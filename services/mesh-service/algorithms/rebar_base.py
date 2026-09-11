@@ -34,6 +34,7 @@ class RebarInputContext:
     sample: np.ndarray
     iter_chunks: Callable[[], Iterator[tuple[np.ndarray, np.ndarray]]]
     bim_prior: Mapping[str, Any] | None = None
+    source_path: str | None = None
 
 
 @dataclass(frozen=True)

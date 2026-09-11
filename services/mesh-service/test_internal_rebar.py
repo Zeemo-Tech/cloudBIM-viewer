@@ -172,6 +172,28 @@ class InternalRebarTests(unittest.TestCase):
         np.testing.assert_array_equal(labels, [5])
         self.assertGreater(confidence[0], 0)
 
+    def test_denoising_assigned_rows_rebuilds_segment_and_instance_counts(self):
+        context, member_size = synthetic_context()
+        # Exercise an entire removed model plus a partially retained model.
+        def remove_assigned(points, types, bands, segments, **kwargs):
+            removed = np.zeros(len(points), bool)
+            removed[:member_size] = True
+            removed[member_size:member_size+5] = True
+            return removed, {'removedPointCount': int(removed.sum())}
+        with mock.patch('algorithms.floating_noise.floating_noise_mask', side_effect=remove_assigned):
+            report = segment_internal_rebar(context, workers=1)
+        np.testing.assert_array_equal(context.internal_type[:member_size+5], 5)
+        np.testing.assert_array_equal(context.internal_instance[:member_size+5], 0)
+        segments = {s['id']: s for s in report['segments']}
+        for segment in segments.values():
+            self.assertGreater(segment['pointCount'], 0)
+            self.assertEqual(segment['pointCount'], np.count_nonzero(context.internal_segment == segment['id']))
+        for instance in report['instances']:
+            self.assertGreater(instance['pointCount'], 0)
+            self.assertEqual(instance['pointCount'], np.count_nonzero(context.internal_instance == instance['id']))
+            self.assertTrue(all(s in segments and segments[s]['instanceId'] == instance['id'] for s in instance['segmentIds']))
+        self.assertEqual(set(segments), {s for i in report['instances'] for s in i['segmentIds']})
+
     def test_discovers_two_layers_parallel_rods_and_individual_webs(self):
         first, member_size = synthetic_context()
         second, _ = synthetic_context(reverse_normals=True)
@@ -184,7 +206,7 @@ class InternalRebarTests(unittest.TestCase):
         self.assertEqual(first_report["counts"], {"lower": 2 * member_size,
                                                    "upper": 2 * member_size,
                                                    "web": 2 * member_size,
-                                                   "unassigned": 1})
+                                                   "unassigned": 0, "noise": 1})
         self.assertEqual(first_report["instanceCount"], 6)
         self.assertEqual([item["type"] for item in first_report["instances"]], [1, 1, 2, 2, 3, 3])
         cluster_ids = []
@@ -196,7 +218,7 @@ class InternalRebarTests(unittest.TestCase):
             self.assertNotEqual(ids[0], 0)
             cluster_ids.append(int(ids[0]))
         self.assertEqual(len(set(cluster_ids)), 6)
-        self.assertEqual(first.internal_type[-2], 4)
+        self.assertEqual(first.internal_type[-2], 5)
         self.assertEqual(first.internal_instance[-2], 0)
         self.assertEqual(first.internal_type[-1], 0)
         self.assertEqual(first.internal_instance[-1], 0)
@@ -238,7 +260,7 @@ class InternalRebarTests(unittest.TestCase):
             las.intensity = np.arange(10, dtype=np.uint16)
             las.write(source)
             source_bytes = source.read_bytes()
-            expected_type = np.array([0, 1, 2, 3, 4, 1, 0, 3, 4, 2], np.uint8)
+            expected_type = np.array([0, 1, 2, 3, 5, 1, 0, 3, 4, 2], np.uint8)
             expected_instance = np.array([0, 11, 12, 13, 0, 11, 0, 13, 0, 12], np.uint32)
             expected_confidence = np.array([0, .9, .8, .7, 0, .6, 0, .5, 0, .4], np.float32)
 
@@ -265,7 +287,18 @@ class InternalRebarTests(unittest.TestCase):
                     "features": {"axis": np.zeros((10, 3))}}
                 return {"counts": {"table": 0, "fixture": 0, "rebar": 10}}
 
-            def projection(positions, normals, valid, workers, output, progress):
+            def prepare(context, output, progress):
+                output["shared_table_mask"][:] = 0
+                output["partition_zone"][:] = 1
+                context.shared_table_mask = output["shared_table_mask"]
+                context.partition_zone = output["partition_zone"]
+                context.region_cache = {"frame_axes": np.eye(2)}
+                context.scene_cache = {"projection": {}, "region_owned": np.ones(10, bool),
+                                       "regions": {"counts": {"interior": 10}}, "report": {}}
+                return {"tableRemoval": {"removedPoints": 0}, "partition": {"counts": {"interior": 10}}}
+
+            def projection(positions, normals, valid, workers, output, progress,
+                           prepared=None, region_owned=None):
                 output["projection_class"][:] = 3
                 output["projection_layer"][:] = 1
                 return ({"counts": {"table": 0, "fixture": 0, "rebar": 10}, "images": {}},
@@ -275,20 +308,21 @@ class InternalRebarTests(unittest.TestCase):
                 output["fused_class"][:] = 3
                 output["fused_recovered"][:] = 0
                 output["fused_reason"][:] = 1
+                output["fused_steel_score"][:] = 1
+                output["fused_steel_evidence"][:] = 3
                 context.fused_class, context.fused_recovered = output["fused_class"], output["fused_recovered"]
                 context.fused_reason = output["fused_reason"]
+                context.fused_steel_score = output["fused_steel_score"]
+                context.fused_steel_evidence = output["fused_steel_evidence"]
                 context.fusion_cache = {"dummy": np.arange(1)}
                 return {"counts": {"table": 0, "fixture": 0, "rebar": 10}}
 
-            def regions(positions, classes, report, cache, workers):
-                return ({"counts": {"interior": 10}}, {"frame_axes": np.eye(2)}, np.ones(10, np.uint8))
+            def region_map(classes, zones, output=None):
+                output[:] = 1
+                return output
 
-            def refine(context, report, workers, output, progress):
-                for name in output:
-                    output[name][:] = 3 if name == "refined_class" else 1
-                    setattr(context, name, output[name])
-                context.refinement_cache = {"dummy": np.arange(1)}
-                return {"counts": {"steel": 10}}
+            def region_report(context, regions):
+                return {"counts": {"interior": 10}, "frame": {"detected": True, "innerDetected": True}}
 
             def internal(context, workers, output, progress):
                 output["internal_type"][:] = expected_type
@@ -297,20 +331,21 @@ class InternalRebarTests(unittest.TestCase):
                 output["internal_confidence"][:] = expected_confidence
                 for name, values in output.items():
                     setattr(context, name, values)
-                return {"pointCount": 8, "counts": {"lower": 2, "upper": 2, "web": 2, "unassigned": 2},
+                return {"pointCount": 8, "counts": {"lower": 2, "upper": 2, "web": 2, "unassigned": 1, "noise": 1},
                         "instances": [], "segments": [], "instanceCount": 0, "segmentCount": 0}
 
             patches = {
                 "pointcloud_step_pipeline.estimate_normals": estimate,
+                "pointcloud_step_pipeline.prepare_scene": prepare,
                 "pointcloud_step_pipeline.classify_geometry": classify,
                 "pointcloud_step_pipeline.classify_projection": projection,
                 "pointcloud_step_pipeline.fuse_classifications": fusion,
-                "pointcloud_step_pipeline.classify_regions": regions,
-                "pointcloud_step_pipeline.refine_regions": refine,
+                "pointcloud_step_pipeline.regions_from_partition": region_map,
+                "pointcloud_step_pipeline.partition_region_report": region_report,
                 "pointcloud_step_pipeline.segment_internal_rebar": internal,
                 "pointcloud_step_pipeline.write_projection_artifacts": lambda *args: None,
             }
-            with mock.patch.multiple("pointcloud_step_pipeline", **{name.rsplit(".", 1)[-1]: value for name, value in patches.items()}):
+            with mock.patch("pointcloud_step_pipeline.write_projection_artifacts", patches.pop("pointcloud_step_pipeline.write_projection_artifacts")), mock.patch.multiple("algorithms.pointcloud_segmentation", **{name.rsplit(".", 1)[-1]: value for name, value in patches.items()}):
                 run = run_from_source(source, root / "out", k=8, workers=1, preview_limit=7, through_step=6)
 
             self.assertEqual(source.read_bytes(), source_bytes)
@@ -326,9 +361,13 @@ class InternalRebarTests(unittest.TestCase):
                 np.testing.assert_array_equal(saved[name], expected)
                 np.testing.assert_array_equal(np.fromfile(run.directory / "preview" / f"{preview_name}.bin", dtype=dtype), expected[ids])
             subset = laspy.read(run.directory / "internal-steel.las")
-            selected = np.flatnonzero(expected_type > 0)
+            selected = np.flatnonzero((expected_type > 0) & (expected_type < 5))
             np.testing.assert_array_equal(subset.source_record_index, selected)
             np.testing.assert_array_equal(subset.internal_type, expected_type[selected])
+            noise = laspy.read(run.directory / "noise-only.las")
+            np.testing.assert_array_equal(noise.source_record_index, [4])
+            steel = laspy.read(run.directory / "steel-only.las")
+            self.assertNotIn(4, steel.source_record_index)
             manifest = json.loads((run.directory / "manifest.json").read_text())
             self.assertEqual(manifest["steps"][-1]["id"], "05-internal-rebar")
             self.assertEqual(manifest["files"]["internalSteelLasUrl"].split("/")[-1], "internal-steel.las")

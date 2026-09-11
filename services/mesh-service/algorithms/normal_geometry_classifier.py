@@ -5,7 +5,7 @@ point be planar. Edges, corners and unclaimed points belong to the same fixture
 class. Every source row receives one of the three scene classes.
 """
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import time
 
 import numpy as np
@@ -15,8 +15,9 @@ from scipy.spatial import cKDTree
 from threadpoolctl import threadpool_limits
 
 from algorithms.pointcloud_normals import PointCloudContext, available_workers
+from algorithms.normal_cylinder_recovery import recover_cylindrical_cells
 
-VERSION = "normal-geometry-v4"
+VERSION = "normal-geometry-v9-preserved-retention"
 CLASS_NAMES = {"1": "台面", "2": "夹具（含方管）", "3": "钢筋"}
 COLORS = {"1": "#64748b", "2": "#f59e0b", "3": "#2dd4bf"}
 
@@ -31,10 +32,12 @@ class Parameters:
     min_plane_width: float = .012
     min_plane_area: float = .0003
     min_plane_fill: float = .25
+    min_narrow_plane_fill: float = .50
     max_bar_width: float = .025
     min_bar_support: float = .020
     recovery_reach: float = .050
     recovery_fixture_width: float = .018
+    connectivity_radius: float = .0054
 
 
 def matrix6(values):
@@ -60,6 +63,7 @@ class SupportGrid:
     source_to_cell: np.ndarray
     origin: np.ndarray
     tree: cKDTree | None = None
+    non_table_counts: np.ndarray | None = None
 
 
 def aggregate_grid(context, size):
@@ -84,12 +88,23 @@ def aggregate_grid(context, size):
     # Cell mass is equal in neighborhood geometry so acquisition density does
     # not dominate. Every source normal contributes to its cell projector.
     valid = context.normal_valid.astype(bool)
+    active_mass = None
+    if getattr(context, "shared_table_mask", None) is not None:
+        active = ~context.shared_table_mask.astype(bool)
+        active_mass = np.bincount(inverse, weights=active, minlength=count)
+        mixed = (active_mass > 0) & (active_mass < counts)
+        rows = np.flatnonzero(active & mixed[inverse])
+        if len(rows):
+            for column in range(3):
+                centers = np.bincount(inverse[rows], weights=xyz[rows, column]-origin[column], minlength=count)
+                np.divide(centers, active_mass, out=points[:, column], where=mixed)
+        valid &= active
     valid_counts = np.bincount(inverse, weights=valid, minlength=count)
     q = np.empty((count, 6), np.float32)
     for column, (a, b) in enumerate(((0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2))):
         weight = context.normals[:, a] * context.normals[:, b] * valid
         q[:, column] = np.bincount(inverse, weights=weight, minlength=count) / np.maximum(valid_counts, 1)
-    return SupportGrid(points, q, counts, valid_counts, inverse, origin)
+    return SupportGrid(points, q, counts, valid_counts, inverse, origin, non_table_counts=active_mass)
 
 
 def dominant_plane(grid, params, workers=1):
@@ -221,8 +236,10 @@ def _local_features(points, q, tree, params, workers, progress):
     return result
 
 
-def planar_patches(points, features, params, workers):
+def planar_patches(points, features, params, workers, candidates=None):
     seed = (features["surface_coherence"] > .92) & (features["surface_flatness"] < .08)
+    if candidates is not None:
+        seed &= candidates
     seed_ids = np.flatnonzero(seed)
     assignment = np.full(len(points), -1, np.int32)
     if len(seed_ids) < 12:
@@ -265,19 +282,20 @@ def planar_patches(points, features, params, workers):
     accepted_ids = np.flatnonzero(assignment >= 0)
     if len(accepted_ids):
         nearest = cKDTree(points[accepted_ids])
-        d, idx = nearest.query(points, k=min(4, len(accepted_ids)), distance_upper_bound=params.voxel_size*6, workers=workers)
+        query_rows = np.flatnonzero(candidates) if candidates is not None else np.arange(len(points))
+        d, idx = nearest.query(points[query_rows], k=min(4, len(accepted_ids)), distance_upper_bound=params.voxel_size*6, workers=workers)
         if d.ndim == 1:
             d, idx = d[:, None], idx[:, None]
         patch_ids = assignment[accepted_ids[np.minimum(idx, len(accepted_ids)-1)]]
         patch_normals = np.array([p["normal"] for p in patches])
         centers = np.array([p["center"] for p in patches])
-        projected = np.abs(np.einsum("bki,bki->bk", points[:, None]-centers[patch_ids], patch_normals[patch_ids]))
-        aligned = np.abs(np.einsum("bi,bki->bk", features["surface_normal"], patch_normals[patch_ids]))
+        projected = np.abs(np.einsum("bki,bki->bk", points[query_rows, None]-centers[patch_ids], patch_normals[patch_ids]))
+        aligned = np.abs(np.einsum("bi,bki->bk", features["surface_normal"][query_rows], patch_normals[patch_ids]))
         keep = np.isfinite(d) & (projected < params.plane_distance*3) & (aligned > .65)
         cost = np.where(keep, projected + .05*d, np.inf)
         best = np.argmin(cost, axis=1)
-        candidates = np.flatnonzero((assignment < 0) & np.isfinite(cost[np.arange(len(points)), best]))
-        assignment[candidates] = patch_ids[candidates, best[candidates]]
+        fill = np.flatnonzero((assignment[query_rows] < 0) & np.isfinite(cost[np.arange(len(query_rows)), best]))
+        assignment[query_rows[fill]] = patch_ids[fill, best[fill]]
     return assignment, patches, component_count
 
 
@@ -332,6 +350,40 @@ def normal_fourfold(context, grid, points, axes, workers, progress):
     return result
 
 
+def connected_bar_support(points, tree, params):
+    """Reject small detached islands before they can borrow a nearby bar's PCA.
+
+    Use occupied cells, never raw return counts: hundreds of repeated returns
+    on a tiny blob do not make it an observed length of steel. Connectivity is
+    measured at the voxel scale, independently of the 35/50 mm feature/search
+    radii. No global straight-axis requirement is imposed on bent/crossed bars.
+    """
+    if not len(points):
+        return np.zeros(0, bool), np.zeros(0, np.int32), np.zeros(0, bool)
+    pairs = tree.query_pairs(params.connectivity_radius, output_type='ndarray')
+    graph = coo_matrix((np.ones(len(pairs), np.uint8), (pairs[:, 0], pairs[:, 1])),
+                       shape=(len(points), len(points))).tocsr()
+    count, labels = connected_components(graph, directed=False)
+    low = np.full((count, 3), np.inf)
+    high = np.full((count, 3), -np.inf)
+    np.minimum.at(low, labels, points)
+    np.maximum.at(high, labels, points)
+    sizes = np.bincount(labels, minlength=count)
+    # A scan can leave a short strip of an otherwise valid bar disconnected.
+    # Such strips may use axial votes across a gap, but must have their OWN
+    # narrow, elongated shape. Tiny round clumps cannot borrow this evidence.
+    local = points - low[labels]
+    means = np.column_stack([np.bincount(labels, weights=local[:, a]) / sizes for a in range(3)])
+    cov6 = np.column_stack([np.bincount(labels, weights=local[:, a]*local[:, b]) / sizes
+                           - means[:, a]*means[:, b] for a, b in
+                           ((0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2))])
+    widths = 4*np.sqrt(np.maximum(np.linalg.eigvalsh(matrix6(cov6)), 0))
+    fragments = ((sizes >= 6) & (widths[:, 2] >= params.min_bar_support*.5)
+                 & (widths[:, 2] >= 1.5*widths[:, 1]) & (widths[:, 1] < params.max_bar_width))
+    supported = ((sizes >= 6) & (np.linalg.norm(high-low, axis=1) >= params.min_bar_support)) | fragments
+    return supported[labels], labels, fragments[labels]
+
+
 def recover_rebar(points, features, strong_bars, tree, candidates, params, workers):
     """One bounded pass along measured steel axes, including caps and junctions.
 
@@ -356,6 +408,15 @@ def recover_rebar(points, features, strong_bars, tree, candidates, params, worke
             distance, neighbor = distance[:, None], neighbor[:, None]
         valid = np.isfinite(distance)
         neighbor = np.minimum(neighbor, len(strong_bars)-1)
+        components = features.get("support_component")
+        if components is not None:
+            # A detached object must establish its own elongated support.
+            # Only measured narrow fragments may bridge a scan gap.
+            same = components[rows, None] == components[strong_bars[neighbor]]
+            fragments = features["fragment_support"]
+            bridge = ((fragments[rows, None] | fragments[strong_bars[neighbor]])
+                      & features["connected_support"][rows, None])
+            valid &= same | bridge
         axis = axes[neighbor]
         delta = points[rows, None] - centers[neighbor]
         along = np.einsum("bki,bki->bk", delta, axis)
@@ -428,13 +489,22 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         grid = aggregate_grid(context, params.voxel_size)
         timings["aggregateS"] = time.perf_counter()-t0
         t0 = time.perf_counter()
-        table, coherence = dominant_plane(grid, params, workers)
+        scene = getattr(context, "scene_cache", None)
+        shared_table = getattr(context, "shared_table_mask", None)
+        owned = scene["region_owned"] if scene is not None else np.zeros(len(context.positions), bool)
+        cell_owned = np.bincount(grid.source_to_cell, weights=owned, minlength=len(grid.points)) == grid.counts
+        if shared_table is None:
+            table, coherence = dominant_plane(grid, params, workers)
+        else:
+            table, coherence = None, None
         # Scene prior requested for this dataset: everything outside the table
         # and detected rebar is fixture, even without a valid planar patch.
         cell_labels = np.full(len(grid.points), 2, np.uint8)
         if table is not None:
             near = np.abs(grid.points @ table["normal"]-table["offset"]) < params.plane_distance*1.5
             cell_labels[near & (coherence > .93)] = 1
+        if shared_table is not None:
+            cell_labels[grid.non_table_counts == 0] = 1
         timings["tableS"] = time.perf_counter()-t0
         residual_ids = np.flatnonzero(cell_labels != 1)
         points = grid.points[residual_ids]
@@ -446,7 +516,14 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         features = _local_features(points, q, grid.tree, params, workers, progress)
         timings["featuresS"] = time.perf_counter()-t0
         t0 = time.perf_counter()
-        patch_ids, patches, component_count = planar_patches(points, features, params, workers)
+        progress("第 2 步：检查孤立点团与钢筋断段", 0, len(points))
+        connected_support, features["support_component"], features["fragment_support"] = connected_bar_support(points, grid.tree, params)
+        features["connected_support"] = connected_support
+        timings["connectivityS"] = time.perf_counter()-t0
+        t0 = time.perf_counter()
+        fixture_candidates = ~cell_owned[residual_ids]
+        patch_ids, patches, component_count = planar_patches(points, features, params, workers,
+            **({"candidates": fixture_candidates} if scene is not None else {}))
         cell_labels[residual_ids[patch_ids >= 0]] = 2
         table_extensions = np.zeros(len(patches), bool)
         if table is not None and patches:
@@ -466,10 +543,15 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         fixture_anchors = np.flatnonzero(fixture_owned)
         fixture_tree = None
         broad_fixture = np.zeros(len(points), bool)
+        wide_fixture = np.zeros(len(points), bool)
         owned_patches = fixture_patch_ownership(patches, params)
+        tube_faces = fixture_patch_ownership(patches, replace(params, recovery_fixture_width=np.inf))
         if len(fixture_anchors):
             fixture_tree = cKDTree(points[fixture_anchors])
-            distance, owner = fixture_tree.query(points, k=1,
+            fixture_rows = np.flatnonzero(fixture_candidates)
+            distance = np.full(len(points), np.inf)
+            owner = np.full(len(points), len(fixture_anchors), np.int64)
+            distance[fixture_rows], owner[fixture_rows] = fixture_tree.query(points[fixture_rows], k=1,
                                              distance_upper_bound=params.voxel_size*2, workers=workers)
             # Include the physical rim and corner volume directly in fixture.
             # No normal check or separate edge/plane output categories.
@@ -477,6 +559,19 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
             owner_patch = patch_ids[fixture_anchors[np.minimum(owner, len(fixture_anchors)-1)]]
             # Include each supported fixture's rim even beside a steel seed.
             broad_fixture = np.isfinite(distance) & owned_patches[owner_patch]
+            widths = np.array([patch['widths'][1] for patch in patches])
+            wide_fixture = np.isfinite(distance) & ((widths[owner_patch] >= params.max_bar_width) | tube_faces[owner_patch])
+            # Sparse tangent strips from adjacent bars can form a low-fill
+            # apparent plane. A densely filled broad face is stronger evidence:
+            # protect its nearby tube body from a local corner-circle fit.
+            solid_faces = np.array([patch['fillRatio'] >= .7 and patch['widths'][1] >= params.recovery_fixture_width
+                                    for patch in patches])
+            solid_anchors = fixture_anchors[solid_faces[patch_ids[fixture_anchors]]]
+            if len(solid_anchors):
+                solid_tree = cKDTree(points[solid_anchors])
+                solid_distance, _ = solid_tree.query(points[fixture_rows], k=1,
+                    distance_upper_bound=params.max_bar_width, workers=workers)
+                wide_fixture[fixture_rows] |= np.isfinite(solid_distance)
         timings["fixtureOwnershipS"] = time.perf_counter()-t0
         t0 = time.perf_counter()
         angular_ids = np.flatnonzero((patch_ids < 0) & ~fixture_owned)
@@ -485,7 +580,7 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         timings["normalAngularS"] = time.perf_counter()-t0
         t0 = time.perf_counter()
         ne = features["normal_eigen"]
-        bars = ((patch_ids < 0) & ~fixture_owned & (features["support_count"] >= 12) & (ne[:, 1] > .04)
+        bars = (connected_support & (patch_ids < 0) & ~fixture_owned & (features["support_count"] >= 12) & (ne[:, 1] > .04)
                 & (ne[:, 0] < .075) & (features["axis_alignment"] > .80) & (features["linearity"] > .65)
                 & (features["width"] < params.max_bar_width) & (features["width"] > .002)
                 & (features["length"] > params.min_bar_support) & (features["normal_fourfold"] < .82))
@@ -494,12 +589,14 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         if len(strong_bars):
             tree = cKDTree(points[strong_bars])
             distance, index = tree.query(points, k=1, distance_upper_bound=params.voxel_size*4, workers=workers)
-            candidate = np.flatnonzero(np.isfinite(distance) & (patch_ids < 0) & ~fixture_owned)
+            candidate = np.flatnonzero(np.isfinite(distance) & (patch_ids < 0) & ~fixture_owned & connected_support)
             seed = strong_bars[index[candidate]]
             axis = features["axis"][seed]
             delta = points[candidate]-points[seed]
             perpendicular = np.linalg.norm(delta-np.einsum("ij,ij->i", delta, axis)[:, None]*axis, axis=1)
-            good = perpendicular < params.max_bar_width*.5
+            good = ((perpendicular < params.max_bar_width*.5)
+                    & ((features["support_component"][candidate] == features["support_component"][seed])
+                       | features["fragment_support"][candidate] | features["fragment_support"][seed]))
             bars[candidate[good]] = True
             features["axis"][candidate[good]] = axis[good]
         cell_labels[residual_ids[bars]] = 3
@@ -509,6 +606,63 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         recovered = recover_rebar(points, features, strong_bars, tree,
             (cell_labels[residual_ids] == 2) & ~broad_fixture, params, workers)
         cell_labels[residual_ids[recovered]] = 3
+        t0_sparse = time.perf_counter()
+        sparse_recovered = np.zeros(len(points), bool)
+        weak_faces = np.array([patch['widths'][1] < params.max_bar_width
+                               and patch['fillRatio'] < params.min_narrow_plane_fill for patch in patches])
+        if weak_faces.any():
+            # Revisit narrow, mostly empty apparent faces after the original
+            # pass. Preserve every existing steel label: changing the whole
+            # seed population up front can crowd valid votes out of k-NN.
+            remaining = fixture_anchors[~weak_faces[patch_ids[fixture_anchors]]]
+            real_owned = np.zeros(len(points), bool)
+            if len(remaining):
+                fixture_rows = np.flatnonzero(fixture_candidates)
+                real_distance, _ = cKDTree(points[remaining]).query(points[fixture_rows], k=1,
+                    distance_upper_bound=params.voxel_size*2, workers=workers)
+                real_owned[fixture_rows] = np.isfinite(real_distance)
+            eligible = ((cell_labels[residual_ids] == 2) & ~real_owned & connected_support
+                        & (features['support_count'] >= 12) & (ne[:, 1] > .04) & (ne[:, 0] < .075)
+                        & (features['axis_alignment'] > .80) & (features['linearity'] > .65)
+                        & (features['width'] < params.max_bar_width) & (features['width'] > .002)
+                        & (features['length'] > params.min_bar_support))
+            rows = np.flatnonzero(eligible)
+            angular = normal_fourfold(context, grid, points[rows], features['axis'][rows], workers, progress)
+            eligible[rows[angular >= .82]] = False
+            if eligible.any():
+                strong_bars = np.union1d(strong_bars, np.flatnonzero(eligible))
+                tree = cKDTree(points[strong_bars])
+                sparse_recovered = eligible | recover_rebar(points, features, strong_bars, tree,
+                    (cell_labels[residual_ids] == 2) & ~real_owned, params, workers)
+                cell_labels[residual_ids[sparse_recovered]] = 3
+                recovered |= sparse_recovered
+                broad_fixture[sparse_recovered] = False
+        timings['sparseFaceRecoveryS'] = time.perf_counter()-t0_sparse
+        t0_cylinder = time.perf_counter()
+        progress("第 2 步：复核紧邻双筋与腹杆圆截面", 0, len(points))
+        candidates = ((cell_labels[residual_ids] == 2) & connected_support
+                      & (ne[:, 0] < .10) & (ne[:, 1] > .06))
+        possible_continuation = recover_rebar(points, features, strong_bars, tree,
+            candidates & wide_fixture, params, workers)
+        candidates &= ~wide_fixture | possible_continuation
+        cylinders, cylinder_axes, cylinder_centers, cylinder_radii, anchored_cylinders = recover_cylindrical_cells(
+            points, q, grid.tree, features, candidates, strong_bars=strong_bars, protected=wide_fixture,
+            voxel_size=params.voxel_size, workers=workers)
+        circular_ids = np.flatnonzero(cylinders)
+        circular_fourfold = normal_fourfold(context, grid, points[circular_ids], cylinder_axes[circular_ids], workers, progress)
+        cylinders[circular_ids[circular_fourfold >= np.where(anchored_cylinders[circular_ids], .95, .75)]] = False
+        cell_labels[residual_ids[cylinders]] = 3
+        recovered |= cylinders
+        # A narrow apparent plane can consist of tangent strips from TWO
+        # cylinders. Revoke that plane veto only on verified circular shells.
+        broad_fixture[cylinders] = False
+        features['axis'][cylinders] = cylinder_axes[cylinders]
+        features['axis_center'][cylinders] = cylinder_centers[cylinders]
+        features['width'][cylinders] = cylinder_radii[cylinders]/.45
+        if cylinders.any():
+            strong_bars = np.union1d(strong_bars, np.flatnonzero(cylinders))
+            tree = cKDTree(points[strong_bars])
+        timings['crowdedCylinderS'] = time.perf_counter()-t0_cylinder
         recovered_cells = np.zeros(len(grid.points), bool)
         recovered_cells[residual_ids] = recovered
         timings["recoveryS"] = time.perf_counter()-t0
@@ -519,20 +673,31 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         recovery_flags = output.get("geometry_recovered")
         if recovery_flags is None:
             recovery_flags = np.empty(count, np.uint8)
+        source_steel_evidence = np.zeros(count, bool)
         for start in range(0, count, 262144):
             stop = min(count, start+262144)
             cell = grid.source_to_cell[start:stop]
             result = cell_labels[cell].copy()
+            source_steel_evidence[start:stop] = result == 3
+            if shared_table is not None:
+                # Preserve the branch's established recall policy. The
+                # separate evidence array above controls scoring, not labels.
+                result[owned[start:stop]] = 3
+                result[shared_table[start:stop].astype(bool)] = 1
+                source_steel_evidence[start:stop] &= ~shared_table[start:stop].astype(bool)
             # Use the supported cell's class directly, including its boundary
             # and contact points. Do not reject them again by individual normal.
             labels[start:stop] = result
             scores[start:stop] = np.choose(result, [0., .95, .5, .7])
-            recovery_flags[start:stop] = recovered_cells[cell]
+            # A recovered support voxel can also contain source tabletop rows.
+            # Recovery describes the final source label, after shared ownership.
+            recovery_flags[start:stop] = recovered_cells[cell] & (result == 3)
         timings["sourceProjectionS"] = time.perf_counter()-t0
     counts = np.bincount(labels, minlength=4)
     context.geometry_class, context.geometry_support = labels, scores
     context.geometry_recovered = recovery_flags
     context.classification_cache = {"grid": grid, "residual_ids": residual_ids, "features": features,
+                                    "source_steel_evidence": source_steel_evidence, "cell_region_owned": cell_owned,
                                     "patch_ids": patch_ids, "cell_labels": cell_labels, "table": table, "patches": patches,
                                     "fixture_owned": fixture_owned, "fixture_tree": fixture_tree,
                                     "rebar_tree": tree, "strong_bars": strong_bars,
@@ -540,14 +705,22 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
     # Retain the original full-cloud KD tree as-is. The smaller residual index
     # above has a different point population and is cached separately.
     result = {"version": VERSION, "parameters": asdict(params), "pointCount": count,
-              "classNames": CLASS_NAMES, "colors": COLORS,
+              "classNames": CLASS_NAMES,
+              "colors": COLORS,
               "classPolicy": "table-rebar-fixture-remainder",
+              "retentionRestored": True,
               "counts": dict(zip(("table", "fixture", "rebar"), map(int, counts[1:4]))),
               "recovery": {"recoveredPoints": int(np.count_nonzero(recovery_flags)),
                            "recoveredCells": int(recovered.sum()), "passes": 1,
-                           "meaning": "Fixture-to-rebar changes supported by existing steel axes; not a separate class"},
+                           "sparseFaceRecoveredPoints": int(grid.counts[residual_ids[sparse_recovered]].sum()),
+                           "circularRecoveredPoints": int(grid.counts[residual_ids[cylinders]].sum()),
+                           "circularMethod": "measured circular shells; partial shells require existing coaxial cylinder support",
+                           "connectivityPolicy": "same observed component or independently elongated fragment; compact islands cannot borrow cylinder support",
+                           "meaning": "Steel restored by measured axes or verified circular surfaces; not a separate class"},
               "timings": timings, "elapsedS": time.perf_counter()-started,
-              "diagnostics": {"supportCells": len(grid.points), "residualCells": len(points),
+              "diagnostics": {"sharedPreparation": scene is not None,
+                              "tableFitCalls": 0 if scene is not None else 1,
+                              "fixtureSearchExcludedCells": int(cell_owned[residual_ids].sum()), "supportCells": len(grid.points), "residualCells": len(points),
                               "planeComponents": component_count, "acceptedPlanePatches": len(patches),
                               "tableExtensionPatches": int(table_extensions.sum()),
                               "edgeProtection": False,
@@ -555,6 +728,9 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
                               "fixtureOwnedCells": int(fixture_owned.sum()),
                               "recoveryFixturePatches": int(owned_patches.sum()),
                               "strongRebarCells": len(strong_bars), "rawTreeRebuilt": False,
+                              "unsupportedIslandCells": int(np.count_nonzero(~connected_support)),
+                              "circularRecoveryCells": int(cylinders.sum()),
+                              "circularCandidateCells": int(candidates.sum()),
                               "table": table, "patches": patches},
               "supportMeaning": "Rule support values, not probabilities; fixture includes the scene-prior remainder",
               "identity": "Original source row indices; no points removed; 1 table, 2 fixture, 3 rebar"}

@@ -13,7 +13,7 @@ import numpy as np
 from scipy import ndimage, signal
 
 
-VERSION = "fixture-regions-v2"
+VERSION = "fixture-regions-v3-rail-boundaries"
 REGION_NAMES = {
     "0": "台面",
     "1": "内部钢筋",
@@ -73,11 +73,16 @@ def _line_pair(values: np.ndarray, bin_size: float):
     # handles, or steel supports into its outer edge.
     threshold = smooth >= min(strength[first], strength[second]) * 0.30
     bridge = max(1, round(0.045 / bin_size))
-    threshold = ndimage.binary_closing(threshold, structure=np.ones(bridge, bool))
+    # Pad before closing: a rail peak near a histogram edge must not be
+    # eroded into background, whose component would span unrelated gaps.
+    threshold = ndimage.binary_closing(np.pad(threshold, bridge),
+        structure=np.ones(bridge, bool))[bridge:-bridge]
     components, _ = ndimage.label(threshold)
     runs = []
     for peak in chosen:
         label = int(components[peak])
+        if label == 0:
+            return None
         rows = np.flatnonzero(components == label)
         if not len(rows):
             rows = np.array([peak])
@@ -191,16 +196,9 @@ def _detect_frame(xy: np.ndarray, pixel_size: float):
             "inner_bounds": inner_bounds if inner_valid else np.empty(0), "inner_corners": inner_corners}, diagnostics
 
 
-def classify_regions(positions, classes, projection_report, projection_cache, *, workers=1):
-    """Classify source-order points relative to a detected fixture enclosure."""
-    del workers  # Source mapping is memory-bandwidth bound and chunk-vectorized.
+def detect_frame_geometry(positions, projection_report, projection_cache, fixture_counts):
+    """Detect a measured double frame from a cached raster, before classification."""
     started = time.perf_counter()
-    positions = np.asarray(positions)
-    classes = np.asarray(classes)
-    if positions.ndim != 2 or positions.shape[1] != 3 or len(classes) != len(positions):
-        raise ValueError("positions must be Nx3 and classes must contain N rows")
-    if classes.ndim != 1:
-        raise ValueError("classes must be one-dimensional")
     shape = tuple(map(int, projection_report["gridShape"]))
     pixel = float(projection_report["pixelSizeM"])
     origin = np.asarray(projection_report["xyOriginM"], dtype=np.float64)
@@ -210,7 +208,7 @@ def classify_regions(positions, classes, projection_report, projection_cache, *,
     pixels = int(np.prod(shape))
 
     t0 = time.perf_counter()
-    fixture_counts = np.bincount(source_to_pixel[classes == 2], minlength=pixels).reshape(shape)
+    fixture_counts = np.asarray(fixture_counts).reshape(shape)
     fixture_pixels = fixture_counts > 0
     wide = np.asarray(projection_cache.get("wide", np.ones(shape, bool)), dtype=bool)
     if wide.shape != shape:
@@ -223,14 +221,10 @@ def classify_regions(positions, classes, projection_report, projection_cache, *,
     t0 = time.perf_counter()
     frame, diagnostics = _detect_frame(xy, pixel)
     detect_time = time.perf_counter() - t0
-    regions = np.zeros(len(classes), dtype=np.uint8)
-    regions[classes == 2] = 3
-    steel = classes == 3
 
     inside_image = np.zeros(shape, dtype=bool)
     t0 = time.perf_counter()
     if frame is None:
-        regions[steel] = 4
         frame_report = {"detected": False, "cornersM": [],
                         "method": "rotation-aware wide fixture rail peaks",
                         "support": diagnostics}
@@ -242,15 +236,6 @@ def classify_regions(positions, classes, projection_report, projection_cache, *,
     else:
         axes, bounds, corners = frame["axes"], frame["bounds"], frame["corners"]
         inner_bounds, inner_corners = frame['inner_bounds'], frame['inner_corners']
-        for start in range(0, len(positions), 524288):
-            stop = min(start + 524288, len(positions))
-            rows = np.flatnonzero(steel[start:stop]) + start
-            if not len(rows):
-                continue
-            local = positions[rows, :2] @ axes.T
-            inside = ((local[:, 0] >= bounds[0]) & (local[:, 0] <= bounds[1]) &
-                      (local[:, 1] >= bounds[2]) & (local[:, 1] <= bounds[3]))
-            regions[rows] = np.where(inside, 1, 2)
         # Raster mapping is also chunked so the maximum eight-million-pixel
         # projection does not need two full float64 coordinate matrices.
         flat_inside = inside_image.ravel()
@@ -267,12 +252,12 @@ def classify_regions(positions, classes, projection_report, projection_cache, *,
         frame_report = {"detected": True, "cornersM": corners.tolist(),
                         "method": "rotation-aware wide fixture rail peaks",
                         "support": diagnostics}
-    display_height = (projection_report.get('tableRemoval') or {}).get('origin', [0., 0., float(positions[:, 2].min())])[2] + .002
+    table_origin = (projection_report.get('tableRemoval') or {}).get('origin')
+    display_height = (table_origin[2] if table_origin is not None else float(positions[:, 2].min()))+.002
     frame_report.update(outerCornersM=corners.tolist(), innerCornersM=inner_corners.tolist(),
                         innerDetected=bool(len(inner_bounds)), displayHeightM=float(display_height))
     map_time = time.perf_counter() - t0
 
-    counts = np.bincount(regions, minlength=5)
     timings = {"fixtureRasterS": raster_time, "frameDetectionS": detect_time,
                "sourceMappingS": map_time}
     report = {
@@ -280,7 +265,6 @@ def classify_regions(positions, classes, projection_report, projection_cache, *,
         "pointCount": int(len(positions)),
         "regionNames": REGION_NAMES,
         "colors": COLORS,
-        "counts": dict(zip(("table", "interior", "exterior", "fixture", "unlocated"), map(int, counts))),
         "frame": frame_report,
         "timings": timings,
         "elapsedS": float(time.perf_counter() - started),
@@ -295,4 +279,35 @@ def classify_regions(positions, classes, projection_report, projection_cache, *,
         "frame_inner_bounds_local": inner_bounds,
         "frame_inner_corners_xy": inner_corners,
     }
+    return report, cache
+
+
+def classify_regions(positions, classes, projection_report, projection_cache, *, workers=1):
+    """Legacy standalone entry point; the shared pipeline detects its frame earlier."""
+    del workers
+    started = time.perf_counter()
+    positions, classes = np.asarray(positions), np.asarray(classes)
+    if positions.ndim != 2 or positions.shape[1] != 3 or classes.shape != (len(positions),):
+        raise ValueError("positions must be Nx3 and classes must contain N rows")
+    shape = tuple(map(int, projection_report['gridShape']))
+    source_to_pixel = np.asarray(projection_cache['source_to_pixel'])
+    if len(source_to_pixel) != len(positions):
+        raise ValueError("source_to_pixel must contain one entry per source row")
+    fixture_counts = np.bincount(source_to_pixel[classes == 2], minlength=int(np.prod(shape))).reshape(shape)
+    report, cache = detect_frame_geometry(positions, projection_report, projection_cache, fixture_counts)
+    regions = np.zeros(len(classes), np.uint8)
+    regions[classes == 2] = 3
+    regions[classes == 3] = 4
+    if report['frame']['detected']:
+        axes, bounds = cache['frame_axes'], cache['frame_bounds_local']
+        for start in range(0, len(positions), 524288):
+            stop = min(start+524288, len(positions))
+            rows = np.flatnonzero(classes[start:stop] == 3)+start
+            local = positions[rows, :2] @ axes.T
+            inside = ((local[:, 0] >= bounds[0]) & (local[:, 0] <= bounds[1]) &
+                      (local[:, 1] >= bounds[2]) & (local[:, 1] <= bounds[3]))
+            regions[rows] = np.where(inside, 1, 2)
+    report['counts'] = dict(zip(('table', 'interior', 'exterior', 'fixture', 'unlocated'),
+                               map(int, np.bincount(regions, minlength=5))))
+    report['elapsedS'] = time.perf_counter()-started
     return report, cache, regions

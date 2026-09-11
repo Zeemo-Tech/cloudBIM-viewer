@@ -1,4 +1,4 @@
-"""Independent XY occupancy/density + Z histogram branch, with source-row labels.
+"""Independent XY/Z classification with sliced side views for inclined rods.
 
 The normal branch's classes and trees are never read. Normals are used only to
 fit the low tabletop. All image decisions operate on the remaining raw points.
@@ -10,9 +10,12 @@ import time
 import numpy as np
 from scipy import ndimage
 from scipy.signal import find_peaks
+from scipy.spatial import cKDTree
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
 
-VERSION = "projection-geometry-v2"
+VERSION = "projection-geometry-v11-preserved-height-retention"
 CLASS_NAMES = {"1": "台面", "2": "夹具（含方管）", "3": "钢筋"}
 COLORS = {"1": "#64748b", "2": "#f59e0b", "3": "#2dd4bf"}
 
@@ -30,6 +33,23 @@ class ProjectionParameters:
     histogram_bin: float = .0005
     layer_merge_gap: float = .016
     layer_margin: float = .004
+    side_views_deg: tuple = (0., 45., 90., 135.)
+    side_slice_width: float = .060
+    web_voxel_size: float = .003
+    web_radius: float = .025
+    web_joint_radius: float = .015
+    web_min_linearity: float = .78
+    web_min_vertical_direction: float = .15
+    web_bend_reach: float = .035
+    web_bend_width: float = .022
+    web_bend_gap: float = .008
+    fixture_edge_reach: float = .018
+    fixture_plane_tolerance: float = .0025
+    retain_bottom_height: bool = True
+    retain_top_height: bool = True
+    top_height_margin: float = .004
+    fixture_footprint_width: float = .030
+    fixture_footprint_edge: float = .006
 
 
 def _disk(radius):
@@ -162,7 +182,206 @@ def _restore_crossings(present, joined, static, thin, walls, pixel, params):
     return connected | thin, connected & ~thin
 
 
-def classify_projection(positions, normals, normal_valid, *, params=None, workers=1, output=None, progress=None):
+def _multiview_webs(positions, table_mask, labels, params, workers, progress, region_owned=None):
+    """Recover measured inclined rods hidden in XY, without using 02A labels.
+
+    Overlapping depth slabs prevent distant fixtures merging into the same side
+    silhouette. A side silhouette is only a proposal: unsliced 3D neighbourhoods
+    must also be narrow and linear, so a sliced plate edge is not a rod.
+    """
+    recovered = np.zeros(len(positions), bool)
+    rows = np.flatnonzero(~table_mask)
+    cache, views = {'source_web_recovered': recovered}, []
+    if not len(rows) or not params.side_views_deg:
+        cache.update(source_bend_recovered=recovered.copy(), source_fixture_edge=recovered.copy())
+        return recovered, {"views": [], "recoveredPoints": 0, "bendRecoveredPoints": 0, "fixtureEdgePoints": 0}, cache
+    points = np.asarray(positions[rows], dtype=np.float64)
+    points -= points.min(axis=0)
+    votes = np.zeros(len(rows), np.uint8)
+    projections = []
+    for angle in params.side_views_deg:
+        progress("投影路线：重叠侧切片 / 腹杆证据", len(views), len(params.side_views_deg))
+        radians = np.deg2rad(angle)
+        u = points[:, 0]*np.cos(radians) + points[:, 1]*np.sin(radians)
+        depth = -points[:, 0]*np.sin(radians) + points[:, 1]*np.cos(radians)
+        u -= u.min(); depth -= depth.min()
+        pixel = params.pixel_size
+        area = (u.max()/pixel+5)*(points[:, 2].max()/pixel+5)
+        if area > params.max_pixels:
+            pixel *= np.sqrt(area/params.max_pixels)*1.01
+        nx = int(np.floor(u.max()/pixel))+5
+        ny = int(np.floor(points[:, 2].max()/pixel))+5
+        ids = (np.floor(points[:, 2]/pixel).astype(np.int32)+2)*nx + np.floor(u/pixel).astype(np.int32)+2
+        order = np.argsort(depth, kind="stable")
+        sorted_depth = depth[order]
+        proposed = np.zeros(len(rows), bool)
+        width = max(params.side_slice_width, params.max_bar_width*3)
+        step = width/2
+        slices = 0
+        for low in np.arange(-step, depth.max()+step*.5, step):
+            begin, end = np.searchsorted(sorted_depth, [low, low+width])
+            selected = order[begin:end]
+            if len(selected) < 8:
+                continue
+            present = np.zeros((ny, nx), bool)
+            present.ravel()[ids[selected]] = True
+            joined = ndimage.binary_closing(present, structure=np.ones((3, 3), bool))
+            radius = max(1, int(np.ceil(params.max_bar_width/(2*pixel))))
+            wide = ndimage.binary_opening(joined, structure=_disk(radius))
+            static = ndimage.binary_dilation(wide, structure=_disk(1))
+            thin = _long_thin_components(joined & ~static, pixel, params)
+            thin = ndimage.binary_dilation(thin, structure=_disk(1)) & ~static & present
+            proposed[selected] |= thin.ravel()[ids[selected]]
+            slices += 1
+        votes += proposed
+        key = f"side_{angle:g}"
+        projections.append((key, ids, (ny, nx)))
+        views.append({"key": key, "angleDeg": float(angle), "sliceCount": slices,
+                      "pixelSizeM": float(pixel), "candidatePoints": int(proposed.sum()),
+                      "gridShape": [ny, nx]})
+
+    candidates = (votes > 0) & (labels[rows] == 2)
+    edge_reclassified = np.zeros(len(positions), bool)
+    bend_recovered = np.zeros(len(positions), bool)
+    if len(rows):
+        # Equal occupied-voxel weights stop scan density from making a plate
+        # look linear. The tree sees ALL non-table voxels, never sliced data.
+        cells = np.floor(points/params.web_voxel_size).astype(np.int64)
+        shape = cells.max(axis=0)+1
+        codes = (cells[:, 0]*shape[1]+cells[:, 1])*shape[2]+cells[:, 2]
+        _, inverse = np.unique(codes, return_inverse=True)
+        mass = np.bincount(inverse)
+        centers = np.column_stack([np.bincount(inverse, weights=points[:, axis])/mass for axis in range(3)])
+        del cells, codes
+        tree = cKDTree(centers)
+        accepted = np.zeros(len(centers), bool)
+        bend_shape = np.zeros(len(centers), bool)
+        face_seed = np.zeros(len(centers), bool)
+        face_normal = np.zeros((len(centers), 3))
+        face_center = np.zeros((len(centers), 3))
+        fixture_candidates = (labels[rows] == 2)
+        if region_owned is not None:
+            fixture_candidates &= ~region_owned[rows]
+        fixture_mass = np.bincount(inverse, weights=fixture_candidates)/mass
+        fixture_cells = np.bincount(inverse, weights=~region_owned[rows], minlength=len(centers)) > 0 if region_owned is not None else np.ones(len(centers), bool)
+        query_ids = np.arange(len(centers))
+        def analyze_chunk(start):
+            selected = query_ids[start:start+2048]
+            distance, neighbours = tree.query(centers[selected], k=min(256, len(centers)),
+                                              distance_upper_bound=params.web_radius, workers=1)
+            if distance.ndim == 1:
+                return
+            for radius in (params.web_radius, params.web_joint_radius):
+                valid = np.isfinite(distance) & (distance <= radius)
+                support = valid.sum(axis=1)
+                delta = centers[np.minimum(neighbours, len(centers)-1)]-centers[selected, None]
+                delta[~valid] = 0
+                mean = delta.sum(axis=1)/np.maximum(support[:, None], 1)
+                covariance = (delta.transpose(0, 2, 1) @ delta)/np.maximum(support[:, None, None], 1)
+                covariance -= mean[:, :, None]*mean[:, None, :]
+                values, vectors = np.linalg.eigh(covariance)
+                major = np.maximum(values[:, 2], 1.e-15)
+                linearity = 1-values[:, 1]/major
+                transverse_width = 4*np.sqrt(np.maximum(values[:, 1], 0))
+                # The smaller neighbourhood avoids absorbing a neighbouring
+                # chord into the web fit at joints. Both scales see full 3D.
+                good = (support >= 8) & (linearity >= params.web_min_linearity)
+                good &= transverse_width <= params.max_bar_width
+                good &= np.sqrt(12*major) >= min(params.min_line_length*.8, radius*1.2)
+                good &= np.abs(vectors[:, 2, 2]) >= params.web_min_vertical_direction
+                accepted[selected] |= good
+                if radius == params.web_joint_radius:
+                    # Bends may be horizontal at the apex and less linear at
+                    # a chord junction. They still need a narrow local shape
+                    # and a nearby, independently accepted inclined web seed.
+                    bend_shape[selected] = ((support >= 8) & (linearity >= .40)
+                        & (transverse_width <= params.web_bend_width)
+                        & (np.sqrt(12*major) >= radius*1.2))
+                if radius == params.web_radius:
+                    # Only broad, filled, already-fixture neighbourhoods are
+                    # plane anchors. A thin rod or sparse coplanar wire grid
+                    # cannot claim neighbouring steel merely by proximity.
+                    plane_rows = np.flatnonzero(fixture_cells[selected])
+                    plane_selected = selected[plane_rows]
+                    neighbour_fixture = fixture_mass[np.minimum(neighbours[plane_rows], len(centers)-1)]
+                    plane_valid = valid[plane_rows] & (neighbour_fixture >= .8)
+                    plane_support = plane_valid.sum(axis=1)
+                    plane_delta = delta[plane_rows]*plane_valid[:, :, None]
+                    plane_mean = plane_delta.sum(axis=1)/np.maximum(plane_support[:, None], 1)
+                    plane_cov = (plane_delta.transpose(0, 2, 1) @ plane_delta)/np.maximum(plane_support[:, None, None], 1)
+                    plane_cov -= plane_mean[:, :, None]*plane_mean[:, None, :]
+                    plane_values, plane_vectors = np.linalg.eigh(plane_cov)
+                    middle = np.maximum(plane_values[:, 1], 1.e-15)
+                    planar = (plane_support >= 35) & (fixture_mass[plane_selected] >= .8)
+                    planar &= (plane_values[:, 0]/middle < .045) & (middle/np.maximum(plane_values[:, 2], 1.e-15) > .30)
+                    planar &= np.sqrt(12*middle) >= .020
+                    face_seed[plane_selected] = planar
+                    face_normal[plane_selected] = plane_vectors[:, :, 0]
+                    face_center[plane_selected] = centers[plane_selected]+plane_mean
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            list(pool.map(analyze_chunk, range(0, len(query_ids), 2048)))
+        # Test actual source-to-face distances, not a blanket XY dilation:
+        # bars over/under a fixture remain distinct even in the same pixel.
+        source_face = np.zeros(len(rows), bool)
+        if face_seed.any() and params.fixture_edge_reach > 0:
+            anchors = np.flatnonzero(face_seed)
+            faces = cKDTree(centers[anchors])
+            face_rows = np.flatnonzero(~region_owned[rows]) if region_owned is not None else np.arange(len(rows))
+            for start in range(0, len(face_rows), 65536):
+                selected = face_rows[start:start+65536]
+                distance, neighbour = faces.query(points[selected], k=min(8, len(anchors)),
+                    distance_upper_bound=params.fixture_edge_reach, workers=max(1, workers))
+                if distance.ndim == 1:
+                    distance, neighbour = distance[:, None], neighbour[:, None]
+                ids = anchors[np.minimum(neighbour, len(anchors)-1)]
+                offset = points[selected, None]-face_center[ids]
+                plane_distance = np.abs(np.sum(offset*face_normal[ids], axis=2))
+                source_face[selected] = np.any(np.isfinite(distance) &
+                    (plane_distance <= params.fixture_plane_tolerance), axis=1)
+        seeds = np.unique(inverse[candidates & accepted[inverse] & ~source_face])
+        near_web = np.zeros(len(centers), bool)
+        if len(seeds) and params.web_bend_reach > 0:
+            seed_tree = cKDTree(centers[seeds])
+            distance, _ = seed_tree.query(centers, distance_upper_bound=params.web_bend_reach, workers=max(1, workers))
+            near_web = np.isfinite(distance)
+            # A nearby disconnected sliver is not a bend. Grow only through
+            # measured neighbouring voxels, always bounded by ORIGINAL seeds.
+            allowed = near_web & bend_shape
+            allowed[seeds] = True
+            allowed_ids = np.flatnonzero(allowed)
+            pairs = cKDTree(centers[allowed_ids]).query_pairs(params.web_bend_gap, output_type='ndarray')
+            graph = coo_matrix((np.ones(len(pairs), np.uint8), (pairs[:, 0], pairs[:, 1])),
+                               shape=(len(allowed_ids), len(allowed_ids)))
+            _, components = connected_components(graph, directed=False)
+            seed_components = np.unique(components[np.searchsorted(allowed_ids, seeds)])
+            near_web[:] = False
+            near_web[allowed_ids] = np.isin(components, seed_components)
+        core = candidates & accepted[inverse] & ~source_face
+        bends = (labels[rows] == 2) & bend_shape[inverse] & near_web[inverse] & ~source_face & ~core
+        recovered[rows] = core | bends
+        bend_recovered[rows] = bends
+        # Include v3's strict web proposals vetoed by a measured fixture face,
+        # so the diagnostic accounts for every steel-to-fixture correction.
+        edge_reclassified[rows] = ((labels[rows] == 3) | (candidates & accepted[inverse])) & source_face
+    for key, ids, shape in projections:
+        image = np.zeros(shape, np.uint8)
+        image.ravel()[ids] = 1
+        image.ravel()[ids[recovered[rows]]] = 3
+        cache[key] = image
+    cache['source_web_recovered'] = recovered
+    cache['source_bend_recovered'] = bend_recovered
+    cache['source_fixture_edge'] = edge_reclassified
+    report = {"views": views, "sliceWidthM": float(max(params.side_slice_width, params.max_bar_width*3)),
+              "sliceOverlap": .5, "candidatePoints": int(candidates.sum()),
+              "recoveredPoints": int(recovered.sum()),
+              "bendRecoveredPoints": int(bend_recovered.sum()), "bendReachM": params.web_bend_reach,
+              "fixtureEdgePoints": int(edge_reclassified.sum()), "fixtureEdgeReachM": params.fixture_edge_reach,
+              "method": "sliced side web seeds, bounded measured bends and coplanar fixture-face ownership"}
+    return recovered, report, cache
+
+
+def prepare_projection(positions, normals, normal_valid, *, params=None, progress=None):
+    """Fit the table and rasterize once, before independent classification branches."""
     params = params or ProjectionParameters()
     progress = progress or (lambda *args: None)
     started = time.perf_counter(); timings = {}
@@ -243,6 +462,39 @@ def classify_projection(positions, normals, normal_valid, *, params=None, worker
     closed = ndimage.binary_closing(binary, structure=np.ones((3, 3), bool))
     radius = max(1, int(np.ceil(params.max_bar_width/(2*pixel))))
     wide = ndimage.binary_opening(closed, structure=_disk(radius))
+    timings["footprintS"] = time.perf_counter()-t0
+    return {"params": params, "count": count, "lo": lo, "hi": hi, "pixel": pixel,
+            "origin": origin, "nx": nx, "ny": ny, "pixels": pixels, "table": table,
+            "source_to_pixel": source_to_pixel, "table_mask": table_mask,
+            "density": density, "zmax": zmax, "span": span, "all_hist": all_hist,
+            "histogram": histogram, "occupied_heights": occupied_heights,
+            "wall_low": wall_low, "wall_high": wall_high, "vertical": vertical,
+            "layers": layers, "smooth": smooth, "binary": binary, "closed": closed,
+            "radius": radius, "wide": wide, "timings": timings,
+            "elapsedS": time.perf_counter()-started}
+
+
+def classify_projection(positions, normals, normal_valid, *, params=None, workers=1, output=None,
+                        progress=None, prepared=None, region_owned=None):
+    from copy import deepcopy
+    params = params or ProjectionParameters()
+    progress = progress or (lambda *args: None)
+    started = time.perf_counter()
+    shared = prepared is not None
+    prepared = prepared if shared else prepare_projection(positions, normals, normal_valid, params=params, progress=progress)
+    if prepared["params"] != params or prepared["count"] != len(positions):
+        raise ValueError("Projection preparation must match source population and parameters")
+    count, lo, hi = prepared['count'], prepared['lo'], prepared['hi']
+    pixel, origin = prepared['pixel'], prepared['origin']
+    nx, ny, pixels = prepared['nx'], prepared['ny'], prepared['pixels']
+    table, table_mask = prepared['table'], prepared['table_mask']
+    source_to_pixel, density, zmax = (prepared[k] for k in ('source_to_pixel', 'density', 'zmax'))
+    span, all_hist, histogram = (prepared[k] for k in ('span', 'all_hist', 'histogram'))
+    occupied_heights, wall_low, wall_high, vertical = (prepared[k] for k in ('occupied_heights', 'wall_low', 'wall_high', 'vertical'))
+    layers, smooth = deepcopy(prepared['layers']), prepared['smooth']
+    binary, closed, radius, wide = (prepared[k] for k in ('binary', 'closed', 'radius', 'wide'))
+    timings = {name: 0.0 for name in prepared['timings']} if shared else dict(prepared['timings'])
+    t0 = time.perf_counter()
     fixture = ndimage.binary_dilation(wide | vertical.reshape(ny, nx), structure=_disk(1))
     steel = _long_thin_components(closed & ~fixture, pixel, params)
     # One-pixel fill returns boundary samples to the detected thin feature.
@@ -286,9 +538,136 @@ def classify_projection(positions, normals, normal_valid, *, params=None, worker
         ids[table_mask[start:stop]] = 0
         layer_ids[start:stop] = ids
         source_recovered[start:stop] = recovery & (result == 3)
+    timings["sourceProjectionS"] = time.perf_counter()-t0
+    t0 = time.perf_counter()
+    web_recovered, multiview, web_cache = _multiview_webs(positions, table_mask, labels, params, workers, progress, region_owned=region_owned)
+    labels[web_recovered] = 3
+    labels[web_cache.get('source_fixture_edge', np.zeros(count, bool))] = 2
+    source_recovered |= web_recovered
+    source_recovered &= labels == 3
+    timings["multiviewWebS"] = time.perf_counter()-t0
+    source_steel_evidence = (labels == 3).copy()
     counts = np.bincount(labels, minlength=4)
     layer_counts = np.bincount(layer_ids.astype(np.int32)*4+labels, minlength=(len(layers)+1)*4).reshape(-1, 4)
     steel_layers = [i for i, layer in enumerate(layers) if layer_counts[i+1, 3] > layer_counts[i+1, 2]]
+    # Reuse the already identified lowest steel height band. Within that
+    # interval height alone decides steel, after all fixture/web decisions.
+    bottom_mask = np.zeros(count, bool)
+    bottom_recovered = np.zeros(count, bool)
+    bottom_height = None
+    if params.retain_bottom_height and steel_layers:
+        bottom = layers[steel_layers[0]]
+        bottom_mask = (~table_mask) & (positions[:, 2] >= bottom['lowM']) & (positions[:, 2] <= bottom['highM'])
+        bottom_recovered = bottom_mask & (labels != 3)
+        edge_override = int(np.count_nonzero(bottom_mask & web_cache['source_fixture_edge']))
+        labels[bottom_mask] = 3
+        source_recovered |= bottom_recovered
+        web_cache['source_fixture_edge'] &= ~bottom_mask
+        multiview['fixtureEdgePoints'] = int(web_cache['source_fixture_edge'].sum())
+        bottom_height = {'layerId': bottom['id'], 'lowM': bottom['lowM'], 'highM': bottom['highM'],
+                         'pointCount': int(bottom_mask.sum()), 'recoveredPoints': int(bottom_recovered.sum()),
+                         'overriddenFixtureEdgePoints': edge_override,
+                         'method': 'lowest identified steel band; native Z takes priority over silhouette and fixture edge'}
+        counts = np.bincount(labels, minlength=4)
+        layer_counts = np.bincount(layer_ids.astype(np.int32)*4+labels, minlength=(len(layers)+1)*4).reshape(-1, 4)
+    top_mask = np.zeros(count, bool)
+    top_recovered = np.zeros(count, bool)
+    top_height = None
+    if params.retain_top_height and len(steel_layers) >= 2:
+        top = layers[steel_layers[-1]]
+        top_low = top['lowM']-params.top_height_margin
+        top_high = top['highM']+params.top_height_margin
+        top_mask = (~table_mask) & (positions[:, 2] >= top_low) & (positions[:, 2] <= top_high)
+        top_recovered = top_mask & (labels != 3)
+        labels[top_mask] = 3
+        source_recovered |= top_recovered
+        web_cache['source_fixture_edge'] &= ~top_mask
+        top_height = {'layerId': top['id'], 'lowM': top_low, 'highM': top_high,
+                      'pointCount': int(top_mask.sum()), 'recoveredPoints': int(top_recovered.sum()),
+                      'marginM': params.top_height_margin,
+                      'method': 'upper steel height band including rod surface margin'}
+
+    # Locate broad fixtures in their own measured height bands, not in the
+    # union of the upper/lower rod silhouettes. Reuse the existing XY grid.
+    fixture_ceiling = np.full((ny, nx), -np.inf)
+    fixture_floor = np.full((ny, nx), np.inf)
+    fixture_mask = np.zeros(count, bool)
+    fixture_bands = []
+    if params.fixture_footprint_width > 0:
+        core_radius = max(1, int(np.ceil(params.fixture_footprint_width/(2*pixel))))
+        edge_radius = max(1, int(np.ceil(params.fixture_footprint_edge/pixel)))
+        fixture_pixels = prepared.get('fixture_candidate_pixels')
+        for i, layer in enumerate(layers):
+            if i in steel_layers:
+                continue
+            present = layer_images[i] != 0
+            candidates = layer_images[i] == 2
+            if fixture_pixels is not None:
+                candidates &= fixture_pixels
+            broad = ndimage.binary_opening(candidates, structure=_disk(core_radius))
+            footprint = ndimage.binary_dilation(broad, structure=_disk(edge_radius))
+            footprint &= ndimage.binary_dilation(present, structure=_disk(1))
+            if fixture_pixels is not None:
+                footprint &= fixture_pixels
+            if footprint.any():
+                floor = np.full((ny, nx), np.inf)
+                components, _ = ndimage.label(footprint)
+                for component, box in enumerate(ndimage.find_objects(components), 1):
+                    if box is None:
+                        continue
+                    inside = components[box] == component
+                    lows = wall_low.reshape(ny, nx)[box]
+                    highs = wall_high.reshape(ny, nx)[box]
+                    supported = inside & (highs >= layer['lowM']) & (lows <= layer['highM'])
+                    # Extend a footprint downward only along measured fixture
+                    # sides. A suspended plate cannot claim rods far below it.
+                    low = layer['lowM']
+                    if np.count_nonzero(supported) >= 3:
+                        low = min(low, float(np.min(lows[supported])))
+                    floor[box][inside] = low-params.fixture_plane_tolerance
+                high = layer['highM']+params.fixture_plane_tolerance
+                fixture_mask |= ((positions[:, 2] >= floor.ravel()[source_to_pixel]) &
+                                 (positions[:, 2] <= high) & ~table_mask)
+                fixture_floor = np.minimum(fixture_floor, floor)
+                fixture_ceiling[footprint] = np.maximum(fixture_ceiling[footprint], high)
+                fixture_bands.append(layer['id'])
+        # Existing continuously occupied wall columns remain fixture evidence
+        # even where a horizontal steel height band passes through them.
+        fixture_mask |= ((positions[:, 2] >= wall_low[source_to_pixel]) &
+                         (positions[:, 2] <= wall_high[source_to_pixel]) & ~table_mask)
+        fixture_floor = np.minimum(fixture_floor, wall_low.reshape(ny, nx))
+        fixture_ceiling = np.maximum(fixture_ceiling, np.where(vertical, wall_high, -np.inf).reshape(ny, nx))
+        if fixture_pixels is not None:
+            fixture_floor[~fixture_pixels] = np.inf
+            fixture_ceiling[~fixture_pixels] = -np.inf
+    if region_owned is not None:
+        fixture_mask &= ~region_owned
+    fixture_reclaimed = fixture_mask & (labels == 3)
+    labels[fixture_mask] = 2
+    source_steel_evidence &= labels == 3
+    source_shape_steel_evidence = source_steel_evidence.copy()
+    # The measured lower/upper height bands are part of B's accepted steel
+    # classifier, not shared XY ownership. They contribute one B-route vote.
+    source_height_steel_evidence = (bottom_mask | top_mask) & (labels == 3)
+    source_steel_evidence |= source_height_steel_evidence
+    if region_owned is not None:
+        labels[region_owned & ~table_mask] = 3
+    source_steel_candidate = labels == 3
+    source_recovered &= labels == 3
+    bottom_recovered &= labels == 3
+    top_recovered &= labels == 3
+    for key in ('source_web_recovered', 'source_bend_recovered'):
+        web_cache[key] &= labels == 3
+    multiview['recoveredPoints'] = int(web_cache['source_web_recovered'].sum())
+    multiview['bendRecoveredPoints'] = int(web_cache['source_bend_recovered'].sum())
+    multiview['fixtureEdgePoints'] = int(web_cache['source_fixture_edge'].sum())
+    for height, mask, recovered in ((bottom_height, bottom_mask, bottom_recovered), (top_height, top_mask, top_recovered)):
+        if height:
+            height['recoveredPoints'] = int(recovered.sum())
+            height['retainedPoints'] = int(np.count_nonzero(mask & (labels == 3)))
+            height['fixtureExcludedPoints'] = int(np.count_nonzero(mask & fixture_mask))
+    counts = np.bincount(labels, minlength=4)
+    layer_counts = np.bincount(layer_ids.astype(np.int32)*4+labels, minlength=(len(layers)+1)*4).reshape(-1, 4)
     for i, layer in enumerate(layers):
         if i in steel_layers:
             name = "钢筋候选层" if len(steel_layers) == 1 else "下层钢筋候选" if i == steel_layers[0] else "上层钢筋候选" if i == steel_layers[-1] else "中间钢筋候选"
@@ -296,7 +675,6 @@ def classify_projection(positions, normals, normal_valid, *, params=None, worker
             name = "夹具上表面候选"
         layer.update(name=name, pointCount=int(layer_counts[i+1].sum()),
                      classCounts=dict(zip(("table", "fixture", "rebar"), map(int, layer_counts[i+1, 1:4]))))
-    timings["sourceProjectionS"] = time.perf_counter()-t0
     # Colour the actually observed topmost source point in each image pixel.
     top_labels = np.zeros(pixels, np.uint8)
     for start in range(0, count, 262144):
@@ -313,16 +691,43 @@ def classify_projection(positions, normals, normal_valid, *, params=None, worker
              "wall_low": wall_low.reshape(ny, nx), "wall_high": wall_high.reshape(ny, nx),
              "histogram_all": all_hist, "histogram_remaining": histogram, "histogram_smooth": smooth,
              "histogram_origin": float(lo[2]), "occupied_height_counts": occupied_heights.reshape(ny, nx)}
+    cache.update(web_cache)
+    cache["source_steel_evidence"] = source_steel_evidence
+    cache["source_shape_steel_evidence"] = source_shape_steel_evidence
+    cache["source_height_steel_evidence"] = source_height_steel_evidence
+    cache["source_steel_candidate"] = source_steel_candidate
+    cache["source_bottom_height"] = bottom_mask
+    cache["source_bottom_height_recovered"] = bottom_recovered
+    cache["source_top_height"] = top_mask
+    cache["source_top_height_recovered"] = top_recovered
+    cache["source_fixture_footprint"] = fixture_mask
+    cache["source_fixture_footprint_reclaimed"] = fixture_reclaimed
+    cache["fixture_footprint_ceiling"] = fixture_ceiling
+    cache["fixture_footprint_floor"] = fixture_floor
+    cache["fixture_footprint_image"] = np.where(np.isfinite(fixture_ceiling), 2, np.where(binary, 1, 0)).astype(np.uint8)
+    edge_image = np.where(binary, 1, 0).astype(np.uint8)
+    edge_image.ravel()[source_to_pixel[web_cache['source_fixture_edge']]] = 2
+    cache['fixture_edge_image'] = edge_image
     report = {"version": VERSION, "pointCount": count, "classNames": CLASS_NAMES, "colors": COLORS,
+              "retentionRestored": True,
               "counts": dict(zip(("table", "fixture", "rebar"), map(int, counts[1:4]))),
               "parameters": asdict(params), "pixelSizeM": float(pixel), "gridShape": [ny, nx],
-              "recovery": {"recoveredPoints": int(source_recovered.sum()), "method": "bounded crossing islands with opposing original steel support", "passes": 1},
+              "recovery": {"recoveredPoints": int(source_recovered.sum()), "method": "XY crossings, bounded web/bends and final bottom-height retention", "passes": 1},
+              "multiview": multiview,
+              "bottomHeight": bottom_height,
+              "topHeight": top_height,
+              "fixtureFootprint": {"layerIds": fixture_bands, "minWidthM": params.fixture_footprint_width,
+                                   "edgeReachM": params.fixture_footprint_edge, "pointCount": int(fixture_mask.sum()),
+                                   "reclaimedPoints": int(fixture_reclaimed.sum()),
+                                   "method": "broad fixture XY footprint bounded by measured surface and connected vertical sides"},
               "xyOriginM": origin.tolist(), "tableRemoval": table, "layers": layers,
               "timings": timings, "elapsedS": time.perf_counter()-started,
-              "independentInputs": ["source XYZ", "Step 1 normals for tabletop fit only"],
-              "diagnostics": {"verticalPixels": int(vertical.sum()), "widePixels": int(wide.sum()),
+              "independentInputs": ["source XYZ", "shared table and region masks" if shared else "Step 1 normals for tabletop fit only"],
+              "diagnostics": {"sharedPreparation": shared, "tableFitCalls": 0 if shared else 1,
+                              "regionOwnedPoints": int(region_owned.sum()) if region_owned is not None else 0,
+                              "fixtureSearchExcludedPoints": int(region_owned.sum()) if region_owned is not None else 0, "verticalPixels": int(vertical.sum()), "widePixels": int(wide.sum()),
                               "steelPixels": int(steel.sum()), "remainingPoints": int((~table_mask).sum()),
                               "detectedLayerCount": len(layers), "forcedLayerCount": False},
-              "layerMeaning": "Measured native Z bands, not instances; slanted web connectivity is deferred",
+              "layerMeaning": "Measured native Z bands, not instances; inclined rods are also checked in overlapping side slices",
               "images": {}}
     return report, cache, output

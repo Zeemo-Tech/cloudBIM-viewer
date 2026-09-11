@@ -23,6 +23,23 @@ def _attach_projection(context, *, workers=1):
 
 
 class PointCloudFusionTests(unittest.TestCase):
+    def test_axis_recovery_does_not_reintroduce_detached_blobs_rejected_by_02a(self):
+        bar, normals = round_tube(length=.18)
+        rng = np.random.default_rng(123)
+        sphere = rng.normal(size=(600, 3))
+        sphere /= np.linalg.norm(sphere, axis=1)[:, None]
+        for center in ([.013, 0., .04], [0., .13, .04]):
+            with self.subTest(center=center):
+                context = make_context(np.vstack((bar, sphere*.002+center)), np.vstack((normals, sphere)))
+                estimate_normals(context, k=32, workers=1)
+                classify_geometry(context, workers=1)
+                context.projection_class = context.geometry_class.copy()
+                context.projection_cache = {}
+                fuse_classifications(context, workers=1)
+                self.assertTrue(np.all(context.fused_class[:len(bar)] == 3))
+                self.assertFalse(np.any(context.fused_class[len(bar):] == 3))
+                self.assertFalse(np.any(context.fused_recovered[len(bar):]))
+
     def test_decision_contract_reasons_recovery_and_fixture_veto(self):
         # The first nine rows cover every A/B class pair. The final row repeats
         # A=fixture/B=steel inside physical fixture support and must stay fixture.
@@ -38,6 +55,7 @@ class PointCloudFusionTests(unittest.TestCase):
             "length": np.zeros(count), "axis_alignment": np.zeros(count),
             "support_count": np.zeros(count), "axis": np.zeros((count, 3)),
             "axis_center": np.zeros((count, 3)),
+            "connected_support": np.ones(count, bool),
         }
         broad_fixture = np.zeros(count, bool)
         broad_fixture[-1] = True
@@ -56,8 +74,10 @@ class PointCloudFusionTests(unittest.TestCase):
         before_a, before_b = context.geometry_class.copy(), context.projection_class.copy()
         axis_recovered = np.zeros(count, bool)
         axis_recovered[4] = True
+        legacy_output = {name: np.empty(count, np.uint8)
+                         for name in ('fused_class', 'fused_recovered', 'fused_reason')}
         with patch("algorithms.pointcloud_fusion.recover_rebar", return_value=axis_recovered):
-            report = fuse_classifications(context, workers=1)
+            report = fuse_classifications(context, workers=1, output=legacy_output)
 
         np.testing.assert_array_equal(
             context.fused_class, [1, 1, 1, 1, 3, 3, 3, 3, 3, 2]
@@ -74,8 +94,44 @@ class PointCloudFusionTests(unittest.TestCase):
         np.testing.assert_array_equal(context.geometry_class, before_a)
         np.testing.assert_array_equal(context.projection_class, before_b)
         self.assertEqual(set(map(int, context.fused_class)), {1, 2, 3})
-        self.assertEqual(set(REASONS), {"1", "2", "3", "4", "5", "6"})
+        self.assertEqual(set(REASONS), {"1", "2", "3", "4", "5", "6", "7"})
+        np.testing.assert_allclose(context.fused_steel_score,
+            [0, 0, 0, 0, .5, .65, .65, .65, 1, 0])
+        np.testing.assert_array_equal(context.fused_steel_evidence,
+            [0, 0, 0, 0, 4, 2, 1, 1, 3, 0])
+        self.assertEqual(report['score']['protectionThreshold'], .9)
+        self.assertEqual(report['score']['highConfidencePoints'], 1)
+        self.assertEqual(legacy_output['fused_steel_score'].dtype, np.float32)
+        self.assertEqual(legacy_output['fused_steel_evidence'].dtype, np.uint8)
         self.assertNotIn("probability", report)
+
+    def test_score_uses_measured_evidence_without_spatial_agreement_boost(self):
+        count = 6
+        a = np.array([3, 3, 2, 2, 3, 3], np.uint8)
+        b = np.array([3, 2, 2, 2, 3, 3], np.uint8)
+        grid = SimpleNamespace(points=np.zeros((count, 3)), source_to_cell=np.arange(count, dtype=np.int32))
+        features = {"linearity": np.zeros(count), "width": np.full(count, .03),
+            "length": np.zeros(count), "axis_alignment": np.zeros(count),
+            "support_count": np.zeros(count), "axis": np.zeros((count, 3)),
+            "axis_center": np.zeros((count, 3)), "connected_support": np.ones(count, bool)}
+        table = np.zeros(count, np.uint8); table[-1] = 1
+        region = np.zeros(count, bool); region[3] = True
+        context = SimpleNamespace(geometry_class=a, projection_class=b,
+            shared_table_mask=table, scene_cache={'region_owned': region},
+            projection_cache={'source_recovered': np.zeros(count, bool),
+                'source_steel_evidence': np.array([1, 0, 0, 0, 0, 1], bool)},
+            classification_cache={'grid':grid, 'residual_ids':np.arange(count), 'features':features,
+                'broad_fixture':np.zeros(count, bool), 'strong_bars':np.empty(0, np.int64),
+                'rebar_tree':None, 'cell_labels':a,
+                'source_steel_evidence':np.array([1, 1, 0, 0, 0, 1], bool)})
+        recovered = np.zeros(count, bool); recovered[2] = True
+        with patch('algorithms.pointcloud_fusion.recover_rebar', return_value=recovered):
+            report = fuse_classifications(context)
+        np.testing.assert_array_equal(context.fused_class, [3, 3, 3, 3, 3, 1])
+        np.testing.assert_array_equal(context.fused_steel_evidence, [3, 1, 4, 8, 0, 0])
+        np.testing.assert_allclose(context.fused_steel_score, [1, .65, .5, .25, 0, 0])
+        self.assertEqual(context.fused_reason[3], 7)
+        self.assertEqual(report['score']['highConfidencePoints'], 1)
 
     def test_empty_residual_single_worker_is_a_valid_all_table_result(self):
         axis = np.arange(-.30 + .0015, .30, .003)

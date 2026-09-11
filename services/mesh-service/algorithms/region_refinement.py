@@ -11,7 +11,7 @@ import time
 import numpy as np
 
 
-VERSION = "double-frame-refinement-v1"
+VERSION = "region-cleanup-v2-cached-partition"
 ZONE_NAMES = {"0": "未定位", "1": "内框内部", "2": "夹具边带", "3": "外框外部"}
 REASON_NAMES = {"0": "保持融合结果", "1": "内框钢筋区域约束", "2": "同体素多数归属", "3": "同表面邻域一致性"}
 
@@ -83,20 +83,24 @@ def refine_regions(context, region_report, *, workers=1, params=None, output=Non
     labels, regions, zones, changed, reasons = (output[name] for name in
         ("refined_class", "refined_region", "refined_zone", "refined_changed", "refined_reason"))
     labels[:] = before; regions[:] = context.fused_region
-    zones[:] = 0; changed[:] = 0; reasons[:] = 0
+    shared_zones = getattr(context, "partition_zone", None)
+    zones[:] = shared_zones if shared_zones is not None else 0
+    changed[:] = 0; reasons[:] = 0
     frame = region_report['frame']
     enabled = bool(frame.get('detected') and frame.get('innerDetected'))
     timings = {}
-    diagnostics = {"enabled": enabled, "reusedResidualTree": False, "surfaceCandidateCells": 0}
+    diagnostics = {"enabled": enabled, "reusedResidualTree": False, "surfaceCandidateCells": 0,
+                   "reusedPartition": shared_zones is not None}
     result_cache = {}
     if enabled:
         t0 = time.perf_counter()
         progress("第 4 步：内框钢筋区域约束", 0, count)
         rc = context.region_cache
         axes, outer, inner = rc['frame_axes'], rc['frame_bounds_local'], rc['frame_inner_bounds_local']
-        for start in range(0, count, 262144):
-            stop = min(count, start+262144)
-            zones[start:stop] = frame_zones(context.positions[start:stop, :2], axes, outer, inner)
+        if shared_zones is None:
+            for start in range(0, count, 262144):
+                stop = min(count, start+262144)
+                zones[start:stop] = frame_zones(context.positions[start:stop, :2], axes, outer, inner)
         timings['zonesS'] = time.perf_counter()-t0
         t0 = time.perf_counter()
         cache = context.classification_cache
@@ -109,7 +113,13 @@ def refine_regions(context, region_report, *, workers=1, params=None, output=Non
         cell_labels[support == 0] = 0
         original_cell_labels = cell_labels.copy()
         reliable = (np.maximum(c2, c3) >= np.maximum(params.voxel_majority*support, 3))
-        cell_zones = frame_zones(grid.points[:, :2]+grid.origin[:2], axes, outer, inner)
+        if shared_zones is not None:
+            # A cell crossing the inner edge is never wholly inner. Source
+            # ownership still uses exact per-point zones below.
+            cell_zones = np.zeros(total_cells, np.uint8)
+            np.maximum.at(cell_zones, grid.source_to_cell, shared_zones)
+        else:
+            cell_zones = frame_zones(grid.points[:, :2]+grid.origin[:2], axes, outer, inner)
         cell_labels[(cell_zones == 1) & (support > 0)] = 3
         reliable[(cell_zones == 1) & (support >= 3)] = True
         frozen = np.zeros(total_cells, bool)
@@ -144,6 +154,12 @@ def refine_regions(context, region_report, *, workers=1, params=None, output=Non
             owned = (zone == 1) & (old != 1)
             result[owned] = 3
             why[owned & (result != old)] = 1
+            steel_score = getattr(context, 'fused_steel_score', None)
+            if steel_score is not None:
+                protected = (old == 3) & (steel_score[start:stop] >= .9) & (result != 3)
+                diagnostics['scoreProtectedPoints'] = diagnostics.get('scoreProtectedPoints', 0)+int(protected.sum())
+                result[protected] = 3
+                why[protected] = 0
             labels[start:stop] = result; reasons[start:stop] = why
             changed[start:stop] = result != old
             regions[start:stop] = np.where(result == 1, 0, np.where(result == 2, 3, np.where(zone == 3, 2, 1)))
@@ -170,3 +186,26 @@ def refine_regions(context, region_report, *, workers=1, params=None, output=Non
         setattr(context, name, array)
     context.refinement_cache = result_cache
     return report
+
+
+def reuse_fusion_partition(context, region_report, *, output):
+    """Retain legacy attribute names without a second classification pass."""
+    if context.fused_class is None or context.partition_zone is None:
+        raise ValueError('需要本轮融合结果与共享分区')
+    output['refined_class'][:] = context.fused_class
+    output['refined_region'][:] = context.fused_region
+    output['refined_zone'][:] = context.partition_zone
+    output['refined_changed'][:] = 0
+    output['refined_reason'][:] = 0
+    for name, array in output.items():
+        setattr(context, name, array)
+    context.refinement_cache = {}
+    counts = np.bincount(context.fused_class, minlength=4)
+    regions = np.bincount(context.fused_region, minlength=5)
+    return {'version': 'fusion-partition-pass-through-v1', 'mode': 'fusion-pass-through',
+            'pointCount': len(context.positions), 'elapsedS': 0., 'timings': {},
+            'counts': dict(zip(('table', 'fixture', 'rebar'), map(int, counts[1:4]))),
+            'regionCounts': dict(zip(('table', 'interior', 'exterior', 'fixture', 'unlocated'), map(int, regions))),
+            'frame': region_report['frame'], 'zoneNames': ZONE_NAMES, 'reasonNames': {'0': '沿用融合结果'},
+            'changes': {'totalChanged': 0}, 'diagnostics': {'enabled': False, 'reusedPartition': True},
+            'policy': '融合后直接去噪；不再执行边带类别投票', 'images': {}}

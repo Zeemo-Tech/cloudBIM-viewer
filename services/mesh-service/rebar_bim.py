@@ -42,7 +42,47 @@ def _json_points(points: np.ndarray) -> list[list[float]]:
     return [[float(v) for v in row] for row in points]
 
 
-def _curve_points(curve: Any, chord_error: float = .001) -> list[list[float]]:
+def _circle_trim_angles(curve: Any, angle_scale: float = 1.) -> tuple[float, float] | None:
+    import ifcopenshell.util.placement
+    placement = np.asarray(ifcopenshell.util.placement.get_axis2placement(curve.BasisCurve.Position), dtype=float)
+    def trim(values):
+        for item in values or []:
+            if item.is_a('IfcParameterValue'):
+                return float(item.wrappedValue)*angle_scale
+            if item.is_a('IfcCartesianPoint'):
+                xyz = list(item.Coordinates)[:3]
+                q = np.linalg.inv(placement) @ np.array(xyz+[0.]*(3-len(xyz))+[1.])
+                return math.atan2(q[1],q[0])
+        return None
+    start,end = trim(curve.Trim1),trim(curve.Trim2)
+    if start is None or end is None: return None
+    delta = (end-start) % (2*math.pi)
+    if not curve.SenseAgreement: delta -= 2*math.pi
+    return start,delta
+
+
+def _curve_parameter_length(curve: Any, angle_scale: float = 1.) -> float | None:
+    """Natural bounded parameter range, NOT physical curve length (IFC 8.9.3.20)."""
+    if curve.is_a('IfcPolyline'):
+        return float(len(curve.Points)-1)
+    if curve.is_a('IfcCompositeCurve'):
+        lengths=[]
+        for segment in curve.Segments:
+            if segment.is_a('IfcReparametrisedCompositeCurveSegment'):
+                length=float(segment.ParamLength)
+            elif segment.is_a('IfcCompositeCurveSegment'):
+                length=_curve_parameter_length(segment.ParentCurve,angle_scale)
+            else: return None
+            if length is None: return None
+            lengths.append(length)
+        return sum(lengths)
+    if curve.is_a('IfcTrimmedCurve') and curve.BasisCurve.is_a('IfcCircle'):
+        angles=_circle_trim_angles(curve,angle_scale)
+        return abs(angles[1])/angle_scale if angles else None
+    return None
+
+
+def _curve_points(curve: Any, chord_error: float = .001, angle_scale: float = 1.) -> list[list[float]]:
     """Read explicit lines/arcs, with chord error expressed in IFC length units."""
     if curve is None:
         return []
@@ -65,7 +105,7 @@ def _curve_points(curve: Any, chord_error: float = .001) -> list[list[float]]:
     if curve.is_a("IfcCompositeCurve"):
         out: list[list[float]] = []
         for segment in curve.Segments:
-            part = _curve_points(segment.ParentCurve, chord_error)
+            part = _curve_points(segment.ParentCurve, chord_error, angle_scale)
             if not getattr(segment, "SameSense", True): part.reverse()
             if not part: return []
             out.extend(part if not out or out[-1] != part[0] else part[1:])
@@ -74,18 +114,9 @@ def _curve_points(curve: Any, chord_error: float = .001) -> list[list[float]]:
         import ifcopenshell.util.placement
         circle = curve.BasisCurve; placement = np.asarray(ifcopenshell.util.placement.get_axis2placement(circle.Position), dtype=float)
         radius = float(circle.Radius)
-        def trim(value: Any) -> float | None:
-            for item in value or []:
-                if item.is_a("IfcParameterValue"): return float(item.wrappedValue)
-                if item.is_a("IfcCartesianPoint"):
-                    xyz = list(item.Coordinates)[:3]
-                    p = np.asarray(xyz + [0.] * (3-len(xyz)) + [1.0]); q = np.linalg.inv(placement) @ p
-                    return math.atan2(q[1], q[0])
-            return None
-        start, end = trim(curve.Trim1), trim(curve.Trim2)
-        if start is None or end is None or radius <= 0: return []
-        delta = (end-start) % (2*math.pi)
-        if not curve.SenseAgreement: delta -= 2*math.pi
+        angles = _circle_trim_angles(curve, angle_scale)
+        if angles is None or radius <= 0: return []
+        start, delta = angles
         count = min(4096, max(2, int(math.ceil(abs(delta) / max(2*math.acos(max(-1., 1-min(chord_error,radius)/radius)),1e-6)))+1))
         return [(placement @ np.array([radius*math.cos(start+delta*i/(count-1)), radius*math.sin(start+delta*i/(count-1)), 0, 1]))[:3].tolist() for i in range(count)]
     points = getattr(curve, "Points", None)
@@ -173,15 +204,18 @@ def _extruded_points(item: Any, transform: np.ndarray, unit: float) -> tuple[np.
     return (np.vstack((base, base + world_direction * length)), radius)
 
 
-def _swept_disk_points(item: Any, transform: np.ndarray, unit: float) -> tuple[np.ndarray, float] | None:
+def _swept_disk_points(item: Any, transform: np.ndarray, unit: float, angle_scale: float = 1.) -> tuple[np.ndarray, float] | None:
     if not np.allclose(transform[:3, :3].T @ transform[:3, :3], np.eye(3), atol=1e-6):
         return None
     # Parametric subranges need curve-specific parameter evaluation; accepting
     # the whole directrix here would invent an unbuilt extension.
-    if getattr(item, "StartParam", None) is not None or getattr(item, "EndParam", None) is not None:
-        return None
+    start, end = getattr(item, 'StartParam', None), getattr(item, 'EndParam', None)
+    if start is not None or end is not None:
+        span = _curve_parameter_length(item.Directrix, angle_scale)
+        if span is None or (start is not None and not np.isclose(start,0.,atol=1e-8)) or (end is not None and not np.isclose(end,span,rtol=1e-8,atol=1e-8)):
+            return None
     radius = float(getattr(item, "Radius", 0.0)) * unit
-    raw = _curve_points(getattr(item, "Directrix", None), .001 / unit)
+    raw = _curve_points(getattr(item, "Directrix", None), .001 / unit, angle_scale)
     if radius <= 0 or len(raw) < 2:
         return None
     pts = np.asarray(raw, dtype=np.float64) * unit
@@ -241,6 +275,7 @@ def _ifc_bars(path: Path, model_path: Path | None, inverse: np.ndarray, diagnost
 
     model = ifcopenshell.open(str(path))
     unit = float(ifcopenshell.util.unit.calculate_unit_scale(model))
+    angle_scale = float(ifcopenshell.util.unit.calculate_unit_scale(model, 'PLANEANGLEUNIT'))
     raw: list[tuple[str, str, str, np.ndarray, float]] = []
     seen: set[str] = set()
     products = [p for p in model.by_type("IfcProduct") if getattr(p, "Representation", None)]
@@ -257,7 +292,7 @@ def _ifc_bars(path: Path, model_path: Path | None, inverse: np.ndarray, diagnost
             if len(raw) >= _MAX_BARS:
                 break
             for item, transform, occurrence in _walk_items(shape.Items or [], placement, unit, f"representation{representation_ordinal}"):
-                extracted = _extruded_points(item, transform, unit) if item.is_a("IfcExtrudedAreaSolid") else _swept_disk_points(item, transform, unit) if item.is_a("IfcSweptDiskSolid") else None
+                extracted = _extruded_points(item, transform, unit) if item.is_a("IfcExtrudedAreaSolid") else _swept_disk_points(item, transform, unit, angle_scale) if item.is_a("IfcSweptDiskSolid") else None
                 if extracted is None:
                     if item.is_a("IfcSweptDiskSolid"):
                         diagnostics["unsupportedDirectrices"] += 1

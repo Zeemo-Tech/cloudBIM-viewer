@@ -123,7 +123,15 @@ class NormalTests(unittest.TestCase):
             self.assertIn("projectionClassesUrl", both.manifest["preview"])
             self.assertNotIn("projectionClassesUrl", second.manifest["preview"])
             self.assertEqual(sum(both.manifest["projection"]["counts"].values()), len(original.points))
-            self.assertEqual(set(both.manifest["projection"]["images"]), {"binary", "density", "height", "classes", "layers"})
+            self.assertEqual(set(both.manifest["projection"]["images"]),
+                             {"binary", "density", "height", "classes", "layers", "edges", "fixtures", "side_0", "side_45", "side_90", "side_135"})
+            from PIL import Image
+            for view in both.manifest['projection']['multiview']['views']:
+                with Image.open(both.directory / 'projection' / (view['key']+'.png')) as image:
+                    self.assertEqual(image.size, tuple(reversed(view['gridShape'])))
+                    image.verify()
+            with np.load(both.directory / 'projection-features.npz', allow_pickle=False) as evidence:
+                np.testing.assert_array_equal(evidence['source_web_recovered'], both.context.projection_cache['source_web_recovered'])
             self.assertIsNotNone(both.context.projection_cache)
             self.assertEqual(source.read_bytes(), original_bytes)
             import xml.etree.ElementTree as ET

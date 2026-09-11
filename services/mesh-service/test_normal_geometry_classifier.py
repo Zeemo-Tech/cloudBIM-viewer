@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 from algorithms.pointcloud_normals import PointCloudContext, estimate_normals, available_workers
@@ -39,6 +40,102 @@ def square_tube(half=.004):
 
 
 class NormalGeometryTests(unittest.TestCase):
+    def test_sparse_apparent_fixture_face_does_not_veto_an_inclined_bar(self):
+        points, normals = round_tube(radius=.004, length=.18)
+        angle = np.pi/4
+        rotation = np.array([[1., 0., 0.], [0., np.cos(angle), -np.sin(angle)],
+                             [0., np.sin(angle), np.cos(angle)]])
+        context = make_context(points@rotation.T, normals@rotation.T)
+        estimate_normals(context, k=32, workers=1)
+
+        def sparse_face(points, features, params, workers):
+            # Reproduce an upstream planar grouping that spans mostly empty
+            # space between tangent strips, as observed on the real web bars.
+            return np.zeros(len(points), np.int32), [{
+                'normal': np.array([1., 0., 0.]), 'long_axis': np.array([0., 1., 1.])/np.sqrt(2),
+                'center': points.mean(axis=0), 'widths': np.array([.004, .020, .18]),
+                'cells': len(points), 'fillRatio': .30,
+            }], 1
+
+        with patch('algorithms.normal_geometry_classifier.planar_patches', side_effect=sparse_face):
+            report = classify_geometry(context, workers=1)
+        self.assertGreater(np.mean(context.geometry_class == 3), .98)
+        self.assertGreater(report['recovery']['sparseFaceRecoveredPoints'], 0)
+
+    def test_crowded_thick_parallel_bars_keep_both_circular_surfaces(self):
+        for radius in (.005, .006):
+            points, normals = round_tube(radius=radius)
+            for delta in ([2*radius+.002, 0., 0.], [0., 0., 2*radius+.002]):
+                with self.subTest(radius=radius, delta=delta):
+                    context = make_context(np.vstack((points, points+delta)), np.vstack((normals, normals)))
+                    estimate_normals(context, k=32, workers=1)
+                    classify_geometry(context, workers=1)
+                    for bar in np.array_split(context.geometry_class, 2):
+                        self.assertGreater(np.mean(bar == 3), .99)
+
+    def test_crowded_recovery_is_sign_and_worker_invariant(self):
+        points, normals = round_tube(radius=.006)
+        xyz = np.vstack((points, points+[.014, 0., 0.]))
+        first = make_context(xyz, np.vstack((normals, normals)))
+        estimate_normals(first, k=32, workers=1)
+        second = make_context(xyz, first.normals*np.random.default_rng(21).choice([-1., 1.], len(xyz))[:, None])
+        classify_geometry(first, workers=1)
+        classify_geometry(second, workers=min(2, available_workers()))
+        np.testing.assert_array_equal(first.geometry_class, second.geometry_class)
+        np.testing.assert_array_equal(first.geometry_recovered, second.geometry_recovered)
+
+    def test_detached_dense_blobs_cannot_borrow_a_nearby_cylinder(self):
+        bar, normals = round_tube(length=.18)
+        rng = np.random.default_rng(123)
+        sphere = rng.normal(size=(600, 3))
+        sphere /= np.linalg.norm(sphere, axis=1)[:, None]
+        # Both the old seed/near-neighbour rules and the end-recovery rule
+        # classified every return in these 4 mm-wide spheres as steel.
+        for center in ([.010, 0., .04], [.013, 0., .04],
+                       [0., .115, .04], [0., .130, .04], [.010, .06, .04]):
+            with self.subTest(center=center):
+                points = np.vstack((bar, sphere*.002+center))
+                context = make_context(points, np.vstack((normals, sphere)))
+                estimate_normals(context, k=32, workers=1)
+                classify_geometry(context, workers=1)
+                self.assertTrue(np.all(context.geometry_class[:len(bar)] == 3))
+                self.assertFalse(np.any(context.geometry_class[len(bar):] == 3))
+                self.assertFalse(np.any(context.geometry_recovered[len(bar):]))
+                np.testing.assert_array_equal(context.positions, points)
+
+    def test_detached_short_bar_establishes_its_own_support(self):
+        bar, normals = round_tube(length=.18)
+        short, short_normals = round_tube(length=.03)
+        short += [.070, .03, .02]
+        context = make_context(np.vstack((bar, short)), np.vstack((normals, short_normals)))
+        estimate_normals(context, k=32, workers=1)
+        classify_geometry(context, workers=1)
+        self.assertGreater(np.mean(context.geometry_class[len(bar):] == 3), .95)
+
+    def test_narrow_scan_fragment_can_bridge_a_gap_without_admitting_a_blob(self):
+        bar, normals = round_tube(length=.18)
+        x, y = np.meshgrid(np.arange(-.002, .0021, .001), np.arange(-.007, .0075, .001))
+        fragment = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, .028)))
+        context = make_context(np.vstack((bar, fragment)),
+            np.vstack((normals, np.tile([0., 0., 1.], (len(fragment), 1)))))
+        estimate_normals(context, k=32, workers=1)
+        classify_geometry(context, workers=1)
+        self.assertTrue(np.all(context.geometry_class == 3))
+        cache = context.classification_cache
+        cells = cache['grid'].source_to_cell
+        components = cache['features']['support_component']
+        self.assertEqual(len(np.intersect1d(components[cells[:len(bar)]], components[cells[len(bar):]])), 0)
+
+    def test_bent_bar_is_not_rejected_for_lacking_one_global_straight_axis(self):
+        angle, theta = np.meshgrid(np.linspace(0, np.pi/2, 40), np.linspace(0, 2*np.pi, 24, endpoint=False))
+        normals = np.column_stack((np.cos(angle.ravel())*np.cos(theta.ravel()),
+                                   np.sin(angle.ravel())*np.cos(theta.ravel()), np.sin(theta.ravel())))
+        axis = np.column_stack((.035*np.cos(angle.ravel()), .035*np.sin(angle.ravel()), np.full(angle.size, .04)))
+        context = make_context(axis+.004*normals, normals)
+        estimate_normals(context, k=32, workers=1)
+        classify_geometry(context, workers=1)
+        self.assertTrue(np.all(context.geometry_class == 3))
+
     def test_projectors_preserve_oblique_planes_lost_by_absolute_components(self):
         normals = np.array([[1., 1., 0.], [1., -1., 0.]]) / np.sqrt(2)
         np.testing.assert_array_equal(np.abs(normals[0]), np.abs(normals[1]))

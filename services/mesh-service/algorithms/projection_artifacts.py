@@ -68,6 +68,13 @@ def write_projection_artifacts(directory, run_id, report, cache):
               'density': (density, '俯视点密度 · 对数色阶，亮处点数多'),
               'height': (span, '每个俯视像素的 Z 跨度 · 辅助定位竖向面'),
               'classes': (PALETTE[cache["image_labels"]], '投影分类 · 钢筋绿 / 夹具黄')}
+    if 'fixture_edge_image' in cache:
+        images['edges'] = (PALETTE[cache['fixture_edge_image']], '夹具贴边回收 · 黄：从钢筋改回夹具的原始点 / 灰：非台面点')
+    if 'fixture_footprint_image' in cache:
+        images['fixtures'] = (PALETTE[cache['fixture_footprint_image']], '夹具俯视范围 · 实际剔除受实测高度限制')
+    for view in report.get('multiview', {}).get('views', []):
+        images[view['key']] = (PALETTE[cache[view['key']]],
+            f"侧向 {view['angleDeg']:g}° · 绿：腹杆恢复候选（标高与夹具范围复核前） · {view['sliceCount']} 个重叠切片")
     for key, (rgb, title) in images.items():
         Image.fromarray(np.flipud(rgb)).save(target/f'{key}.png', compress_level=2)
         report['images'][key] = {'url': f'/runs/{run_id}/projection/{key}.png', 'title': title}

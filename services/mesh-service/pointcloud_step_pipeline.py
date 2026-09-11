@@ -2,7 +2,6 @@
 from dataclasses import dataclass
 from copy import deepcopy
 from contextlib import ExitStack
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -17,24 +16,19 @@ import laspy
 import numpy as np
 from threadpoolctl import threadpool_limits
 
-from algorithms.pointcloud_normals import PointCloudContext, VERSION, available_workers, estimate_normals
-from algorithms.normal_geometry_classifier import classify_geometry
-from algorithms.projection_geometry_classifier import classify_projection
+from algorithms.pointcloud_normals import PointCloudContext, available_workers
 from algorithms.projection_artifacts import write_projection_artifacts
-from algorithms.pointcloud_fusion import fuse_classifications
-from algorithms.fixture_regions import classify_regions
-from algorithms.region_refinement import refine_regions
-from algorithms.internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRIBUTES
-from algorithms.rebar_dimension_priors import load_dimension_priors
+from algorithms.internal_rebar import ATTRIBUTES as INTERNAL_ATTRIBUTES
+from algorithms.rebar_extension import ATTRIBUTES as COMPLETE_ATTRIBUTES
+from algorithms.design_prior_refinement import ATTRIBUTES as PRIOR_ATTRIBUTES, MODES as PRIOR_MODES, refine_design_prior
+from rebar_design_prior import validate_snapshot
+from algorithms.design_guided_instances import refine_instances
 
 
 ATTRIBUTES = {"normal_x": "<f4", "normal_y": "<f4", "normal_z": "<f4",
               "normal_valid": "u1", "normal_curvature": "<f4", "normal_radius": "<f4"}
-CLASS_ATTRIBUTES = {"geometry_class": "u1", "geometry_support": "<f4", "geometry_recovered": "u1"}
-PROJECTION_ATTRIBUTES = {"projection_class": "u1", "projection_layer": "u1"}
-FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered": "u1", "fused_reason": "u1"}
+from algorithms.pointcloud_segmentation import (VERSION, segment_points, CLASS_ATTRIBUTES, PROJECTION_ATTRIBUTES, FUSION_ATTRIBUTES, REFINEMENT_ATTRIBUTES, SCENE_ATTRIBUTES)
 FUSION_LAS_ATTRIBUTES = {**FUSION_ATTRIBUTES, "source_record_index": "<u8"}
-REFINEMENT_ATTRIBUTES = {"refined_class": "u1", "refined_region": "u1", "refined_zone": "u1", "refined_changed": "u1", "refined_reason": "u1"}
 
 
 def atomic_json(path: Path, value):
@@ -90,6 +84,8 @@ def write_las(source, output, context, subsets=None):
         original_names = set(header.point_format.dimension_names)
         additions = []
         attributes = {**ATTRIBUTES, **(CLASS_ATTRIBUTES if context.geometry_class is not None else {})}
+        if context.shared_table_mask is not None:
+            attributes.update(SCENE_ATTRIBUTES)
         if context.projection_class is not None:
             attributes.update(PROJECTION_ATTRIBUTES)
         if context.fused_class is not None:
@@ -98,6 +94,10 @@ def write_las(source, output, context, subsets=None):
             attributes.update(REFINEMENT_ATTRIBUTES)
         if context.internal_type is not None:
             attributes.update(INTERNAL_ATTRIBUTES)
+        if context.complete_class is not None:
+            attributes.update(COMPLETE_ATTRIBUTES)
+        if getattr(context, 'prior_class', None) is not None:
+            attributes.update(PRIOR_ATTRIBUTES)
         for name, dtype in attributes.items():
             if name in original_names:
                 if header.point_format.dimension_by_name(name).dtype != np.dtype(dtype):
@@ -120,6 +120,9 @@ def write_las(source, output, context, subsets=None):
                 result["normal_valid"] = context.normal_valid[offset:stop]
                 result["normal_curvature"] = context.curvature[offset:stop]
                 result["normal_radius"] = context.neighbor_radius[offset:stop]
+                if context.shared_table_mask is not None:
+                    for name in SCENE_ATTRIBUTES:
+                        result[name] = getattr(context, name)[offset:stop]
                 if context.geometry_class is not None:
                     result["geometry_class"] = context.geometry_class[offset:stop]
                     result["geometry_support"] = context.geometry_support[offset:stop]
@@ -137,10 +140,27 @@ def write_las(source, output, context, subsets=None):
                 if context.internal_type is not None:
                     for name in INTERNAL_ATTRIBUTES:
                         result[name] = getattr(context, name)[offset:stop]
+                if context.complete_class is not None:
+                    for name in COMPLETE_ATTRIBUTES:
+                        result[name] = getattr(context, name)[offset:stop]
+                if getattr(context, 'prior_class', None) is not None:
+                    for name in PRIOR_ATTRIBUTES:
+                        result[name] = getattr(context, name)[offset:stop]
                 writer.write_points(result)
                 for kind, subset_writer in subset_writers.items():
-                    final_classes = context.refined_class if context.refined_class is not None else context.fused_class
-                    mask = context.internal_type[offset:stop] > 0 if kind == 'internal' else final_classes[offset:stop] == kind
+                    final_classes = (context.refined_class if context.refined_class is not None else context.fused_class)
+                    if context.internal_type is not None:
+                        final_classes = final_classes[offset:stop].copy()
+                        final_classes[context.internal_type[offset:stop] == 5] = 4
+                    else:
+                        final_classes = final_classes[offset:stop]
+                    mask = (((context.internal_type[offset:stop] > 0) & (context.internal_type[offset:stop] < 5)) if kind == 'internal' else
+                            context.prior_class[offset:stop] == 3 if kind == 'prior-steel' else
+                            context.prior_class[offset:stop] == 4 if kind == 'prior-noise' else
+                            ((context.complete_class[offset:stop] == 3) & (context.complete_instance[offset:stop] > 0)) if kind == 'resolved' else
+                            ((context.complete_class[offset:stop] == 3) & (context.complete_instance[offset:stop] == 0)) if kind == 'pending' else
+                            context.complete_class[offset:stop] == 3 if kind == 'complete' else
+                            (context.complete_class[offset:stop] == 4 if context.complete_class is not None else final_classes == 4) if kind == 'noise' else final_classes == kind)
                     if mask.any():
                         subset_writer.write_points(result[mask])
                 offset = stop
@@ -165,6 +185,8 @@ def write_preview(directory, context, colors, run_id, limit):
               "normals": np.asarray(context.normals[ids], dtype="<f4"),
               "colors": colors[ids], "valid": context.normal_valid[ids],
               "source_indices": ids.astype("<u8")}
+    if context.shared_table_mask is not None:
+        arrays.update(shared_table_mask=context.shared_table_mask[ids], partition_zones=context.partition_zone[ids])
     if context.geometry_class is not None:
         arrays["classes"] = context.geometry_class[ids]
         arrays["recovered"] = context.geometry_recovered[ids]
@@ -173,7 +195,8 @@ def write_preview(directory, context, colors, run_id, limit):
         arrays["projection_layers"] = context.projection_layer[ids]
     if context.fused_class is not None:
         arrays.update(fused_classes=context.fused_class[ids], fused_regions=context.fused_region[ids],
-                      fused_recovered=context.fused_recovered[ids], fused_reasons=context.fused_reason[ids])
+                      fused_recovered=context.fused_recovered[ids], fused_reasons=context.fused_reason[ids],
+                      fused_steel_score=context.fused_steel_score[ids], fused_steel_evidence=context.fused_steel_evidence[ids])
     if context.refined_class is not None:
         arrays.update(refined_classes=context.refined_class[ids], refined_regions=context.refined_region[ids],
                       refined_zones=context.refined_zone[ids], refined_changed=context.refined_changed[ids],
@@ -181,6 +204,10 @@ def write_preview(directory, context, colors, run_id, limit):
     if context.internal_type is not None:
         arrays.update(internal_types=context.internal_type[ids], internal_instances=context.internal_instance[ids],
                       internal_segments=context.internal_segment[ids], internal_confidence=context.internal_confidence[ids])
+    if context.complete_class is not None:
+        arrays.update({name: getattr(context, name)[ids] for name in COMPLETE_ATTRIBUTES})
+    if getattr(context, 'prior_class', None) is not None:
+        arrays.update({name: getattr(context, name)[ids] for name in PRIOR_ATTRIBUTES})
     for name, array in arrays.items():
         array.tofile(preview_dir / f"{name}.bin")
     base = f"/runs/{run_id}/preview"
@@ -189,19 +216,26 @@ def write_preview(directory, context, colors, run_id, limit):
             "sampling": "deterministic evenly spaced source record indices; visualization only",
             **{name + "Url": f"{base}/{name}.bin" for name in ("positions", "normals", "colors", "valid")},
             "sourceIndicesUrl": f"{base}/source_indices.bin",
+            **({"sharedTableMaskUrl": f"{base}/shared_table_mask.bin", "partitionZonesUrl": f"{base}/partition_zones.bin"}
+               if context.shared_table_mask is not None else {}),
             **({"classesUrl": f"{base}/classes.bin", "recoveredUrl": f"{base}/recovered.bin"}
                if context.geometry_class is not None else {}),
             **({"projectionClassesUrl": f"{base}/projection_classes.bin", "projectionLayersUrl": f"{base}/projection_layers.bin"}
                if context.projection_class is not None else {}),
             **({"fusedClassesUrl": f"{base}/fused_classes.bin", "fusedRegionsUrl": f"{base}/fused_regions.bin",
-                "fusedRecoveredUrl": f"{base}/fused_recovered.bin", "fusedReasonsUrl": f"{base}/fused_reasons.bin"}
+                "fusedRecoveredUrl": f"{base}/fused_recovered.bin", "fusedReasonsUrl": f"{base}/fused_reasons.bin",
+                "fusedSteelScoreUrl": f"{base}/fused_steel_score.bin", "fusedSteelEvidenceUrl": f"{base}/fused_steel_evidence.bin"}
                if context.fused_class is not None else {}),
             **({"refinedClassesUrl": f"{base}/refined_classes.bin", "refinedRegionsUrl": f"{base}/refined_regions.bin",
                 "refinedZonesUrl": f"{base}/refined_zones.bin", "refinedChangedUrl": f"{base}/refined_changed.bin",
                 "refinedReasonsUrl": f"{base}/refined_reasons.bin"} if context.refined_class is not None else {}),
             **({"internalTypesUrl": f"{base}/internal_types.bin", "internalInstancesUrl": f"{base}/internal_instances.bin",
                 "internalSegmentsUrl": f"{base}/internal_segments.bin", "internalConfidenceUrl": f"{base}/internal_confidence.bin"}
-               if context.internal_type is not None else {})}
+               if context.internal_type is not None else {}),
+            **({name + 'Url': f'{base}/{name}.bin' for name in COMPLETE_ATTRIBUTES}
+               if context.complete_class is not None else {}),
+            **({name + 'Url': f'{base}/{name}.bin' for name in PRIOR_ATTRIBUTES}
+               if getattr(context, 'prior_class', None) is not None else {})}
 
 
 @dataclass
@@ -211,7 +245,8 @@ class StepRun:
     directory: Path
 
 
-def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, preview_limit=1000000, progress=None, through_step=1):
+def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, preview_limit=1000000, progress=None, through_step=1,
+                    prior_mode='off', design_prior=None):
     """Always starts at raw source, never resumes a previous algorithm result.
 
     A successful run publishes a self-contained LAS and NPY attribute columns.
@@ -226,8 +261,14 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         raise ValueError(f"workers 必须是 1–{available_workers()} 的整数")
     if not isinstance(preview_limit, int) or preview_limit < 1:
         raise ValueError("preview_limit must be positive")
-    if type(through_step) is not int or through_step not in (1, 2, 3, 4, 5, 6):
-        raise ValueError("through_step 必须是 1–6，6 为内部钢筋分层与实例")
+    if type(through_step) is not int or through_step not in (1, 2, 3, 4, 5, 6, 7):
+        raise ValueError("through_step 必须是 1–7，7 对应页面第 06 步")
+    if prior_mode not in PRIOR_MODES:
+        raise ValueError('priorMode 必须为 off / geometry / topology')
+    if through_step == 7 and (prior_mode == 'off' or not isinstance(design_prior, dict)):
+        raise ValueError('第 06 步需要服务端设计模型、粗配准快照及设计辅助模式')
+    if through_step < 7 and prior_mode != 'off':
+        raise ValueError('设计辅助仅用于第 06 步（throughStep=7）')
     progress = progress or (lambda *args: None)
     started, cpu_started = time.perf_counter(), time.process_time()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
@@ -240,112 +281,46 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         t0 = time.perf_counter()
         progress("校验源点云", 0, 1)
         digest = source_hash(source)
+        inventory = validate_snapshot(design_prior, source, digest) if prior_mode != 'off' else None
         positions, colors = load_positions(source, directory, progress)
         timing["readS"] = time.perf_counter() - t0
-        t0 = time.perf_counter()
-        progress("建立可复用 KD 树", 0, 1)
-        context = PointCloudContext.build(positions)
-        timing["treeS"] = time.perf_counter() - t0
+        stages = segment_points(positions, directory, k=k, workers=workers, through_step=min(through_step, 6),
+                                source=source, progress=progress)
+        context, arrays, shapes, computation = stages.context, stages.arrays, stages.shapes, stages.computation
+        timing.update(stages.timing)
+        preprocessing = stages.preprocessing
         count = len(positions)
-        t0 = time.perf_counter()
-        shapes = {"normals": ((count, 3), "<f4"), "normal_valid": ((count,), "u1"),
-                  "curvature": ((count,), "<f4"), "neighbor_radius": ((count,), "<f4")}
-        arrays = {key: np.lib.format.open_memmap(directory / f"{key}.npy", mode="w+", dtype=dtype, shape=shape)
-                  for key, (shape, dtype) in shapes.items()}
-        computation = estimate_normals(context, k=k, workers=workers, output=arrays,
-            progress=lambda done, total: progress("第 1 步：计算法向量", done, total))
-        timing["normalsS"] = time.perf_counter() - t0
-        classification = None
-        projection = None
-        fusion = None
-        regions = None
-        refinement = None
-        internal_rebar = None
-        execution = None
-        if through_step >= 2:
-            t0 = time.perf_counter()
-            attributes = {**CLASS_ATTRIBUTES, **(PROJECTION_ATTRIBUTES if through_step >= 3 else {})}
-            for name, dtype in attributes.items():
-                shapes[name] = ((count,), dtype)
-                arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
-            projection_workers = min(2, max(1, workers-1)) if through_step >= 3 else 0
-            normal_workers = max(1, workers-projection_workers)
-            def normal_branch():
-                began = time.perf_counter()
-                result = classify_geometry(context, workers=normal_workers,
-                    output={name: arrays[name] for name in CLASS_ATTRIBUTES}, progress=progress)
-                return result, time.perf_counter()-began
-            def projection_branch():
-                began = time.perf_counter()
-                result = classify_projection(context.positions, context.normals, context.normal_valid,
-                    workers=projection_workers, output={name: arrays[name] for name in PROJECTION_ATTRIBUTES}, progress=progress)
-                return result, time.perf_counter()-began
-            if through_step >= 3:
-                # One enclosing BLAS limit keeps its process-global state
-                # stable until both tasks finish; nested normal limits restore 1.
-                with threadpool_limits(limits=1):
-                    if workers >= 2:
-                        with ThreadPoolExecutor(max_workers=2) as pool:
-                            a = pool.submit(normal_branch); b = pool.submit(projection_branch)
-                            classification, timing["classificationS"] = a.result()
-                            (projection, projection_cache, _), timing["projectionS"] = b.result()
-                    else:
-                        classification, timing["classificationS"] = normal_branch()
-                        (projection, projection_cache, _), timing["projectionS"] = projection_branch()
-                context.projection_class = arrays["projection_class"]
-                context.projection_layer = arrays["projection_layer"]
-                context.projection_cache = projection_cache
-                execution = {"mode": "parallel" if workers >= 2 else "serial-worker-budget-1",
-                             "normalWorkers": normal_workers, "projectionWorkers": projection_workers,
-                             "sharedInput": "same source XYZ and Step 1 normals; no cross-branch label input",
-                             "rawTreeBuilds": 1, "projectionUsesKdTree": False}
-            else:
-                classification, timing["classificationS"] = normal_branch()
-            timing["classifiersWallS"] = time.perf_counter()-t0
-            classification = json.loads(json.dumps(classification, default=lambda value: value.tolist()))
-        if through_step >= 4:
-            for name, dtype in FUSION_ATTRIBUTES.items():
-                shapes[name] = ((count,), dtype)
-                arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
-            t0 = time.perf_counter()
-            with threadpool_limits(limits=1):
-                fusion = fuse_classifications(context, workers=workers,
-                    output={name: arrays[name] for name in ("fused_class", "fused_recovered", "fused_reason")}, progress=progress)
-            timing["fusionS"] = time.perf_counter()-t0
-            t0 = time.perf_counter()
-            progress("第 3 步：夹具围内 / 外露钢筋区域", 0, count)
-            with threadpool_limits(limits=1):
-                regions, context.region_cache, region_labels = classify_regions(positions, context.fused_class,
-                    projection, context.projection_cache, workers=workers)
-            arrays["fused_region"][:] = region_labels
-            context.fused_region = arrays["fused_region"]
-            timing["regionsS"] = time.perf_counter()-t0
-        if through_step >= 5:
-            for name, dtype in REFINEMENT_ATTRIBUTES.items():
-                shapes[name] = ((count,), dtype)
-                arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
-            t0 = time.perf_counter()
-            with threadpool_limits(limits=1):
-                refinement = refine_regions(context, regions, workers=workers,
-                    output={name: arrays[name] for name in REFINEMENT_ATTRIBUTES}, progress=progress)
-            timing['refinementS'] = time.perf_counter()-t0
-        if through_step >= 6:
-            for name, dtype in INTERNAL_ATTRIBUTES.items():
+        classification, projection, fusion = stages.classification, stages.projection, stages.fusion
+        regions, refinement = stages.regions, stages.refinement
+        internal_rebar, complete_rebar, execution = stages.internal_rebar, stages.complete_rebar, stages.execution
+        prior_report = None
+        if through_step == 7:
+            for name, dtype in COMPLETE_ATTRIBUTES.items():
                 shapes[name] = ((count,), dtype)
                 arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
-            t0 = time.perf_counter()
-            context.dimension_priors = load_dimension_priors(source_path=source)
             with threadpool_limits(limits=1):
-                internal_rebar = segment_internal_rebar(context, workers=workers,
-                    output={name: arrays[name] for name in INTERNAL_ATTRIBUTES}, progress=progress)
-            timing['internalRebarS'] = time.perf_counter()-t0
+                complete_rebar = refine_instances(context, internal_rebar, inventory, mode=prior_mode, workers=workers,
+                    output={name: arrays[name] for name in COMPLETE_ATTRIBUTES}, progress=progress)
+            complete_rebar['designReview'].update(snapshotFingerprint=design_prior['fingerprint'],
+                modelInfo=design_prior.get('modelInfo', {}), preparation=design_prior.get('preparation', {}))
+            timing['guidedInstancesS'] = complete_rebar['elapsedS']
         t0 = time.perf_counter()
         progress("持久化点云及法向量属性", 0, 1)
         las_name = "pointcloud-with-classes.las" if classification else "pointcloud-with-normals.las"
         subsets = {3: directory / 'steel-only.las', 2: directory / 'fixture-only.las'} if fusion else {}
         if internal_rebar is not None:
             subsets['internal'] = directory / 'internal-steel.las'
+            subsets['noise'] = directory / 'noise-only.las'
+        if complete_rebar is not None:
+            subsets.update(complete=directory / 'complete-steel.las', noise=directory / 'noise-only.las',
+                           resolved=directory / 'resolved-steel.las', pending=directory / 'pending-steel.las')
+        if prior_report is not None:
+            subsets.update({'prior-steel': directory/'prior-steel.las', 'prior-noise': directory/'prior-noise.las'})
         write_las(source, directory / las_name, context, subsets=subsets)
+        if complete_rebar is not None:
+            atomic_json(directory / 'complete-instances.json', complete_rebar)
+        if prior_report is not None:
+            atomic_json(directory/'design-prior.json', prior_report)
         if internal_rebar is not None:
             atomic_json(directory / 'internal-instances.json', internal_rebar)
         if classification:
@@ -383,29 +358,36 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         valid = int(np.count_nonzero(context.normal_valid))
         timing["totalS"] = time.perf_counter() - started
         manifest = {
-            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION, "runId": run_id,
+            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
             "createdAt": datetime.now(timezone.utc).isoformat(), "completed": True,
             "runMode": "fresh-source-all-steps", "orientation": "unoriented",
             "source": {"name": source.name, "path": str(source), "sha256": digest, "pointCount": count,
                        "sizeBytes": stamp[2], "unchangedDuringRun": True},
+            "priorMode": prior_mode,
             "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step},
             "validNormalCount": valid, "invalidNormalCount": count - valid,
             "steps": [{"id": "00-source", "pointCount": count}, {"id": "01-normals", "pointCount": count}]
-                     + ([{"id": "02-classification", "pointCount": count}] if classification else [])
-                     + ([{"id": "02-projection", "pointCount": count, "dependsOn": "01-normals"}] if projection else [])
+                     + ([{"id": "01-table-removal", "pointCount": count, "dependsOn": ["01-normals"]},
+                         {"id": "01-partition", "pointCount": count, "dependsOn": ["01-table-removal"]}] if preprocessing else [])
+                     + ([{"id": "02-classification", "pointCount": count, "dependsOn": ["01-partition"]}] if classification else [])
+                     + ([{"id": "02-projection", "pointCount": count, "dependsOn": "01-partition"}] if projection else [])
                      + ([{"id": "03-fusion", "pointCount": count, "dependsOn": ["02-classification", "02-projection"]}] if fusion else [])
-                     + ([{"id": "04-refinement", "pointCount": count, "dependsOn": ["03-fusion"]}] if refinement else [])
-                     + ([{"id": "05-internal-rebar", "pointCount": internal_rebar['pointCount'], "dependsOn": ["04-refinement"]}] if internal_rebar is not None else []),
+                     + ([{"id": "05-internal-rebar", "pointCount": internal_rebar['pointCount'], "dependsOn": ["03-fusion"]}] if internal_rebar is not None else [])
+                     + ([{'id': '06-design-guided-instances', 'pointCount': count, 'dependsOn': ['05-internal-rebar']}] if complete_rebar is not None else [])
+                     + ([{'id': '07-design-prior', 'pointCount': count, 'dependsOn': ['06-complete-rebar']}] if prior_report is not None else []),
+            **({"preprocessing": preprocessing} if preprocessing else {}),
             **({"classification": classification} if classification else {}),
             **({"projection": projection, "branchExecution": execution} if projection else {}),
             **({"fusion": fusion, "regions": regions} if fusion else {}),
             **({"refinement": refinement} if refinement else {}),
             **({"internalRebar": internal_rebar} if internal_rebar is not None else {}),
+            **({"completeRebar": complete_rebar} if complete_rebar is not None else {}),
+            **({'designPrior': prior_report, 'priorMode': prior_mode} if prior_report is not None else {}),
             "timings": timing,
-            "performance": {"pointsPerSecond": count / timing["normalsS"],
+            "performance": {**computation, "pointsPerSecond": count / timing["totalS"],
                             "cpuS": time.process_time() - cpu_started,
                             "peakRssMB": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
-                            "peakRssScope": "process lifetime high-water mark", **computation},
+                            "peakRssScope": "process lifetime high-water mark", 'normalComputation': computation},
             "timingScope": "server pipeline wall time; excludes HTTP queue/download/browser render; OS page cache not flushed",
             "cache": {"scope": "live StepRun.context for subsequent steps of this run", "treeBuildCount": 1,
                       "sourceSha256": digest, "positionMutationAllowed": False,
@@ -414,32 +396,50 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                            "coordinateFrame": "native LAS XYZ, scaled float64; normals in the same frame",
                            "normal": "unit eigenvector of smallest PCA eigenvalue; sign not oriented",
                            "invalid": "normal_valid=0 and normal=(0,0,0) for degenerate neighborhoods",
-                           **({"geometry_recovered": "1 = fixture-to-rebar recovery during this run; 0 = unchanged"} if classification else {}),
-                           **({"projection_class": "Independent projection route: 1 table, 2 fixture, 3 rebar",
+                           **({"shared_table_mask": "1 tabletop excluded before both classifiers; source records retained",
+                               "partition_zone": "0 unlocated, 1 strict inner, 2 frame band, 3 exterior; source XY ownership"} if preprocessing else {}),
+                           **({"geometry_class": "Geometry retention: 1 table, 2 fixture, 3 steel including recovery and shared-region retention; independent evidence stored separately",
+                               "geometry_recovered": "1 = measured rebar recovery during this run; only final steel rows"} if classification else {}),
+                           **({"projection_class": "Projection retention: 1 table, 2 fixture, 3 steel including upper/lower height and shared-region retention; independent evidence stored separately",
                                "projection_layer": "0 outside detected Z bands; other ids refer to projection.layers"} if projection else {}),
                            **({"fused_class": "Evidence fusion: 1 table, 2 fixture, 3 rebar",
                                "fused_region": "0 table, 1 interior steel, 2 exterior steel, 3 fixture, 4 unlocated steel",
-                               "fused_recovered": "1 = recovered projection v2 junction or B fixture-to-fused steel",
+                               "fused_recovered": "1 = recovered projection junction or B non-steel-to-fused steel",
                                "fused_reason": "Rule id, see fusion.reasonNames; not a confidence probability",
+                               "fused_steel_score": "0..1 rule support for steel, not calibrated probability; >=.9 protects retained steel in downstream denoising",
+                               "fused_steel_evidence": "Bitmask: 1 geometry and recovery support, 2 projection shape or accepted upper/lower height support, 4 axis recovery, 8 shared retention candidate",
                                "source_record_index": "Zero-based original source record index, also retained in steel/fixture subset LAS"} if fusion else {}),
-                           **({"refined_class": "Region-constrained final class: 1 table, 2 fixture, 3 steel",
-                               "refined_region": "Same region ids as fused_region, recomputed after refinement",
+                           **({"refined_class": "Compatibility alias of fused_class; no additional classification pass",
+                               "refined_region": "Compatibility alias of fused_region",
                                "refined_zone": "0 unlocated, 1 inner, 2 frame band, 3 outside; independent of semantic class",
                                "refined_changed": "1 iff refined_class differs from fused_class",
                                "refined_reason": "Rule id, see refinement.reasonNames"} if refinement else {}),
-                           **({"internal_type": "0 outside strict inner steel scope; 1 lower, 2 upper, 3 straight web, 4 unassigned",
+                           **({"internal_type": "0 outside strict inner steel scope; 1 lower, 2 upper, 3 straight web, 4 unassigned, 5 floating noise",
                                "internal_instance": "Run-local stable geometry-sorted cylinder ID; 0 unassigned/outside",
                                "internal_segment": "Cylinder fit part; a mildly curved horizontal bar may have multiple parts in one instance; each web straight segment is one instance",
                                "internal_confidence": "Geometric fit score, not calibrated probability; 0 unassigned/outside"} if internal_rebar is not None else {}),
-                           "lasExtraBytes": {**ATTRIBUTES, **(CLASS_ATTRIBUTES if classification else {}),
+                           **({'complete_class': '1 table, 2 fixture, 3 rebar, 4 noise',
+                               'complete_instance': 'Observed instance IDs after design-assisted merge/split; 0 pending or non-rebar',
+                               'complete_segment': 'Internal fit part or exterior cluster attachment segment; does not imply a cylinder fit to hook points',
+                               'complete_cluster': 'Pre-refinement connected component of retained unassigned steel; 0 existing internal instance/out of scope',
+                               'complete_confidence': 'Internal fit score or exterior cluster attachment score; not pointwise hook fit or calibrated probability'} if complete_rebar is not None else {}),
+                           "lasExtraBytes": {**ATTRIBUTES, **(SCENE_ATTRIBUTES if preprocessing else {}), **(CLASS_ATTRIBUTES if classification else {}),
                                              **(PROJECTION_ATTRIBUTES if projection else {}), **(FUSION_LAS_ATTRIBUTES if fusion else {}),
-                                             **(REFINEMENT_ATTRIBUTES if refinement else {}), **(INTERNAL_ATTRIBUTES if internal_rebar is not None else {})},
+                                             **(REFINEMENT_ATTRIBUTES if refinement else {}), **(INTERNAL_ATTRIBUTES if internal_rebar is not None else {}), **(COMPLETE_ATTRIBUTES if complete_rebar is not None else {}),
+                                             **(PRIOR_ATTRIBUTES if prior_report is not None else {})},
                            "columns": {name: name + ".npy" for name in ("positions", "colors", *shapes)}},
             "preview": preview,
-            "files": {"lasUrl": f"/runs/{run_id}/{las_name}", "manifestUrl": f"/runs/{run_id}/manifest.json",
-                      "subsetClassAttribute": "refined_class" if refinement else "fused_class" if fusion else None,
+            "files": {**({'completeSteelLasUrl': f'/runs/{run_id}/complete-steel.las',
+                                'noiseLasUrl': f'/runs/{run_id}/noise-only.las',
+                                'resolvedSteelLasUrl': f'/runs/{run_id}/resolved-steel.las',
+                                'pendingSteelLasUrl': f'/runs/{run_id}/pending-steel.las',
+                                'completeInstancesUrl': f'/runs/{run_id}/complete-instances.json'} if complete_rebar is not None else {}),
+                      **({'priorSteelLasUrl': f'/runs/{run_id}/prior-steel.las', 'priorNoiseLasUrl': f'/runs/{run_id}/prior-noise.las',
+                          'designPriorUrl': f'/runs/{run_id}/design-prior.json'} if prior_report is not None else {}),
+                      "lasUrl": f"/runs/{run_id}/{las_name}", "manifestUrl": f"/runs/{run_id}/manifest.json",
+                      "subsetClassAttribute": "refined_class with internal_type=5 mapped to noise" if internal_rebar is not None else "refined_class" if refinement else "fused_class" if fusion else None,
                       **({"steelLasUrl": f"/runs/{run_id}/steel-only.las", "fixtureLasUrl": f"/runs/{run_id}/fixture-only.las"} if fusion else {}),
-                      **({"internalSteelLasUrl": f"/runs/{run_id}/internal-steel.las", "internalInstancesUrl": f"/runs/{run_id}/internal-instances.json"} if internal_rebar is not None else {})},
+                      **({"noiseLasUrl": f"/runs/{run_id}/noise-only.las", "internalSteelLasUrl": f"/runs/{run_id}/internal-steel.las", "internalInstancesUrl": f"/runs/{run_id}/internal-instances.json"} if internal_rebar is not None else {})},
         }
         atomic_json(directory / "manifest.json", manifest)
         final = output_root / run_id
