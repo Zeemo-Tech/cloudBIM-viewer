@@ -97,7 +97,7 @@ def evaluate_acceptance(positions, owners, classes, instances, inventory, *, pol
             else:failure='missing_crossing'
         elif kind=='next':
             distance=min(np.linalg.norm(x-y) for x in (ga['start'],ga['end']) for y in (gb['start'],gb['end']))
-            if distance>2*policy.length_absolute_m:failure='disconnected_web'
+            if distance>policy.topology_endpoint_gap_m:failure='disconnected_web'
         if failure:topology.append({'from':a,'to':b,'reason':failure})
     performance=None if elapsed_s is None or baseline_s is None else elapsed_s<=baseline_s*policy.max_time_ratio
     failed=sum(not r['passed'] for r in result)

@@ -68,6 +68,20 @@ class AcceptancePolicy:
     diameter_m: float = .0015
     layer_m: float = .010
     max_time_ratio: float = 2.
+    topology_endpoint_gap_m: float = .040
+
+# Workbench inspection defaults; AcceptancePolicy() remains the original strict reference.
+WORKBENCH_ACCEPTANCE_DEFAULTS = {'angle_degrees': 15., 'length_absolute_m': .030, 'length_relative': .10}
+
+def workbench_acceptance_policy(values=None):
+    values = {} if values is None else values
+    allowed = {'angle_degrees': (1,45), 'length_absolute_m': (.001,.10), 'length_relative': (.01,.30)}
+    if not isinstance(values,dict) or set(values)-set(allowed):
+        raise ValueError('acceptancePolicy 仅支持方向及长度容差')
+    for key,value in values.items():
+        if type(value) not in (int,float) or not allowed[key][0] <= value <= allowed[key][1]:
+            raise ValueError('验收容差无效：'+key)
+    return AcceptancePolicy(**(WORKBENCH_ACCEPTANCE_DEFAULTS | values))
 
 @dataclass
 class Evidence:

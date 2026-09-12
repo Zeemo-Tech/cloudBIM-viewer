@@ -31,6 +31,16 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(self.check_cloud(tube(radius=.006))['geometryPassed'])
         result=self.check_cloud(tube(),elapsed_s=3,baseline_s=1)
         self.assertTrue(result['geometryPassed']);self.assertEqual(result['status'],'failed')
+    def test_relaxed_length_does_not_relax_topological_connection(self):
+        from algorithms.design_evidence_contract import AcceptancePolicy, workbench_acceptance_policy
+        p=tube();inv=inventory('web')
+        inv['units'].append(dict(designUnitId='b',startM=[.20,0,.04],endM=[.50,0,.04],lengthM=.3,diameterM=.006,kind='web'))
+        inv['relations']=[dict(kind='next',**{'from':'a','to':'b'})]
+        args=(np.r_[p,p+[.35,0,0]],np.repeat([1,2],len(p)),np.full(2*len(p),3),[dict(id=1,designUnitId='a'),dict(id=2,designUnitId='b')],inv)
+        strict=evaluate_acceptance(*args,policy=AcceptancePolicy())
+        relaxed=evaluate_acceptance(*args,policy=workbench_acceptance_policy())
+        self.assertEqual(strict['topologyFailures'],relaxed['topologyFailures'])
+        self.assertEqual(relaxed['topologyFailures'][0]['reason'],'disconnected_web')
     def test_missing_and_duplicate(self):
         p=tube();result=evaluate_acceptance(p,np.zeros(len(p),int),np.full(len(p),3),[],inventory())
         self.assertEqual(result['missingUnits'],['a'])
