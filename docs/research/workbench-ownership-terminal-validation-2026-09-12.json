@@ -1,0 +1,61 @@
+{
+  "runId": "20260912T074336-4a18904f",
+  "baselineRunId": "20260912T071818-4b517b83",
+  "sourcePoints": 9216369,
+  "runtimeSeconds": 71.85208640400378,
+  "ratioToFrozenBaseline": 1.757383152798225,
+  "observedInstances": 210,
+  "failedInstances": 51,
+  "topologyConflicts": 241,
+  "removedPointCount": 2612,
+  "byPhase": {
+    "1": 440,
+    "2": 2094,
+    "3": 78
+  },
+  "byOrigin": {
+    "internal": 1329,
+    "exterior": 1283
+  },
+  "fragmentCount": 214,
+  "premergeReportCount": 2094,
+  "newlyRemovedVsBaseline": 8,
+  "newSteelVsBaseline": 2,
+  "unchangedEarlierArrays": {
+    "positions": true,
+    "normals": true,
+    "geometry_class": true,
+    "projection_class": true,
+    "fused_class": true,
+    "refined_class": true,
+    "internal_type": true,
+    "internal_instance": true,
+    "internal_segment": true
+  },
+  "restoredPremergePoints": 0,
+  "hardBoundarySteel": 0,
+  "hookPointsRemoved": 0,
+  "mappedWebPointsRemoved": 0,
+  "fragmentProvenanceComplete": true,
+  "removedRowsAreNoise": true,
+  "manifestCountsAgree": true,
+  "newGeometryFailureReasonsVsBaseline": [
+    {
+      "instanceId": 205,
+      "reasons": [
+        "length"
+      ]
+    }
+  ],
+  "lasNpyAgreement": {
+    "terminal_removed": true,
+    "terminal_reason": true,
+    "terminal_previous_instance": true,
+    "terminal_previous_segment": true,
+    "terminal_fragment": true,
+    "terminal_origin": true,
+    "complete_class": true,
+    "complete_instance": true,
+    "complete_segment": true
+  }
+}

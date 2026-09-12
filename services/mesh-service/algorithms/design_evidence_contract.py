@@ -42,6 +42,7 @@ class RobustnessPolicy:
     max_offset: float = .04
     max_angle_degrees: float = 12.
     max_surface_error: float = .0015
+    ownership_improvement_m: float = .0005
     min_occupied_cells: int = 12
     min_occupied_bins: int = 3
     axial_bin: float = .005

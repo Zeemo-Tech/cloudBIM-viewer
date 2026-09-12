@@ -146,6 +146,15 @@ context.controls.completeClassFilter.value='4';
 context.applyCompleteTileAppearance();
 assert.deepEqual([...part.object.geometry.index.array], [2], 'explicit noise filtering remains available for tile diagnostics');
 
+// The same final-class precedence applies to full-density Tiles LOD.
+context.completeTileColorBytes=()=>[1,2,3];
+context.controls.completeColorMode.value='clusters';
+context.controls.completeClassFilter.value='all';
+const mixed={object:new THREE.Points(new THREE.BufferGeometry(),new THREE.PointsMaterial()),
+  classes:new Uint8Array([1,2,3,3,4]),instances:new Uint32Array([0,0,7,0,0]),clusters:new Uint32Array([8,8,8,8,8])};
+const mixedRecord={ready:true,parts:[mixed]};context.applyCompleteTileAppearance(mixedRecord);
+assert.deepEqual([...mixed.colors],[0x64,0x74,0x8b,0xf5,0x9e,0x0b,1,2,3,0x94,0xa3,0xb8,0xef,0x47,0x6f]);
+
 const readyA = {id: 'a'}, readyB = {id: 'b'};
 const records = new Map([['a', readyA], ['b', readyB]]);
 assert.deepEqual([...context.completeTileStyleTargets(records, readyB)].map(record => record.id), ['b'],

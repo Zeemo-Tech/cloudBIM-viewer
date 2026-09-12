@@ -1,0 +1,1807 @@
+{
+  "runIds": [
+    "20260912T065132-c62fdaaa",
+    "20260912T071818-4b517b83",
+    "20260912T074336-4a18904f"
+  ],
+  "sourcePoints": 9216369,
+  "regressedDesignOwnerPoints": 141,
+  "restoredDesignOwnerPoints": 141,
+  "unresolvedRegressionPoints": 0,
+  "newDesignOwnerChangesVsReference": 42021,
+  "ownerChangesVsRegressed": [
+    {
+      "previous": 0,
+      "final": 52,
+      "pointCount": 2
+    },
+    {
+      "previous": 0,
+      "final": 243,
+      "pointCount": 55
+    },
+    {
+      "previous": 1,
+      "final": 0,
+      "pointCount": 3
+    },
+    {
+      "previous": 26,
+      "final": 0,
+      "pointCount": 3
+    },
+    {
+      "previous": 36,
+      "final": 31,
+      "pointCount": 5
+    },
+    {
+      "previous": 36,
+      "final": 33,
+      "pointCount": 2
+    },
+    {
+      "previous": 36,
+      "final": 48,
+      "pointCount": 1
+    },
+    {
+      "previous": 36,
+      "final": 50,
+      "pointCount": 3
+    },
+    {
+      "previous": 36,
+      "final": 53,
+      "pointCount": 2
+    },
+    {
+      "previous": 36,
+      "final": 55,
+      "pointCount": 4
+    },
+    {
+      "previous": 36,
+      "final": 56,
+      "pointCount": 8
+    },
+    {
+      "previous": 36,
+      "final": 79,
+      "pointCount": 6
+    },
+    {
+      "previous": 36,
+      "final": 91,
+      "pointCount": 16
+    },
+    {
+      "previous": 36,
+      "final": 95,
+      "pointCount": 15
+    },
+    {
+      "previous": 36,
+      "final": 99,
+      "pointCount": 4
+    },
+    {
+      "previous": 36,
+      "final": 104,
+      "pointCount": 9
+    },
+    {
+      "previous": 36,
+      "final": 108,
+      "pointCount": 9
+    },
+    {
+      "previous": 36,
+      "final": 112,
+      "pointCount": 7
+    },
+    {
+      "previous": 36,
+      "final": 116,
+      "pointCount": 6
+    },
+    {
+      "previous": 36,
+      "final": 121,
+      "pointCount": 2
+    },
+    {
+      "previous": 36,
+      "final": 137,
+      "pointCount": 3
+    },
+    {
+      "previous": 36,
+      "final": 145,
+      "pointCount": 4
+    },
+    {
+      "previous": 36,
+      "final": 153,
+      "pointCount": 4
+    },
+    {
+      "previous": 36,
+      "final": 177,
+      "pointCount": 1
+    },
+    {
+      "previous": 36,
+      "final": 190,
+      "pointCount": 4
+    },
+    {
+      "previous": 36,
+      "final": 193,
+      "pointCount": 8
+    },
+    {
+      "previous": 36,
+      "final": 197,
+      "pointCount": 7
+    },
+    {
+      "previous": 36,
+      "final": 201,
+      "pointCount": 9
+    },
+    {
+      "previous": 36,
+      "final": 206,
+      "pointCount": 16
+    },
+    {
+      "previous": 36,
+      "final": 215,
+      "pointCount": 18
+    },
+    {
+      "previous": 36,
+      "final": 224,
+      "pointCount": 24
+    },
+    {
+      "previous": 36,
+      "final": 232,
+      "pointCount": 20
+    },
+    {
+      "previous": 39,
+      "final": 1,
+      "pointCount": 114
+    },
+    {
+      "previous": 39,
+      "final": 15,
+      "pointCount": 5
+    },
+    {
+      "previous": 39,
+      "final": 56,
+      "pointCount": 2
+    },
+    {
+      "previous": 39,
+      "final": 61,
+      "pointCount": 3
+    },
+    {
+      "previous": 41,
+      "final": 1,
+      "pointCount": 13
+    },
+    {
+      "previous": 41,
+      "final": 14,
+      "pointCount": 1
+    },
+    {
+      "previous": 41,
+      "final": 35,
+      "pointCount": 6
+    },
+    {
+      "previous": 41,
+      "final": 61,
+      "pointCount": 11
+    },
+    {
+      "previous": 41,
+      "final": 70,
+      "pointCount": 12
+    },
+    {
+      "previous": 41,
+      "final": 78,
+      "pointCount": 1
+    },
+    {
+      "previous": 42,
+      "final": 1,
+      "pointCount": 13
+    },
+    {
+      "previous": 42,
+      "final": 55,
+      "pointCount": 3
+    },
+    {
+      "previous": 42,
+      "final": 56,
+      "pointCount": 3
+    },
+    {
+      "previous": 42,
+      "final": 61,
+      "pointCount": 7
+    },
+    {
+      "previous": 43,
+      "final": 13,
+      "pointCount": 5
+    },
+    {
+      "previous": 43,
+      "final": 19,
+      "pointCount": 2
+    },
+    {
+      "previous": 43,
+      "final": 31,
+      "pointCount": 26
+    },
+    {
+      "previous": 43,
+      "final": 33,
+      "pointCount": 18
+    },
+    {
+      "previous": 43,
+      "final": 48,
+      "pointCount": 13
+    },
+    {
+      "previous": 43,
+      "final": 53,
+      "pointCount": 19
+    },
+    {
+      "previous": 43,
+      "final": 55,
+      "pointCount": 14
+    },
+    {
+      "previous": 43,
+      "final": 56,
+      "pointCount": 8
+    },
+    {
+      "previous": 43,
+      "final": 57,
+      "pointCount": 30
+    },
+    {
+      "previous": 43,
+      "final": 61,
+      "pointCount": 3
+    },
+    {
+      "previous": 43,
+      "final": 79,
+      "pointCount": 3
+    },
+    {
+      "previous": 44,
+      "final": 1,
+      "pointCount": 60
+    },
+    {
+      "previous": 44,
+      "final": 31,
+      "pointCount": 21
+    },
+    {
+      "previous": 44,
+      "final": 37,
+      "pointCount": 8
+    },
+    {
+      "previous": 44,
+      "final": 52,
+      "pointCount": 324
+    },
+    {
+      "previous": 44,
+      "final": 78,
+      "pointCount": 9
+    },
+    {
+      "previous": 45,
+      "final": 1,
+      "pointCount": 89
+    },
+    {
+      "previous": 45,
+      "final": 56,
+      "pointCount": 12
+    },
+    {
+      "previous": 45,
+      "final": 61,
+      "pointCount": 9
+    },
+    {
+      "previous": 46,
+      "final": 2,
+      "pointCount": 14066
+    },
+    {
+      "previous": 46,
+      "final": 79,
+      "pointCount": 2
+    },
+    {
+      "previous": 47,
+      "final": 1,
+      "pointCount": 25
+    },
+    {
+      "previous": 47,
+      "final": 31,
+      "pointCount": 65
+    },
+    {
+      "previous": 47,
+      "final": 33,
+      "pointCount": 10
+    },
+    {
+      "previous": 47,
+      "final": 37,
+      "pointCount": 16
+    },
+    {
+      "previous": 47,
+      "final": 48,
+      "pointCount": 6
+    },
+    {
+      "previous": 47,
+      "final": 55,
+      "pointCount": 4
+    },
+    {
+      "previous": 47,
+      "final": 61,
+      "pointCount": 2
+    },
+    {
+      "previous": 49,
+      "final": 0,
+      "pointCount": 2
+    },
+    {
+      "previous": 49,
+      "final": 14,
+      "pointCount": 4
+    },
+    {
+      "previous": 49,
+      "final": 18,
+      "pointCount": 17
+    },
+    {
+      "previous": 49,
+      "final": 26,
+      "pointCount": 21914
+    },
+    {
+      "previous": 49,
+      "final": 35,
+      "pointCount": 18
+    },
+    {
+      "previous": 49,
+      "final": 51,
+      "pointCount": 18
+    },
+    {
+      "previous": 49,
+      "final": 74,
+      "pointCount": 13
+    },
+    {
+      "previous": 49,
+      "final": 78,
+      "pointCount": 16
+    },
+    {
+      "previous": 88,
+      "final": 94,
+      "pointCount": 17
+    },
+    {
+      "previous": 88,
+      "final": 97,
+      "pointCount": 37
+    },
+    {
+      "previous": 88,
+      "final": 102,
+      "pointCount": 37
+    },
+    {
+      "previous": 88,
+      "final": 106,
+      "pointCount": 24
+    },
+    {
+      "previous": 88,
+      "final": 109,
+      "pointCount": 1
+    },
+    {
+      "previous": 88,
+      "final": 110,
+      "pointCount": 16
+    },
+    {
+      "previous": 88,
+      "final": 114,
+      "pointCount": 1
+    },
+    {
+      "previous": 88,
+      "final": 115,
+      "pointCount": 12
+    },
+    {
+      "previous": 88,
+      "final": 117,
+      "pointCount": 2
+    },
+    {
+      "previous": 88,
+      "final": 119,
+      "pointCount": 12
+    },
+    {
+      "previous": 88,
+      "final": 123,
+      "pointCount": 3
+    },
+    {
+      "previous": 88,
+      "final": 124,
+      "pointCount": 5
+    },
+    {
+      "previous": 88,
+      "final": 126,
+      "pointCount": 5
+    },
+    {
+      "previous": 88,
+      "final": 128,
+      "pointCount": 7
+    },
+    {
+      "previous": 88,
+      "final": 131,
+      "pointCount": 5
+    },
+    {
+      "previous": 88,
+      "final": 134,
+      "pointCount": 12
+    },
+    {
+      "previous": 88,
+      "final": 139,
+      "pointCount": 13
+    },
+    {
+      "previous": 88,
+      "final": 142,
+      "pointCount": 22
+    },
+    {
+      "previous": 88,
+      "final": 147,
+      "pointCount": 9
+    },
+    {
+      "previous": 88,
+      "final": 148,
+      "pointCount": 1
+    },
+    {
+      "previous": 88,
+      "final": 149,
+      "pointCount": 17
+    },
+    {
+      "previous": 88,
+      "final": 152,
+      "pointCount": 1
+    },
+    {
+      "previous": 88,
+      "final": 155,
+      "pointCount": 4
+    },
+    {
+      "previous": 88,
+      "final": 156,
+      "pointCount": 16
+    },
+    {
+      "previous": 88,
+      "final": 158,
+      "pointCount": 26
+    },
+    {
+      "previous": 88,
+      "final": 160,
+      "pointCount": 5
+    },
+    {
+      "previous": 88,
+      "final": 162,
+      "pointCount": 19
+    },
+    {
+      "previous": 88,
+      "final": 164,
+      "pointCount": 4
+    },
+    {
+      "previous": 88,
+      "final": 166,
+      "pointCount": 18
+    },
+    {
+      "previous": 88,
+      "final": 167,
+      "pointCount": 7
+    },
+    {
+      "previous": 88,
+      "final": 173,
+      "pointCount": 19
+    },
+    {
+      "previous": 88,
+      "final": 175,
+      "pointCount": 2
+    },
+    {
+      "previous": 88,
+      "final": 181,
+      "pointCount": 33
+    },
+    {
+      "previous": 88,
+      "final": 189,
+      "pointCount": 24
+    },
+    {
+      "previous": 88,
+      "final": 198,
+      "pointCount": 20
+    },
+    {
+      "previous": 88,
+      "final": 205,
+      "pointCount": 9
+    },
+    {
+      "previous": 88,
+      "final": 213,
+      "pointCount": 5
+    },
+    {
+      "previous": 88,
+      "final": 214,
+      "pointCount": 2
+    },
+    {
+      "previous": 88,
+      "final": 216,
+      "pointCount": 8
+    },
+    {
+      "previous": 88,
+      "final": 221,
+      "pointCount": 21
+    },
+    {
+      "previous": 88,
+      "final": 225,
+      "pointCount": 22
+    },
+    {
+      "previous": 88,
+      "final": 230,
+      "pointCount": 46
+    },
+    {
+      "previous": 88,
+      "final": 233,
+      "pointCount": 41
+    },
+    {
+      "previous": 88,
+      "final": 238,
+      "pointCount": 69
+    },
+    {
+      "previous": 89,
+      "final": 92,
+      "pointCount": 29
+    },
+    {
+      "previous": 89,
+      "final": 101,
+      "pointCount": 32
+    },
+    {
+      "previous": 89,
+      "final": 103,
+      "pointCount": 16
+    },
+    {
+      "previous": 89,
+      "final": 111,
+      "pointCount": 2
+    },
+    {
+      "previous": 89,
+      "final": 113,
+      "pointCount": 8
+    },
+    {
+      "previous": 89,
+      "final": 118,
+      "pointCount": 8
+    },
+    {
+      "previous": 89,
+      "final": 121,
+      "pointCount": 5
+    },
+    {
+      "previous": 89,
+      "final": 125,
+      "pointCount": 9
+    },
+    {
+      "previous": 89,
+      "final": 129,
+      "pointCount": 1
+    },
+    {
+      "previous": 89,
+      "final": 130,
+      "pointCount": 13
+    },
+    {
+      "previous": 89,
+      "final": 137,
+      "pointCount": 14
+    },
+    {
+      "previous": 89,
+      "final": 138,
+      "pointCount": 2
+    },
+    {
+      "previous": 89,
+      "final": 141,
+      "pointCount": 19
+    },
+    {
+      "previous": 89,
+      "final": 143,
+      "pointCount": 2
+    },
+    {
+      "previous": 89,
+      "final": 145,
+      "pointCount": 13
+    },
+    {
+      "previous": 89,
+      "final": 150,
+      "pointCount": 18
+    },
+    {
+      "previous": 89,
+      "final": 151,
+      "pointCount": 1
+    },
+    {
+      "previous": 89,
+      "final": 153,
+      "pointCount": 15
+    },
+    {
+      "previous": 89,
+      "final": 157,
+      "pointCount": 17
+    },
+    {
+      "previous": 89,
+      "final": 159,
+      "pointCount": 1
+    },
+    {
+      "previous": 89,
+      "final": 165,
+      "pointCount": 24
+    },
+    {
+      "previous": 89,
+      "final": 169,
+      "pointCount": 15
+    },
+    {
+      "previous": 89,
+      "final": 174,
+      "pointCount": 13
+    },
+    {
+      "previous": 89,
+      "final": 177,
+      "pointCount": 10
+    },
+    {
+      "previous": 89,
+      "final": 182,
+      "pointCount": 13
+    },
+    {
+      "previous": 89,
+      "final": 185,
+      "pointCount": 7
+    },
+    {
+      "previous": 89,
+      "final": 186,
+      "pointCount": 1
+    },
+    {
+      "previous": 89,
+      "final": 190,
+      "pointCount": 14
+    },
+    {
+      "previous": 89,
+      "final": 193,
+      "pointCount": 5
+    },
+    {
+      "previous": 89,
+      "final": 195,
+      "pointCount": 2
+    },
+    {
+      "previous": 89,
+      "final": 197,
+      "pointCount": 9
+    },
+    {
+      "previous": 89,
+      "final": 199,
+      "pointCount": 6
+    },
+    {
+      "previous": 89,
+      "final": 201,
+      "pointCount": 2
+    },
+    {
+      "previous": 89,
+      "final": 202,
+      "pointCount": 1
+    },
+    {
+      "previous": 89,
+      "final": 206,
+      "pointCount": 5
+    },
+    {
+      "previous": 89,
+      "final": 208,
+      "pointCount": 5
+    },
+    {
+      "previous": 89,
+      "final": 211,
+      "pointCount": 6
+    },
+    {
+      "previous": 89,
+      "final": 215,
+      "pointCount": 8
+    },
+    {
+      "previous": 89,
+      "final": 217,
+      "pointCount": 5
+    },
+    {
+      "previous": 89,
+      "final": 218,
+      "pointCount": 16
+    },
+    {
+      "previous": 89,
+      "final": 224,
+      "pointCount": 6
+    },
+    {
+      "previous": 89,
+      "final": 226,
+      "pointCount": 4
+    },
+    {
+      "previous": 89,
+      "final": 229,
+      "pointCount": 22
+    },
+    {
+      "previous": 89,
+      "final": 232,
+      "pointCount": 2
+    },
+    {
+      "previous": 89,
+      "final": 234,
+      "pointCount": 25
+    },
+    {
+      "previous": 89,
+      "final": 237,
+      "pointCount": 31
+    },
+    {
+      "previous": 94,
+      "final": 26,
+      "pointCount": 121
+    },
+    {
+      "previous": 94,
+      "final": 88,
+      "pointCount": 82
+    },
+    {
+      "previous": 109,
+      "final": 14,
+      "pointCount": 1
+    },
+    {
+      "previous": 109,
+      "final": 52,
+      "pointCount": 148
+    },
+    {
+      "previous": 109,
+      "final": 88,
+      "pointCount": 15
+    },
+    {
+      "previous": 110,
+      "final": 14,
+      "pointCount": 17
+    },
+    {
+      "previous": 110,
+      "final": 26,
+      "pointCount": 24
+    },
+    {
+      "previous": 110,
+      "final": 88,
+      "pointCount": 11
+    },
+    {
+      "previous": 119,
+      "final": 18,
+      "pointCount": 6
+    },
+    {
+      "previous": 119,
+      "final": 26,
+      "pointCount": 12
+    },
+    {
+      "previous": 119,
+      "final": 88,
+      "pointCount": 6
+    },
+    {
+      "previous": 125,
+      "final": 36,
+      "pointCount": 19
+    },
+    {
+      "previous": 125,
+      "final": 89,
+      "pointCount": 20
+    },
+    {
+      "previous": 127,
+      "final": 2,
+      "pointCount": 112
+    },
+    {
+      "previous": 128,
+      "final": 26,
+      "pointCount": 49
+    },
+    {
+      "previous": 128,
+      "final": 88,
+      "pointCount": 13
+    },
+    {
+      "previous": 134,
+      "final": 44,
+      "pointCount": 5
+    },
+    {
+      "previous": 134,
+      "final": 52,
+      "pointCount": 198
+    },
+    {
+      "previous": 134,
+      "final": 88,
+      "pointCount": 6
+    },
+    {
+      "previous": 136,
+      "final": 26,
+      "pointCount": 36
+    },
+    {
+      "previous": 136,
+      "final": 88,
+      "pointCount": 19
+    },
+    {
+      "previous": 141,
+      "final": 36,
+      "pointCount": 40
+    },
+    {
+      "previous": 141,
+      "final": 89,
+      "pointCount": 10
+    },
+    {
+      "previous": 143,
+      "final": 2,
+      "pointCount": 107
+    },
+    {
+      "previous": 143,
+      "final": 89,
+      "pointCount": 3
+    },
+    {
+      "previous": 144,
+      "final": 26,
+      "pointCount": 49
+    },
+    {
+      "previous": 144,
+      "final": 88,
+      "pointCount": 20
+    },
+    {
+      "previous": 149,
+      "final": 52,
+      "pointCount": 212
+    },
+    {
+      "previous": 149,
+      "final": 88,
+      "pointCount": 9
+    },
+    {
+      "previous": 151,
+      "final": 2,
+      "pointCount": 105
+    },
+    {
+      "previous": 151,
+      "final": 89,
+      "pointCount": 5
+    },
+    {
+      "previous": 152,
+      "final": 26,
+      "pointCount": 77
+    },
+    {
+      "previous": 152,
+      "final": 88,
+      "pointCount": 16
+    },
+    {
+      "previous": 158,
+      "final": 35,
+      "pointCount": 8
+    },
+    {
+      "previous": 158,
+      "final": 44,
+      "pointCount": 3
+    },
+    {
+      "previous": 158,
+      "final": 52,
+      "pointCount": 165
+    },
+    {
+      "previous": 166,
+      "final": 52,
+      "pointCount": 164
+    },
+    {
+      "previous": 173,
+      "final": 52,
+      "pointCount": 198
+    },
+    {
+      "previous": 174,
+      "final": 36,
+      "pointCount": 72
+    },
+    {
+      "previous": 174,
+      "final": 89,
+      "pointCount": 2
+    },
+    {
+      "previous": 175,
+      "final": 26,
+      "pointCount": 78
+    },
+    {
+      "previous": 175,
+      "final": 88,
+      "pointCount": 20
+    },
+    {
+      "previous": 182,
+      "final": 36,
+      "pointCount": 68
+    },
+    {
+      "previous": 183,
+      "final": 26,
+      "pointCount": 41
+    },
+    {
+      "previous": 183,
+      "final": 88,
+      "pointCount": 18
+    },
+    {
+      "previous": 189,
+      "final": 52,
+      "pointCount": 150
+    },
+    {
+      "previous": 191,
+      "final": 2,
+      "pointCount": 117
+    },
+    {
+      "previous": 191,
+      "final": 89,
+      "pointCount": 1
+    },
+    {
+      "previous": 192,
+      "final": 26,
+      "pointCount": 39
+    },
+    {
+      "previous": 192,
+      "final": 88,
+      "pointCount": 12
+    },
+    {
+      "previous": 197,
+      "final": 36,
+      "pointCount": 31
+    },
+    {
+      "previous": 200,
+      "final": 26,
+      "pointCount": 67
+    },
+    {
+      "previous": 200,
+      "final": 88,
+      "pointCount": 17
+    },
+    {
+      "previous": 205,
+      "final": 44,
+      "pointCount": 3
+    },
+    {
+      "previous": 205,
+      "final": 52,
+      "pointCount": 112
+    },
+    {
+      "previous": 207,
+      "final": 26,
+      "pointCount": 39
+    },
+    {
+      "previous": 207,
+      "final": 88,
+      "pointCount": 6
+    },
+    {
+      "previous": 208,
+      "final": 2,
+      "pointCount": 86
+    },
+    {
+      "previous": 208,
+      "final": 72,
+      "pointCount": 3
+    },
+    {
+      "previous": 223,
+      "final": 52,
+      "pointCount": 125
+    },
+    {
+      "previous": 224,
+      "final": 36,
+      "pointCount": 42
+    },
+    {
+      "previous": 224,
+      "final": 89,
+      "pointCount": 2
+    },
+    {
+      "previous": 225,
+      "final": 26,
+      "pointCount": 96
+    },
+    {
+      "previous": 225,
+      "final": 88,
+      "pointCount": 4
+    },
+    {
+      "previous": 231,
+      "final": 52,
+      "pointCount": 124
+    },
+    {
+      "previous": 233,
+      "final": 26,
+      "pointCount": 116
+    },
+    {
+      "previous": 233,
+      "final": 88,
+      "pointCount": 6
+    },
+    {
+      "previous": 234,
+      "final": 2,
+      "pointCount": 107
+    },
+    {
+      "previous": 234,
+      "final": 89,
+      "pointCount": 6
+    }
+  ],
+  "unchangedVsRegressed": {
+    "complete_class": false,
+    "terminal_removed": false,
+    "terminal_reason": false,
+    "terminal_fragment": true,
+    "terminal_origin": true
+  },
+  "ownershipEvidence": {
+    "version": "local-incumbent-v1",
+    "comparisons": [
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv5V:representation0/item0:289/unit1",
+        "comparedPointCount": 26,
+        "supportedIncumbentPointCount": 26,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 26,
+        "preservedPointCount": 26
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0a:representation0/item0:2126/unit0",
+        "comparedPointCount": 217,
+        "supportedIncumbentPointCount": 217,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 217,
+        "preservedPointCount": 217
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv53:representation0/item0:235/unit1",
+        "comparedPointCount": 44,
+        "supportedIncumbentPointCount": 44,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 44,
+        "preservedPointCount": 44
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0d:representation0/item0:2142/unit0",
+        "comparedPointCount": 483,
+        "supportedIncumbentPointCount": 483,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 483,
+        "preservedPointCount": 483
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pvHx:representation0/item0:1213/unit0",
+        "comparedPointCount": 713,
+        "supportedIncumbentPointCount": 713,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 713,
+        "preservedPointCount": 713
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pvys:representation0/item0:154/unit1",
+        "comparedPointCount": 128,
+        "supportedIncumbentPointCount": 128,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 128,
+        "preservedPointCount": 128
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv5a:representation0/item0:316/unit1",
+        "comparedPointCount": 124,
+        "supportedIncumbentPointCount": 124,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 124,
+        "preservedPointCount": 124
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit10",
+        "comparedPointCount": 139,
+        "supportedIncumbentPointCount": 139,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 139,
+        "preservedPointCount": 139
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit10",
+        "comparedPointCount": 65,
+        "supportedIncumbentPointCount": 65,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 65,
+        "preservedPointCount": 65
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv5_:representation0/item0:370/unit1",
+        "comparedPointCount": 141,
+        "supportedIncumbentPointCount": 141,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 141,
+        "preservedPointCount": 141
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit8",
+        "comparedPointCount": 76,
+        "supportedIncumbentPointCount": 76,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 76,
+        "preservedPointCount": 76
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv58:representation0/item0:262/unit1",
+        "comparedPointCount": 110,
+        "supportedIncumbentPointCount": 110,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 110,
+        "preservedPointCount": 110
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit26",
+        "comparedPointCount": 133,
+        "supportedIncumbentPointCount": 133,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 133,
+        "preservedPointCount": 133
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit1",
+        "comparedPointCount": 139,
+        "supportedIncumbentPointCount": 139,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 139,
+        "preservedPointCount": 139
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit28",
+        "comparedPointCount": 91,
+        "supportedIncumbentPointCount": 91,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 91,
+        "preservedPointCount": 91
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit24",
+        "comparedPointCount": 120,
+        "supportedIncumbentPointCount": 120,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 120,
+        "preservedPointCount": 120
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit12",
+        "comparedPointCount": 148,
+        "supportedIncumbentPointCount": 148,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 148,
+        "preservedPointCount": 148
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit28",
+        "comparedPointCount": 46,
+        "supportedIncumbentPointCount": 46,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 46,
+        "preservedPointCount": 46
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit30",
+        "comparedPointCount": 20,
+        "supportedIncumbentPointCount": 20,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 20,
+        "preservedPointCount": 20
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit32",
+        "comparedPointCount": 119,
+        "supportedIncumbentPointCount": 119,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 119,
+        "preservedPointCount": 119
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit6",
+        "comparedPointCount": 34,
+        "supportedIncumbentPointCount": 34,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 34,
+        "preservedPointCount": 34
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv4t:representation0/item0:181/unit1",
+        "comparedPointCount": 422,
+        "supportedIncumbentPointCount": 422,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 422,
+        "preservedPointCount": 422
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit22",
+        "comparedPointCount": 140,
+        "supportedIncumbentPointCount": 140,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 140,
+        "preservedPointCount": 140
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit10",
+        "comparedPointCount": 71,
+        "supportedIncumbentPointCount": 71,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 71,
+        "preservedPointCount": 71
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit26",
+        "comparedPointCount": 95,
+        "supportedIncumbentPointCount": 95,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 95,
+        "preservedPointCount": 95
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit24",
+        "comparedPointCount": 67,
+        "supportedIncumbentPointCount": 67,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 67,
+        "preservedPointCount": 67
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit8",
+        "comparedPointCount": 132,
+        "supportedIncumbentPointCount": 132,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 132,
+        "preservedPointCount": 132
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit20",
+        "comparedPointCount": 123,
+        "supportedIncumbentPointCount": 123,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 123,
+        "preservedPointCount": 123
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv5f:representation0/item0:343/unit1",
+        "comparedPointCount": 14138,
+        "supportedIncumbentPointCount": 14138,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 14138,
+        "preservedPointCount": 14138
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit4",
+        "comparedPointCount": 61,
+        "supportedIncumbentPointCount": 61,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 61,
+        "preservedPointCount": 61
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit22",
+        "comparedPointCount": 120,
+        "supportedIncumbentPointCount": 120,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 120,
+        "preservedPointCount": 120
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit34",
+        "comparedPointCount": 128,
+        "supportedIncumbentPointCount": 128,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 128,
+        "preservedPointCount": 128
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit12",
+        "comparedPointCount": 77,
+        "supportedIncumbentPointCount": 77,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 77,
+        "preservedPointCount": 77
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit14",
+        "comparedPointCount": 108,
+        "supportedIncumbentPointCount": 108,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 108,
+        "preservedPointCount": 108
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit34",
+        "comparedPointCount": 124,
+        "supportedIncumbentPointCount": 124,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 124,
+        "preservedPointCount": 124
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit34",
+        "comparedPointCount": 116,
+        "supportedIncumbentPointCount": 116,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 116,
+        "preservedPointCount": 116
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit20",
+        "comparedPointCount": 122,
+        "supportedIncumbentPointCount": 122,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 122,
+        "preservedPointCount": 122
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit24",
+        "comparedPointCount": 150,
+        "supportedIncumbentPointCount": 150,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 150,
+        "preservedPointCount": 150
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit32",
+        "comparedPointCount": 125,
+        "supportedIncumbentPointCount": 125,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 125,
+        "preservedPointCount": 125
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit32",
+        "comparedPointCount": 130,
+        "supportedIncumbentPointCount": 130,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 130,
+        "preservedPointCount": 130
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit14",
+        "comparedPointCount": 136,
+        "supportedIncumbentPointCount": 136,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 136,
+        "preservedPointCount": 136
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit22",
+        "comparedPointCount": 80,
+        "supportedIncumbentPointCount": 80,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 80,
+        "preservedPointCount": 80
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit3",
+        "comparedPointCount": 156,
+        "supportedIncumbentPointCount": 156,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 156,
+        "preservedPointCount": 156
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit26",
+        "comparedPointCount": 102,
+        "supportedIncumbentPointCount": 102,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 102,
+        "preservedPointCount": 102
+      },
+      {
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pv4_:representation0/item0:208/unit1",
+        "comparedPointCount": 22034,
+        "supportedIncumbentPointCount": 22034,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 22034,
+        "preservedPointCount": 22034
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit28",
+        "comparedPointCount": 115,
+        "supportedIncumbentPointCount": 115,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 115,
+        "preservedPointCount": 115
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit16",
+        "comparedPointCount": 95,
+        "supportedIncumbentPointCount": 95,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 95,
+        "preservedPointCount": 95
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit30",
+        "comparedPointCount": 80,
+        "supportedIncumbentPointCount": 80,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 80,
+        "preservedPointCount": 80
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit20",
+        "comparedPointCount": 122,
+        "supportedIncumbentPointCount": 122,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 122,
+        "preservedPointCount": 122
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit28",
+        "comparedPointCount": 41,
+        "supportedIncumbentPointCount": 41,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 41,
+        "preservedPointCount": 41
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit22",
+        "comparedPointCount": 117,
+        "supportedIncumbentPointCount": 117,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 117,
+        "preservedPointCount": 117
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit24",
+        "comparedPointCount": 103,
+        "supportedIncumbentPointCount": 103,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 103,
+        "preservedPointCount": 103
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit0",
+        "comparedPointCount": 206,
+        "supportedIncumbentPointCount": 206,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 206,
+        "preservedPointCount": 206
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit0",
+        "comparedPointCount": 210,
+        "supportedIncumbentPointCount": 210,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 210,
+        "preservedPointCount": 210
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit18",
+        "comparedPointCount": 94,
+        "supportedIncumbentPointCount": 94,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 94,
+        "preservedPointCount": 94
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit18",
+        "comparedPointCount": 171,
+        "supportedIncumbentPointCount": 171,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 171,
+        "preservedPointCount": 171
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit20",
+        "comparedPointCount": 202,
+        "supportedIncumbentPointCount": 202,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 202,
+        "preservedPointCount": 202
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit4",
+        "comparedPointCount": 175,
+        "supportedIncumbentPointCount": 175,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 175,
+        "preservedPointCount": 175
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit16",
+        "comparedPointCount": 183,
+        "supportedIncumbentPointCount": 183,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 183,
+        "preservedPointCount": 183
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit10",
+        "comparedPointCount": 218,
+        "supportedIncumbentPointCount": 218,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 218,
+        "preservedPointCount": 218
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit14",
+        "comparedPointCount": 234,
+        "supportedIncumbentPointCount": 234,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 234,
+        "preservedPointCount": 234
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit12",
+        "comparedPointCount": 188,
+        "supportedIncumbentPointCount": 188,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 188,
+        "preservedPointCount": 188
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit8",
+        "comparedPointCount": 136,
+        "supportedIncumbentPointCount": 136,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 136,
+        "preservedPointCount": 136
+      },
+      {
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit4",
+        "comparedPointCount": 83,
+        "supportedIncumbentPointCount": 83,
+        "missingIncumbentPointCount": 0,
+        "improvedTransferPointCount": 0,
+        "supportedSegmentPointCount": 83,
+        "preservedPointCount": 83
+      }
+    ]
+  }
+}

@@ -377,7 +377,7 @@ function applyCompleteTileAppearance(targetRecord = null) {
       for (let index = 0; index < count; index += 1) {
         const cls = classes[index], instance = instances[index], cluster = clusters[index];
         if (updateColors) {
-          const color = colorMode === 'clusters' && cluster ? completeTileColorBytes(cluster)
+          const color = colorMode === 'clusters' && cls === 3 && instance > 0 && cluster ? completeTileColorBytes(cluster)
             : cls === 3 && !instance ? [0x94, 0xa3, 0xb8]
               : cls === 3 && colorMode === 'instances' ? completeTileColorBytes(instance)
                 : classColors[cls] || [0x94, 0xa3, 0xb8];
@@ -1184,7 +1184,7 @@ function applyCompleteAppearance() {
   const palette = {1:'#64748b',2:'#f59e0b',3:'#2dd4bf',4:'#ef476f'};
   let size = 0;
   for (let i = 0; i < classes.length; i++) {
-    colors.set($('completeColorMode').value === 'clusters' && current._complete.complete_cluster?.[i] ? instanceColor(current._complete.complete_cluster[i]) : classes[i] === 3 && !instances[i] ? instanceColor(0) : classes[i] === 3 && $('completeColorMode').value === 'instances' ? instanceColor(instances[i]) : hexColor(palette[classes[i]]), i * 3);
+    colors.set($('completeColorMode').value === 'clusters' && classes[i] === 3 && instances[i] > 0 && current._complete.complete_cluster?.[i] ? instanceColor(current._complete.complete_cluster[i]) : classes[i] === 3 && !instances[i] ? instanceColor(0) : classes[i] === 3 && $('completeColorMode').value === 'instances' ? instanceColor(instances[i]) : hexColor(palette[classes[i]]), i * 3);
     const finalId = current._complete.complete_instance[i];
     const matches = filter === 'terminal-removed' ? Boolean(removed?.[i])
       : filter === 'terminal-internal' ? Boolean(removed?.[i]) && current._complete.terminal_origin?.[i]===1
@@ -1225,6 +1225,7 @@ function applyCompleteAppearance() {
   if (Number.isFinite(current.completeRebar.designReview?.separatedExteriorClusters)) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。先分离同轴外露钢筋与横向夹具边缘，再接续内部实例并清理剩余分支。选择“粘连簇拆分对照”可比较处理前后，查看保留的钢筋和移除的边缘。原连通簇颜色用于追溯来源，不代表最终实例。遮挡处不补点。`;
   if (current.completeRebar.designReview?.hookClusters) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。弯钩核心单独锁定、只能整簇合并；弯钩实例的直段外端在夹具接触带按局部实测圆柱壳打磨。内外钢筋全部接续后，再按设计长度和同类钢筋参考点数过滤异常簇。可筛选“受保护弯曲外筋”和“最后整簇过滤”，对照第五步查看。`;
   if ($('completeColorMode').value === 'score' && current._fusedSteelScores) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点，颜色沿用 03 的融合支持分数。点击点云可核对 03 → 05 → 06 的类别及高分保护状态；噪音也显示删除前分数。`;
+  if ($('completeColorMode').value === 'clusters') $('completeHint').textContent += ' 原簇颜色仅用于已编号钢筋点；台面、夹具、噪声按最终类别着色，未分配候选显示灰色。原始簇编号不代表最终钢筋实例。';
   if (current.terminalCleanup) $('completeHint').textContent += ` 本轮末端剥离 ${fmt(current.terminalCleanup.removedPointCount)} 点${current.terminalCleanup.premerge ? `（合并前 ${fmt(current.terminalCleanup.premergeRemovedPointCount)} 点，保留 ${fmt(current.terminalCleanup.fragmentCount)} 个观测片段身份）` : ''}；可切换清理前或仅剥离点。验收仍使用原阈值。`;
   if (typeof applyCompleteTileAppearance === 'function' && applyCompleteTileAppearance()) {
     $('completeHint').textContent = $('completeHint').textContent.replace(`显示 ${fmt(size)} 个样本点。`, '当前使用按视野加载的高密度 Tiles LOD。');

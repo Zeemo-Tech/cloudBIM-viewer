@@ -55,6 +55,20 @@ $('completeColorMode').value='clusters';$('completeClassFilter').value='all';$('
 sandbox.applyCompleteAppearance();
 assert.equal($('completeClusterColorOption').disabled,false);
 assert.equal(sandbox.completeGeometry.index.count,6);
+// Historical source clusters can contain rejected points: their old hue must
+// not hide final noise/fixture classes, or make pending points look assigned.
+sandbox.current._complete.complete_cluster[1]=7;
+sandbox.current._complete.complete_cluster[4]=7;
+sandbox.current._complete.complete_cluster[5]=7;
+sandbox.applyCompleteAppearance();
+const displayedColors=sandbox.completeGeometry.attributes.color.array;
+for (const [index,hex] of [[1,'#f59e0b'],[4,'#94a3b8'],[5,'#ef476f']]) {
+  const expected=new THREE.Color(hex).toArray();
+  for(let axis=0;axis<3;axis++) assert.ok(Math.abs(displayedColors[index*3+axis]-expected[axis])<1e-6);
+}
+sandbox.current._complete.complete_cluster[1]=0;
+sandbox.current._complete.complete_cluster[4]=0;
+sandbox.current._complete.complete_cluster[5]=0;
 data.complete_cluster[3]=8;
 await assert.rejects(sandbox.loadCompletePreview(clusterManifest), /簇编号无效/);
 // Guided Step 06: baseline ownership, operation filters and separate downloads.

@@ -10,6 +10,61 @@ def _surface_cost(points, model):
     return np.abs(np.linalg.norm(d-t[:,None]*model['axis'],axis=1)-model['radius'])+2*np.maximum(model['low']-t,np.maximum(t-model['high'],0))
 
 
+def _ownership_evidence(context, rows, target, candidate, segments, policy):
+    """A failed whole rod does not invalidate its locally supported points.
+
+    Compare against the frozen pre-review segment, never a provisional candidate
+    or a cylinder fitted to the entire (possibly bent) owner. Missing incumbent
+    geometry is uncertainty, not counterevidence authorizing a transfer.
+    """
+    cost = _surface_cost(context.positions[rows], candidate.model)
+    foreign = (context.complete_instance[rows] > 0) & (context.complete_instance[rows] != target)
+    allowed = ~foreign
+    counts = dict(comparedPointCount=int(foreign.sum()), supportedIncumbentPointCount=0,
+                  missingIncumbentPointCount=0, improvedTransferPointCount=0,
+                  supportedSegmentPointCount=0)
+    foreign_rows = np.flatnonzero(foreign)
+    segment_ids = context.complete_segment[rows[foreign_rows]]
+    for sid in np.unique(segment_ids):
+        local = foreign_rows[segment_ids == sid]
+        segment = segments.get(int(sid))
+        if segment is None:
+            counts['missingIncumbentPointCount'] += len(local)
+            continue
+        start = np.asarray(segment['startM'], dtype=float)
+        end = np.asarray(segment['endM'], dtype=float)
+        length = np.linalg.norm(end-start)
+        radius = float(segment['radiusM'])
+        if not np.isfinite([*start, *end, radius, length]).all() or length <= 0 or radius <= 0:
+            counts['missingIncumbentPointCount'] += len(local)
+            continue
+        valid = context.complete_instance[rows[local]] == segment['instanceId']
+        counts['missingIncumbentPointCount'] += int((~valid).sum())
+        local = local[valid]
+        # Independent Step06 fits describe a coherent measured fragment. A few
+        # surface outliers near a crossing must not split that fragment into
+        # multiple owners. Provisional design fits cannot protect themselves.
+        fit_error = segment.get('fitMedianErrorM')
+        if (segment.get('candidateSource') != 'design-fixed-radius' and fit_error is not None
+                and np.isfinite(fit_error) and 0 <= fit_error <= policy.max_surface_error):
+            counts['supportedSegmentPointCount'] += len(local)
+            counts['supportedIncumbentPointCount'] += len(local)
+            continue
+        model = dict(center=(start+end)/2, axis=(end-start)/length, radius=radius,
+                     low=-length/2-policy.max_surface_error, high=length/2+policy.max_surface_error)
+        incumbent = _surface_cost(context.positions[rows[local]], model)
+        supported = incumbent <= policy.max_surface_error
+        counts['supportedIncumbentPointCount'] += int(supported.sum())
+        transfer = (~supported) & (cost[local] <= policy.max_surface_error) & (
+            cost[local] + policy.ownership_improvement_m < incumbent)
+        # Only independent confirmed evidence can displace an existing owner.
+        transfer &= candidate.evidence.anchor_eligible
+        allowed[local[transfer]] = True
+        counts['improvedTransferPointCount'] += int(transfer.sum())
+    counts['preservedPointCount'] = int(np.count_nonzero(foreign & ~allowed))
+    return allowed, cost, counts
+
+
 def prepare_review(context, inventory, *, output, workers=1, progress=None, policy=None):
     from .design_candidates import generate_candidates
     from .design_evidence import evaluate_evidence
@@ -138,7 +193,8 @@ def finalize_review(context, report, inventory, *, acceptance_policy=None):
     unit_owner={r.get('designUnitId'):r['id'] for r in report['instances'] if r.get('designUnitId')}
     next_owner=int(owners.max())+1;next_segment=int(context.complete_segment.max())+1
     best=np.full(len(owners),np.inf,np.float32);winning=np.full(len(owners),-1,np.int32)
-    chosen=[];operations=[]
+    chosen=[];operations=[];ownership_comparisons=[]
+    incumbent_segments={s['id']:s for s in report['segments']}
     for i,c in enumerate(live):
         u=choices.get(i)
         if u is None:continue
@@ -148,12 +204,15 @@ def finalize_review(context, report, inventory, *, acceptance_policy=None):
         # Existing curved hook owners are not retargeted by straight hypotheses.
         hook_clusters={r['id'] for r in report.get('clusters',[]) if r.get('category')=='curved-exterior'}
         rows=rows[~np.isin(context.complete_cluster[rows],list(hook_clusters))]
+        allowed,cost,comparison=_ownership_evidence(context,rows,existing,c,incumbent_segments,policy)
+        ownership_comparisons.append(dict(designUnitId=uid,**comparison))
+        rows=rows[allowed];cost=cost[allowed]
+        if len(rows)<12:continue
         if existing is not None:
             proposed=np.union1d(rows,owner_rows.get(existing,[])).astype(np.int64)
             local=evaluate_acceptance(context.positions[proposed],np.ones(len(proposed),int),np.full(len(proposed),3),[dict(id=1,designUnitId=uid)],dict(units=[units[u]],relations=[]),policy=acceptance_policy)
             previous=before_rows[existing];after=local['instances'][0]
             if set(after['reasons'])-set(previous['reasons']):continue
-        cost=_surface_cost(context.positions[rows],c.model)
         take=cost<best[rows];best[rows[take]]=cost[take];winning[rows[take]]=len(chosen)
         chosen.append((c,u,existing))
     for index,(c,u,existing) in enumerate(chosen):
@@ -180,6 +239,7 @@ def finalize_review(context, report, inventory, *, acceptance_policy=None):
     report['instances']=final;report['instanceCount']=len(final)
     report['unassignedRebarPointCount']=int(np.count_nonzero((classes==3)&(owners==0)))
     context.design_review_report['assignment']=dict(operations=operations,unselectedCandidateCount=len(extras),topologyRetries=retries,stopReason='no_new_independent_support',alternatives=[dict(candidate=i,choices=[dict(cost=float(cost),designUnitId=units[u]['designUnitId']) for cost,u in row],margin=float(row[1][0]-row[0][0]) if len(row)>1 else None) for i,row in enumerate(ranked)])
+    context.design_review_report['assignment']['ownershipEvidence']=dict(version='local-incumbent-v1',comparisons=ownership_comparisons)
     acceptance=evaluate_acceptance(context.positions,owners,classes,final,inventory,policy=acceptance_policy)
     context.design_review_report['acceptance']=acceptance
     # Independent final denoising remains negative evidence, not overwritten by proposal support.
