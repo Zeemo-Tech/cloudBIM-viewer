@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as THREE from 'three';
+import { buildInstancePalette } from '../src/features/rebar-visualization/instancePalette.js';
 
 // Exercise the actual preview loader and Three.js filtering code without a GPU.
 const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.meta.url), 'utf8');
@@ -17,6 +18,7 @@ const data = {complete_class:cls, complete_instance:ids, complete_segment:ids, c
 const manifest = {preview:{pointCount:6, origin:[0,0,0], ...Object.fromEntries(Object.keys(data).map(k=>[k+'Url',k]))},
   completeRebar:{enabled:true,instances:[{id:1,lengthM:1,extensionLengthM:.1}],segments:[{id:1,instanceId:1,startM:[0,0,0],endM:[1,0,0]}],counts:{table:1,fixture:1,rebar:3,noise:1}},files:{}};
 const sandbox = vm.createContext({THREE, $, Uint8Array, Uint32Array, Float32Array, Number, Set, Map, Object, Promise,
+  buildInstancePalette, spatialInstancePalettes: { internalRebar: new Map(), completeRebar: new Map() }, completeTileColorCache: new Map(),
   fetchBytes:async name=>data[name].buffer, Option:function(text,value){this.text=text;this.value=value;},
   document:{createElement:()=>({})}, fmt:String, requestRender:()=>{},
   hexColor:hex=>new THREE.Color(hex).toArray(), internalTypeColors:{4:'#94a3b8'},
@@ -28,6 +30,7 @@ const sandbox = vm.createContext({THREE, $, Uint8Array, Uint32Array, Float32Arra
 vm.runInContext(code,sandbox);
 assert.equal(await sandbox.loadCompletePreview({}),null);
 sandbox.current={...manifest,_complete:await sandbox.loadCompletePreview(manifest),_positions:new Float32Array(18),_internalInstances:new Uint32Array([0,0,1,0,0,0])};
+sandbox.rebuildSpatialInstancePalettes();
 sandbox.installCompletePreview();
 $('completeColorMode').value='instances';
 sandbox.applyCompleteAppearance();
@@ -40,6 +43,11 @@ $('completeClassFilter').value='3';$('completeInstanceFilter').value='1';$('comp
 sandbox.applyCompleteAppearance();
 assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[2,3]);
 assert.equal(sandbox.completeAxisLines.geometry.attributes.position.count,2);
+const assignedColor = sandbox.rebarInstanceColor(1, 'completeRebar');
+for (let channel = 0; channel < 3; channel++) {
+  assert.ok(Math.abs(sandbox.completeGeometry.attributes.color.array[2 * 3 + channel] - assignedColor[channel]) < 1e-6);
+  assert.ok(Math.abs(sandbox.completeAxisLines.geometry.attributes.color.array[channel] - assignedColor[channel]) < 1e-6);
+}
 sandbox.clearCompleteAxes();assert.equal(sandbox.completeAxisLines,null);
 const malformed=structuredClone(manifest);delete malformed.preview.complete_classUrl;
 await assert.rejects(sandbox.loadCompletePreview(malformed), /缺少/);

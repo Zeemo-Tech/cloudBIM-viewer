@@ -40,6 +40,7 @@ const emit = defineEmits<{
 const viewerRef = ref<InstanceType<typeof UnifiedViewer3D> | null>(null)
 
 defineExpose({
+  setBimRemeshVisible: (visible: boolean) => viewerRef.value?.setBimRemeshVisible(visible),
   reload: () => viewerRef.value?.reload(),
   getModelWorldPose: () => viewerRef.value?.getModelWorldPose(),
   getCameraPose: () => viewerRef.value?.getCameraPose(),

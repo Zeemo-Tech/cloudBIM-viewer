@@ -278,6 +278,8 @@ def handler_for(state, allowed_hosts=()):
                 return self.json_response(200, manifests)
             if path in ("/", "/index.html", "/viewer.js"):
                 file = ROOT / "scripts/pointcloud-debug" / ("viewer.js" if path == "/viewer.js" else "index.html")
+            elif path == "/instancePalette.js":
+                file = ROOT / "src/features/rebar-visualization/instancePalette.js"
             elif path in ("/vendor/three.module.js", "/vendor/three.core.js"):
                 file = ROOT / "node_modules/three/build" / Path(path).name
             elif path.startswith("/vendor/addons/"):

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestSolveRigidFitUsesAllPairs(t *testing.T) {
@@ -680,7 +682,11 @@ func verifiedLegacyRemeshAsset(t *testing.T, dir string) Asset {
 	if err := os.WriteFile(meshPath, []byte("ply"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	parameters := map[string]any{"target_edge_length": 0.01}
+	parameters := map[string]any{
+		"cross_section_sides": float64(16),
+		"axial_spacing":       0.01,
+		"max_chord_error":     0.0001,
+	}
 	paramsJSON, err := canonicalJSON(parameters)
 	if err != nil {
 		t.Fatal(err)
@@ -693,27 +699,27 @@ func verifiedLegacyRemeshAsset(t *testing.T, dir string) Asset {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fingerprint, err := legacyRemeshFingerprint(inputHash, "bim_preprocessor", "2.0.0", "1", parameters)
+	fingerprint, err := legacyRemeshFingerprint(inputHash, defaultRemeshAlgorithm, "1.0.0", "1", parameters)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return Asset{
 		Type: "bim", Status: "ready", Dir: dir, RemeshStatus: "succeeded",
-		RemeshAlgorithm: "bim_preprocessor", RemeshParamsJSON: paramsJSON,
-		RemeshInputHash: inputHash, RemeshImplementationVersion: "2.0.0",
+		RemeshAlgorithm: defaultRemeshAlgorithm, RemeshParamsJSON: paramsJSON,
+		RemeshInputHash: inputHash, RemeshImplementationVersion: "1.0.0",
 		RemeshContractVersion: "1", RemeshFingerprint: fingerprint,
 		RemeshContentHash: contentHash,
 	}
 }
 
 func TestLegacyRemeshFingerprintTracksInputsVersionAndParameters(t *testing.T) {
-	base := map[string]any{"target_edge_length": 0.01, "adaptive": false}
-	fingerprint, err := legacyRemeshFingerprint(strings.Repeat("a", 64), "bim_preprocessor", "2.0.0", "1", base)
+	base := map[string]any{"cross_section_sides": 16, "axial_spacing": 0.01, "max_chord_error": 0.0001}
+	fingerprint, err := legacyRemeshFingerprint(strings.Repeat("a", 64), defaultRemeshAlgorithm, "1.0.0", "1", base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reordered := map[string]any{"adaptive": false, "target_edge_length": 0.01}
-	same, err := legacyRemeshFingerprint(strings.Repeat("a", 64), "bim_preprocessor", "2.0.0", "1", reordered)
+	reordered := map[string]any{"max_chord_error": 0.0001, "cross_section_sides": 16, "axial_spacing": 0.01}
+	same, err := legacyRemeshFingerprint(strings.Repeat("a", 64), defaultRemeshAlgorithm, "1.0.0", "1", reordered)
 	if err != nil || same != fingerprint {
 		t.Fatalf("canonical fingerprint mismatch: %q %q %v", fingerprint, same, err)
 	}
@@ -721,12 +727,12 @@ func TestLegacyRemeshFingerprintTracksInputsVersionAndParameters(t *testing.T) {
 		input, version string
 		parameters     map[string]any
 	}{
-		"input":      {input: strings.Repeat("b", 64), version: "2.0.0", parameters: base},
-		"version":    {input: strings.Repeat("a", 64), version: "2.0.1", parameters: base},
-		"parameters": {input: strings.Repeat("a", 64), version: "2.0.0", parameters: map[string]any{"target_edge_length": 0.02, "adaptive": false}},
+		"input":      {input: strings.Repeat("b", 64), version: "1.0.0", parameters: base},
+		"version":    {input: strings.Repeat("a", 64), version: "1.0.1", parameters: base},
+		"parameters": {input: strings.Repeat("a", 64), version: "1.0.0", parameters: map[string]any{"cross_section_sides": 8, "axial_spacing": 0.01, "max_chord_error": 0.0001}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := legacyRemeshFingerprint(candidate.input, "bim_preprocessor", candidate.version, "1", candidate.parameters)
+			got, err := legacyRemeshFingerprint(candidate.input, defaultRemeshAlgorithm, candidate.version, "1", candidate.parameters)
 			if err != nil || got == fingerprint {
 				t.Fatalf("fingerprint did not change: %q %v", got, err)
 			}
@@ -734,28 +740,70 @@ func TestLegacyRemeshFingerprintTracksInputsVersionAndParameters(t *testing.T) {
 	}
 }
 
-func TestEffectiveLegacyRemeshParametersAreCanonicalAndWithinDescriptorBounds(t *testing.T) {
-	minTarget, maxTarget := 0.001, 1.0
-	minIterations, maxIterations := 1.0, 20.0
-	descriptor := legacyRemeshAlgorithmDescriptor{Params: []legacyRemeshAlgorithmParam{
-		{Key: "target_edge_length", Type: "float", Default: 0.1, Min: &minTarget, Max: &maxTarget},
-		{Key: "isotropic_iterations", Type: "int", Default: float64(5), Min: &minIterations, Max: &maxIterations},
-		{Key: "adaptive", Type: "bool", Default: true},
-	}}
-	effective, canonical, err := effectiveLegacyRemeshParameters(descriptor, `{"target_edge_length":0.01}`)
+func TestDefaultRemeshParametersFollowAlgorithm(t *testing.T) {
+	if defaultRemeshAlgorithm != "rebar_sweep" {
+		t.Fatalf("default remesh algorithm = %q", defaultRemeshAlgorithm)
+	}
+	if !supportedRemeshAlgorithm(defaultRemeshAlgorithm) || supportedRemeshAlgorithm("removed_algorithm") {
+		t.Fatal("single remesh algorithm constraint is not enforced")
+	}
+	if defaultRemeshParamsJSON != `{"cross_section_sides":16,"axial_spacing":0.01,"max_chord_error":0.0001}` {
+		t.Fatalf("rebar sweep defaults = %s", defaultRemeshParamsJSON)
+	}
+}
+
+func TestRefreshRemeshStateRejectsRemovedAlgorithmWithoutDeletingArtifact(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:removed_remesh_state?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if effective["target_edge_length"] != 0.01 || effective["isotropic_iterations"] != float64(5) || effective["adaptive"] != true {
+	if err := db.AutoMigrate(&DBAsset{}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	artifact := filepath.Join(dir, "mesh_remesh.ply")
+	if err := os.WriteFile(artifact, []byte("old artifact"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	row := DBAsset{ID: 1, Type: "bim", Status: "ready", Dir: dir, RemeshStatus: "succeeded", RemeshAlgorithm: "removed_algorithm"}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	a := newApp(config{})
+	a.db = db
+	asset := assetFromDB(row)
+	a.refreshRemeshState(&asset)
+	if asset.RemeshStatus != "failed" || asset.RemeshError == nil {
+		t.Fatalf("stale status was not made retryable: %#v", asset)
+	}
+	if _, err := os.Stat(artifact); err != nil {
+		t.Fatalf("stale artifact was removed: %v", err)
+	}
+}
+
+func TestEffectiveLegacyRemeshParametersAreCanonicalAndWithinDescriptorBounds(t *testing.T) {
+	minSides, maxSides := 8.0, 128.0
+	minSpacing, maxSpacing := 0.0001, 1.0
+	minChordError, maxChordError := 0.000001, 0.01
+	descriptor := legacyRemeshAlgorithmDescriptor{Params: []legacyRemeshAlgorithmParam{
+		{Key: "cross_section_sides", Type: "int", Default: float64(16), Min: &minSides, Max: &maxSides},
+		{Key: "axial_spacing", Type: "float", Default: 0.01, Min: &minSpacing, Max: &maxSpacing},
+		{Key: "max_chord_error", Type: "float", Default: 0.0001, Min: &minChordError, Max: &maxChordError},
+	}}
+	effective, canonical, err := effectiveLegacyRemeshParameters(descriptor, `{"cross_section_sides":8}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective["cross_section_sides"] != float64(8) || effective["axial_spacing"] != 0.01 || effective["max_chord_error"] != 0.0001 {
 		t.Fatalf("effective parameters = %#v", effective)
 	}
-	if canonical != `{"adaptive":true,"isotropic_iterations":5,"target_edge_length":0.01}` {
+	if canonical != `{"axial_spacing":0.01,"cross_section_sides":8,"max_chord_error":0.0001}` {
 		t.Fatalf("canonical parameters = %s", canonical)
 	}
 	for name, raw := range map[string]string{
-		"below minimum":  `{"target_edge_length":0.0001}`,
-		"above maximum":  `{"target_edge_length":2}`,
-		"fractional int": `{"isotropic_iterations":2.5}`,
+		"below minimum":  `{"axial_spacing":0.00001}`,
+		"above maximum":  `{"max_chord_error":0.1}`,
+		"fractional int": `{"cross_section_sides":8.5}`,
 		"unknown":        `{"not_a_parameter":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -776,6 +824,26 @@ func TestStoredLegacyRemeshArtifactRejectsMissingIdentityAndTampering(t *testing
 	withoutIdentity.RemeshFingerprint = ""
 	if err := validateStoredLegacyRemeshArtifact(withoutIdentity, false); err == nil {
 		t.Fatal("identity-less legacy artifact was accepted")
+	}
+	removedAlgorithm := asset
+	removedAlgorithm.RemeshAlgorithm = "removed_algorithm"
+	var parameters map[string]any
+	if err := json.Unmarshal([]byte(removedAlgorithm.RemeshParamsJSON), &parameters); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := legacyRemeshFingerprint(
+		removedAlgorithm.RemeshInputHash,
+		removedAlgorithm.RemeshAlgorithm,
+		removedAlgorithm.RemeshImplementationVersion,
+		removedAlgorithm.RemeshContractVersion,
+		parameters,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removedAlgorithm.RemeshFingerprint = fingerprint
+	if err := validateStoredLegacyRemeshArtifact(removedAlgorithm, false); err == nil {
+		t.Fatal("artifact from a removed remesh algorithm was accepted")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "mesh_remesh.ply"), []byte("tampered"), 0644); err != nil {
 		t.Fatal(err)

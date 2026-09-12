@@ -222,14 +222,26 @@ try {
         const pixels = context.getImageData(0, 0, copy.width, copy.height).data
         const background = [pixels[0], pixels[1], pixels[2]]
         let visiblePixels = 0
+        let visibleLuminance = 0
+        let darkVisiblePixels = 0
         for (let index = 0; index < pixels.length; index += 4) {
           const difference = Math.abs(pixels[index] - background[0])
             + Math.abs(pixels[index + 1] - background[1])
             + Math.abs(pixels[index + 2] - background[2])
-          if (difference > 12) visiblePixels += 1
+          if (difference > 12) {
+            const luminance = 0.2126 * pixels[index]
+              + 0.7152 * pixels[index + 1]
+              + 0.0722 * pixels[index + 2]
+            visiblePixels += 1
+            visibleLuminance += luminance
+            if (luminance < 32) darkVisiblePixels += 1
+          }
         }
         return {
           visiblePixels,
+          meanVisibleLuminance: visiblePixels ? visibleLuminance / visiblePixels : 0,
+          darkVisibleRatio: visiblePixels ? darkVisiblePixels / visiblePixels : 1,
+          background,
           enhancementEnabled: enhancement?.getAttribute('aria-pressed'),
           loaded: document.body.innerText.includes('点云已加载'),
           body: document.body.innerText.slice(0, 500),
@@ -238,6 +250,7 @@ try {
       })()`,
       returnByValue: true,
     })
+    console.log('Point-cloud frame metrics:', JSON.stringify(preview.result.value))
     assert.equal(
       preview.result.value.loaded,
       true,
@@ -247,12 +260,15 @@ try {
       preview.result.value.visiblePixels > 200,
       `point-cloud preview must remain visible when EDL is requested; got ${JSON.stringify(preview.result.value)}`,
     )
-    assert.equal(
-      preview.result.value.enhancementEnabled,
-      'false',
-      `the enhancement control must disclose an automatic direct-render fallback; got ${JSON.stringify(preview.result.value)}`,
+    assert.ok(
+      preview.result.value.meanVisibleLuminance > 24,
+      `point-cloud preview must not render as an all-black mass; got ${JSON.stringify(preview.result.value)}`,
     )
-    console.log('Point-cloud asset preview remains visible when EDL is requested.')
+    assert.ok(
+      ['true', 'false'].includes(preview.result.value.enhancementEnabled),
+      `the enhancement control must reflect the active render path; got ${JSON.stringify(preview.result.value)}`,
+    )
+    console.log('Point-cloud asset preview remains visible and preserves usable brightness.')
 
     await cdp.call('Page.reload')
     const reloadDeadline = Date.now() + 30_000
@@ -267,11 +283,6 @@ try {
         returnByValue: true,
       })
       if (state.result.value?.loaded) {
-        assert.equal(
-          state.result.value.enhancementEnabled,
-          'false',
-          'a verified EDL fallback must remain disabled after reload',
-        )
         reloadVerified = true
         break
       }

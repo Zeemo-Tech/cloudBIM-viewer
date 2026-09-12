@@ -1,5 +1,5 @@
 from .base import RemeshAlgorithm, RemeshResult, ALGORITHM_REGISTRY
-from .pymeshlab_remesh import PyMeshLabBIMPreprocessor, PyMeshLabBIMIsotropicOnly
+from .rebar_sweep import RebarSweepRemesh
 from .rebar_base import REBAR_ALGORITHM_REGISTRY, RebarAlgorithm, RebarAnalysis, RebarPointAttributes
 from .rebar_geometric import GeometricV2Adapter
 from .rebar_geometric_v3 import GeometricV3Adapter

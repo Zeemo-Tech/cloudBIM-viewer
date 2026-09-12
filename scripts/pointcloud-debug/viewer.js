@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TilesRenderer } from '3d-tiles-renderer';
+import { buildInstancePalette } from './instancePalette.js';
 
 const $ = (id) => document.getElementById(id);
 const api = '/api';
@@ -25,6 +26,7 @@ let completeTileInteracting = false;
 let completeTileSettleTimer = 0;
 let completeTilesSuspendedForRun = false;
 const completeTileColorCache = new Map();
+let spatialInstancePalettes = { internalRebar: new Map(), completeRebar: new Map() };
 
 let renderer;
 try {
@@ -327,11 +329,13 @@ function endCompleteTileInteraction() {
   }, COMPLETE_TILE_SETTLE_MS);
 }
 
-function completeTileColorBytes(id) {
-  if (!completeTileColorCache.has(id)) {
-    completeTileColorCache.set(id, instanceColor(id).map(value => Math.round(value * 255)));
+function completeTileColorBytes(id, cluster = false) {
+  const key = cluster ? -id : id;
+  if (!completeTileColorCache.has(key)) {
+    const color = cluster ? instanceColor(id) : rebarInstanceColor(id, 'completeRebar');
+    completeTileColorCache.set(key, color.map(value => Math.round(value * 255)));
   }
-  return completeTileColorCache.get(id);
+  return completeTileColorCache.get(key);
 }
 
 function refreshCompleteTilePresentation(supported) {
@@ -379,7 +383,7 @@ function applyCompleteTileAppearance(targetRecord = null) {
       for (let index = 0; index < count; index += 1) {
         const cls = classes[index], instance = instances[index], cluster = clusters[index];
         if (updateColors) {
-          const color = colorMode === 'clusters' && cluster ? completeTileColorBytes(cluster)
+          const color = colorMode === 'clusters' && cluster ? completeTileColorBytes(cluster, true)
             : cls === 3 && !instance ? [0x94, 0xa3, 0xb8]
               : cls === 3 && colorMode === 'instances' ? completeTileColorBytes(instance)
                 : classColors[cls] || [0x94, 0xa3, 0xb8];
@@ -913,7 +917,7 @@ function resultDisplayColors(data, step = rightScene) {
   const instances = step === 'completeRebar' ? current?._complete?.complete_instance : current?._internalInstances;
   if (!instances) return colors;
   for (let i = 0; i < data.labels.length; i++) {
-    if (instances[i] > 0 && [4,5,6,7,8,9,11].includes(data.labels[i])) colors.set(instanceColor(instances[i]), i*3);
+    if (instances[i] > 0 && [4,5,6,7,8,9,11].includes(data.labels[i])) colors.set(rebarInstanceColor(instances[i], step), i*3);
   }
   return colors;
 }
@@ -1322,7 +1326,7 @@ function applyCompleteAppearance() {
   const palette = {1:'#64748b',2:'#f59e0b',3:'#2dd4bf',4:'#ef476f'};
   let size = 0;
   for (let i = 0; i < classes.length; i++) {
-    colors.set($('completeColorMode').value === 'clusters' && current._complete.complete_cluster?.[i] ? instanceColor(current._complete.complete_cluster[i]) : classes[i] === 3 && !instances[i] ? instanceColor(0) : classes[i] === 3 && $('completeColorMode').value === 'instances' ? instanceColor(instances[i]) : hexColor(palette[classes[i]]), i * 3);
+    colors.set($('completeColorMode').value === 'clusters' && current._complete.complete_cluster?.[i] ? instanceColor(current._complete.complete_cluster[i]) : classes[i] === 3 && !instances[i] ? instanceColor(0) : classes[i] === 3 && $('completeColorMode').value === 'instances' ? rebarInstanceColor(instances[i], baseline ? 'internalRebar' : 'completeRebar') : hexColor(palette[classes[i]]), i * 3);
     const finalId = current._complete.complete_instance[i];
     const matches = filter === 'resolved' ? classes[i] === 3 && instances[i] > 0
       : filter === 'filtered' ? current._refinedClasses?.[i] === 3 && current._internalTypes?.[i] !== 5 && current._complete.complete_class[i] === 4
@@ -1351,7 +1355,7 @@ function applyCompleteAppearance() {
     const points = [], lineColors = [], origin = current.preview.origin;
     for (const segment of (baseline ? current.internalRebar.segments : current.completeRebar.segments)) {
       if (instance !== 'all' && segment.instanceId !== Number(instance)) continue;
-      for (const point of [segment.startM, segment.endM]) { points.push(...point.map((v, axis) => v-origin[axis])); lineColors.push(...instanceColor(segment.instanceId)); }
+      for (const point of [segment.startM, segment.endM]) { points.push(...point.map((v, axis) => v-origin[axis])); lineColors.push(...rebarInstanceColor(segment.instanceId, baseline ? 'internalRebar' : 'completeRebar')); }
     }
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3)); geometry.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
     completeAxisLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({vertexColors:true})); completeRebarScene.add(completeAxisLines);
@@ -1373,6 +1377,21 @@ function applyCompleteAppearance() {
   requestRender();
 }
 
+function rebuildSpatialInstancePalettes() {
+  for (const step of ['internalRebar', 'completeRebar']) {
+    const segments = current?.[step]?.segments || [];
+    spatialInstancePalettes[step] = buildInstancePalette(segments.map(segment => ({
+      id: segment.instanceId, paths: [[segment.startM, segment.endM]],
+    })));
+  }
+  completeTileColorCache.clear();
+}
+
+function rebarInstanceColor(id, step) {
+  const palette = spatialInstancePalettes[step === 'completeRebar' ? 'completeRebar' : 'internalRebar'];
+  return palette.get(id) || instanceColor(id);
+}
+
 function instanceColor(id) {
   if (!id) return hexColor(internalTypeColors[4], '#94a3b8');
   const color = new THREE.Color().setHSL(((id * 0.61803398875) % 1 + 1) % 1, 0.72, 0.58);
@@ -1391,7 +1410,7 @@ function internalColors(mode, types, instances, confidence, families = null) {
     let color;
     if (types[index] === 5) color = hexColor(internalTypeColors[5], '#ef476f');
     else if (types[index] === 4 || instances[index] === 0) color = hexColor(internalTypeColors[4], '#94a3b8');
-    else if (mode === 'instances') color = instanceColor(instances[index]);
+    else if (mode === 'instances') color = rebarInstanceColor(instances[index], 'internalRebar');
     else if (mode === 'confidence') color = confidenceColor(confidence[index]);
     else if (mode === 'families' && families?.[index]) color = hexColor(internalFamilyColors[families[index]], '#94a3b8');
     else color = hexColor(internalTypeColors[types[index]], '#94a3b8');
@@ -1410,7 +1429,7 @@ function updateInternalLegend() {
     : mode === 'confidence'
     ? [['低拟合分数', '#ef4444'], ['中等拟合分数', '#eab308'], ['高拟合分数', '#22c55e']]
     : mode === 'instances'
-      ? [['不同颜色', '#a78bfa'], ['每种颜色代表一个钢筋实例', '#38bdf8'], ['待定钢筋', internalTypeColors[4]]]
+      ? [['邻近钢筋优先异色', '#a78bfa'], ['同一实例颜色固定，远处可复用', '#38bdf8'], ['待定钢筋', internalTypeColors[4]]]
       : mode === 'families'
         ? Object.entries(internalFamilyNames()).map(([value, name]) => [name, internalFamilyColors[value] || '#94a3b8'])
       : [1, 2, 3, 4, 5].map((value) => [internalTypeNames[value], internalTypeColors[value]]);
@@ -1455,7 +1474,7 @@ function rebuildInternalAxes() {
       segment.endM[0] - origin[0], segment.endM[1] - origin[1], segment.endM[2] - origin[2],
     );
     const color = segment.type === 4 || segment.instanceId === 0
-      ? hexColor(internalTypeColors[4], '#94a3b8') : instanceColor(segment.instanceId);
+      ? hexColor(internalTypeColors[4], '#94a3b8') : rebarInstanceColor(segment.instanceId, 'internalRebar');
     colors.push(...color, ...color);
   }
   if (!positions.length) return;
@@ -2664,6 +2683,7 @@ async function loadManifest(manifest) {
     refinementPoints.geometry = refinementGeometry || emptyClassGeometry;
     internalRebarPoints.geometry = internalRebarGeometry || emptyClassGeometry;
     current = { ...manifest, _complete: complete, _designPrior: designPrior, _positions: positions, _normals: normals, _valid: valid, _sharedTableMask: sharedTableMask, _partitionZones: partitionZones, _sharedLayers: sharedLayers, _sharedFloatingNoise: sharedFloatingNoise, _classes: classes, _recovered: recovered, _projectionClasses: projectionClasses, _projectionLayers: projectionLayers, _fusedClasses: fusedClasses, _fusedRegions: fusedRegions, _fusedRecovered: fusedRecovered, _fusedSteelScores: fusedSteelScores, _fusedSteelEvidence: fusedSteelEvidence, _refinedClasses: refinedClasses, _refinedRegions: refinedRegions, _refinedZones: refinedZones, _refinedChanged: refinedChanged, _internalTypes: internalTypes, _internalInstances: internalInstances, _internalSegments: internalSegments, _internalConfidence: internalConfidence, _internalFamilies: internalFamilies, _internalInstanceById: internalInstanceById };
+    rebuildSpatialInstancePalettes();
     installCompletePreview();
     installDesignPriorPreview();
     if (hasPartition || hasRefinement || hasInternalRebar) $('frameOverlay').checked = true;

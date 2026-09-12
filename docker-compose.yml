@@ -47,10 +47,9 @@ services:
     ports:
       - "127.0.0.1:${MESH_SERVICE_PORT:-8001}:8001"
     volumes:
-      # Use the same persistent asset volume as the backend. C2M receives
-      # /storage paths, so a host bind here would make uploaded LAS files
-      # invisible to the mesh service when the backend uses cloudbim-data.
-      - cloudbim-data:/storage
+      # Match the backend in both named-volume and local bind-mount mode.
+      # Compute requests translate /app/data paths to /storage paths.
+      - ${CLOUDBIM_DATA_MOUNT:-cloudbim-data}:/storage
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/algorithms\")'"]
       interval: 5s

@@ -1,5 +1,3 @@
-import { backendRequest, type BackendResult } from '@/api/backend-http'
-
 export type RebarCapability = 'class' | 'direction' | 'instance' | 'confidence' | 'sceneClass' | 'intersection'
 
 export interface RebarCapabilities {
@@ -145,38 +143,4 @@ export type RebarPointVisibilityCategory =
   | 'fixtureUnknown' | 'fixtureSquareTube' | 'fixturePlate' | 'fixtureBolt'
   | 'rebarUnresolved' | 'rebarPlanar' | 'rebarWeb'
 
-export function getRebarAnalysis(resultUrl: string) {
-  return backendRequest<{ analysis: RebarAnalysisV2 }>(resultUrl, { method: 'GET' })
-}
-
 export { isRebarV5Result } from '@/features/rebar-visualization/result'
-
-export function listRebarAlgorithms() {
-  return backendRequest<BackendResult<{ algorithms: RebarAlgorithmDescriptor[] }>>(
-    '/rebar-segmentation/algorithms',
-    { method: 'GET' },
-  )
-}
-
-export function getLatestRebarSegmentation(assetId: number) {
-  return backendRequest<BackendResult<RebarSegmentationResult | null>>(
-    `/assets/${assetId}/rebar-segmentation/latest`,
-    { method: 'GET' },
-  )
-}
-
-export function computeRebarSegmentation(
-  assetId: number,
-  request: ComputeRebarSegmentationRequest,
-  options: { force?: boolean } = {},
-) {
-  return backendRequest<BackendResult<RebarSegmentationResult>>(
-    `/assets/${assetId}/rebar-segmentation`,
-    {
-      method: 'POST',
-      params: { force: options.force ? 'true' : undefined },
-      data: request,
-      timeout: 62 * 60_000,
-    },
-  )
-}

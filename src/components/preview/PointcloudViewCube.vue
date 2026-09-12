@@ -361,7 +361,12 @@ onBeforeUnmount(cleanup)
     role="group"
     tabindex="0"
     aria-label="视角导航立方体"
-    title="拖动旋转视角；点击面、棱或角切换视角"
+    title="拖动或按方向键旋转；点击面、棱或角切换视角；Home 回到主视图"
+    @keydown.left.self.prevent="emit('orbit', { lon: 15, lat: 0 })"
+    @keydown.right.self.prevent="emit('orbit', { lon: -15, lat: 0 })"
+    @keydown.up.self.prevent="emit('orbit', { lon: 0, lat: 15 })"
+    @keydown.down.self.prevent="emit('orbit', { lon: 0, lat: -15 })"
+    @keydown.home.self.prevent="emit('home')"
     @pointerenter="handlePointerEnter"
     @pointerleave="handlePointerLeave"
     @pointerdown="handlePointerDown"
@@ -369,16 +374,16 @@ onBeforeUnmount(cleanup)
     @pointerup="handlePointerUp"
     @pointercancel="handlePointerLeave"
   >
-    <button class="view-cube-home" type="button" title="回到主视图" aria-label="回到主视图" @pointerdown.stop="emit('home')">
+    <button class="view-cube-home" type="button" title="回到主视图" aria-label="回到主视图" @pointerdown.stop @click.stop="emit('home')">
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <path d="M2.5 7.2 8 2.8l5.5 4.4V13a.8.8 0 0 1-.8.8H9.2V9.6H6.8V13.8H3.3A.8.8 0 0 1 2.5 13V7.2z" />
       </svg>
     </button>
     <div class="view-cube-roll">
-      <button type="button" title="逆时针旋转 90°" aria-label="逆时针旋转 90°" @pointerdown.stop="emit('roll', -1)">
+      <button type="button" title="逆时针旋转 90°" aria-label="逆时针旋转 90°" @pointerdown.stop @click.stop="emit('roll', -1)">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.4 10.6a5.2 5.2 0 0 0-8.6-3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /><path d="M2.4 7.6 6.1 5.8 4.6 9.6z" fill="currentColor" /></svg>
       </button>
-      <button type="button" title="顺时针旋转 90°" aria-label="顺时针旋转 90°" @pointerdown.stop="emit('roll', 1)">
+      <button type="button" title="顺时针旋转 90°" aria-label="顺时针旋转 90°" @pointerdown.stop @click.stop="emit('roll', 1)">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.6 10.6a5.2 5.2 0 0 1 8.6-3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /><path d="M13.6 7.6 9.9 5.8 11.4 9.6z" fill="currentColor" /></svg>
       </button>
     </div>
@@ -386,6 +391,11 @@ onBeforeUnmount(cleanup)
 </template>
 
 <style scoped>
+.pointcloud-view-cube:focus-visible {
+  outline: 2px solid var(--color-primary, #3678c9);
+  outline-offset: 4px;
+}
+
 .pointcloud-view-cube {
   position: absolute;
   z-index: 31;
@@ -469,11 +479,14 @@ onBeforeUnmount(cleanup)
 }
 
 .pointcloud-view-cube.is-active .view-cube-home,
-.pointcloud-view-cube.is-active .view-cube-roll {
+.pointcloud-view-cube.is-active .view-cube-roll,
+.pointcloud-view-cube:focus-within .view-cube-home,
+.pointcloud-view-cube:focus-within .view-cube-roll {
   opacity: 0.95;
 }
 
-.pointcloud-view-cube.is-active .view-cube-roll button {
+.pointcloud-view-cube.is-active .view-cube-roll button,
+.pointcloud-view-cube:focus-within .view-cube-roll button {
   pointer-events: auto;
 }
 </style>

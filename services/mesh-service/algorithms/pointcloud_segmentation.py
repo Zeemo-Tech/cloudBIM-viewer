@@ -19,6 +19,7 @@ from .shared_scene import prepare_scene, regions_from_partition, partition_regio
 from .region_refinement import reuse_fusion_partition
 from .internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRIBUTES
 from .rebar_dimension_priors import load_dimension_priors
+from .preprocessed_las import load_preprocessed_las
 
 VERSION = "shared-segmentation-v29-evidence-finalization"
 SCENE_ATTRIBUTES = {**SCENE_ATTRIBUTES, **FLOATING_ATTRIBUTES}
@@ -43,8 +44,21 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
               "curvature": ((count,), "<f4"), "neighbor_radius": ((count,), "<f4")}
     arrays = {key: np.lib.format.open_memmap(directory / f"{key}.npy", mode="w+", dtype=dtype, shape=shape)
               for key, (shape, dtype) in shapes.items()}
-    computation = estimate_normals(context, k=k, workers=workers, output=arrays,
-        progress=lambda done, total: progress("第 1 步：计算法向量", done, total))
+    if through_step >= 2:
+        for name, dtype in SCENE_ATTRIBUTES.items():
+            shapes[name] = ((count,), dtype)
+            arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
+    persisted = (load_preprocessed_las(source, count=count, normal_k=k, normal_output=arrays,
+                 table_output=arrays.get("shared_table_mask")) if source is not None else None)
+    if persisted is None:
+        computation = estimate_normals(context, k=k, workers=workers, output=arrays,
+            progress=lambda done, total: progress("第 1 步：计算法向量", done, total))
+    else:
+        for name in ("normals", "normal_valid", "curvature", "neighbor_radius"):
+            setattr(context, name, arrays[name])
+        computation = {"elapsedS": time.perf_counter() - t0, "effectiveK": min(k, count), "workers": 0,
+                       "treeReused": True, "persisted": True,
+                       "preprocessAlgorithmVersion": persisted["algorithmVersion"]}
     timing["normalsS"] = time.perf_counter() - t0
     preprocessing = None
     classification = None
@@ -56,12 +70,11 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
     complete_rebar = None
     execution = None
     if through_step >= 2:
-        for name, dtype in SCENE_ATTRIBUTES.items():
-            shapes[name] = ((count,), dtype)
-            arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
         t0 = time.perf_counter()
         with threadpool_limits(limits=1):
-            preprocessing = prepare_scene(context, output={name: arrays[name] for name in SCENE_ATTRIBUTES if name not in FLOATING_ATTRIBUTES}, progress=progress)
+            preprocessing = prepare_scene(context, output={name: arrays[name] for name in SCENE_ATTRIBUTES if name not in FLOATING_ATTRIBUTES}, progress=progress,
+                fixed_table=persisted.get("plane") if persisted else None,
+                fixed_table_mask=arrays["shared_table_mask"] if persisted else None)
             layering, floating_zones = prepare_floating_scene(context, design_inventory,
                 output={name: arrays[name] for name in FLOATING_ATTRIBUTES}, progress=progress)
             preprocessing.update(layering=layering, floatingZones=floating_zones)
@@ -133,7 +146,7 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
             execution = {"mode": "parallel" if workers >= 2 else "serial-worker-budget-1",
                          "normalWorkers": normal_workers, "projectionWorkers": projection_workers,
                          "sharedInput": "same source XYZ/normals, immutable table mask, XY raster and partition; independent classifier evidence",
-                         "tableFitCalls": 1, "xyRasterBuilds": 1, "frameDetectionCalls": 1,
+                         "tableFitCalls": 0 if persisted else 1, "xyRasterBuilds": 1, "frameDetectionCalls": 1,
                          "rawTreeBuilds": 1, "projectionUsesKdTree": True,
                          "projectionTreeInput": "independent non-table 3 mm occupied voxel centroids"}
         else:

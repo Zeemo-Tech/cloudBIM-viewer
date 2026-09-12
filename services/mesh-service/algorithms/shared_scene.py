@@ -26,12 +26,13 @@ def regions_from_partition(classes, zones, output=None):
     return regions
 
 
-def prepare_scene(context, *, output=None, progress=None):
+def prepare_scene(context, *, output=None, progress=None, fixed_table=None, fixed_table_mask=None):
     started = time.perf_counter()
     progress = progress or (lambda *args: None)
     count = len(context.positions)
     progress('共享前处理：移除台面并汇总俯视图', 0, count)
-    prepared = prepare_projection(context.positions, context.normals, context.normal_valid, progress=progress)
+    prepared = prepare_projection(context.positions, context.normals, context.normal_valid, progress=progress,
+                                  fixed_table=fixed_table, fixed_table_mask=fixed_table_mask)
     output = output if output is not None else {name: np.empty(count, np.uint8) for name in ATTRIBUTES}
     table, zones = output['shared_table_mask'], output['partition_zone']
     table[:] = prepared['table_mask']
@@ -79,7 +80,7 @@ def prepare_scene(context, *, output=None, progress=None):
             'counts': dict(zip(('unlocated', 'interior', 'band', 'exterior'), map(int, zone_counts))),
             'elapsedS': partition_time, 'policy': 'strict inner non-table ownership; measured rail edges; no classifier labels'},
         'timings': {**prepared['timings'], 'partitionS': partition_time},
-        'diagnostics': {'tableFitCalls': 1, 'xyRasterBuilds': 1, 'frameDetectionCalls': 1,
+        'diagnostics': {'tableFitCalls': 0 if fixed_table_mask is not None else 1, 'xyRasterBuilds': 1, 'frameDetectionCalls': 1,
             'sourcePointCount': count, 'ownedSteelPoints': int(owned.sum()),
             'frameInput': 'non-table broad rail XY footprint, before either classifier', 'frameMinWidthM': rail_width},
         'elapsedS': time.perf_counter()-started}

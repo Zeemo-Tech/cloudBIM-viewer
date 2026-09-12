@@ -36,16 +36,17 @@ function setPageSize(event: Event) {
 </script>
 
 <template>
-  <footer class="project-table-footer">
+  <footer v-if="props.total > 0" class="project-table-footer" role="navigation">
     <div class="pagination">
       <span class="pager-summary">共 {{ props.total }} 条</span>
-      <button type="button" class="pager-button" :disabled="props.currentPage <= 1" @click.prevent="setPage(props.currentPage - 1)">‹</button>
+      <button type="button" class="pager-button" aria-label="上一页" title="上一页" :disabled="props.currentPage <= 1" @click.prevent="setPage(props.currentPage - 1)">‹</button>
       <template v-for="page in visiblePages" :key="String(page)">
-        <button v-if="typeof page === 'number'" type="button" class="pager-button" :class="{ active: page === props.currentPage }" @click.prevent="setPage(page)">{{ page }}</button>
+        <button v-if="typeof page === 'number'" type="button" class="pager-button" :class="{ active: page === props.currentPage }" :aria-label="`第 ${page} 页`" :aria-current="page === props.currentPage ? 'page' : undefined" @click.prevent="setPage(page)">{{ page }}</button>
         <span v-else class="pager-ellipsis">...</span>
       </template>
-      <button type="button" class="pager-button" :disabled="props.currentPage >= pageCount" @click.prevent="setPage(props.currentPage + 1)">›</button>
+      <button type="button" class="pager-button" aria-label="下一页" title="下一页" :disabled="props.currentPage >= pageCount" @click.prevent="setPage(props.currentPage + 1)">›</button>
       <label class="page-size">
+        <span class="sr-only">每页显示条数</span>
         <select :value="props.pageSize" @change="setPageSize">
           <option v-for="size in props.pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
         </select>
@@ -55,7 +56,7 @@ function setPageSize(event: Event) {
 </template>
 
 <style scoped>
-.project-table-footer{flex:0 0 auto;display:flex;justify-content:center;margin-top:auto;padding:18px 0 4px}.pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;color:#6f82a0}.pager-summary{margin-right:4px;font-size:13px;font-weight:400;white-space:nowrap}.pager-button,.page-size{height:34px;border:0;border-radius:10px;background:#fff;color:#7b8ca7;box-shadow:5px 5px 12px rgb(169 184 210 / 22%),-5px -5px 12px rgb(255 255 255 / 96%),inset 1px 1px 0 rgb(255 255 255 / 92%)}.pager-button{min-width:34px;padding:0 10px;font-size:13px;font-weight:400;cursor:pointer}.pager-button.active{color:#fff;background:linear-gradient(145deg,#88b4f8,#73a2f3)}.pager-button:disabled{color:#b8c2d2;background:#fff;box-shadow:none;cursor:not-allowed}.pager-ellipsis{padding:0 3px;color:#9caac0;font-weight:400}.page-size{display:inline-flex;align-items:center;overflow:hidden;margin-left:4px}.page-size select{height:34px;min-width:100px;padding:0 12px;border:0;outline:0;color:#536a8c;background:transparent;font-size:13px;font-weight:400;cursor:pointer}@media(max-width:620px){.pagination{flex-wrap:wrap}}
+.project-table-footer{flex:0 0 auto;display:flex;justify-content:center;margin-top:var(--spacing-md);padding:4px 0}.pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;color:#6f82a0}.pager-summary{margin-right:4px;font-size:13px;font-weight:400;white-space:nowrap}.pager-button,.page-size{height:40px;border:0;border-radius:10px;background:#fff;color:#7b8ca7;box-shadow:5px 5px 12px rgb(169 184 210 / 22%),-5px -5px 12px rgb(255 255 255 / 96%),inset 1px 1px 0 rgb(255 255 255 / 92%)}.pager-button{min-width:40px;padding:0 10px;font-size:13px;font-weight:400;cursor:pointer}.pager-button.active{color:#fff;background:linear-gradient(145deg,#88b4f8,#73a2f3)}.pager-button:disabled{color:#b8c2d2;background:#fff;box-shadow:none;cursor:not-allowed}.pager-ellipsis{padding:0 3px;color:#9caac0;font-weight:400}.page-size{display:inline-flex;align-items:center;overflow:hidden;margin-left:4px}.page-size select{height:40px;min-width:100px;padding:0 12px;border:0;outline:0;color:#536a8c;background:transparent;font-size:13px;font-weight:400;cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.pager-button:focus-visible,.page-size:focus-within{outline:2px solid var(--border-color-focus);outline-offset:2px}@media(max-width:620px){.pagination{flex-wrap:wrap}}
 </style>
 
 <style scoped>

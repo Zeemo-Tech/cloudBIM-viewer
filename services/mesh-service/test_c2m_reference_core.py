@@ -115,7 +115,7 @@ class StatisticsTests(unittest.TestCase):
 
 
 class ColorContractTests(unittest.TestCase):
-    def test_zero_is_green_and_out_of_range_is_exact_dark_gray(self):
+    def test_zero_is_green_and_outliers_keep_direction_colors(self):
         mesh = o3d.geometry.TriangleMesh(
             o3d.utility.Vector3dVector(
                 np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float64)
@@ -126,8 +126,8 @@ class ColorContractTests(unittest.TestCase):
         colorize_mesh_by_signed_distance(mesh, np.array([0.0, -0.2, 0.2]), 0.1, 0.05)
 
         colors = np.asarray(mesh.vertex_colors)
-        np.testing.assert_allclose(colors[0], np.array([0x00, 0xC8, 0x53]) / 255.0)
-        np.testing.assert_allclose(colors[1:], np.full((2, 3), 0x3A / 255.0))
+        np.testing.assert_allclose(colors[0], np.array([34, 197, 94]) / 255.0)
+        np.testing.assert_allclose(colors[1:], np.array([[59, 130, 246], [255, 82, 82]]) / 255.0)
 
     def test_equal_tolerance_and_color_limit_is_supported_without_hidden_clamp(self):
         mesh = o3d.geometry.TriangleMesh(
@@ -141,7 +141,7 @@ class ColorContractTests(unittest.TestCase):
 
         np.testing.assert_allclose(
             np.asarray(mesh.vertex_colors),
-            np.array([[0x00, 0xBC, 0xD4], [0x00, 0xC8, 0x53], [0xFF, 0xD6, 0x00]]) / 255.0,
+            np.array([[134, 239, 172], [34, 197, 94], [134, 239, 172]]) / 255.0,
         )
 
     def test_colorization_rejects_distance_vertex_length_mismatch(self):

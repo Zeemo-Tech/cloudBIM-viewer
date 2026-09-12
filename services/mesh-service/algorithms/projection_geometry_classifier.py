@@ -408,6 +408,10 @@ def prepare_projection(positions, normals, normal_valid, *, params=None, progres
     progress = progress or (lambda *args: None)
     started = time.perf_counter(); timings = {}
     count = len(positions)
+    if fixed_table_mask is not None:
+        fixed_table_mask = np.asarray(fixed_table_mask, dtype=bool)
+        if fixed_table_mask.shape != (count,):
+            raise ValueError("fixed_table_mask must match the source population")
     lo, hi = positions.min(axis=0), positions.max(axis=0)
     pixel = params.pixel_size
     area = np.prod((hi[:2]-lo[:2])/pixel+5)

@@ -12,11 +12,14 @@ import type {
   StandardView,
 } from './UnifiedViewer3D.vue'
 import type { RebarVisualizationMetadata, RebarInspection } from '@/api/backend-rebar'
+import type { PointcloudTablePlane } from '@/features/pointcloud/tableVisibility'
 
 const props = withDefaults(
   defineProps<{
     assetId: number | null
     tilesetUrl?: string | null
+    tablePlane?: PointcloudTablePlane | null
+    tableVisible?: boolean
     rebarVisualization?: RebarVisualizationMetadata | null
     rebarInspection?: RebarInspection | null
     minimal?: boolean
@@ -29,6 +32,8 @@ const props = withDefaults(
   {
     minimal: false,
     tilesetUrl: null,
+    tablePlane: null,
+    tableVisible: true,
     rebarVisualization: null,
     analysisMode: 'none',
     analysisPoints: () => [],
@@ -99,6 +104,8 @@ defineExpose({
     type="pointcloud"
     :asset-id="assetId"
     :pointcloud-tileset-url="tilesetUrl"
+    :pointcloud-table-plane="tablePlane"
+    :pointcloud-table-visible="tableVisible"
     :rebar-visualization="rebarVisualization"
     :rebar-inspection="rebarInspection"
     :minimal="minimal"

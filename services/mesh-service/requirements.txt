@@ -1,6 +1,5 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
-pymeshlab==2023.12.post2
 trimesh==4.6.8
 numpy==1.26.4
 python-multipart==0.0.20

@@ -1313,6 +1313,12 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 		err = buildBIM(ctx, source, asset.Dir)
 	} else if asset.Type == "pointcloud" {
 		err = buildPointCloud(ctx, source, asset.Dir, a.cfg.PointcloudSubsample)
+		if err == nil {
+			lock := a.rebarLock(asset.ID)
+			lock.Lock()
+			_, _, err = a.buildPointcloudPreprocess(ctx, assetFromDB(asset))
+			lock.Unlock()
+		}
 	} else {
 		err = linkOrSymlink(source, filepath.Join(asset.Dir, "source"))
 	}
@@ -1339,7 +1345,7 @@ func (a *app) processUpload(ctx context.Context, uploadID string) {
 			log.Printf("更新上传 %s 就绪状态失败: %v", uploadID, updateErr)
 		}
 		if asset.Type == "bim" {
-			if queueErr := a.queueRemeshAsset(ctx, asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); queueErr != nil {
+			if queueErr := a.queueRemeshAsset(ctx, asset.ID, defaultRemeshAlgorithm, defaultRemeshParamsJSON, false); queueErr != nil {
 				log.Printf("BIM 资产 %d 自动网格均匀化入队失败: %v", asset.ID, queueErr)
 			}
 		}
@@ -1788,6 +1794,14 @@ func (a *app) assetRepresentations(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "查询资产派生物失败")
 		return
 	}
+	for index := range rows {
+		if rows[index].Kind == tableFreeKind {
+			if _, _, err := a.pointcloudPreprocessRow(*item); err != nil {
+				message := err.Error()
+				rows[index].Status, rows[index].ErrorMessage = "failed", &message
+			}
+		}
+	}
 	representations := mergeAssetRepresentations(*item, rows)
 	ok(c, gin.H{"list": representations})
 }
@@ -2005,13 +2019,18 @@ const (
 	remeshTaskTimeout       = 30 * time.Minute
 	remeshRetryAttempts     = 3
 	defaultRemeshRetryDelay = 3 * time.Second
-	defaultRemeshParamsJSON = `{"target_edge_length":0.1,"clean_tolerance":0.005,"use_decimation":true,"decimation_ratio":0.5,"subdivision_iterations":2,"subdivision_threshold_ratio":2.0,"adaptive":true,"crease_angle":60.0,"use_isotropic":true,"isotropic_iterations":5,"surface_dist_ratio":0.5,"isotropic_collapse":true,"sliver_merge_ratio":0.03,"sliver_relax_checksurfdist":true}`
+	defaultRemeshAlgorithm  = "rebar_sweep"
+	defaultRemeshParamsJSON = `{"cross_section_sides":16,"axial_spacing":0.01,"max_chord_error":0.0001}`
 )
+
+func supportedRemeshAlgorithm(algorithm string) bool {
+	return strings.TrimSpace(algorithm) == defaultRemeshAlgorithm
+}
 
 func legacyRemeshDescriptor(algorithms []legacyRemeshAlgorithmDescriptor, name string) (legacyRemeshAlgorithmDescriptor, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		name = "bim_preprocessor"
+		name = defaultRemeshAlgorithm
 	}
 	for _, algorithm := range algorithms {
 		if algorithm.Name == name {
@@ -2107,7 +2126,7 @@ func resolveLegacyRemeshIdentity(asset Asset, descriptor legacyRemeshAlgorithmDe
 }
 
 func storedLegacyRemeshMetadataValid(asset Asset) bool {
-	if asset.RemeshAlgorithm == "" || asset.RemeshImplementationVersion == "" || asset.RemeshContractVersion == "" ||
+	if !supportedRemeshAlgorithm(asset.RemeshAlgorithm) || asset.RemeshImplementationVersion == "" || asset.RemeshContractVersion == "" ||
 		!hex64(asset.RemeshInputHash) || !hex64(asset.RemeshFingerprint) || !hex64(asset.RemeshContentHash) {
 		return false
 	}
@@ -2144,7 +2163,10 @@ func validateStoredLegacyRemeshArtifact(asset Asset, verifyContent bool) error {
 
 func (a *app) queueRemeshAsset(ctx context.Context, assetID int64, algorithm, paramsJSON string, force bool) error {
 	if strings.TrimSpace(algorithm) == "" {
-		algorithm = "bim_preprocessor"
+		algorithm = defaultRemeshAlgorithm
+	}
+	if strings.TrimSpace(paramsJSON) == "" {
+		paramsJSON = defaultRemeshParamsJSON
 	}
 	now := time.Now()
 	query := a.db.Model(&DBAsset{}).Where("id = ? AND type = ? AND status = ?", assetID, "bim", "ready")
@@ -2199,8 +2221,20 @@ func (a *app) recoverRemeshJobs(ctx context.Context) error {
 	algorithms, descriptorErr := a.listLegacyRemeshAlgorithms(ctx)
 	for _, asset := range assets {
 		if asset.RemeshStatus == "" {
-			if err := a.queueRemeshAsset(ctx, asset.ID, "bim_preprocessor", defaultRemeshParamsJSON, false); err != nil {
+			if err := a.queueRemeshAsset(ctx, asset.ID, defaultRemeshAlgorithm, defaultRemeshParamsJSON, false); err != nil {
 				return err
+			}
+			continue
+		}
+		if asset.RemeshStatus != "failed" && !supportedRemeshAlgorithm(asset.RemeshAlgorithm) {
+			message := "旧版网格算法已停用，请重新生成钢筋保形网格"
+			finishedAt := time.Now()
+			if err := a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{
+				"remesh_status":      "failed",
+				"remesh_error":       message,
+				"remesh_finished_at": &finishedAt,
+			}).Error; err != nil {
+				return fmt.Errorf("标记旧版网格任务失败: %w", err)
 			}
 			continue
 		}
@@ -2216,15 +2250,7 @@ func (a *app) recoverRemeshJobs(ctx context.Context) error {
 				}
 				continue
 			}
-			algorithm := asset.RemeshAlgorithm
-			if strings.TrimSpace(algorithm) == "" {
-				algorithm = "bim_preprocessor"
-			}
-			paramsJSON := asset.RemeshParamsJSON
-			if strings.TrimSpace(paramsJSON) == "" {
-				paramsJSON = defaultRemeshParamsJSON
-			}
-			if err := a.queueRemeshAsset(ctx, asset.ID, algorithm, paramsJSON, true); err != nil {
+			if err := a.queueRemeshAsset(ctx, asset.ID, defaultRemeshAlgorithm, defaultRemeshParamsJSON, true); err != nil {
 				return err
 			}
 			continue
@@ -2262,6 +2288,11 @@ func (a *app) processRemeshJob(parent context.Context, assetID int64) {
 		return
 	}
 	startedAt := asset.RemeshStartedAt
+	if !supportedRemeshAlgorithm(asset.RemeshAlgorithm) {
+		message := "旧版网格算法已停用，请重新生成钢筋保形网格"
+		_ = a.finishRemeshJob(assetID, startedAt, "failed", &message, nil)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(parent, remeshTaskTimeout)
 	defer cancel()
@@ -2400,7 +2431,7 @@ func (a *app) callRemeshService(ctx context.Context, asset DBAsset) (*http.Respo
 	inputPath := filepath.Join(asset.Dir, "model.glb")
 	algorithm := strings.TrimSpace(asset.RemeshAlgorithm)
 	if algorithm == "" {
-		algorithm = "bim_preprocessor"
+		algorithm = defaultRemeshAlgorithm
 	}
 	paramsJSON := strings.TrimSpace(asset.RemeshParamsJSON)
 	if paramsJSON == "" {
@@ -2524,9 +2555,9 @@ func (a *app) remeshAsset(c *gin.Context) {
 		return
 	}
 	if req.Algorithm == "" {
-		req.Algorithm = "bim_preprocessor"
+		req.Algorithm = defaultRemeshAlgorithm
 	}
-	if req.Algorithm != "bim_preprocessor" && req.Algorithm != "bim_isotropic_only" {
+	if !supportedRemeshAlgorithm(req.Algorithm) {
 		fail(c, http.StatusBadRequest, "不支持的网格均匀化算法")
 		return
 	}
@@ -2558,6 +2589,19 @@ func headerInt(value string) int {
 
 func (a *app) refreshRemeshState(asset *Asset) {
 	if asset == nil || asset.Type != "bim" {
+		return
+	}
+	if asset.RemeshStatus != "" && asset.RemeshStatus != "failed" && !supportedRemeshAlgorithm(asset.RemeshAlgorithm) {
+		message := "旧版网格算法已停用，请重新生成钢筋保形网格"
+		now := time.Now()
+		_ = a.db.Model(&DBAsset{}).Where("id = ?", asset.ID).Updates(map[string]any{
+			"remesh_status":      "failed",
+			"remesh_error":       message,
+			"remesh_finished_at": &now,
+		}).Error
+		asset.RemeshStatus = "failed"
+		asset.RemeshError = &message
+		asset.RemeshFinishedAt = &now
 		return
 	}
 	if asset.RemeshStatus == "queued" || asset.RemeshStatus == "processing" {
@@ -3197,7 +3241,7 @@ func (a *app) fineAlignment(c *gin.Context) {
 	}
 	sourcePath, err := a.resolveScanSourcePath(scan, userID(c))
 	if err != nil {
-		fail(c, 404, "点云源文件不存在")
+		fail(c, 409, err.Error())
 		return
 	}
 	meshPath := filepath.Join(bim.Dir, "mesh_remesh.ply")
@@ -3329,6 +3373,7 @@ type c2mStats struct {
 }
 
 type c2mRequest struct {
+	DenoiseVersion          string  `json:"denoiseVersion"`
 	ModelScanFileID         int64   `json:"modelScanFileId"`
 	ModelBimFileID          int64   `json:"modelBimFileId"`
 	Profile                 string  `json:"profile"`
@@ -3353,7 +3398,7 @@ type c2mServiceResult struct {
 	PointsBefore     int               `json:"pointsBefore"`
 	PointsAfter      int               `json:"pointsAfter"`
 	MeshVertices     int               `json:"meshVertices"`
-	Stats            c2mStats          `json:"stats"`
+	Stats            *c2mStats         `json:"stats"`
 	Histogram        json.RawMessage   `json:"histogram"`
 	Visualization    *c2mVisualization `json:"visualization"`
 	Diagnostics      json.RawMessage   `json:"diagnostics"`
@@ -3372,7 +3417,8 @@ type c2mRecolorRequest struct {
 }
 
 type c2mRecolorServiceResult struct {
-	Stats          c2mStats          `json:"stats"`
+	Diagnostics    json.RawMessage   `json:"diagnostics"`
+	Stats          *c2mStats         `json:"stats"`
 	Histogram      json.RawMessage   `json:"histogram"`
 	Visualization  *c2mVisualization `json:"visualization"`
 	ColoredPlyPath string            `json:"coloredPlyPath"`
@@ -3389,7 +3435,7 @@ type c2mVisualization struct {
 	SmoothingStrength    float64 `json:"smoothingStrength,omitempty"`
 }
 
-func (a *app) resolveScanSourcePath(scan Asset, ownerID int64) (string, error) {
+func (a *app) resolveRawScanSourcePath(scan Asset, ownerID int64) (string, error) {
 	// 1. 优先检查资产目录内部是否已有归档的源点云文件 (source.las 或 source)
 	for _, name := range []string{"source.las", "source"} {
 		p := filepath.Join(scan.Dir, name)
@@ -3486,12 +3532,12 @@ func (a *app) currentC2MInputFingerprint(scanID, bimID, ownerID int64) (string, 
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", scanID, bimID, ownerID).First(&alignment).Error; err != nil {
 		return "", errors.New("配准结果不存在")
 	}
-	scanPath, err := a.resolveScanSourcePath(assetFromDB(scanRow), ownerID)
+	scanPath, err := a.resolveC2MScanPath(assetFromDB(scanRow), bimID, ownerID)
 	if err != nil {
 		return "", err
 	}
 	meshPath := filepath.Join(bimRow.Dir, "mesh_remesh.ply")
-	return c2mInputFingerprint(alignment.MatrixJSON, scanPath, meshPath, bimRow.RemeshFingerprint)
+	return a.instanceC2MFingerprint(assetFromDB(scanRow), assetFromDB(bimRow), alignment.MatrixJSON, scanPath, meshPath)
 }
 
 func (a *app) c2mFreshness(row DBC2MResult) (bool, string) {
@@ -4104,6 +4150,12 @@ func c2mResultData(row DBC2MResult) gin.H {
 		"createdAt":        row.CreatedAt,
 		"updatedAt":        row.UpdatedAt,
 	}
+	if row.AlgorithmVersion == rebarC2MAlgorithm {
+		var comparison rebarComparison
+		if json.Unmarshal(rebarComparisonJSON(json.RawMessage(row.DiagnosticsJSON)), &comparison) == nil && comparison.KnownVertexCount == 0 {
+			data["stats"] = nil
+		}
+	}
 	if row.AnalysisStatus != "" {
 		analysis := gin.H{
 			"status":                  row.AnalysisStatus,
@@ -4136,6 +4188,17 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusNotFound, "点云或 BIM 资产不存在或尚未就绪")
 		return
 	}
+	if req.DenoiseVersion == "" {
+		fail(c, 409, "请先完成点云分类与去噪")
+		return
+	}
+	{
+		row, _, err := a.denoiseRow(scan, bim.ID)
+		if err != nil || row.Version != req.DenoiseVersion {
+			fail(c, 409, "去噪结果已变化，请返回去噪步骤刷新")
+			return
+		}
+	}
 	a.refreshRemeshState(&bim)
 	if bim.RemeshStatus != "succeeded" {
 		fail(c, http.StatusConflict, "请先完成 BIM 网格均匀化")
@@ -4150,9 +4213,9 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusConflict, "均匀化结果文件不存在，请重新执行")
 		return
 	}
-	scanPath, err := a.resolveScanSourcePath(scan, userID(c))
+	scanPath, err := a.resolveC2MScanPath(scan, bim.ID, userID(c))
 	if err != nil {
-		fail(c, http.StatusNotFound, "点云源文件不存在")
+		fail(c, http.StatusConflict, err.Error())
 		return
 	}
 	var alignment DBAlignment
@@ -4169,13 +4232,25 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	inputFingerprint, err := c2mInputFingerprint(alignment.MatrixJSON, scanPath, meshPath, bim.RemeshFingerprint)
+	inputFingerprint, err := a.instanceC2MFingerprint(scan, bim, alignment.MatrixJSON, scanPath, meshPath)
 	if err != nil {
 		fail(c, http.StatusConflict, "C2M 输入文件不可用")
 		return
 	}
+	instanceMapPath, instanceMapHash, err := a.c2mInstanceMapPath(scan, bim.ID)
+	if err != nil {
+		fail(c, 409, err.Error())
+		return
+	}
+	_, _, analysisMeshPath, err := a.currentAnalysisMesh(bim)
+	if err != nil {
+		fail(c, 409, "逐钢筋分析网格尚未就绪，请重新执行网格均匀化")
+		return
+	}
 	serviceParams := c2mServiceParams(req)
-	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": serviceParams})
+	serviceParams["denoiseVersion"] = req.DenoiseVersion
+	// Provenance belongs to the saved request, not the mesh-service parameter schema.
+	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": c2mServiceParams(req), "instance_map_path": meshServicePath(a.cfg.DataDir, instanceMapPath, a.cfg.MeshServiceStorageDir), "analysis_mesh_path": meshServicePath(a.cfg.DataDir, analysisMeshPath, a.cfg.MeshServiceStorageDir)})
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/c2m/compute", bytes.NewReader(body))
 	if err != nil {
 		fail(c, 500, "构建 C2M 请求失败")
@@ -4239,12 +4314,22 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, http.StatusBadGateway, err.Error())
 		return
 	}
-	if !validC2MHistogram(result.Histogram, visualization, result.MeshVertices) {
+	knownVertices, comparisonErr := validateRebarComparison(result.Diagnostics, result.MeshVertices, instanceMapHash)
+	if result.AlgorithmVersion != rebarC2MAlgorithm || result.MetricDirection != "mesh-vertices-to-instance-scan-points" || comparisonErr != nil || !validRebarStatistics(result.Stats, knownVertices) {
+		a.removeUnreferencedC2MArtifact(coloredPath)
+		a.removeUnreferencedC2MArtifact(distancesPath)
+		fail(c, 502, "C2M 服务未返回当前实例约束下的逐钢筋结果")
+		return
+	}
+	if !validC2MHistogram(result.Histogram, visualization, knownVertices) {
 		a.removeUnreferencedC2MArtifact(coloredPath)
 		a.removeUnreferencedC2MArtifact(distancesPath)
 		fail(c, http.StatusBadGateway, "C2M 服务返回的直方图与顶点数或可视化参数不一致")
 		return
 	}
+	if result.Stats == nil {
+		result.Stats = &c2mStats{}
+	} // Zero coverage remains stats:null at the API boundary.
 	serviceParams["max_colormap_distance"] = visualization.MaxColormapDistance
 	serviceParams["max_histogram_distance"] = visualization.MaxHistogramDistance
 	serviceParams["histogram_bins"] = visualization.HistogramBins
@@ -4252,7 +4337,7 @@ func (a *app) computeC2M(c *gin.Context) {
 	serviceParams["smoothing_iterations"] = visualization.SmoothingIterations
 	serviceParams["smoothing_strength"] = visualization.SmoothingStrength
 	paramsJSON, _ := json.Marshal(serviceParams)
-	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MaxColormapDistance: visualization.MaxColormapDistance, MaxHistogramDistance: visualization.MaxHistogramDistance, HistogramBins: visualization.HistogramBins, ToleranceLimit: visualization.ToleranceLimit, InputFingerprint: inputFingerprint, ParamsJSON: string(paramsJSON), MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath, AnalysisStatus: "queued"}
+	row := DBC2MResult{ScanID: scan.ID, BimID: bim.ID, OwnerID: userID(c), PointsBefore: result.PointsBefore, PointsAfter: result.PointsAfter, MeshVertexCount: result.MeshVertices, VoxelSize: req.VoxelSize, MaxColormapDistance: visualization.MaxColormapDistance, MaxHistogramDistance: visualization.MaxHistogramDistance, HistogramBins: visualization.HistogramBins, ToleranceLimit: visualization.ToleranceLimit, InputFingerprint: inputFingerprint, ParamsJSON: string(paramsJSON), MinDist: result.Stats.Min, MeanDist: result.Stats.Mean, StdDist: result.Stats.Std, P50: result.Stats.P50, P90: result.Stats.P90, P95: result.Stats.P95, P99: result.Stats.P99, MaxDist: result.Stats.Max, MeanAbs: result.Stats.MeanAbs, RMSE: result.Stats.RMSE, P95Abs: result.Stats.P95Abs, WithinToleranceRatio: result.Stats.WithinToleranceRatio, Profile: profile, AlgorithmVersion: result.AlgorithmVersion, MetricDirection: result.MetricDirection, ApproximationJSON: string(result.Approximation), HistogramJSON: string(result.Histogram), DiagnosticsJSON: string(result.Diagnostics), ColoredPlyPath: coloredPath, DistancesPath: distancesPath}
 	previous, err := a.replaceC2MResult(&row, inputFingerprint)
 	if err != nil {
 		a.removeUnreferencedC2MArtifact(coloredPath)
@@ -4271,12 +4356,6 @@ func (a *app) computeC2M(c *gin.Context) {
 		if previous.DistancesPath != distancesPath {
 			a.removeUnreferencedC2MArtifact(previous.DistancesPath)
 		}
-	}
-	if !a.enqueueAnalysisC2M(c.Request.Context(), analysisC2MJob{ScanID: row.ScanID, BimID: row.BimID, OwnerID: row.OwnerID}) {
-		message := "analysis C2M queue canceled before enqueue"
-		row.AnalysisStatus = "failed"
-		row.AnalysisError = &message
-		_ = a.db.Model(&DBC2MResult{}).Where("id = ?", row.ID).Updates(map[string]any{"analysis_status": row.AnalysisStatus, "analysis_error": message}).Error
 	}
 	ok(c, a.c2mResultResponse(row))
 }
@@ -4413,7 +4492,16 @@ func (a *app) recolorC2M(c *gin.Context) {
 		return
 	}
 
+	comparison := rebarComparisonJSON(json.RawMessage(row.DiagnosticsJSON))
+	if row.AlgorithmVersion == rebarC2MAlgorithm {
+		meshPath, err = a.c2mArtifactPath(row.ColoredPlyPath)
+		if err != nil || !regularFileExists(meshPath) {
+			fail(c, 409, "逐钢筋模型文件缺失，请重新计算")
+			return
+		}
+	}
 	body, _ := json.Marshal(map[string]any{
+		"rebar_comparison":       comparison,
 		"distances_path":         meshServicePath(a.cfg.DataDir, distancesPath, a.cfg.MeshServiceStorageDir),
 		"mesh_path":              meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir),
 		"max_colormap_distance":  req.MaxColormapDistance,
@@ -4474,7 +4562,18 @@ func (a *app) recolorC2M(c *gin.Context) {
 		fail(c, http.StatusBadGateway, err.Error())
 		return
 	}
-	if !validC2MHistogram(result.Histogram, visualization, row.MeshVertexCount) {
+	knownVertices := row.MeshVertexCount
+	if row.AlgorithmVersion == rebarC2MAlgorithm {
+		var previous rebarComparison
+		_ = json.Unmarshal(comparison, &previous)
+		knownVertices, err = validateRebarComparison(result.Diagnostics, row.MeshVertexCount, previous.InstanceMapHash)
+		if err != nil {
+			a.removeUnreferencedC2MArtifact(newColoredPath)
+			fail(c, 502, err.Error())
+			return
+		}
+	}
+	if !validRebarStatistics(result.Stats, knownVertices) || !validC2MHistogram(result.Histogram, visualization, knownVertices) {
 		a.removeUnreferencedC2MArtifact(newColoredPath)
 		fail(c, http.StatusBadGateway, "C2M 服务返回的直方图与顶点数或可视化参数不一致")
 		return
@@ -4485,6 +4584,9 @@ func (a *app) recolorC2M(c *gin.Context) {
 		return
 	}
 
+	if result.Stats == nil {
+		result.Stats = &c2mStats{}
+	}
 	next := row
 	next.MaxColormapDistance = visualization.MaxColormapDistance
 	next.MaxHistogramDistance = visualization.MaxHistogramDistance
@@ -4503,6 +4605,9 @@ func (a *app) recolorC2M(c *gin.Context) {
 	next.P95Abs = result.Stats.P95Abs
 	next.WithinToleranceRatio = result.Stats.WithinToleranceRatio
 	next.HistogramJSON = string(result.Histogram)
+	if row.AlgorithmVersion == rebarC2MAlgorithm {
+		next.DiagnosticsJSON = string(result.Diagnostics)
+	}
 	next.ColoredPlyPath = newColoredPath
 	var params map[string]any
 	if json.Unmarshal([]byte(next.ParamsJSON), &params) != nil || params == nil {
@@ -4699,7 +4804,6 @@ func main() {
 	r.PATCH("/projects/:id", a.updateProject)
 	r.DELETE("/projects/:id", a.deleteProject)
 	r.POST("/uploads", a.createUpload)
-	r.GET("/rebar-segmentation/algorithms", a.rebarAlgorithms)
 	r.GET("/uploads/:id", a.uploadStatus)
 	r.HEAD("/uploads/:id", a.upload)
 	r.PATCH("/uploads/:id", a.upload)
@@ -4707,22 +4811,14 @@ func main() {
 	r.GET("/assets", a.listAssets)
 	r.GET("/assets/:id", a.assetDetail)
 	r.GET("/assets/:id/representations", a.assetRepresentations)
+	r.GET("/assets/:id/pointcloud-preprocess", a.getPointcloudPreprocess)
+	r.POST("/assets/:id/pointcloud-preprocess", a.computePointcloudPreprocess)
 	r.GET("/assets/:id/representations/:kind/:version/*path", a.derivativeResource)
 	r.HEAD("/assets/:id/representations/:kind/:version/*path", a.derivativeResource)
 	r.PATCH("/assets/:id/appearance", a.updateAssetAppearance)
 	r.DELETE("/assets/:id", a.deleteAsset)
 	r.GET("/assets/:id/measurements", a.listMeasurements)
 	r.POST("/assets/:id/measurements", a.createMeasurement)
-	r.POST("/assets/:id/rebar-segmentation", a.rebarCompute)
-	r.GET("/assets/:id/rebar-segmentation/latest", a.rebarLatest)
-	r.GET("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
-	r.GET("/assets/:id/rebar-segmentation/versions/:version/labels/*path", a.rebarResource)
-	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/labels/*path", a.rebarResource)
-	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/result", a.rebarResource)
-	r.GET("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
-	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/tiles/*path", a.rebarResource)
-	r.GET("/assets/:id/rebar-segmentation/versions/:version/features/*path", a.rebarResource)
-	r.HEAD("/assets/:id/rebar-segmentation/versions/:version/features/*path", a.rebarResource)
 	r.GET("/assets/:id/:resource", a.resource)
 	r.HEAD("/assets/:id/:resource", a.resource)
 	r.DELETE("/measurements/:measurementId", a.deleteMeasurement)
@@ -4740,6 +4836,9 @@ func main() {
 	r.POST("/alignments/bim", a.createAlignment)
 	r.GET("/alignments/bim", a.getAlignment)
 	r.POST("/alignments/bim/fine", a.fineAlignment)
+	r.POST("/alignments/bim/denoise", a.computeDenoise)
+	r.GET("/alignments/bim/denoise/latest", a.getDenoiseLatest)
+	r.GET("/alignments/bim/denoise/artifacts/:name", a.denoiseArtifact)
 	r.POST("/alignments/bim/c2m", a.computeC2M)
 	r.POST("/alignments/bim/analysis-c2m", a.analysisC2MBuild)
 	r.GET("/alignments/bim/analysis-c2m/latest", a.analysisC2MLatest)

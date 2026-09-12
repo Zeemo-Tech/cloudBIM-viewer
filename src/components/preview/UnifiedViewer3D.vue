@@ -11,6 +11,7 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import { PointCloudEdlPipeline } from './edlPipeline'
+import { PointcloudTableVisibility, validPointcloudTablePlane, type PointcloudTablePlane } from '@/features/pointcloud/tableVisibility'
 import {
   createPointcloudLoadLifecycle,
   type PointcloudLoadLifecycle,
@@ -20,6 +21,7 @@ import ViewerMeasurementBadge, {
 } from './ViewerMeasurementBadge.vue'
 import { createUploadHeaders } from '@/config/upload-backend'
 import { getAssetDetail, getBimGlbUrl, getPointcloudTilesetUrl } from '@/api/backend-file'
+import { downloadRemeshResult } from '@/api/backend-mesh'
 import {
   getC2MColoredPlyUrl,
   getC2MDistancesUrl,
@@ -44,6 +46,7 @@ import type { AnalysisArea, AnalysisDistance, AnalysisMode, AnalysisPoint } from
 import type { RebarVisualizationMetadata } from '@/api/backend-rebar'
 import { createRebarColorizer, visibleRebarPointIndices, validateVisualization } from '@/features/rebar-visualization'
 import { buildRebarOverlay, disposeRebarOverlay } from '@/features/rebar-visualization/inspection'
+import { buildInstancePalette } from '@/features/rebar-visualization/instancePalette.js'
 import type { RebarInspection, RebarIntersection } from '@/api/backend-rebar'
 
 export type ViewerType = 'bim' | 'pointcloud' | 'c2m' | 'hybrid'
@@ -52,6 +55,7 @@ export type StandardView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom
 export type PointcloudColorMode =
   | 'rgb'
   | 'intensity'
+  | 'table-class'
   | 'rebar-class'
   | 'rebar-direction'
   | 'rebar-instance'
@@ -91,6 +95,8 @@ export interface UnifiedViewerProps {
   bimAssetId?: number | null
   pointcloudAssetId?: number | null
   pointcloudTilesetUrl?: string | null
+  pointcloudTablePlane?: PointcloudTablePlane | null
+  pointcloudTableVisible?: boolean
   rebarVisualization?: RebarVisualizationMetadata | null
   rebarInspection?: RebarInspection | null
   displayName?: string
@@ -121,6 +127,8 @@ const props = withDefaults(defineProps<UnifiedViewerProps>(), {
   bimAssetId: null,
   pointcloudAssetId: null,
   pointcloudTilesetUrl: null,
+  pointcloudTablePlane: null,
+  pointcloudTableVisible: true,
   rebarVisualization: null,
   displayName: undefined,
   minimal: false,
@@ -203,6 +211,57 @@ let resizeObserver: ResizeObserver | null = null
 
 // 场景模型根节点
 let bimRoot: THREE.Object3D | null = null
+let bimRemesh: THREE.Mesh | null = null
+let bimOriginalChildren: THREE.Object3D[] = []
+let bimRemeshLoadToken = 0
+
+function clearBimRemesh() {
+  bimRemeshLoadToken++
+  if (bimRemesh) {
+    bimRemesh.removeFromParent()
+    bimRemesh.geometry.dispose()
+    ;(bimRemesh.material as THREE.Material).dispose()
+    bimRemesh = null
+  }
+  if (bimRoot && bimOriginalChildren.length) bimRoot.add(...bimOriginalChildren)
+  bimOriginalChildren = []
+  setWireframe(wireframeEnabled)
+  syncClippingToMaterials()
+}
+
+async function setBimRemeshVisible(visible: boolean) {
+  clearBimRemesh()
+  if (!visible) return
+  const root = bimRoot
+  const assetId = props.assetId
+  if (props.type !== 'bim' || !assetId || !root || !loaded.value) {
+    throw new Error('请等待 BIM 模型加载完成')
+  }
+  const token = bimRemeshLoadToken
+  const blob = await downloadRemeshResult(assetId)
+  const buffer = await blob.arrayBuffer()
+  if (token !== bimRemeshLoadToken || root !== bimRoot) return
+  const geometry = new PLYLoader().parse(buffer)
+  if (!geometry.getAttribute('position')?.count) {
+    geometry.dispose()
+    throw new Error('均匀化结果缺少顶点数据')
+  }
+  if (!geometry.getAttribute('normal')) geometry.computeVertexNormals()
+  const material = new THREE.MeshLambertMaterial({
+    color: 0xff7a18,
+    side: THREE.DoubleSide,
+    wireframe: wireframeEnabled,
+    clippingPlanes: sectionEnabled ? clipPlanes : [],
+  })
+  bimRemesh = new THREE.Mesh(geometry, material)
+  bimRemesh.name = 'bim-remesh-result'
+  // The PLY already contains the GLB scene transforms. Undo the source root
+  // matrix before inheriting the preview's centering/calibration from bimRoot.
+  bimRemesh.applyMatrix4(bimSourceMatrix.clone().invert())
+  bimOriginalChildren = [...root.children]
+  root.remove(...bimOriginalChildren)
+  root.add(bimRemesh)
+}
 let pointcloudWrapper: THREE.Group | null = null
 let rebarOverlay: THREE.Group | null = null
 const rebarIntersectionPick = ref<RebarIntersection | null>(null)
@@ -253,6 +312,29 @@ function forEachLoadedPointcloudModel(callback: (model: THREE.Object3D) => void)
 
 function refreshLoadedPointcloudMaterials() {
   forEachLoadedPointcloudModel(applyPointcloudMaterial)
+}
+
+const pointcloudTableVisibility = new PointcloudTableVisibility()
+function applyPointcloudTableVisibility(model: THREE.Object3D) {
+  pointcloudTableVisibility.apply(model, props.pointcloudTablePlane, props.pointcloudTableVisible,
+    pointcloudColorMode === 'table-class' && !pointColorOverride)
+}
+
+function applyPointcloudCategoryColors(model: THREE.Object3D) {
+  if (pointColorOverride || pointcloudColorMode !== 'table-class' || !validPointcloudTablePlane(props.pointcloudTablePlane)) return
+  model.traverse((object) => {
+    const points = object as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial | THREE.PointsMaterial[]>
+    if (!points.isPoints) return
+    const colors = pointcloudTableVisibility.colorAttribute(points.geometry)
+    if (!colors) return
+    points.geometry.setAttribute('color', colors)
+    const materials = Array.isArray(points.material) ? points.material : [points.material]
+    for (const material of materials) {
+      material.color.set(0xffffff)
+      material.vertexColors = true
+      material.needsUpdate = true
+    }
+  })
 }
 
 let bimSourceMatrix = new THREE.Matrix4()
@@ -341,6 +423,7 @@ const originalPointColors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttrib
 type RebarSourceAttribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute
 type RebarColorCacheEntry = {
   signature: string
+  palette: ReadonlyMap<number, [number, number, number]> | null
   attribute: THREE.BufferAttribute
   sources: readonly (RebarSourceAttribute | null)[]
   versions: readonly number[]
@@ -350,6 +433,14 @@ const rebarColorCache = new WeakMap<
   THREE.BufferGeometry,
   WeakMap<RebarVisualizationMetadata, Map<'rebar-class' | 'rebar-direction' | 'rebar-instance', RebarColorCacheEntry>>
 >()
+const rebarPaletteInstances = computed(() => props.rebarInspection?.instances)
+const rebarInstancePalette = computed(() => buildInstancePalette(
+  (rebarPaletteInstances.value ?? []).map(instance => ({
+    id: instance.id,
+    paths: instance.observedSegments?.length
+      ? instance.observedSegments.map(segment => segment.points) : [instance.centerline],
+  })),
+))
 
 // ---------------------------
 // 基础渲染流程（平滑 60FPS 连续渲染环，对齐校准页机制）
@@ -1362,6 +1453,7 @@ function cancelActiveAnalysis() {
 // 资源加载：BIM / 点云 / C2M
 // ---------------------------
 function cleanCurrentSceneModels() {
+  clearBimRemesh()
   disposeRebarOverlay(rebarOverlay)
   rebarOverlay = null
   rebarIntersectionPick.value = null
@@ -1649,25 +1741,50 @@ function getPointAttribute(geometry: THREE.BufferGeometry, names: string[]) {
   return entry?.[1] ?? null
 }
 
+function hasVisiblePointColors(attribute: THREE.BufferAttribute) {
+  if (attribute.count <= 0 || attribute.itemSize < 3) return false
+  const stride = Math.max(1, Math.ceil(attribute.count / 50000))
+  for (let index = 0; index < attribute.count; index += stride) {
+    const red = attribute.getX(index)
+    const green = attribute.getY(index)
+    const blue = attribute.getZ(index)
+    if (
+      Number.isFinite(red) &&
+      Number.isFinite(green) &&
+      Number.isFinite(blue) &&
+      Math.max(Math.abs(red), Math.abs(green), Math.abs(blue)) > 1 / 255
+    ) return true
+  }
+  return false
+}
+
+function hasScalarVariation(source: { count: number; valueAt: (index: number) => number }) {
+  const stride = Math.max(1, Math.ceil(source.count / 50000))
+  const { min, max } = scalarBounds(source, stride)
+  return max - min > 1e-9
+}
+
 function getPointScalarSource(geometry: THREE.BufferGeometry) {
   const intensity = getPointAttribute(geometry, ['intensity', '_intensity', 'scalar_intensity'])
   if (intensity?.count) {
-    return {
+    const source = {
       count: intensity.count,
       valueAt: (index: number) => intensity.getX(index),
     }
+    if (hasScalarVariation(source)) return source
   }
 
-  const originalColor = originalPointColors.get(geometry) ??
+  const originalColor = originalPointColors.has(geometry) ? originalPointColors.get(geometry) :
     (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)
-  if (originalColor?.count) {
-    return {
+  if (originalColor?.count && hasVisiblePointColors(originalColor)) {
+    const source = {
       count: originalColor.count,
       valueAt: (index: number) =>
         originalColor.getX(index) * 0.2126 +
         originalColor.getY(index) * 0.7152 +
         originalColor.getZ(index) * 0.0722,
     }
+    if (hasScalarVariation(source)) return source
   }
 
   const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
@@ -1696,7 +1813,9 @@ function collectPointcloudColorStats(root: THREE.Object3D) {
     const points = object as THREE.Points
     if (!points.isPoints) return
     const geometry = points.geometry as THREE.BufferGeometry
-    if (geometry.getAttribute('color')) pointcloudHasRgb = true
+    const colors = originalPointColors.has(geometry) ? originalPointColors.get(geometry) :
+      geometry.getAttribute('color') as THREE.BufferAttribute | undefined
+    if (colors && hasVisiblePointColors(colors)) pointcloudHasRgb = true
     const scalar = getPointScalarSource(geometry)
     if (!scalar) return
     pointcloudHasIntensity = true
@@ -1778,6 +1897,7 @@ function cachedRebarColors(
   count: number,
 ) {
   const signature = rebarVisualizationSignature(metadata)
+  const palette = mode === 'rebar-instance' ? rebarInstancePalette.value : null
   const sources = [sceneClass, flags, direction, instance, fixtureKind, rebarRole] as const
   const versions = sources.map((source) => source ? rebarAttributeVersion(source) : -1)
   let byVisualization = rebarColorCache.get(geometry)
@@ -1793,12 +1913,13 @@ function cachedRebarColors(
   const cached = byMode.get(mode)
   if (
     cached?.signature === signature &&
+    cached.palette === palette &&
     cached.count === count &&
     cached.sources.every((source, index) => source === sources[index]) &&
     cached.versions.every((version, index) => version === versions[index])
   ) return cached.attribute
 
-  const colorize = createRebarColorizer(metadata)
+  const colorize = createRebarColorizer(metadata, palette ?? undefined)
   const colors = new Uint8Array(count * 3)
   for (let index = 0; index < count; index += 1) {
     const rgb = colorize(mode, {
@@ -1812,7 +1933,7 @@ function cachedRebarColors(
     colors[offset + 2] = Math.round(rgb[2] * 255)
   }
   const attribute = new THREE.Uint8BufferAttribute(colors, 3, true)
-  byMode.set(mode, { signature, attribute, sources, versions, count })
+  byMode.set(mode, { signature, palette, attribute, sources, versions, count })
   return attribute
 }
 
@@ -1820,7 +1941,7 @@ function applyRebarColoring(
   geometry: THREE.BufferGeometry,
   material: THREE.PointsMaterial,
 ) {
-  const definitions: Record<Exclude<PointcloudColorMode, 'rgb' | 'intensity'>, {
+  const definitions: Record<Exclude<PointcloudColorMode, 'rgb' | 'intensity' | 'table-class'>, {
     names: string[]
     empty: number
     ambiguous: number
@@ -1829,7 +1950,7 @@ function applyRebarColoring(
     'rebar-direction': { names: ['rebar_direction', 'rebardirection'], empty: 0, ambiguous: 65535 },
     'rebar-instance': { names: ['rebar_instance', 'rebarinstance'], empty: 0, ambiguous: 0xffffffff },
   }
-  if (pointcloudColorMode === 'rgb' || pointcloudColorMode === 'intensity') return false
+  if (pointcloudColorMode === 'rgb' || pointcloudColorMode === 'intensity' || pointcloudColorMode === 'table-class') return false
   const sceneClass = getPointAttribute(geometry, ['scene_class', 'sceneclass'])
   const flags = getPointAttribute(geometry, ['rebar_flags', 'rebarflags'])
   const direction = getPointAttribute(geometry, ['rebar_direction', 'rebardirection'])
@@ -1874,7 +1995,9 @@ function applyRebarColoring(
     } else if (value === definition.ambiguous) {
       rgb = [1, 0.72, 0.12]
     } else {
-      rgb = deterministicPointColor(value)
+      rgb = pointcloudColorMode === 'rebar-instance'
+        ? rebarInstancePalette.value.get(value) ?? deterministicPointColor(value)
+        : deterministicPointColor(value)
     }
     colors[index * 3] = rgb[0]
     colors[index * 3 + 1] = rgb[1]
@@ -1899,6 +2022,9 @@ function applyPointcloudColoring(obj: THREE.Points, material: THREE.PointsMateri
     material.vertexColors = false
     return
   }
+
+  // Category colors are applied after the source-frame table mask is prepared.
+  if (pointcloudColorMode === 'table-class' && validPointcloudTablePlane(props.pointcloudTablePlane)) return
 
   if (applyRebarColoring(geometry, material)) return
 
@@ -1926,10 +2052,11 @@ function applyPointcloudColoring(obj: THREE.Points, material: THREE.PointsMateri
   }
 
   const original = originalPointColors.get(geometry)
-  if (original) geometry.setAttribute('color', original)
+  const hasUsableOriginal = Boolean(original && hasVisiblePointColors(original))
+  if (original && hasUsableOriginal) geometry.setAttribute('color', original)
   else geometry.deleteAttribute('color')
-  material.color.set(0xffffff)
-  material.vertexColors = Boolean(original)
+  material.color.set(hasUsableOriginal ? 0xffffff : 0x86898d)
+  material.vertexColors = hasUsableOriginal
   material.needsUpdate = true
 }
 
@@ -2020,6 +2147,8 @@ function applyPointcloudMaterial(root: THREE.Object3D) {
       })
     }
   })
+  applyPointcloudTableVisibility(root)
+  applyPointcloudCategoryColors(root)
 }
 
 async function loadAnalysisC2MModel(result: C2MResult, expectedToken: number) {
@@ -2244,7 +2373,7 @@ async function loadC2MModel(expectedToken: number) {
 
     if (distancesBuffer) {
       const vertexCount = geometry.getAttribute('position')?.count ?? 0
-      const distances = parseC2MDistances(distancesBuffer, vertexCount)
+      const distances = parseC2MDistances(distancesBuffer, vertexCount, Boolean(result.diagnostics?.rebarComparison))
       if (distances) {
         // The C2M PLY endpoint is one indexed geometry whose position order is
         // preserved from the remesh. distances.bin uses that exact vertex order.
@@ -2254,6 +2383,7 @@ async function loadC2MModel(expectedToken: number) {
           distances,
           result.visualization?.maxColormapDistance ?? 0.1,
           result.visualization?.toleranceLimit ?? 0.05,
+          props.c2mColorMode === 'discrete', props.c2mBandCount,
         )
       } else {
         console.warn(`[C2MViewer] distances.bin 与单网格 ${vertexCount} 个顶点不匹配，已保留服务端 PLY 配色`)
@@ -2268,6 +2398,7 @@ async function loadC2MModel(expectedToken: number) {
 
     const material = new THREE.MeshBasicMaterial({
       vertexColors: !!geometry.attributes.color,
+      toneMapped: false,
       side: THREE.DoubleSide,
       clippingPlanes: sectionEnabled ? clipPlanes : [],
     })
@@ -2796,6 +2927,7 @@ function focusAnalysisComponent(ifcGlobalId: string) {
 }
 
 defineExpose({
+  setBimRemeshVisible,
   reload,
   resetView,
   resetPointcloudView: resetView,
@@ -2835,6 +2967,9 @@ defineExpose({
 })
 
 // 监听 Prop 变化
+watch(rebarInstancePalette, () => {
+  if (isMountedReady && pointcloudColorMode === 'rebar-instance') refreshLoadedPointcloudMaterials()
+})
 watch(() => props.rebarInspection, (next, previous) => {
   if (next?.selectedIntersectionId !== previous?.selectedIntersectionId) {
     locallySelectedIntersectionId = next?.selectedIntersectionId ?? null
@@ -2848,6 +2983,18 @@ watch(() => props.rebarInspection, (next, previous) => {
 watch(() => props.rebarVisualization, () => {
   if (isMountedReady) refreshLoadedPointcloudMaterials()
 }, { deep: true })
+watch(
+  () => props.pointcloudTableVisible,
+  () => forEachLoadedPointcloudModel(applyPointcloudTableVisibility),
+)
+watch(
+  () => props.pointcloudTablePlane,
+  () => {
+    if (pointcloudColorMode === 'table-class') refreshLoadedPointcloudMaterials()
+    else forEachLoadedPointcloudModel(applyPointcloudTableVisibility)
+  },
+  { deep: true },
+)
 watch(
   () => [props.assetId, props.bimAssetId, props.scanAssetId, props.pointcloudAssetId, props.type] as const,
   () => {
@@ -2883,6 +3030,11 @@ watch(
       tolerance + 1e-6,
     )
     analysisC2MMaterial?.setThresholds(tolerance, colorRange, bands)
+    if (!c2mUsesAnalysisTiles) c2mMeshRoot?.traverse((object) => {
+      const mesh = object as THREE.Mesh
+      const distances = mesh.geometry?.getAttribute('distance')?.array
+      if (distances instanceof Float32Array) applyC2MVertexColors(mesh.geometry, distances, colorRange, tolerance, mode === 'discrete', bands)
+    })
   },
 )
 

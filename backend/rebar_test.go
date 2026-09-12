@@ -126,6 +126,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	fake := &fakeRebarProvider{}
 	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
 	a.db = db
+	installPreprocessedScan(t, a, assetFromDB(asset))
 	a.rebarProvider = fake
 	post := func(force bool) *httptest.ResponseRecorder {
 		q := ""
@@ -254,6 +255,7 @@ func TestRebarV6DefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t *testing
 	fake := &fakeRebarProvider{}
 	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
 	a.db, a.rebarProvider = db, fake
+	installPreprocessedScan(t, a, Asset{ID: 1, OwnerID: 7, Dir: dir})
 	post := func(body string) *httptest.ResponseRecorder {
 		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation", body, 7)
 		a.rebarCompute(c)
@@ -343,6 +345,7 @@ func TestRebarV6FollowsCurrentLinkedBimAndRejectsStaleLatest(t *testing.T) {
 	fake := &fakeRebarProvider{}
 	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
 	a.db, a.rebarProvider = db, fake
+	installPreprocessedScan(t, a, assetFromDB(scan))
 	post := func() *httptest.ResponseRecorder {
 		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation", `{}`, 7)
 		a.rebarCompute(c)

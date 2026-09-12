@@ -79,6 +79,7 @@ function toggleToolbar() {
       :class="{ 'is-active': !collapsed || props.mode !== 'none' }"
       type="button"
       :aria-expanded="!collapsed"
+      :aria-label="collapsed ? '展开测量工具' : '收起测量工具'"
       :title="collapsed ? '展开测量工具' : '收起测量工具'"
       @click="toggleToolbar"
     >
@@ -94,6 +95,8 @@ function toggleToolbar() {
         :class="{ 'is-active': props.mode === action.mode }"
         type="button"
         :disabled="props.disabled"
+        :aria-label="action.title"
+        :aria-pressed="props.mode === action.mode"
         :title="action.title"
         @click="select(action.mode)"
       >
@@ -106,6 +109,7 @@ function toggleToolbar() {
         type="button"
         :disabled="props.disabled"
         title="清除全部测量结果"
+        aria-label="清除全部测量结果"
         @click="emit('clear')"
       >
         <el-icon><Delete /></el-icon>
@@ -198,9 +202,9 @@ function toggleToolbar() {
 }
 
 .measurement-action {
-  min-height: 32px;
+  min-height: 36px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .measurement-action.is-active {

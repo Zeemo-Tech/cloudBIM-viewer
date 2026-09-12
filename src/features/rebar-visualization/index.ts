@@ -108,7 +108,8 @@ export function v3Color(mode: RebarVisualizationMode, visualization: unknown, po
   })
 }
 
-export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
+export function createRebarColorizer(metadata: RebarVisualizationMetadata, instancePalette?: ReadonlyMap<number, Rgb>) {
+  const colorForInstance = (id: number) => instancePalette?.get(id) ?? instanceColor(id)
   const colors = metadata.colors
   const clutter = hexRgb(colors.clutter ?? V3_COLORS.clutter)
   const table = hexRgb(colors.table ?? V3_COLORS.table)
@@ -158,7 +159,7 @@ export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
       }
       if (mode === 'rebar-instance') {
         if (ambiguous) return ambiguity
-        if (point.instance > 0) return instanceColor(point.instance)
+        if (point.instance > 0) return colorForInstance(point.instance)
       }
       if (mode === 'rebar-direction' && point.direction > 0 && point.direction !== 65535) return directionColor(point.direction)
       return rebar
@@ -171,7 +172,7 @@ export function createRebarColorizer(metadata: RebarVisualizationMetadata) {
     if (isIntersection) return intersection
     if (mode === 'rebar-class') return point.direction === 1 ? directionA : point.direction === 2 ? directionB : scene
     if (mode === 'rebar-direction') return point.direction === 1 ? directionA : point.direction === 2 ? directionB : rebar
-    if (point.instance) return instanceColor(point.instance)
+    if (point.instance) return colorForInstance(point.instance)
     return scene
   }
 }

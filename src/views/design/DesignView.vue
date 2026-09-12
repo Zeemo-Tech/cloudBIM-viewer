@@ -19,7 +19,7 @@ const project = ref<ProjectSummary | null>(null)
 const assets = ref<AssetSummary[]>([])
 const uploadVisible = ref(false)
 const bimCurrentPage = ref(1)
-const bimPageSize = ref(6)
+const bimPageSize = ref(10)
 const bimFilters = reactive({ keyword: '', status: 'all', dateRange: null as [Date, Date] | null })
 
 const readyCadAssets = computed(() => assets.value.filter((asset) => asset.type === 'cad' && asset.status === 'ready'))
@@ -43,6 +43,12 @@ const pagedBimAssets = computed(() => filteredBimAssets.value.slice(
   bimCurrentPage.value * bimPageSize.value,
 ))
 const bimPageCount = computed(() => Math.max(1, Math.ceil(filteredBimAssets.value.length / bimPageSize.value)))
+const hasBimAssets = computed(() => assets.value.some((asset) => asset.type === 'bim'))
+const hasBimFilters = computed(() => Boolean(
+  bimFilters.keyword.trim()
+  || bimFilters.status !== 'all'
+  || bimFilters.dateRange,
+))
 const recentAssets = computed(() => [...assets.value].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5))
 
 async function loadData() {
@@ -108,6 +114,11 @@ function resetBimFilters() {
   bimCurrentPage.value = 1
 }
 
+function handleBimEmptyAction() {
+  if (hasBimAssets.value) resetBimFilters()
+  else uploadVisible.value = true
+}
+
 function handleBimPageChange(page: number) {
   bimCurrentPage.value = page
 }
@@ -150,17 +161,24 @@ watch([() => bimFilters.keyword, () => bimFilters.status, () => bimFilters.dateR
       </header>
       <section class="bim-table-card">
         <div class="bim-table-heading"><h2>IFC 模型列表</h2></div>
-        <el-table class="bim-table" v-loading="loading" :data="pagedBimAssets" row-key="id" empty-text="当前项目暂无 IFC 模型">
+        <el-table class="bim-table" v-loading="loading" :data="pagedBimAssets" row-key="id" tabindex="0" aria-label="IFC 模型列表，可横向滚动">
           <el-table-column label="归档编号" width="150" align="center"><template #default="{ row }"><strong class="bim-archive-code">{{ row.archiveCode || '未归档' }}</strong></template></el-table-column>
-          <el-table-column label="文件名称" min-width="130" align="center"><template #default="{ row }"><div class="bim-name-cell"><span :title="row.sourceName">{{ row.sourceName }}</span></div></template></el-table-column>
+          <el-table-column label="文件名称" min-width="280" align="left"><template #default="{ row }"><div class="bim-name-cell"><span :title="row.sourceName">{{ row.sourceName }}</span></div></template></el-table-column>
           <el-table-column label="文件大小" width="120" align="center"><template #default="{ row }">{{ formatFileSize(row.sourceSize) }}</template></el-table-column>
           <el-table-column label="上传时间" width="180" align="center"><template #default="{ row }">{{ formatDate(row.createdAt) }}</template></el-table-column>
           <el-table-column label="状态" width="110" align="center"><template #default="{ row }"><el-tag size="small" :type="assetStatusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
           <el-table-column label="网格均匀化" width="125" align="center"><template #default="{ row }"><el-tag size="small" :type="uniformizationTagType(row)">{{ uniformizationText(row) }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="130" align="center" fixed="right" class-name="bim-operation-column" label-class-name="bim-operation-column"><template #default="{ row }"><div class="bim-row-actions"><button class="bim-action-button" type="button" title="预览 IFC 模型" :disabled="row.status !== 'ready'" @click="preview(row)"><el-icon><View /></el-icon></button><button class="bim-action-button is-delete" type="button" title="删除 IFC 模型" @click="removeModel(row)"><el-icon><Delete /></el-icon></button></div></template></el-table-column>
+          <el-table-column label="操作" width="210" align="center" fixed="right" class-name="bim-operation-column" label-class-name="bim-operation-column"><template #default="{ row }"><div class="bim-row-actions"><button class="bim-action-button bim-action-button--primary" type="button" title="预览模型" aria-label="预览模型" :disabled="row.status !== 'ready'" @click="preview(row)"><el-icon><View /></el-icon><span>预览模型</span></button><button class="bim-action-button is-delete" type="button" title="删除 IFC 模型" aria-label="删除 IFC 模型" @click="removeModel(row)"><el-icon><Delete /></el-icon></button></div></template></el-table-column>
+          <template #empty>
+            <div class="bim-table-empty">
+              <strong>{{ hasBimAssets ? '没有匹配的 IFC 模型' : '当前项目暂无 IFC 模型' }}</strong>
+              <span>{{ hasBimAssets ? '当前筛选条件下没有结果' : '上传 IFC 模型后可在此预览和管理' }}</span>
+              <button type="button" @click="handleBimEmptyAction">{{ hasBimFilters ? '清除筛选' : '上传 IFC' }}</button>
+            </div>
+          </template>
         </el-table>
       </section>
-      <NeumorphicPagination :current-page="bimCurrentPage" :page-size="bimPageSize" :total="filteredBimAssets.length" :page-size-options="[6, 10, 20, 50]" @update:current-page="handleBimPageChange" @update:page-size="handleBimPageSizeChange" />
+      <NeumorphicPagination :current-page="bimCurrentPage" :page-size="bimPageSize" :total="filteredBimAssets.length" :page-size-options="[10, 20, 50]" aria-label="IFC 模型分页" @update:current-page="handleBimPageChange" @update:page-size="handleBimPageSizeChange" />
       <FileUploadDialog
         v-model="uploadVisible"
         :session="session"
@@ -255,4 +273,15 @@ watch([() => bimFilters.keyword, () => bimFilters.status, () => bimFilters.dateR
 .bim-action-button:disabled { color: var(--text-disabled); background: var(--bg-muted); cursor: not-allowed; transform: none; }
 @media (max-width: 900px) { .bim-toolbar { display: block; } .bim-filters { flex-wrap: wrap; } .bim-search-input { max-width: none; } .bim-toolbar-actions { margin-top: var(--spacing-sm); justify-content: flex-end; } }
 @media (max-width: 620px) { .bim-date-range { flex: 1 1 100% !important; width: 100% !important; min-width: 0 !important; max-width: none !important; } .bim-status-select { flex: 1; } .bim-toolbar-actions { flex-wrap: wrap; } .bim-table-card { padding: var(--spacing-md); } }
+.bim-table-card { flex: 0 1 auto; }
+.bim-table { flex: 0 0 auto; overflow-x: auto; }
+.bim-table:focus-visible { outline: 2px solid var(--border-color-focus); outline-offset: 2px; }
+.bim-name-cell { justify-content: flex-start; text-align: left; }
+.bim-action-button { width: 40px; height: 40px; }
+.bim-action-button--primary { width: auto; min-width: 112px; display: inline-flex; gap: var(--spacing-sm); padding: 0 var(--spacing-compact); color: var(--bg-card); background: var(--color-primary); }
+.bim-action-button--primary:hover { color: var(--bg-card); background: var(--color-primary-hover); }
+.bim-action-button:focus-visible, .bim-toolbar-button:focus-visible, .bim-table-empty button:focus-visible { outline: 2px solid var(--border-color-focus); outline-offset: 2px; }
+.bim-table-empty { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-sm); color: var(--text-tertiary); }
+.bim-table-empty strong { color: var(--text-primary); font-size: var(--font-size-md); }
+.bim-table-empty button { min-height: var(--control-height); margin-top: var(--spacing-xs); padding: 0 var(--spacing-md); border: 0; border-radius: var(--radius-sm); color: var(--bg-card); background: var(--color-primary); cursor: pointer; }
 </style>

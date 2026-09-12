@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Check, Close, Document, Loading, Refresh, Upload } from '@element-plus/icons-vue'
+import { Check, Close, Document, Loading, Upload } from '@element-plus/icons-vue'
 import { listAssets, type AssetArchiveMetadata, type AssetSummary, type ComponentType } from '@/api/backend-file'
 import { uploadFile } from '@/features/upload/upload.service'
 import { BIM_UPLOAD_CONFIG, CAD_UPLOAD_CONFIG, POINT_CLOUD_UPLOAD_CONFIG } from '@/features/upload/upload.config'
@@ -116,10 +116,8 @@ function clearActiveFile() {
     resetTask(activeTab.value)
   }
 }
-function toggleUploadType() {
-  if (availableKinds.value.length < 2) return
-  const index = availableKinds.value.indexOf(activeTab.value)
-  activeTab.value = availableKinds.value[(index + 1) % availableKinds.value.length]
+function selectUploadType(kind: UploadKind) {
+  activeTab.value = kind
 }
 async function confirmUpload(kind: UploadKind) {
   const file = selectedFiles[kind]
@@ -186,16 +184,16 @@ onMounted(() => { void loadDesignModels() })
   <section class="simple-upload-page" :class="{ 'is-compact': props.compact }">
     <div class="upload-stage">
       <div class="upload-stack-wrapper">
-        <div class="stack-layer stack-layer-3"></div><div class="stack-layer stack-layer-2"></div><div class="stack-layer stack-layer-1"><div class="decor-grid"></div></div>
-        <div :key="activeTab" class="main-upload-card" @click="chooseFile" @dragover.prevent @drop.prevent="handleDrop">
+        <div class="stack-layer stack-layer-1" aria-hidden="true"></div>
+        <div :key="activeTab" class="main-upload-card" role="button" tabindex="0" :aria-label="activeTab === 'pointcloud' ? '选择点云文件' : `选择${activeTypeName}文件`" @click="chooseFile" @keydown.enter.self="chooseFile" @keydown.space.self.prevent="chooseFile" @dragover.prevent @drop.prevent="handleDrop">
           <input ref="fileInput" class="hidden-input" type="file" :accept="activeConfig.accept" @change="handleFileChange" />
           <div class="corner-mark corner-tl"></div><div class="corner-mark corner-tr"></div><div class="corner-mark corner-bl"></div><div class="corner-mark corner-br"></div>
           <template v-if="!activeFile"><div class="upload-icon-wrapper"><el-icon :size="46"><Document /></el-icon><span class="plus-badge">+</span></div><h2>添加{{ activeTypeName }}</h2><p>拖拽到这里，或点击选择文件</p><span class="format-pill">支持 {{ activeConfig.accept.replace('.', '').toUpperCase() }} 格式</span></template>
-          <template v-else><div class="scan-line" aria-hidden="true"></div><div class="upload-icon-wrapper has-file"><el-icon :size="44"><Check /></el-icon></div><h2 class="selected-name">{{ activeFile.name }}</h2><p>{{ (activeFile.size / 1024 / 1024).toFixed(2) }} MB</p><button class="replace-file" type="button">重新选择</button></template>
+          <template v-else><div class="scan-line" aria-hidden="true"></div><div class="upload-icon-wrapper has-file"><el-icon :size="44"><Check /></el-icon></div><h2 class="selected-name">{{ activeFile.name }}</h2><p>{{ (activeFile.size / 1024 / 1024).toFixed(2) }} MB</p><span class="replace-file">重新选择</span></template>
         </div>
       </div>
       <div class="upload-controls-shell">
-        <div class="control-bar"><div class="file-control"><div v-if="availableKinds.length > 1" class="type-selector"><button class="file-type-btn" type="button" title="切换文件类型" :aria-label="`切换到${activeTab === 'bim' ? '点云文件' : 'BIM模型'}`" @click.stop="toggleUploadType"><el-icon><Refresh /></el-icon><span class="type-dot"></span></button></div><div v-else class="locked-type-badge" :title="`仅支持${activeTypeName}`"><el-icon><Document /></el-icon></div><div :key="activeTab" class="guide-text"><span>{{ activeFile ? activeFile.name : `添加${activeTypeName}` }}</span><small>{{ isIfcOnly ? '仅支持 IFC 模型文件' : activeTab === 'cad' ? 'CAD 设计图纸' : activeTab === 'bim' ? 'BIM 模型文件' : '点云文件' }}</small></div><button v-if="activeFile" class="clear-btn" type="button" title="清除文件" @click="clearActiveFile"><el-icon><Close /></el-icon></button><button class="submit-btn" :class="{ active: activeFile && !uploading, loading: uploading }" type="button" :disabled="!activeFile || uploading" @click="requestUpload(activeTab)"><el-icon :size="21"><Loading v-if="uploading" /><Upload v-else /></el-icon></button></div></div>
+        <div class="control-bar"><div class="file-control"><div v-if="availableKinds.length > 1" class="type-selector" role="group" aria-label="上传文件类型"><button v-for="kind in availableKinds" :key="kind" class="file-type-btn" :class="{ active: activeTab === kind }" type="button" :aria-pressed="activeTab === kind" :title="`选择${kind === 'bim' ? 'BIM 模型' : kind === 'cad' ? 'CAD 图纸' : '点云文件'}`" @click.stop="selectUploadType(kind)">{{ kind === 'bim' ? 'BIM 模型' : kind === 'cad' ? 'CAD 图纸' : '点云文件' }}</button></div><div v-else class="locked-type-badge" :title="`仅支持${activeTypeName}`"><el-icon><Document /></el-icon><span>{{ activeTypeName }}</span></div><div :key="activeTab" class="guide-text"><span>{{ activeFile ? activeFile.name : `添加${activeTypeName}` }}</span><small>{{ isIfcOnly ? '仅支持 IFC 模型文件' : activeTab === 'cad' ? 'CAD 设计图纸' : activeTab === 'bim' ? 'BIM 模型文件' : '点云文件' }}</small></div><button v-if="activeFile" class="clear-btn" type="button" title="清除已选文件" aria-label="清除已选文件" @click="clearActiveFile"><el-icon><Close /></el-icon></button><button class="submit-btn" :class="{ active: activeFile && !uploading, loading: uploading }" type="button" :aria-label="uploading ? '正在上传' : `开始上传${activeTypeName}`" :disabled="!activeFile || uploading" @click="requestUpload(activeTab)"><el-icon :size="18"><Loading v-if="uploading" /><Upload v-else /></el-icon><span>{{ uploading ? '上传中' : '开始上传' }}</span></button></div></div>
         <section class="archive-form" :class="{ 'has-scan-date': activeTab === 'pointcloud' }">
         <div class="archive-form-heading"><div><strong>归档信息</strong><span>模型与点云通过归档编号自动关联</span></div><code>{{ archiveCode }}</code></div>
         <div class="archive-fields">
@@ -511,4 +509,48 @@ onMounted(() => { void loadDesignModels() })
 .upload-controls-shell .archive-form-heading{display:flex;flex-wrap:nowrap;min-width:0;margin-bottom:7px}.upload-controls-shell .archive-form-heading>div{min-width:0;flex:1}.upload-controls-shell .archive-form-heading code{flex:0 0 auto;white-space:nowrap}.upload-controls-shell .archive-fields{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:7px;min-width:0}.upload-controls-shell .archive-fields>*{min-width:0;flex:1 1 0}.upload-controls-shell .archive-field{min-width:0;display:flex;flex:1 1 0;flex-direction:column;gap:4px}.upload-controls-shell .archive-field>span{color:#6f819c;font-size:10px;font-weight:600;line-height:1.2;white-space:nowrap}.upload-controls-shell .archive-field :deep(.el-select),.upload-controls-shell .archive-field :deep(.el-input),.upload-controls-shell .archive-field :deep(.el-date-editor){width:100%;min-width:0}.upload-controls-shell .archive-field :deep(.el-select__wrapper),.upload-controls-shell .archive-field :deep(.el-input__wrapper),.upload-controls-shell .archive-field :deep(.el-date-editor){background:#f7faff}
 .simple-upload-page.is-compact .upload-controls-shell{max-width:660px}.simple-upload-page.is-compact .upload-controls-shell .archive-form{margin:0}.simple-upload-page.is-compact .upload-stack-wrapper{margin-bottom:42px}
 @media(max-width:760px){.upload-controls-shell .archive-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}.upload-controls-shell .archive-fields>*{width:100%;flex:none}.upload-controls-shell .archive-form-heading{align-items:center;flex-direction:row}.upload-controls-shell .archive-form-heading span{display:none}}
+</style>
+
+<style scoped>
+/* Desktop task scale and accessible controls; compact dialog mode keeps its existing footprint. */
+.simple-upload-page:not(.is-compact) { min-height: 0; padding: var(--spacing-xl); }
+.simple-upload-page:not(.is-compact) .upload-stage { width: min(980px, 100%); }
+.simple-upload-page:not(.is-compact) .upload-stack-wrapper { max-width: 900px; margin-bottom: var(--spacing-xl); }
+.simple-upload-page:not(.is-compact) .main-upload-card { width: min(560px, 100%); height: clamp(350px, 32vh, 410px); }
+.simple-upload-page:not(.is-compact) .upload-controls-shell { max-width: 820px; }
+.stack-layer-1 { inset: 14px; width: auto; height: auto; border-radius: var(--radius-2xl); transform: translate(14px, 12px); animation: none; opacity: .62; }
+.upload-stack-wrapper:hover .stack-layer-1 { animation: none; transform: translate(14px, 12px); }
+.main-upload-card { border-radius: var(--radius-2xl); animation: none; }
+.main-upload-card:focus-visible { outline: 3px solid var(--border-color-focus); outline-offset: 4px; }
+.main-upload-card h2 { letter-spacing: .03em; }
+.type-selector { width: auto; min-width: 0; display: flex; flex: 0 0 auto; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: var(--bg-control); }
+.file-type-btn { width: auto; min-width: 92px; height: 40px; display: inline-flex; flex: 0 0 auto; padding: 0 var(--spacing-compact); border-radius: var(--radius-sm); color: var(--text-secondary); background: transparent; box-shadow: none; font-size: var(--font-size-sm); font-weight: 600; }
+.file-type-btn:hover { color: var(--text-link); background: var(--bg-card); transform: none; }
+.file-type-btn.active { color: var(--bg-card); background: var(--color-primary); box-shadow: var(--shadow-sm); }
+.file-type-btn:focus-visible, .clear-btn:focus-visible, .submit-btn:focus-visible, .replace-file:focus-visible { outline: 2px solid var(--border-color-focus); outline-offset: 2px; }
+.locked-type-badge { width: auto; min-width: 112px; height: 40px; display: inline-flex; gap: var(--spacing-sm); padding: 0 var(--spacing-compact); flex: 0 0 auto; border-radius: var(--radius-sm); box-shadow: none; font-size: var(--font-size-sm); font-weight: 600; }
+.locked-type-badge :deep(.el-icon) { font-size: 18px; }
+.file-control { min-height: 52px; }
+.guide-text { height: auto; }
+.guide-text span { font-size: var(--font-size-sm); }
+.guide-text small { margin-top: var(--spacing-xs); font-size: var(--font-size-xs); letter-spacing: 0; }
+.clear-btn { width: 40px; height: 40px; flex: 0 0 40px; }
+.submit-btn { width: auto; min-width: 116px; height: 44px; display: inline-flex; gap: var(--spacing-sm); padding: 0 var(--spacing-md); border-radius: var(--radius-md); font-size: var(--font-size-sm); font-weight: 600; }
+.submit-btn.active:hover { transform: none; background: var(--color-primary-hover); }
+.archive-form-heading strong { font-size: var(--font-size-sm); }
+.archive-form-heading span, .match-status { font-size: var(--font-size-xs); }
+.archive-form-heading code { font-size: var(--font-size-xs); }
+.upload-controls-shell .archive-form { padding: var(--spacing-compact) var(--spacing-md) var(--spacing-md); }
+.upload-controls-shell .archive-field { gap: var(--spacing-xs); }
+.upload-controls-shell .archive-field > span { font-size: var(--font-size-xs); }
+.archive-fields :deep(.el-select__wrapper), .archive-fields :deep(.el-input__wrapper), .archive-fields :deep(.el-date-editor) { min-height: 40px; height: 40px; font-size: var(--font-size-sm); }
+@media (max-width: 760px) {
+  .simple-upload-page:not(.is-compact) { padding: var(--spacing-md); }
+  .upload-stack-wrapper, .simple-upload-page.is-compact .upload-stack-wrapper { margin-block: 0 var(--spacing-lg); transform: none; }
+  .main-upload-card { width: 100%; }
+  .file-control { align-items: stretch; flex-wrap: wrap; }
+  .type-selector { width: 100%; }
+  .file-type-btn { flex: 1 1 0; }
+  .guide-text { flex-basis: calc(100% - 172px); }
+}
 </style>

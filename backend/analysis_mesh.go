@@ -23,46 +23,35 @@ import (
 )
 
 const analysisMeshKind = "analysis-mesh"
+const defaultAnalysisMeshAlgorithm = "rebar-sweep-component-v1"
 
-func analysisMeshParametersFromLegacy(asset DBAsset) (map[string]any, error) {
+func analysisMeshProfileFromLegacy(asset DBAsset) (string, map[string]any, error) {
 	if err := validateStoredLegacyRemeshArtifact(assetFromDB(asset), false); err != nil {
-		return nil, err
+		return "", nil, err
+	}
+	if asset.RemeshAlgorithm != defaultRemeshAlgorithm {
+		return "", nil, fmt.Errorf("unsupported legacy remesh algorithm %q", asset.RemeshAlgorithm)
 	}
 	var legacy map[string]any
 	if err := json.Unmarshal([]byte(asset.RemeshParamsJSON), &legacy); err != nil || legacy == nil {
-		return nil, errors.New("legacy remesh parameters are invalid")
+		return "", nil, errors.New("legacy remesh parameters are invalid")
 	}
-	keyMap := map[string]string{
-		"target_edge_length":          "targetEdgeLength",
-		"clean_tolerance":             "cleanTolerance",
-		"use_decimation":              "useDecimation",
-		"decimation_ratio":            "decimationRatio",
-		"subdivision_iterations":      "subdivisionIterations",
-		"subdivision_threshold_ratio": "subdivisionThresholdRatio",
-		"adaptive":                    "adaptive",
-		"crease_angle":                "featureAngleDegrees",
-		"use_isotropic":               "useIsotropic",
-		"isotropic_iterations":        "iterations",
-		"surface_dist_ratio":          "surfaceDistanceRatio",
-		"isotropic_collapse":          "isotropicCollapse",
-		"sliver_merge_ratio":          "sliverMergeRatio",
-		"sliver_relax_checksurfdist":  "sliverRelaxCheckSurfaceDistance",
+	if len(legacy) != 3 {
+		return "", nil, errors.New("legacy rebar sweep parameters must contain exactly three values")
 	}
-	parameters := make(map[string]any, len(keyMap))
-	for source, target := range keyMap {
-		if value, exists := legacy[source]; exists {
-			parameters[target] = value
+	parameters := make(map[string]any, 3)
+	for source, target := range map[string]string{
+		"cross_section_sides": "crossSectionSides",
+		"axial_spacing":       "axialSpacing",
+		"max_chord_error":     "maxChordError",
+	} {
+		value, exists := legacy[source]
+		if !exists {
+			return "", nil, fmt.Errorf("legacy remesh parameter %s is missing", source)
 		}
+		parameters[target] = value
 	}
-	if asset.RemeshAlgorithm == "bim_isotropic_only" {
-		parameters["subdivisionIterations"] = 0
-		parameters["useIsotropic"] = true
-		parameters["isotropicCollapse"] = true
-	}
-	if _, exists := parameters["targetEdgeLength"]; !exists {
-		return nil, errors.New("legacy remesh target edge length is missing")
-	}
-	return parameters, nil
+	return defaultAnalysisMeshAlgorithm, parameters, nil
 }
 
 type AnalysisMeshArtifactFile struct {
@@ -524,7 +513,7 @@ func (a *app) validAnalysisMeshRow(asset Asset, row DBAssetDerivative) bool {
 		return false
 	}
 	var manifest AnalysisMeshArtifactManifest
-	if json.Unmarshal(payload, &manifest) != nil || manifest.ContentHash != row.ContentHash {
+	if json.Unmarshal(payload, &manifest) != nil || manifest.Algorithm.ID != defaultAnalysisMeshAlgorithm || manifest.ContentHash != row.ContentHash {
 		return false
 	}
 	var stored struct {
@@ -706,7 +695,7 @@ func (a *app) analysisMeshBuild(c *gin.Context) {
 		return
 	}
 	if request.AlgorithmID == "" {
-		request.AlgorithmID = "pymeshlab-isotropic-component-v1"
+		request.AlgorithmID = defaultAnalysisMeshAlgorithm
 	}
 	if request.FaceCap == 0 {
 		request.FaceCap = 250000
@@ -757,13 +746,13 @@ func (a *app) processAnalysisMeshJob(parent context.Context, assetID int64) {
 		return
 	}
 	asset := assetFromDB(row)
-	parameters, err := analysisMeshParametersFromLegacy(row)
+	algorithmID, parameters, err := analysisMeshProfileFromLegacy(row)
 	if err != nil {
 		log.Printf("BIM 资产 %d analysis-mesh 跳过：legacy remesh 身份无效: %v", assetID, err)
 		return
 	}
 	for attempt := 0; attempt < 12; attempt++ {
-		_, _, err = a.ensureAnalysisMesh(parent, asset, "pymeshlab-isotropic-component-v1", parameters, 250000, false)
+		_, _, err = a.ensureAnalysisMesh(parent, asset, algorithmID, parameters, 250000, false)
 		if err == nil {
 			log.Printf("BIM 资产 %d analysis-mesh 构建完成", assetID)
 			a.processAnalysisC2MForBIM(parent, assetID)

@@ -103,6 +103,7 @@ class MeshPart:
     transform: Any
     position_hash: str
     source_quality: dict[str, Any] | None = None
+    remesh_diagnostics: dict[str, Any] | None = None
 
 
 @dataclass

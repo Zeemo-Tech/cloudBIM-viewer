@@ -86,6 +86,8 @@ def build_artifact(stream: ComponentMeshStream, destination: str | Path, algorit
                 parts.append(part_row)
                 analysis_quality = mesh_quality_metrics(part.mesh)
                 metric = {"partId": part.part_id, "analysisQuality": analysis_quality}
+                if part.remesh_diagnostics is not None:
+                    metric["remeshDiagnostics"] = part.remesh_diagnostics
                 if part.source_quality:
                     metric["sourceQuality"] = part.source_quality
                     source_cv = part.source_quality["edgeLength"]["coefficientOfVariation"]

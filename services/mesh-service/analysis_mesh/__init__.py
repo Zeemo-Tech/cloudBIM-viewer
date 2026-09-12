@@ -1,7 +1,7 @@
-from .adapter import PyMeshLabIsotropicComponent
+from .rebar_adapter import RebarSweepComponent
 from .contracts import AlgorithmRegistry
 
 registry = AlgorithmRegistry()
-registry.register(PyMeshLabIsotropicComponent())
+registry.register(RebarSweepComponent())
 
 __all__ = ["registry"]

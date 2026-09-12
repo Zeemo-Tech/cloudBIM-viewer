@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +15,11 @@ type rebarBimSelection struct {
 
 // Resolve every input from owner-scoped database records, never client paths.
 func (a *app) resolveRebarBimPrior(scanID, ownerID int64, selection *rebarBimSelection) (*RebarBimPrior, error) {
+	return a.resolveBimPrior(scanID, ownerID, selection, true)
+}
+
+// Polling and tile requests use file identity; avoid hashing entire models on every read.
+func (a *app) resolveBimPrior(scanID, ownerID int64, selection *rebarBimSelection, hashContents bool) (*RebarBimPrior, error) {
 	if selection == nil {
 		return nil, nil
 	}
@@ -44,11 +50,19 @@ func (a *app) resolveRebarBimPrior(scanID, ownerID int64, selection *rebarBimSel
 		if err != nil {
 			return "", err
 		}
-		data, err := os.ReadFile(confined)
-		if err != nil {
-			return "", err
+		if hashContents {
+			data, err := os.ReadFile(confined)
+			if err != nil {
+				return "", err
+			}
+			hashInputs = append(hashInputs, hashBytes(data))
+		} else {
+			info, err := os.Stat(confined)
+			if err != nil {
+				return "", err
+			}
+			hashInputs = append(hashInputs, fmt.Sprintf("%s:%d:%d", confined, info.Size(), info.ModTime().UnixNano()))
 		}
-		hashInputs = append(hashInputs, hashBytes(data))
 		return meshServicePath(a.cfg.DataDir, confined, a.cfg.MeshServiceStorageDir), nil
 	}
 	var err error

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   Aim,
   ArrowLeft,
@@ -8,11 +8,25 @@ import {
   DArrowRight,
   FullScreen,
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { useBimRemeshDisplay } from './bimRemeshDisplay'
 import { getAssetDetail } from '@/api/backend-file'
+import {
+  DEFAULT_REBAR_SWEEP_PARAMS,
+  REBAR_SWEEP_ALGORITHM,
+  getRemeshStatus,
+  remeshBimAsset,
+  type RemeshStatus,
+} from '@/api/backend-mesh'
+import {
+  computePointcloudPreprocess,
+  getPointcloudPreprocess,
+  type PointcloudPreprocessResult,
+} from '@/api/backend-pointcloud-preprocess'
+import { POINTCLOUD_CATEGORY_COLORS, validPointcloudTablePlane } from '@/features/pointcloud/tableVisibility'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
-import RebarSegmentationPanel from '@/components/preview/RebarSegmentationPanel.vue'
 import PointcloudAxesTriad from '@/components/preview/PointcloudAxesTriad.vue'
 import PointcloudViewCube from '@/components/preview/PointcloudViewCube.vue'
 import PointcloudColorRangeBar, {
@@ -20,7 +34,6 @@ import PointcloudColorRangeBar, {
   type PointcloudColorRange,
 } from '@/components/preview/PointcloudColorRangeBar.vue'
 import type { CameraPose, PointcloudColorMode } from '@/components/preview/UnifiedViewer3D.vue'
-import type { RebarSegmentationResult, RebarInspection } from '@/api/backend-rebar'
 import ViewerAnalysisOverlay, {
   type AnalysisDistance,
   type AnalysisArea,
@@ -49,6 +62,112 @@ const props = defineProps<{
 
 const router = useRouter()
 const bimPanelRef = ref<any>(null)
+const bimLoaded = ref(false)
+const bimRemeshStatus = ref<RemeshStatus | null>(null)
+const bimRemeshSubmitting = ref(false)
+const bimRemeshError = ref('')
+let bimRemeshGeneration = 0
+let bimRemeshTimer: ReturnType<typeof setTimeout> | undefined
+const bimRemeshReady = computed(() =>
+  bimRemeshStatus.value?.status === 'succeeded' &&
+  bimRemeshStatus.value.algorithm === REBAR_SWEEP_ALGORITHM &&
+  Boolean(bimRemeshStatus.value.resultFileId),
+)
+const bimRemeshArtifactKey = computed(() => bimRemeshReady.value
+  ? `${props.assetId}:${bimRemeshStatus.value?.contentHash}:${bimRemeshStatus.value?.finishedAt}`
+  : '')
+const bimRemeshDisplay = useBimRemeshDisplay(bimLoaded, bimRemeshArtifactKey, async (visible) => {
+  if (visible && !bimPanelRef.value) throw new Error('BIM 预览尚未准备好')
+  await bimPanelRef.value?.setBimRemeshVisible(visible)
+})
+const { visible: bimRemeshVisible, error: bimRemeshDisplayError } = bimRemeshDisplay
+const bimRemeshBusy = computed(() => bimRemeshSubmitting.value || bimRemeshDisplay.busy.value)
+const bimRemeshRunning = computed(() => ['queued', 'processing'].includes(bimRemeshStatus.value?.status || ''))
+const bimRemeshCanRun = computed(() => Boolean(
+  bimRemeshStatus.value?.supported && !bimRemeshRunning.value &&
+  (bimRemeshStatus.value.status === 'succeeded' || bimRemeshStatus.value.canManualRetry),
+))
+const bimRemeshActionText = computed(() => {
+  if (bimRemeshBusy.value) return '请稍候…'
+  if (bimRemeshRunning.value) return '正在生成网格…'
+  if (bimRemeshStatus.value?.status === 'succeeded') return '重新生成网格'
+  if (bimRemeshStatus.value?.status === 'failed') return '重试生成网格'
+  return '生成网格'
+})
+const bimRemeshStatusText = computed(() => {
+  if (!bimRemeshStatus.value) return '正在查询均匀化状态…'
+  if (!bimRemeshStatus.value.supported) return '当前模型不支持网格均匀化'
+  switch (bimRemeshStatus.value.status) {
+    case 'queued': return '任务已排队，完成后自动显示保形网格'
+    case 'processing': return '正在生成保形网格，完成后自动显示'
+    case 'succeeded': return !bimRemeshReady.value ? '已有结果版本不匹配，请重新生成网格' : bimRemeshVisible.value ? '当前显示：保形网格' : '当前显示：原始模型；可开启保形网格'
+    case 'failed': return '均匀化失败，可重试'
+    default: return '尚未生成均匀化网格'
+  }
+})
+
+async function refreshBimRemeshStatus() {
+  clearTimeout(bimRemeshTimer)
+  const assetId = props.assetId
+  const generation = bimRemeshGeneration
+  if (props.previewType !== 'bim' || !assetId) return
+  try {
+    const { data } = await getRemeshStatus(assetId)
+    if (generation !== bimRemeshGeneration) return
+    bimRemeshStatus.value = data
+    bimRemeshError.value = data.status === 'failed' ? data.lastError || '网格均匀化失败' : ''
+    if (data.supported && ['idle', 'queued', 'processing'].includes(data.status || 'idle')) {
+      bimRemeshTimer = setTimeout(() => void refreshBimRemeshStatus(), 4000)
+    }
+  } catch (error) {
+    if (generation === bimRemeshGeneration) bimRemeshError.value = error instanceof Error ? error.message : '查询均匀化状态失败'
+  }
+}
+
+function toggleBimRemesh(visible = !bimRemeshVisible.value) {
+  if (bimRemeshBusy.value || !bimLoaded.value || !bimRemeshReady.value) return
+  if (visible === bimRemeshVisible.value) return
+  bimRemeshError.value = ''
+  bimRemeshDisplay.toggle()
+}
+
+async function retryBimRemesh() {
+  if (!props.assetId || !bimRemeshCanRun.value || bimRemeshBusy.value) return
+  // Retire in-flight status reads so they cannot restore the previous result.
+  const generation = ++bimRemeshGeneration
+  clearTimeout(bimRemeshTimer)
+  const force = bimRemeshStatus.value?.status === 'succeeded'
+  bimRemeshSubmitting.value = true
+  bimRemeshError.value = ''
+  try {
+    await remeshBimAsset(props.assetId, {
+      algorithm: REBAR_SWEEP_ALGORITHM,
+      params: { ...DEFAULT_REBAR_SWEEP_PARAMS },
+      ...(force ? { force: true } : {}),
+    })
+    if (generation !== bimRemeshGeneration) return
+    // A fast rerun may finish before the next read and retain the same hash.
+    // Always retire the displayed PLY after an accepted submission.
+    bimRemeshStatus.value = { ...bimRemeshStatus.value!, status: 'queued', canManualRetry: false }
+    await nextTick() // Let the display watcher retire the old artifact, even for a fast rerun.
+    if (generation !== bimRemeshGeneration) return
+    await refreshBimRemeshStatus()
+  } catch (error) {
+    if (generation === bimRemeshGeneration) bimRemeshError.value = error instanceof Error ? error.message : '提交均匀化任务失败'
+  } finally {
+    if (generation === bimRemeshGeneration) bimRemeshSubmitting.value = false
+  }
+}
+
+function resetBimRemeshState() {
+  bimRemeshGeneration++
+  clearTimeout(bimRemeshTimer)
+  bimLoaded.value = false
+  bimRemeshStatus.value = null
+  bimRemeshDisplay.reset()
+  bimRemeshSubmitting.value = false
+  bimRemeshError.value = ''
+}
 const pointcloudPanelRef = ref<any>(null)
 const pointcloudStageRef = ref<HTMLElement | null>(null)
 
@@ -69,11 +188,22 @@ const pointcloudCameraPose = ref<CameraPose | null>(null)
 const pointcloudColorRamp = ref<PointcloudColorRamp>('grayscale')
 const pointcloudColorRange = ref<PointcloudColorRange>({ min: 0, max: 1 })
 const pointcloudIntensityHistogram = ref<number[]>([])
-const rebarResult = ref<RebarSegmentationResult | null>(null)
-const rebarInspection = ref<RebarInspection | null>(null)
 const measurementBackendIds = new Map<string, number>()
 let measurementLoadToken = 0
 let pointcloudAppearanceLoadToken = 0
+let pointcloudResourceLoadToken = 0
+const pointcloudTableVisible = ref(false)
+const pointcloudSourceUrl = ref('')
+const pointcloudPreprocess = ref<PointcloudPreprocessResult | null>(null)
+const pointcloudResourceResolved = ref(false)
+const pointcloudPreprocessRunning = ref(false)
+const pointcloudResourceError = ref('')
+const pointcloudTablePlane = computed(() => {
+  const plane = pointcloudPreprocess.value?.result.plane
+  return validPointcloudTablePlane(plane) ? plane : null
+})
+const pointcloudTableFilterAvailable = computed(() => Boolean(pointcloudTablePlane.value))
+const pointcloudTableShown = computed(() => !pointcloudTableFilterAvailable.value || pointcloudTableVisible.value)
 
 const bimControls = reactive({
   showAxes: true,
@@ -86,8 +216,13 @@ const pointcloudControls = reactive({
   showAxes: true,
   showGrid: false,
   sectionEnabled: false,
-  colorMode: 'intensity' as PointcloudColorMode | 'original' | 'custom',
+  colorMode: 'table-class' as PointcloudColorMode | 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
+})
+
+const pointcloudDisplayColorMode = computed(() => {
+  const mode = pointcloudControls.colorMode
+  return mode === 'original' || (mode === 'table-class' && !pointcloudTableFilterAvailable.value) ? 'rgb' : mode
 })
 
 const pointColorPresets = [
@@ -107,13 +242,6 @@ const backgroundOptions: Array<{ label: string; value: PreviewBackgroundTheme }>
 
 const pageTitle = computed(() => {
   return props.previewType === 'bim' ? 'BIM 全屏预览' : '点云全屏预览'
-})
-
-const rebarTilesetUrl = computed(() => rebarResult.value?.tilesetUrl ?? null)
-const rebarVisualization = computed(() => rebarResult.value?.visualization ?? null)
-const rebarPanelMode = computed<PointcloudColorMode>(() => {
-  const mode = pointcloudControls.colorMode
-  return mode === 'original' || mode === 'custom' ? 'rgb' : mode
 })
 
 const emptyText = computed(() => {
@@ -167,7 +295,7 @@ function applyPanelSettings() {
     panel.setShowAxes?.(bimControls.showAxes)
     panel.setShowGrid?.(bimControls.showGrid)
     panel.setWireframe?.(bimControls.wireframe)
-    panel.setSectionState?.(bimControls.sectionEnabled)
+    panel.setSectionState?.({ enabled: bimControls.sectionEnabled })
     return
   }
 
@@ -176,13 +304,11 @@ function applyPanelSettings() {
   panel.setShowAxes?.(false)
   panel.setShowGrid?.(pointcloudControls.showGrid)
   panel.setSectionState?.(pointcloudControls.sectionEnabled)
-  if (pointcloudControls.colorMode === 'custom') {
+  if (pointcloudDisplayColorMode.value === 'custom') {
     panel.setPointColor?.(pointcloudControls.pointColor)
   } else {
-    const displayMode: PointcloudColorMode =
-      pointcloudControls.colorMode === 'original' ? 'rgb' : pointcloudControls.colorMode
     panel.setPointcloudColorDisplay?.(
-      displayMode,
+      pointcloudDisplayColorMode.value,
       pointcloudColorRamp.value,
       pointcloudColorRange.value,
     )
@@ -238,9 +364,6 @@ async function loadPointcloudAppearance() {
     const savedColor = normalizePointcloudColor(response.data?.pointcloudColor)
     if (savedColor) {
       pointcloudControls.pointColor = savedColor
-      pointcloudControls.colorMode = 'custom'
-    } else {
-      pointcloudControls.colorMode = 'original'
     }
   } catch (error) {
     if (token === pointcloudAppearanceLoadToken) {
@@ -249,22 +372,56 @@ async function loadPointcloudAppearance() {
   }
 }
 
-function handleRebarResult(result: RebarSegmentationResult | null) {
-  rebarResult.value = result
-  rebarInspection.value = null
-  if (!result && String(pointcloudControls.colorMode).startsWith('rebar-')) {
-    pointcloudControls.colorMode = 'rgb'
+async function loadPointcloudResources() {
+  const assetId = props.assetId
+  const token = ++pointcloudResourceLoadToken
+  pointcloudResourceError.value = ''
+  if (props.previewType !== 'pointcloud' || !assetId) return
+
+  try {
+    const [detailResponse, preprocessResponse] = await Promise.all([
+      getAssetDetail(assetId),
+      getPointcloudPreprocess(assetId),
+    ])
+    if (token !== pointcloudResourceLoadToken) return
+    pointcloudSourceUrl.value = detailResponse.data?.tilesetUrl || ''
+    pointcloudPreprocess.value = preprocessResponse.data
+  } catch (error) {
+    if (token !== pointcloudResourceLoadToken) return
+    pointcloudPreprocess.value = null
+    // Preserve historical-asset preview even if the derivative endpoints are
+    // temporarily unavailable.
+    try {
+      const detailResponse = await getAssetDetail(assetId)
+      if (token !== pointcloudResourceLoadToken) return
+      pointcloudSourceUrl.value = detailResponse.data?.tilesetUrl || ''
+    } catch {
+      // Report the original error because it normally contains the useful API message.
+    }
+    pointcloudResourceError.value = error instanceof Error ? error.message : '读取点云预处理结果失败'
+  } finally {
+    if (token === pointcloudResourceLoadToken) pointcloudResourceResolved.value = true
   }
 }
 
-function handleRebarMode(mode: PointcloudColorMode) {
-  if (pointcloudControls.colorMode === mode) return
-  pointcloudControls.colorMode = mode
-}
-
-function handleRebarIntersectionSelect(id: number | null) {
-  if (!rebarInspection.value || rebarInspection.value.selectedIntersectionId === id) return
-  rebarInspection.value = { ...rebarInspection.value, selectedIntersectionId: id }
+async function runPointcloudPreprocess() {
+  if (!props.assetId || pointcloudPreprocessRunning.value) return
+  pointcloudPreprocessRunning.value = true
+  pointcloudResourceError.value = ''
+  try {
+    await computePointcloudPreprocess(props.assetId)
+    await loadPointcloudResources()
+    if (pointcloudTableFilterAvailable.value) {
+      pointcloudTableVisible.value = false
+      ElMessage.success('台面识别与点云预处理完成')
+    } else {
+      ElMessage.warning('预处理已完成，未检测到可隐藏的台面')
+    }
+  } catch (error) {
+    pointcloudResourceError.value = error instanceof Error ? error.message : '点云预处理失败'
+  } finally {
+    pointcloudPreprocessRunning.value = false
+  }
 }
 
 function togglePointcloudEdl() {
@@ -431,6 +588,7 @@ watch(
     pointcloudControls.showGrid,
     pointcloudControls.sectionEnabled,
     pointcloudControls.colorMode,
+    pointcloudDisplayColorMode.value,
     pointcloudControls.pointColor,
     pointcloudColorRamp.value,
     pointcloudColorRange.value.min,
@@ -447,25 +605,34 @@ watch(
 )
 
 onMounted(() => {
+  void refreshBimRemeshStatus()
   document.addEventListener('fullscreenchange', syncFullscreenState)
   applyPanelSettings()
   void loadMeasurements()
   void loadPointcloudAppearance()
+  void loadPointcloudResources()
 })
 
 onBeforeUnmount(() => {
+  resetBimRemeshState()
+  pointcloudResourceLoadToken++
   document.removeEventListener('fullscreenchange', syncFullscreenState)
 })
 
 watch(
   () => [props.assetId, props.previewType] as const,
   () => {
+    resetBimRemeshState()
+    void refreshBimRemeshStatus()
     analysisMode.value = 'none'
     pointcloudIntensityHistogram.value = []
-    rebarResult.value = null
-    rebarInspection.value = null
+    pointcloudTableVisible.value = false
+    pointcloudResourceResolved.value = false
+    pointcloudSourceUrl.value = ''
+    pointcloudPreprocess.value = null
     void loadMeasurements()
     void loadPointcloudAppearance()
+    void loadPointcloudResources()
   },
 )
 </script>
@@ -475,7 +642,7 @@ watch(
     <header class="pointcloud-preview-header">
       <span class="pointcloud-preview-heading">
         <strong>{{ displayName || '点云预览' }}</strong>
-        <small>扫描记录 · 扫描点云</small>
+        <small>{{ projectName || '实测扫描' }} · 点云预览</small>
       </span>
 
       <div class="pointcloud-header-controls" role="group" aria-label="预览背景">
@@ -486,6 +653,7 @@ watch(
             :key="option.value"
             type="button"
             :class="{ on: backgroundTheme === option.value }"
+            :aria-pressed="backgroundTheme === option.value"
             @click="backgroundTheme = option.value"
           >
             {{ option.label }}
@@ -512,12 +680,13 @@ watch(
       :class="`theme-${backgroundTheme}`"
     >
       <PointcloudPreviewPanel
+        v-if="pointcloudResourceResolved && pointcloudSourceUrl"
         ref="pointcloudPanelRef"
         class="pointcloud-viewer-panel"
         :asset-id="assetId"
-        :tileset-url="rebarTilesetUrl"
-        :rebar-visualization="rebarVisualization"
-        :rebar-inspection="rebarInspection"
+        :tileset-url="pointcloudSourceUrl"
+        :table-plane="pointcloudTablePlane"
+        :table-visible="pointcloudTableShown"
         :analysis-mode="analysisMode"
         :analysis-points="analysisPoints"
         :analysis-distances="analysisDistances"
@@ -532,18 +701,8 @@ watch(
         @analysis-area="handleAnalysisArea"
         @analysis-delete="removeAnalysisById($event.kind, $event.id)"
         @analysis-mode-exit="handleAnalysisModeExit"
-        @pointcloud-source-fallback="handleRebarMode('rgb')"
+        @pointcloud-source-fallback="pointcloudControls.colorMode = 'rgb'"
         @edl-fallback="pointcloudEdlEnabled = false"
-        @rebar-intersection-select="handleRebarIntersectionSelect"
-      />
-
-      <RebarSegmentationPanel
-        :asset-id="assetId"
-        :mode="rebarPanelMode"
-        :selected-intersection-id="rebarInspection?.selectedIntersectionId ?? null"
-        @result-change="handleRebarResult"
-        @mode-change="handleRebarMode"
-        @inspection-change="rebarInspection = $event"
       />
 
       <ViewerAnalysisOverlay
@@ -580,7 +739,17 @@ watch(
             <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
               <button
                 type="button"
-                :class="{ on: pointcloudControls.colorMode === 'rgb' }"
+                :disabled="!pointcloudTableFilterAvailable"
+                :class="{ on: pointcloudDisplayColorMode === 'table-class' }"
+                :aria-pressed="pointcloudDisplayColorMode === 'table-class'"
+                @click="pointcloudControls.colorMode = 'table-class'"
+              >
+                台面分色
+              </button>
+              <button
+                type="button"
+                :class="{ on: pointcloudDisplayColorMode === 'rgb' }"
+                :aria-pressed="pointcloudDisplayColorMode === 'rgb'"
                 @click="pointcloudControls.colorMode = 'rgb'"
               >
                 真彩
@@ -588,12 +757,14 @@ watch(
               <button
                 type="button"
                 :class="{ on: pointcloudControls.colorMode === 'intensity' }"
+                :aria-pressed="pointcloudControls.colorMode === 'intensity'"
                 @click="pointcloudControls.colorMode = 'intensity'"
               >
                 强度
               </button>
             </div>
             <div
+              v-if="pointcloudControls.colorMode === 'intensity'"
               class="pointcloud-segmented pointcloud-ramp-modes"
               :class="{ 'is-disabled': pointcloudControls.colorMode !== 'intensity' }"
               role="group"
@@ -638,8 +809,8 @@ watch(
               </button>
             </div>
             <label class="pointcloud-size-control" title="点大小">
-              <span>点</span>
-              <input v-model.number="pointcloudSize" type="range" min="1" max="5" step="0.1" />
+              <span>点大小</span>
+              <input v-model.number="pointcloudSize" aria-label="点大小" type="range" min="1" max="5" step="0.1" />
               <output>{{ pointcloudSize.toFixed(1) }}</output>
             </label>
           </div>
@@ -648,7 +819,17 @@ watch(
             <div class="pointcloud-segmented" role="group" aria-label="场景辅助显示">
               <button
                 type="button"
+                :disabled="!pointcloudTableFilterAvailable"
+                :class="{ on: pointcloudTableShown }"
+                :aria-pressed="pointcloudTableShown"
+                @click="pointcloudTableVisible = !pointcloudTableVisible"
+              >
+                显示台面
+              </button>
+              <button
+                type="button"
                 :class="{ on: pointcloudControls.showAxes }"
+                :aria-pressed="pointcloudControls.showAxes"
                 @click="pointcloudControls.showAxes = !pointcloudControls.showAxes"
               >
                 坐标轴
@@ -656,6 +837,7 @@ watch(
               <button
                 type="button"
                 :class="{ on: pointcloudControls.showGrid }"
+                :aria-pressed="pointcloudControls.showGrid"
                 @click="pointcloudControls.showGrid = !pointcloudControls.showGrid"
               >
                 网格
@@ -663,12 +845,27 @@ watch(
               <button
                 type="button"
                 :class="{ on: pointcloudControls.sectionEnabled }"
+                :aria-pressed="pointcloudControls.sectionEnabled"
                 @click="pointcloudControls.sectionEnabled = !pointcloudControls.sectionEnabled"
               >
                 剖切
               </button>
             </div>
           </div>
+
+          <div v-if="pointcloudResourceResolved && !pointcloudTableFilterAvailable" class="pointcloud-preprocess-notice">
+            <span>{{ pointcloudPreprocess ? '该点云未检测到可隐藏的台面，当前显示全部点。' : '该历史点云尚未识别台面，当前显示全部点。' }}</span>
+            <el-button size="small" :loading="pointcloudPreprocessRunning" @click="runPointcloudPreprocess">
+              补充预处理
+            </el-button>
+          </div>
+          <el-alert
+            v-if="pointcloudResourceError"
+            class="pointcloud-resource-error"
+            :title="pointcloudResourceError"
+            type="warning"
+            :closable="false"
+          />
         </div>
       </div>
 
@@ -687,15 +884,27 @@ watch(
       />
 
       <PointcloudColorRangeBar
+        v-if="pointcloudDisplayColorMode === 'intensity'"
         v-model:range="pointcloudColorRange"
         class="pointcloud-bottom-color-bar"
         :ramp="pointcloudColorRamp"
         :histogram="pointcloudIntensityHistogram"
       />
 
+      <div v-if="pointcloudDisplayColorMode === 'table-class'" class="pointcloud-category-legend" role="group" aria-label="台面分色图例">
+        <span>
+          <i :style="{ backgroundColor: POINTCLOUD_CATEGORY_COLORS.table }" aria-hidden="true"></i>
+          台面<small v-if="!pointcloudTableShown">（已隐藏）</small>
+        </span>
+        <span>
+          <i :style="{ backgroundColor: POINTCLOUD_CATEGORY_COLORS.nonTable }" aria-hidden="true"></i>
+          非台面
+        </span>
+      </div>
+
       <div class="pointcloud-viewer-status" role="status">
         <i :class="{ loading: !pointcloudLoaded }" aria-hidden="true"></i>
-        {{ pointcloudLoaded ? '点云已加载' : '正在加载点云' }}
+        {{ pointcloudLoaded ? (pointcloudTableShown ? '点云已加载 · 台面显示' : '点云已加载 · 台面隐藏') : '正在加载点云' }}
         <span v-if="pointcloudEdlEnabled">显示增强</span>
       </div>
 
@@ -713,19 +922,31 @@ watch(
   </section>
 
   <section v-else class="asset-preview-page" :class="`theme-${backgroundTheme}`">
-    <div class="floating-controls">
-      <button class="floating-btn" type="button" @click="closePage">
+    <header class="bim-preview-header">
+      <button class="preview-button" type="button" @click="closePage">
         <el-icon><ArrowLeft /></el-icon>
-        <span>关闭</span>
+        <span>返回模型列表</span>
       </button>
-    </div>
-    <MeasurementToolbar
-      v-if="assetId"
-      v-model:collapsed="analysisToolbarCollapsed"
-      :mode="analysisMode"
-      @update:mode="selectAnalysisMode"
-      @clear="clearAnalysis"
-    />
+      <div class="bim-file-context">
+        <strong :title="displayName">{{ displayName || 'BIM 模型预览' }}</strong>
+        <span :title="projectName">{{ projectName || (projectId ? `项目 ${projectId}` : '模型预览') }}</span>
+      </div>
+      <div v-if="assetId" class="bim-header-tools">
+        <span class="toolbar-label">测量</span>
+        <MeasurementToolbar
+          v-model:collapsed="analysisToolbarCollapsed"
+          :mode="analysisMode"
+          :disabled="!bimLoaded"
+          position="static"
+          @update:mode="selectAnalysisMode"
+          @clear="clearAnalysis"
+        />
+        <button class="preview-button" type="button" :disabled="!bimLoaded" @click="resetView">
+          <el-icon><Aim /></el-icon>
+          <span>重置视角</span>
+        </button>
+      </div>
+    </header>
 
     <div v-if="!assetId" class="empty-state">
       <h2>{{ pageTitle }}</h2>
@@ -744,6 +965,7 @@ watch(
           :analysis-points="analysisPoints"
           :analysis-distances="analysisDistances"
           :analysis-areas="analysisAreas"
+          @loaded-change="bimLoaded = $event"
           @analysis-point="handleAnalysisPoint"
           @analysis-distance="handleAnalysisDistance"
           @analysis-area="handleAnalysisArea"
@@ -780,224 +1002,77 @@ watch(
         />
       </div>
 
-      <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
-        <el-scrollbar class="sidebar-scrollbar">
-          <el-space direction="vertical" fill :size="14" class="sidebar-stack">
-            <section class="sidebar-card sidebar-toolbar">
-              <div class="card-head">
-                <el-tooltip
-                  :content="sidebarCollapsed ? '展开工具栏' : '收起工具栏'"
-                  placement="left"
-                >
-                  <el-button
-                    class="icon-btn"
-                    circle
-                    type="default"
-                    @click="toggleSidebar"
-                  >
-                    <el-icon>
-                      <ArrowRightBold v-if="sidebarCollapsed" />
-                      <DArrowRight v-else />
-                    </el-icon>
-                  </el-button>
-                </el-tooltip>
-                <button
-                  v-if="!sidebarCollapsed"
-                  class="ghost-btn"
-                  type="button"
-                  @click="resetView"
-                >
-                  重置
-                </button>
-              </div>
-            </section>
-
-            <div v-show="!sidebarCollapsed" class="sidebar-sections">
-              <section class="sidebar-card">
-                <div class="card-heading">
-                  <p class="section-kicker">Environment</p>
-                  <h3>背景切换</h3>
-                  <p class="section-desc">切换观察环境，快速增强浅色模型和点云轮廓对比。</p>
-                </div>
-                <div class="option-row">
-                  <button
-                    v-for="option in backgroundOptions"
-                    :key="option.value"
-                    class="chip-btn theme-chip"
-                    :class="{ 'is-active': backgroundTheme === option.value }"
-                    type="button"
-                    @click="backgroundTheme = option.value"
-                  >
-                    <span class="theme-swatch" :class="`theme-swatch-${option.value}`"></span>
-                    <span>{{ option.label }}</span>
-                  </button>
-                </div>
-              </section>
-
-              <section class="sidebar-card">
-                <div class="card-heading">
-                  <p class="section-kicker">Scene</p>
-                  <h3>辅助显示</h3>
-                  <p class="section-desc">保持方向感和尺度感，适合定位模型朝向与地平面。</p>
-                </div>
-                <label class="toggle-row">
-                  <span class="toggle-copy">
-                    <strong>坐标轴</strong>
-                    <small>显示更大的 XYZ 方向参考，便于判断朝向。</small>
-                  </span>
-                  <span class="switch">
-                    <input
-                      v-if="previewType === 'bim'"
-                      v-model="bimControls.showAxes"
-                      type="checkbox"
-                    />
-                    <input
-                      v-else
-                      v-model="pointcloudControls.showAxes"
-                      type="checkbox"
-                    />
-                    <span class="switch-track"></span>
-                  </span>
-                </label>
-
-                <label class="toggle-row">
-                  <span class="toggle-copy">
-                    <strong>网格</strong>
-                    <small>铺满视窗的参考地面，便于观察高度和投影关系。</small>
-                  </span>
-                  <span class="switch">
-                    <input
-                      v-if="previewType === 'bim'"
-                      v-model="bimControls.showGrid"
-                      type="checkbox"
-                    />
-                    <input
-                      v-else
-                      v-model="pointcloudControls.showGrid"
-                      type="checkbox"
-                    />
-                    <span class="switch-track"></span>
-                  </span>
-                </label>
-              </section>
-
-              <section v-if="previewType === 'bim'" class="sidebar-card">
-                <div class="card-heading">
-                  <p class="section-kicker">Model</p>
-                  <h3>BIM 显示</h3>
-                  <p class="section-desc">面向结构查看的显示控制，适合查看边界和剖切关系。</p>
-                </div>
-                <label class="toggle-row">
-                  <span class="toggle-copy">
-                    <strong>线框模式</strong>
-                    <small>突出结构边界和构件轮廓，便于快速检查层次。</small>
-                  </span>
-                  <span class="switch">
-                    <input v-model="bimControls.wireframe" type="checkbox" />
-                    <span class="switch-track"></span>
-                  </span>
-                </label>
-
-                <label class="toggle-row">
-                  <span class="toggle-copy">
-                    <strong>剖切启用</strong>
-                    <small>开启后可直接拖拽场景中的 6 个方向箭头，按方向裁切模型。</small>
-                  </span>
-                  <span class="switch">
-                    <input v-model="bimControls.sectionEnabled" type="checkbox" />
-                    <span class="switch-track"></span>
-                  </span>
-                </label>
-
-                <div class="range-row" :class="{ 'is-disabled': !bimControls.sectionEnabled }">
-                  <div class="range-head">
-                    <span>交互说明</span>
-                    <strong>{{ bimControls.sectionEnabled ? '已启用' : '未启用' }}</strong>
-                  </div>
-                  <p class="section-desc section-desc--inline">
-                    与校准页一致，模型外侧会显示 6 个箭头和包围盒，可拖拽任一方向进行剖切。
-                  </p>
-                </div>
-              </section>
-
-              <section v-else class="sidebar-card">
-                <div class="card-heading">
-                  <p class="section-kicker">Point Cloud</p>
-                  <h3>点云显示</h3>
-                  <p class="section-desc">默认保留后端原始颜色，也支持与 BIM 一致的 6 向剖切交互。</p>
-                </div>
-
-                <label class="toggle-row">
-                  <span class="toggle-copy">
-                    <strong>剖切启用</strong>
-                    <small>开启后会显示 6 个方向箭头，可直接拖拽裁切点云范围。</small>
-                  </span>
-                  <span class="switch">
-                    <input v-model="pointcloudControls.sectionEnabled" type="checkbox" />
-                    <span class="switch-track"></span>
-                  </span>
-                </label>
-
-                <div class="range-row" :class="{ 'is-disabled': !pointcloudControls.sectionEnabled }">
-                  <div class="range-head">
-                    <span>交互说明</span>
-                    <strong>{{ pointcloudControls.sectionEnabled ? '已启用' : '未启用' }}</strong>
-                  </div>
-                  <p class="section-desc section-desc--inline">
-                    启用后，点云外侧会出现包围盒和 6 个方向箭头，可像校准页一样拖拽任一方向进行剖切。
-                  </p>
-                </div>
-
-                <div class="option-row">
-                  <button
-                    class="chip-btn"
-                    :class="{ 'is-active': pointcloudControls.colorMode === 'original' }"
-                    type="button"
-                    @click="pointcloudControls.colorMode = 'original'"
-                  >
-                    原始颜色
-                  </button>
-                  <button
-                    class="chip-btn"
-                    :class="{ 'is-active': pointcloudControls.colorMode === 'custom' }"
-                    type="button"
-                    @click="pointcloudControls.colorMode = 'custom'"
-                  >
-                    自定义颜色
-                  </button>
-                </div>
-
-                <div class="color-block" :class="{ 'is-disabled': pointcloudControls.colorMode !== 'custom' }">
-                  <div class="range-head">
-                    <span>覆盖颜色</span>
-                    <strong>{{ pointcloudControls.pointColor.toUpperCase() }}</strong>
-                  </div>
-                  <div class="color-row">
-                    <input
-                      v-model="pointcloudControls.pointColor"
-                      class="color-input"
-                      type="color"
-                      :disabled="pointcloudControls.colorMode !== 'custom'"
-                    />
-                  </div>
-                  <div class="option-row">
-                    <button
-                      v-for="preset in pointColorPresets"
-                      :key="preset.value"
-                      class="chip-btn color-chip"
-                      :class="{ 'is-active': pointcloudControls.pointColor === preset.value && pointcloudControls.colorMode === 'custom' }"
-                      type="button"
-                      @click="applyPointColorPreset(preset.value)"
-                    >
-                      <span class="preset-swatch" :style="{ background: preset.value }"></span>
-                      <span>{{ preset.label }}</span>
-                    </button>
-                  </div>
-                </div>
-              </section>
+      <aside class="sidebar" aria-label="模型工具" :class="{ 'is-collapsed': sidebarCollapsed }">
+        <div class="sidebar-heading">
+          <h2 v-if="!sidebarCollapsed">模型工具</h2>
+          <button
+            class="preview-button icon-btn"
+            type="button"
+            :aria-label="sidebarCollapsed ? '展开模型工具' : '收起模型工具'"
+            :title="sidebarCollapsed ? '展开模型工具' : '收起模型工具'"
+            :aria-expanded="!sidebarCollapsed"
+            aria-controls="bim-tool-sections"
+            @click="toggleSidebar"
+          >
+            <el-icon><ArrowLeft v-if="sidebarCollapsed" /><DArrowRight v-else /></el-icon>
+          </button>
+        </div>
+        <div v-show="!sidebarCollapsed" id="bim-tool-sections" class="sidebar-sections">
+          <section class="tool-section" aria-labelledby="mesh-heading">
+            <h3 id="mesh-heading">模型与网格</h3>
+            <div class="model-view-options" role="group" aria-label="模型显示内容">
+              <button class="preview-button" :class="{ 'is-active': !bimRemeshVisible }" type="button"
+                :aria-pressed="!bimRemeshVisible" :disabled="!bimLoaded || bimRemeshBusy"
+                @click="toggleBimRemesh(false)">原始 IFC</button>
+              <button class="preview-button" :class="{ 'is-active': bimRemeshVisible }" type="button"
+                :aria-pressed="bimRemeshVisible" :disabled="!bimLoaded || !bimRemeshReady || bimRemeshBusy"
+                @click="toggleBimRemesh(true)">网格结果</button>
             </div>
-          </el-space>
-        </el-scrollbar>
+            <p class="mesh-status" role="status" :class="{ 'is-ready': bimRemeshReady, 'is-error': bimRemeshStatus?.status === 'failed' }">
+              {{ bimRemeshStatusText }}
+            </p>
+            <table v-if="bimRemeshReady && bimRemeshStatus?.stats" class="mesh-stats" aria-label="网格均匀化前后统计">
+              <thead><tr><th scope="col">几何统计</th><th scope="col">原始 IFC</th><th scope="col">网格结果</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">顶点</th><td>{{ bimRemeshStatus.stats.vertexBefore.toLocaleString() }}</td><td>{{ bimRemeshStatus.stats.vertexAfter.toLocaleString() }}</td></tr>
+                <tr><th scope="row">三角面</th><td>{{ bimRemeshStatus.stats.faceBefore.toLocaleString() }}</td><td>{{ bimRemeshStatus.stats.faceAfter.toLocaleString() }}</td></tr>
+              </tbody>
+            </table>
+            <div class="mesh-actions">
+              <button class="preview-button primary-button" type="button" :disabled="!bimRemeshCanRun || bimRemeshBusy" @click="retryBimRemesh">{{ bimRemeshActionText }}</button>
+              <button class="preview-button" type="button" :disabled="bimRemeshBusy || bimRemeshRunning" @click="refreshBimRemeshStatus">刷新状态</button>
+            </div>
+            <p v-if="bimRemeshError || bimRemeshDisplayError" role="alert" class="error-message">{{ bimRemeshError || bimRemeshDisplayError }}</p>
+            <p class="section-note">{{ bimRemeshVisible ? '橙色模型为均匀化结果；开启线框可检查三角网格。' : '切换网格结果后，可用线框检查网格化效果。' }}</p>
+            <label class="toggle-row">
+              <span>线框模式</span>
+              <el-switch v-model="bimControls.wireframe" aria-label="线框模式" />
+            </label>
+          </section>
+          <section class="tool-section" aria-labelledby="section-heading">
+            <h3 id="section-heading">剖切</h3>
+            <label class="toggle-row">
+              <span>启用剖切</span>
+              <el-switch v-model="bimControls.sectionEnabled" aria-label="启用剖切" />
+            </label>
+            <p class="section-note">开启后拖拽模型外侧的 6 个方向箭头，调整剖切范围。</p>
+          </section>
+          <section class="tool-section" aria-labelledby="scene-heading">
+            <h3 id="scene-heading">辅助显示</h3>
+            <label class="toggle-row"><span>坐标轴</span><el-switch v-model="bimControls.showAxes" aria-label="坐标轴" /></label>
+            <label class="toggle-row"><span>参考网格</span><el-switch v-model="bimControls.showGrid" aria-label="参考网格" /></label>
+          </section>
+          <section class="tool-section" aria-labelledby="background-heading">
+            <h3 id="background-heading">画布背景</h3>
+            <div class="background-options" role="group" aria-label="画布背景">
+              <button v-for="option in backgroundOptions" :key="option.value" class="preview-button theme-chip"
+                :class="{ 'is-active': backgroundTheme === option.value }" type="button"
+                :aria-pressed="backgroundTheme === option.value" @click="backgroundTheme = option.value">
+                <span class="theme-swatch" :class="`theme-swatch-${option.value}`"></span>{{ option.label }}
+              </button>
+            </div>
+          </section>
+        </div>
       </aside>
     </div>
   </section>
@@ -1053,8 +1128,8 @@ watch(
 .pointcloud-preview-heading small {
   margin-top: 2px;
   color: #6b7280;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .pointcloud-header-controls {
@@ -1091,7 +1166,6 @@ watch(
 }
 
 .pointcloud-preview-stage {
-  --rebar-panel-width: min(366px, calc(100% - 28px));
   position: relative;
   width: 100%;
   height: calc(100vh - 64px);
@@ -1209,6 +1283,19 @@ watch(
   gap: 8px;
 }
 
+.pointcloud-preprocess-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgb(255 255 255 / 76%);
+  font-size: 11px;
+}
+
+.pointcloud-resource-error {
+  max-width: 520px;
+}
+
 .pointcloud-segmented {
   display: inline-flex;
   align-items: center;
@@ -1228,7 +1315,7 @@ watch(
   border-radius: 6px;
   color: rgb(255 255 255 / 72%);
   background: transparent;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 20px;
   cursor: pointer;
 }
@@ -1273,7 +1360,7 @@ watch(
   border-radius: 8px;
   color: rgb(255 255 255 / 72%);
   background: rgb(255 255 255 / 10%);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .pointcloud-size-control input {
@@ -1343,11 +1430,46 @@ watch(
   max-width: calc(100% - 140px);
 }
 
+.pointcloud-category-legend {
+  position: absolute;
+  z-index: 28;
+  left: 126px;
+  bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  max-width: calc(100% - 160px);
+  padding: 10px 14px;
+  border: 1px solid rgb(148 163 184 / 30%);
+  border-radius: 8px;
+  color: #e2e8f0;
+  background: rgb(15 23 42 / 90%);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.pointcloud-category-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pointcloud-category-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.pointcloud-category-legend small {
+  color: #cbd5e1;
+  font-size: inherit;
+}
+
 .pointcloud-measurement-dock {
   position: absolute;
   z-index: 80;
-  top: 16px;
-  right: calc(var(--rebar-panel-width) + 28px);
+  top: clamp(112px, calc(100% - 216px), 176px);
+  right: 20px;
 }
 
 .pointcloud-measurement-dock :deep(.measurement-toolbar) {
@@ -1426,611 +1548,154 @@ watch(
 }
 
 .asset-preview-page {
-  min-height: 100vh;
-  padding: 18px;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  font-size: var(--font-size-sm);
 }
 
-.asset-preview-page.theme-gradient {
-  background:
-    radial-gradient(circle at top, rgba(34, 211, 238, 0.14), transparent 22%),
-    radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.12), transparent 24%),
-    linear-gradient(180deg, #06111f 0%, #09172a 42%, #070d18 100%);
-}
-
-.asset-preview-page.theme-deep {
-  background: linear-gradient(180deg, #081221 0%, #0d1b2f 52%, #09111d 100%);
-}
-
-.asset-preview-page.theme-light {
-  background: linear-gradient(180deg, #eef4fb 0%, #dde7f2 100%);
-}
-
-.asset-preview-page.theme-black {
-  background: #000;
-}
-
-.floating-controls {
-  position: fixed;
-  top: 18px;
-  left: 18px;
-  z-index: 20;
+.bim-preview-header {
+  flex: 0 0 64px;
+  min-width: 0;
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-card);
 }
 
-.floating-btn,
-.ghost-btn,
-.chip-btn {
-
-  cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    background-color 0.2s ease;
+.bim-file-context {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-compact);
+  padding-left: var(--spacing-md);
+  border-left: 1px solid var(--border-color);
 }
 
-.floating-btn {
-  height: 42px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 999px;
+.bim-file-context strong,
+.bim-file-context span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bim-file-context strong { font-weight: 600; }
+.bim-file-context span { color: var(--text-secondary); font-size: var(--font-size-xs); }
+.bim-header-tools { display: flex; align-items: center; gap: var(--spacing-compact); }
+.toolbar-label { color: var(--text-secondary); }
+
+.preview-button {
+  min-height: var(--control-height);
+  padding: 0 var(--spacing-compact);
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: #d8f3ff;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(18px);
-  background:
-    linear-gradient(180deg, rgba(10, 20, 38, 0.82), rgba(7, 14, 28, 0.64));
-  box-shadow:
-    inset 0 0 0 1px rgba(148, 163, 184, 0.18),
-    0 0 22px rgba(56, 189, 248, 0.12),
-    0 16px 32px rgba(2, 6, 23, 0.34);
+  justify-content: center;
+  gap: var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
 }
 
-.floating-btn:hover,
-.ghost-btn:hover,
-.chip-btn:hover {
-  transform: translateY(-1px);
-}
-
-.layout-shell,
-.empty-state {
-  flex: 1;
-  margin-top: 54px;
-}
+.preview-button:hover:not(:disabled) { background: var(--bg-control-hover); border-color: var(--border-color-hover); }
+.preview-button.is-active { background: var(--color-primary-soft); border-color: var(--color-primary); color: var(--color-primary-active); font-weight: 600; }
+.preview-button:active:not(:disabled) { background: var(--bg-control); }
+.primary-button { background: var(--color-primary-hover); border-color: var(--color-primary-hover); color: var(--bg-card); }
+.primary-button:hover:not(:disabled) { background: var(--color-primary-active); border-color: var(--color-primary-active); }
+.primary-button:active:not(:disabled) { background: var(--color-primary-active); }
+.preview-button:disabled { cursor: not-allowed; color: var(--text-disabled); background: var(--bg-muted); border-color: var(--border-color-light); }
+.preview-button:focus-visible,
+.bim-header-tools :deep(button:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 .layout-shell {
-  min-height: calc(100vh - 90px);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 368px;
-  gap: 20px;
-  transition: grid-template-columns 0.24s ease;
-}
-
-.layout-shell.is-sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr) 82px;
-}
-
-.viewer-region {
-  min-height: calc(100vh - 90px);
-  border-radius: 28px;
-  overflow: hidden;
-  box-shadow:
-    inset 0 0 0 1px rgba(148, 163, 184, 0.12),
-    0 22px 60px rgba(2, 6, 23, 0.34);
-}
-
-.viewer-region.theme-gradient {
-  background:
-    radial-gradient(circle at 15% 15%, rgba(34, 211, 238, 0.18), transparent 22%),
-    linear-gradient(180deg, #081425 0%, #11213a 100%);
-}
-
-.viewer-region.theme-deep {
-  background: linear-gradient(180deg, #07111f 0%, #0c1728 100%);
-}
-
-.viewer-region.theme-light {
-  background: linear-gradient(180deg, #f8fbff 0%, #e8eef6 100%);
-}
-
-.viewer-region.theme-black {
-  background: #000;
-}
-
-.viewer-region.theme-gradient :deep(.preview-panel),
-.viewer-region.theme-deep :deep(.preview-panel),
-.viewer-region.theme-light :deep(.preview-panel),
-.viewer-region.theme-black :deep(.preview-panel) {
-  min-height: calc(100vh - 90px);
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.viewer-region.theme-gradient :deep(.preview-panel),
-.viewer-region.theme-gradient :deep(.preview-panel.is-minimal) {
-  background:
-    radial-gradient(circle at top, rgba(34, 211, 238, 0.14), transparent 26%),
-    linear-gradient(180deg, #071323 0%, #12233d 100%);
-}
-
-.viewer-region.theme-deep :deep(.preview-panel),
-.viewer-region.theme-deep :deep(.preview-panel.is-minimal) {
-  background: linear-gradient(180deg, #07111f 0%, #0c1728 100%);
-}
-
-.viewer-region.theme-light :deep(.preview-panel),
-.viewer-region.theme-light :deep(.preview-panel.is-minimal) {
-  background: linear-gradient(180deg, #f8fbff 0%, #e8eef6 100%);
-}
-
-.viewer-region.theme-black :deep(.preview-panel),
-.viewer-region.theme-black :deep(.preview-panel.is-minimal) {
-  background: #000;
-}
-
-.viewer-region.theme-light :deep(.panel-chip),
-.viewer-region.theme-light :deep(.panel-title),
-.viewer-region.theme-light :deep(.panel-status) {
-  color: #0f172a;
-}
-
-.viewer-panel {
-  height: 100%;
-}
-
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: sticky;
-  top: 72px;
-  max-height: calc(100vh - 90px);
-  overflow: auto;
-  padding-right: 4px;
-}
-
-.sidebar.is-collapsed {
-  gap: 0;
-}
-
-.sidebar-scrollbar {
-  height: 100%;
-}
-
-.sidebar-stack {
-  width: 100%;
-}
-
-.sidebar-stack :deep(.el-space__item) {
-  width: 100%;
-}
-
-.sidebar.is-collapsed .sidebar-scrollbar :deep(.el-scrollbar__view) {
-  display: flex;
-  justify-content: center;
-}
-
-.sidebar-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.sidebar-card {
-  position: relative;
-  padding: 18px 18px 20px;
-  border-radius: 24px;
-  color: #e2e8f0;
-  background:
-    linear-gradient(180deg, rgba(10, 18, 32, 0.96), rgba(6, 12, 22, 0.88));
-  backdrop-filter: blur(22px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    inset 0 0 0 1px rgba(148, 163, 184, 0.14),
-    0 20px 48px rgba(2, 6, 23, 0.28);
-}
-
-.asset-preview-page.theme-light .sidebar-card {
-  color: #0f172a;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 248, 252, 0.9));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    inset 0 0 0 1px rgba(148, 163, 184, 0.16),
-    0 24px 54px rgba(15, 23, 42, 0.12);
-}
-
-.sidebar-toolbar {
-  padding: 10px 12px;
-}
-
-.sidebar-toolbar::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at top right, rgba(34, 211, 238, 0.18), transparent 34%),
-    linear-gradient(135deg, rgba(14, 165, 233, 0.08), transparent 58%);
-}
-
-.card-heading,
-.toggle-row,
-.range-row,
-.color-block {
-  position: relative;
-  z-index: 1;
-}
-
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
+  flex: 1;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--viewer-panel-width);
 }
+.layout-shell.is-sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 56px; }
+.viewer-region { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.viewer-panel { width: 100%; height: 100%; }
+/* The renderer resizes its buffer without rewriting its initial inline CSS size. */
+.viewer-region :deep(.unified-viewer-viewport > canvas) { width: 100% !important; height: 100% !important; }
+.viewer-region :deep(.preview-panel),
+.viewer-region :deep(.preview-panel.is-minimal) { height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
 
-.sidebar.is-collapsed .card-head {
-  justify-content: center;
+.sidebar { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border-color); background: var(--bg-card); }
+.sidebar-heading { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); border-bottom: 1px solid var(--border-color-light); }
+.sidebar-heading h2 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
+.icon-btn { width: var(--control-height); flex: 0 0 var(--control-height); padding: 0; }
+.sidebar.is-collapsed .sidebar-heading { padding-inline: var(--spacing-sm); justify-content: center; }
+.sidebar-sections { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-color-hover) transparent; }
+.tool-section { padding: var(--spacing-md); border-bottom: 1px solid var(--border-color-light); }
+.tool-section h3 { margin: 0 0 var(--spacing-compact); color: var(--text-primary); font-size: var(--font-size-sm); font-weight: 600; }
+.model-view-options { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); }
+.mesh-status { margin: var(--spacing-compact) 0; color: var(--text-secondary); font-size: var(--font-size-xs); line-height: var(--line-height-base); overflow-wrap: anywhere; }
+.mesh-status.is-ready { color: var(--color-success); }
+.mesh-status.is-error, .error-message { color: var(--text-danger); }
+.mesh-stats { width: 100%; margin-bottom: var(--spacing-md); border-collapse: collapse; font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+.mesh-stats th, .mesh-stats td { padding: var(--spacing-xs) 0; text-align: right; font-weight: 400; }
+.mesh-stats th:first-child { text-align: left; color: var(--text-secondary); }
+.mesh-stats thead { color: var(--text-secondary); border-bottom: 1px solid var(--border-color-light); }
+.mesh-stats thead th { padding-bottom: var(--spacing-sm); }
+.mesh-stats tbody tr:first-child th, .mesh-stats tbody tr:first-child td { padding-top: var(--spacing-sm); }
+.mesh-actions { display: flex; gap: var(--spacing-sm); }
+.mesh-actions .primary-button { flex: 1; }
+.error-message { margin: var(--spacing-sm) 0 0; overflow-wrap: anywhere; font-size: var(--font-size-xs); }
+.section-note { margin: var(--spacing-sm) 0 0; color: var(--text-secondary); font-size: var(--font-size-xs); line-height: var(--line-height-base); }
+.toggle-row { min-height: var(--control-height); display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-compact); }
+.tool-section > .section-note + .toggle-row { margin-top: var(--spacing-sm); }
+.toggle-row :deep(.el-switch) { --el-switch-on-color: var(--color-primary); }
+.background-options { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); }
+.theme-chip { justify-content: flex-start; }
+.theme-swatch { width: 16px; height: 16px; flex: 0 0 auto; border: 1px solid var(--border-color); border-radius: var(--spacing-xs); }
+.theme-swatch-gradient { background: #10213b; }
+.theme-swatch-deep { background: #0c1224; }
+.theme-swatch-light { background: #e8eef6; }
+.theme-swatch-black { background: #000; }
+
+.bim-header-tools :deep(.measurement-toolbar) { background: transparent; border-radius: 0; }
+.bim-header-tools :deep(.measurement-toggle),
+.bim-header-tools :deep(.measurement-action) { min-height: var(--control-height); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-xs); background: var(--bg-card); font-size: var(--font-size-sm); }
+.bim-header-tools :deep(.measurement-toggle) { width: var(--control-height); height: var(--control-height); }
+.bim-header-tools :deep(.measurement-toggle-icon) { filter: none; }
+.bim-header-tools :deep(.measurement-toggle:hover),
+.bim-header-tools :deep(.measurement-action:hover:not(:disabled)),
+.bim-header-tools :deep(.measurement-action.is-active) { color: var(--color-primary-active); background: var(--color-primary-soft); border-color: var(--color-primary); }
+.bim-header-tools :deep(.measurement-action--clear) { color: var(--text-danger); margin-left: var(--spacing-sm); }
+.empty-state { flex: 1; display: grid; place-content: center; padding: var(--spacing-lg); text-align: center; }
+.empty-state h2 { font-size: var(--font-size-lg); }
+.empty-state p { color: var(--text-secondary); }
+
+@media (max-width: 1600px) {
+  .asset-preview-page { --viewer-panel-width: 320px; }
+  .bim-file-context { flex-direction: column; align-items: flex-start; gap: 0; }
+  .bim-file-context strong, .bim-file-context span { max-width: 100%; }
 }
-
-.card-head h2,
-.sidebar-card h3 {
-  margin: 0;
+@media (max-width: 1000px) {
+  .bim-header-tools { gap: var(--spacing-sm); }
+  .toolbar-label { display: none; }
+  .bim-header-tools :deep(.measurement-action span) { display: none; }
+  .bim-header-tools :deep(.measurement-action) { width: var(--control-height); padding: 0; }
 }
-
-.card-eyebrow {
-  margin: 0 0 8px;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #67e8f9;
+@media (max-width: 720px) {
+  .bim-preview-header { flex-wrap: wrap; gap: var(--spacing-sm); }
+  .bim-file-context { flex-basis: 40%; }
+  .bim-header-tools { margin-left: auto; }
+  .layout-shell { grid-template-columns: minmax(0, 1fr) min(280px, 48vw); }
+  .mesh-actions { flex-direction: column; }
 }
-.section-kicker,
-.range-head span {
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.asset-preview-page.theme-light .section-kicker,
-.asset-preview-page.theme-light .range-head span {
-  color: #64748b;
-}
-
-.range-head strong {
-  font-size: 14px;
-}
-
-.card-heading {
-  margin-bottom: 14px;
-}
-
-.section-kicker {
-  margin: 0 0 8px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.section-desc {
-  margin: 8px 0 0;
-  line-height: 1.6;
-  font-size: 13px;
-  color: #8ea0b7;
-}
-
-.section-desc--inline {
-  margin-top: 0;
-}
-
-.asset-preview-page.theme-light .section-desc {
-  color: #5f7085;
-}
-
-.ghost-btn {
-  width: 30%;
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid rgba(103, 232, 249, 0.22);
-  border-radius: 999px;
-  color: inherit;
-  background:
-    linear-gradient(180deg, rgba(34, 211, 238, 0.18), rgba(56, 189, 248, 0.08));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 10px 24px rgba(8, 47, 73, 0.18);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-
-.analysis-action.is-active {
-  border-color: rgba(248, 113, 113, 0.72);
-  background: rgba(220, 38, 38, 0.24);
-  color: #fecaca;
-}
-
-.asset-preview-page.theme-light .ghost-btn {
-  background: rgba(255, 255, 255, 0.88);
-}
-
-.icon-btn {
-  width: 34px;
-  height: 34px;
-  min-height: 34px;
-  padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  color: #d8f3ff;
-  background: rgba(15, 23, 42, 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 8px 20px rgba(15, 23, 42, 0.14);
-}
-
-.icon-btn:hover,
-.icon-btn:focus-visible {
-  color: #d8f3ff;
-  border-color: rgba(103, 232, 249, 0.22);
-  background: rgba(21, 34, 54, 0.42);
-}
-
-.asset-preview-page.theme-light .icon-btn {
-  color: #0f172a;
-  background: rgba(241, 245, 249, 0.96);
-}
-
-.asset-preview-page.theme-light .icon-btn:hover,
-.asset-preview-page.theme-light .icon-btn:focus-visible {
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.98);
-}
-
-.icon-btn :deep(.el-icon) {
-  font-size: 14px;
-}
-
-.option-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.chip-btn {
-  min-height: 40px;
-  padding: 0 12px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 16px;
-  color: inherit;
-  background: rgba(15, 23, 42, 0.24);
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.chip-btn.is-active {
-  border-color: rgba(34, 211, 238, 0.4);
-  background: rgba(34, 211, 238, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.16);
-}
-
-.theme-chip {
-  flex: 1 1 calc(50% - 4px);
-  justify-content: flex-start;
-}
-
-.theme-swatch,
-.preset-swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-}
-
-.theme-swatch-gradient {
-  background: linear-gradient(135deg, #0f172a 15%, #0ea5e9 100%);
-}
-
-.theme-swatch-deep {
-  background: linear-gradient(135deg, #081221 0%, #163256 100%);
-}
-
-.theme-swatch-light {
-  background: linear-gradient(135deg, #f8fbff 0%, #cbd5e1 100%);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.5);
-}
-
-.theme-swatch-black {
-  background: #000;
-}
-
-.toggle-row {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 14px 14px 16px;
-  border-radius: 18px;
-  background: rgba(15, 23, 42, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.1);
-}
-
-.asset-preview-page.theme-light .toggle-row {
-  background: rgba(248, 250, 252, 0.82);
-}
-
-.toggle-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.toggle-copy strong {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.toggle-copy small {
-  line-height: 1.55;
-  color: #8ea0b7;
-}
-
-.asset-preview-page.theme-light .toggle-copy small {
-  color: #5f7085;
-}
-
-.switch {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.switch input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.switch-track {
-  width: 50px;
-  height: 30px;
-  border-radius: 999px;
-  background: rgba(51, 65, 85, 0.92);
-  box-shadow:
-    inset 0 0 0 1px rgba(148, 163, 184, 0.16),
-    inset 0 10px 18px rgba(15, 23, 42, 0.18);
-  transition: background-color 0.2s ease;
-}
-
-.switch-track::after {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #f8fafc 0%, #dbe6f2 100%);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.24);
-  transition: transform 0.2s ease;
-}
-
-.switch input:checked + .switch-track {
-  background: linear-gradient(135deg, #0891b2 0%, #22d3ee 100%);
-}
-
-.switch input:checked + .switch-track::after {
-  transform: translateX(20px);
-}
-
-.range-row,
-.color-block {
-  margin-top: 14px;
-  padding: 14px 16px 16px;
-  border-radius: 18px;
-  background: rgba(15, 23, 42, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.1);
-}
-
-.asset-preview-page.theme-light .range-row,
-.asset-preview-page.theme-light .color-block {
-  background: rgba(248, 250, 252, 0.82);
-}
-
-.range-row.is-disabled {
-  opacity: 0.5;
-}
-
-.range-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.range-row input[type='range'] {
-  width: 100%;
-  accent-color: #22d3ee;
-  cursor: pointer;
-}
-
-.color-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: rgba(8, 15, 30, 0.36);
-}
-
-.asset-preview-page.theme-light .color-row {
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.color-input {
-  width: 56px;
-  height: 36px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-  border-radius: 28px;
-  text-align: center;
-  color: #cbd5e1;
-  background: rgba(8, 15, 30, 0.52);
-  box-shadow:
-    inset 0 0 0 1px rgba(148, 163, 184, 0.12),
-    0 18px 48px rgba(2, 6, 23, 0.34);
-}
-
-.empty-state h2 {
-  margin: 0 0 12px;
-  font-size: 1.4rem;
-  color: #f8fafc;
-}
-
-.empty-state p {
-  margin: 0;
-  color: #94a3b8;
-}
-
-@media (max-width: 1180px) {
-  .layout-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .layout-shell.is-sidebar-collapsed {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: static;
-    max-height: none;
-    overflow: visible;
-    padding-right: 0;
-  }
-
-  .viewer-region {
-    min-height: 60vh;
-  }
+@media (prefers-reduced-motion: reduce) {
+  .asset-preview-page *, .asset-preview-page :deep(*) { transition: none !important; }
 }
 </style>

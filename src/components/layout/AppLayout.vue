@@ -29,20 +29,20 @@ function go(path: string) {
 <template>
   <div class="app-layout">
     <aside class="app-sidebar">
-      <div class="brand" @click="go('/projects')">
+      <button class="brand" type="button" title="返回项目列表" aria-label="CloudBIM，返回项目列表" @click="go('/projects')">
         <div class="brand-mark"><el-icon :size="22"><Share /></el-icon></div>
         <div><strong>CloudBIM</strong><span>{{ props.projectName }}</span></div>
-      </div>
+      </button>
 
-      <div class="menu-content">
+      <nav class="menu-content" aria-label="项目功能导航">
         <div class="menu-section">
-          <div class="section-title project-context"><button class="back-to-projects" type="button" @click="go('/projects')"><el-icon><ArrowLeft /></el-icon><span>返回项目列表</span></button></div>
+          <div class="section-title project-context"><button class="back-to-projects" type="button" title="返回项目列表" aria-label="返回项目列表" @click="go('/projects')"><el-icon><ArrowLeft /></el-icon><span>返回项目列表</span></button></div>
           <div class="menu-items">
-            <button class="menu-item" :class="{ 'is-active': activePath === '/upload' }" @click="go('/upload')">
+            <button class="menu-item" :class="{ 'is-active': activePath === '/upload' }" :aria-current="activePath === '/upload' ? 'page' : undefined" title="文件上传" @click="go('/upload')">
               <span class="menu-icon"><el-icon><Monitor /></el-icon></span>
               <span class="menu-text"><span class="menu-title">文件上传</span><span class="menu-status status-active">上传入口</span></span>
             </button>
-            <button class="menu-item" :class="{ 'is-active': activePath === '/survey' }" @click="go('/survey')">
+            <button class="menu-item" :class="{ 'is-active': activePath === '/survey' }" :aria-current="activePath === '/survey' ? 'page' : undefined" title="实测项目资产" @click="go('/survey')">
               <span class="menu-icon"><el-icon><MagicStick /></el-icon></span>
               <span class="menu-text"><span class="menu-title">实测</span><span class="menu-status status-active">项目资产</span></span>
             </button>
@@ -51,21 +51,21 @@ function go(path: string) {
         <div class="menu-section design-section">
           <div class="section-title">设计</div>
           <div class="menu-items">
-            <button class="menu-item" :class="{ 'is-active': activePath === '/design/bim' }" @click="go('/design/bim')">
+            <button class="menu-item" :class="{ 'is-active': activePath === '/design/bim' }" :aria-current="activePath === '/design/bim' ? 'page' : undefined" title="IFC 模型" @click="go('/design/bim')">
               <span class="menu-icon"><el-icon><Box /></el-icon></span>
               <span class="menu-text"><span class="menu-title">IFC 模型</span><span class="menu-status">模型浏览</span></span>
             </button>
-            <button class="menu-item" :class="{ 'is-active': activePath === '/design/cad' }" @click="go('/design/cad')">
+            <button class="menu-item" :class="{ 'is-active': activePath === '/design/cad' }" :aria-current="activePath === '/design/cad' ? 'page' : undefined" title="CAD 图纸" @click="go('/design/cad')">
               <span class="menu-icon"><el-icon><Document /></el-icon></span>
               <span class="menu-text"><span class="menu-title">CAD 图纸</span><span class="menu-status">图纸管理</span></span>
             </button>
-            <button class="menu-item" :class="{ 'is-active': activePath === '/design/overview' }" @click="go('/design/overview')">
+            <button class="menu-item" :class="{ 'is-active': activePath === '/design/overview' }" :aria-current="activePath === '/design/overview' ? 'page' : undefined" title="项目概览" @click="go('/design/overview')">
               <span class="menu-icon"><el-icon><DataBoard /></el-icon></span>
               <span class="menu-text"><span class="menu-title">项目概览</span><span class="menu-status">项目总览</span></span>
             </button>
           </div>
         </div>
-      </div>
+      </nav>
 
       <div class="user-section">
         <div class="user-avatar">{{ (props.session.username || 'U').slice(0, 1).toUpperCase() }}</div>
@@ -115,4 +115,12 @@ function go(path: string) {
 .menu-icon, .logout-button { color: var(--text-secondary); }
 .menu-item.is-active .menu-icon { color: var(--color-primary); }
 .right-panel { border-radius: var(--radius-lg); }
+.brand { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; }
+.logout-button { width: 40px; height: 40px; flex-basis: 40px; }
+@media (max-width: 800px) {
+  .app-sidebar { width: 64px; flex-basis: 64px; }
+  .brand { justify-content: center; padding-inline: 16px; }
+  .brand-mark { margin-right: 0; }
+  .logout-button { display: none; }
+}
 </style>

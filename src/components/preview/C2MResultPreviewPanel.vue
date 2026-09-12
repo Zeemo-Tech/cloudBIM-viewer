@@ -118,6 +118,8 @@ defineExpose({
       v-if="localResult"
       class="c2m-result-preview__legend"
       :result="localResult"
+      :color-mode="colorMode"
+      :band-count="bandCount"
       compact
     />
   </div>

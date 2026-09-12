@@ -1,8 +1,8 @@
 :root {
   /* Typography */
-  --font-family-base: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'SF Pro Text', 'SF Pro Display', Arial, sans-serif;
-  --font-family-display: 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
-  --font-family-number: 'DIN Alternate', 'SF Mono', 'Roboto Mono', 'PingFang SC', Arial, sans-serif;
+  --font-family-base: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  --font-family-display: var(--font-family-base);
+  --font-family-number: 'SF Mono', 'Consolas', 'Noto Sans Mono CJK SC', var(--font-family-base);
   --font-size-xs: 12px;
   --font-size-sm: 14px;
   --font-size-md: 16px;
@@ -38,7 +38,7 @@
   --text-secondary: #425a7a;
   --text-tertiary: #657894;
   --text-disabled: #9aa8ba;
-  --text-placeholder: #8798af;
+  --text-placeholder: #63748b;
   --text-link: #2f70c4;
   --text-primary-color: var(--color-primary);
   --text-success: var(--color-success);
@@ -68,6 +68,7 @@
   --spacing-0: 0;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
+  --spacing-compact: 12px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
   --spacing-xl: 32px;
@@ -82,9 +83,9 @@
   --radius-2xl: 24px;
   --radius-pill: 999px;
   --border-width: 1px;
-  --shadow-sm: 3px 3px 8px rgb(169 184 210 / 16%), -3px -3px 8px rgb(255 255 255 / 88%);
-  --shadow-filter-control: inset 1px 1px 1px rgb(255 255 255 / 95%), inset -2px -2px 4px rgb(180 200 230 / 12%), 6px 6px 12px rgb(174 190 215 / 12%), -6px -6px 12px rgb(255 255 255 / 92%);
-  --shadow-md: 7px 7px 16px rgb(163 177 198 / 18%), -7px -7px 16px rgb(255 255 255 / 82%);
+  --shadow-sm: 0 2px 6px rgb(27 47 74 / 6%);
+  --shadow-filter-control: inset 0 0 0 1px var(--border-color);
+  --shadow-md: 0 6px 18px rgb(27 47 74 / 7%);
   --shadow-lg: 0 18px 40px rgb(15 23 42 / 8%);
   --transition-fast: 160ms ease;
   --transition-base: 240ms ease;
@@ -93,6 +94,8 @@
   /* Application layout */
   --header-height: 82px;
   --sidebar-width: 220px;
+  --control-height: 36px;
+  --viewer-panel-width: 360px;
   --card-padding: var(--spacing-lg);
   --z-base: 0;
   --z-sticky: 10;

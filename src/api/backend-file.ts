@@ -74,6 +74,15 @@ export interface AssetDetail extends AssetSummary {
   tilesetUrl?: string
 }
 
+export interface AssetRepresentation {
+  kind: string
+  format: string
+  status: string
+  url?: string
+  baseUrl?: string
+  version?: string
+}
+
 export interface UploadStatus {
   uploadId: string
   assetId: number | null
@@ -168,6 +177,13 @@ export function getAssetDetail(assetId: number) {
   return backendRequest<BackendResult<AssetDetail>>(`/assets/${assetId}`, {
     method: 'GET',
   })
+}
+
+export function getAssetRepresentations(assetId: number) {
+  return backendRequest<BackendResult<{ list: AssetRepresentation[] }>>(
+    `/assets/${assetId}/representations`,
+    { method: 'GET' },
+  )
 }
 
 export interface UpdateAssetAppearancePayload {

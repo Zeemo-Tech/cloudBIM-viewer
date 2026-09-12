@@ -5,6 +5,18 @@ import { createRebarColorizer, instanceColor, v3Color, validateVisualization, le
 
 const metadata = { schema: 'rebar-visualization-v1', defaultMode: 'rebar-class', instanceStrategy: 'golden-angle-v1', attributes: { SCENE_CLASS: {} }, values: {}, colors: { clutter: '#334155', table: '#94a3b8', noise: '#d946ef', rebar: '#ef4444', directionA: '#22d3ee', directionB: '#f97316', intersection: '#facc15' } } as const
 
+test('spatial instance palette overrides instance colors while preserving semantic and legacy fallback colors', () => {
+  const palette = new Map<number, [number, number, number]>([[35, [0.2, 0.8, 0.9]]])
+  const colorize = createRebarColorizer(metadata, palette)
+  const legacy = createRebarColorizer(metadata)
+  const point = { sceneClass: 2, flags: 0, direction: 1, instance: 35 }
+  assert.deepEqual(colorize('rebar-instance', point), palette.get(35))
+  assert.deepEqual(colorize('rebar-class', point), legacy('rebar-class', point))
+  assert.deepEqual(colorize('rebar-direction', point), legacy('rebar-direction', point))
+  assert.deepEqual(colorize('rebar-instance', { ...point, instance: 99 }), instanceColor(99))
+  assert.deepEqual(colorize('rebar-instance', { ...point, flags: 1 }), legacy('rebar-instance', { ...point, flags: 1 }))
+})
+
 test('validates v3 metadata and composites class colors', () => {
   assert.ok(validateVisualization(metadata))
   assert.equal(validateVisualization({ ...metadata, colors: {} }), null)
