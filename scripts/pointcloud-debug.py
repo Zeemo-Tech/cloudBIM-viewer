@@ -122,7 +122,7 @@ class DebugState:
             try:
                 # Releasing old context bounds memory; disk snapshots remain.
                 self.run = None
-                snapshot = prepare_snapshot(self.prior_config) if prior_mode != 'off' else None
+                snapshot = prepare_snapshot(self.prior_config) if self.prior_config and through_step >= 2 else None
                 self.run = run_from_source(self.source, self.output, k=k, workers=workers, progress=self.progress,
                     through_step=through_step, prior_mode=prior_mode, design_prior=snapshot,
                     preview_limit=self.preview_limit)
@@ -372,7 +372,7 @@ def main():
     if args.preview_limit < 1:
         parser.error('--preview-limit must be positive')
     if args.compute_only:
-        snapshot = prepare_snapshot(args.prior_config) if args.prior_mode != 'off' else None
+        snapshot = prepare_snapshot(args.prior_config) if args.prior_config and args.through_step >= 2 else None
         result = run_from_source(source, output, k=args.k, workers=args.workers, through_step=args.through_step,
             prior_mode=args.prior_mode, design_prior=snapshot, preview_limit=args.preview_limit)
         tile_state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)

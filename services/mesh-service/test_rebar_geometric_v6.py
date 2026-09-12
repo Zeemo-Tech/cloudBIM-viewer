@@ -81,7 +81,7 @@ class SharedProductionTests(unittest.TestCase):
                 output_directory=str(root/'artifact'),artifact_version='v6-test',algorithm='geometric-v6',
                 input_options={'maxInputPoints':3},parameters={},storage_root=str(root))
             result=compute_rebar_artifact(**kwargs)
-            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'10'})
+            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'11'})
             self.assertEqual(result['summary']['rawSource']['finitePointCount'],len(xyz))
             self.assertEqual(result['summary']['display']['totalPointCount'],len(xyz))
             self.assertEqual(hashlib.sha256(cloud.read_bytes()).hexdigest(),original)

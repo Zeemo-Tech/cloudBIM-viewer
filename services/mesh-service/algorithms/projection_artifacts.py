@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 
-PALETTE = np.array([[11, 16, 32], [100, 116, 139], [245, 158, 11], [45, 212, 191]], np.uint8)
+PALETTE = np.array([[11, 16, 32], [100, 116, 139], [245, 158, 11], [45, 212, 191], [239, 71, 111]], np.uint8)
 
 
 def _heat(values, log=False):
@@ -31,7 +31,7 @@ def _layers_svg(report, cache):
              '<rect width="100%" height="100%" fill="#0b1020"/>',
              '<g font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif" fill="#dfe8f8">',
              '<text x="40" y="37" font-size="24">Z 轴密度投影 · 原始高度与候选分层</text>',
-             '<text x="40" y="66" font-size="14" fill="#94a3b8">全部原始点参与计数；先显示台面峰，再查看移除台面后的高度峰。候选层数由数据决定。</text>']
+             f'<text x="40" y="66" font-size="14" fill="#94a3b8">{("仅包络内保留点参与计数；布外点已在投影前强制排除。" if report.get("computationalPopulation") else "全部原始点参与计数；先显示台面峰，再查看移除台面后的高度峰。")}候选层数由数据决定。</text>']
     colors = ['#2dd4bf', '#f59e0b', '#a78bfa', '#f472b6']
     for panel, (counts, top, bottom, title) in enumerate([(raw, 112, 276, '全部点云'), (remaining, 355, 580, '移除台面后')]):
         maximum = max(float(counts.max()), 1.)*1.08
@@ -67,7 +67,7 @@ def write_projection_artifacts(directory, run_id, report, cache):
     images = {'binary': (binary, '移除台面后的俯视二值图'),
               'density': (density, '俯视点密度 · 对数色阶，亮处点数多'),
               'height': (span, '每个俯视像素的 Z 跨度 · 辅助定位竖向面'),
-              'classes': (PALETTE[cache["image_labels"]], '投影分类 · 钢筋绿 / 夹具黄')}
+              'classes': (PALETTE[cache["image_labels"]], '投影分类 · 钢筋绿 / 夹具黄 / 悬浮噪音红')}
     if 'fixture_edge_image' in cache:
         images['edges'] = (PALETTE[cache['fixture_edge_image']], '夹具贴边回收 · 黄：从钢筋改回夹具的原始点 / 灰：非台面点')
     if 'fixture_footprint_image' in cache:

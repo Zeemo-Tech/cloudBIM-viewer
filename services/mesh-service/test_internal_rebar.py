@@ -207,9 +207,9 @@ class InternalRebarTests(unittest.TestCase):
         np.testing.assert_array_equal(labels, [5])
         self.assertGreater(confidence[0], 0)
 
-    def test_denoising_assigned_rows_rebuilds_segment_and_instance_counts(self):
+    def test_residual_denoising_cannot_remove_confirmed_instances(self):
         context, member_size = synthetic_context()
-        # Exercise an entire removed model plus a partially retained model.
+        # A reviewer returning out-of-scope decisions cannot erase fitted models.
         context.fused_steel_score = np.ones(len(context.positions), np.float32)
         def remove_assigned(points, **kwargs):
             removed = np.zeros(len(points), bool)
@@ -218,8 +218,8 @@ class InternalRebarTests(unittest.TestCase):
             return removed, {'removedPointCount': int(removed.sum())}
         with mock.patch('algorithms.multiview_floating_noise.multiview_noise_mask', side_effect=remove_assigned):
             report = segment_internal_rebar(context, workers=1)
-        np.testing.assert_array_equal(context.internal_type[:member_size+5], 5)
-        np.testing.assert_array_equal(context.internal_instance[:member_size+5], 0)
+        self.assertFalse(np.any(context.internal_type[:member_size+5] == 5))
+        self.assertTrue(np.all(context.internal_instance[:member_size+5] > 0))
         segments = {s['id']: s for s in report['segments']}
         for segment in segments.values():
             self.assertGreater(segment['pointCount'], 0)
@@ -230,6 +230,24 @@ class InternalRebarTests(unittest.TestCase):
             self.assertEqual(instance['pointCount'], np.count_nonzero(context.internal_instance == instance['id']))
             self.assertTrue(all(s in segments and segments[s]['instanceId'] == instance['id'] for s in instance['segmentIds']))
         self.assertEqual(set(segments), {s for i in report['instances'] for s in i['segmentIds']})
+
+    def test_cloth_boundary_removes_assigned_points_and_recounts_instances(self):
+        context, member_size = synthetic_context()
+        context.fused_steel_score = np.ones(len(context.positions), np.float32)
+        context.shared_floating_noise = np.zeros(len(context.positions), np.uint8)
+        context.shared_floating_noise[:member_size+5] = 1
+        with mock.patch('algorithms.multiview_floating_noise.multiview_noise_mask',
+                        side_effect=lambda points, **kw: (np.zeros(len(points), bool), {})):
+            report = segment_internal_rebar(context, workers=1)
+        np.testing.assert_array_equal(context.internal_type[:member_size+5], 5)
+        for name in ('internal_instance', 'internal_segment', 'internal_confidence'):
+            self.assertFalse(getattr(context, name)[:member_size+5].any())
+        for segment in report['segments']:
+            self.assertEqual(segment['pointCount'], np.count_nonzero(context.internal_segment == segment['id']))
+            self.assertGreater(segment['pointCount'], 0)
+        for instance in report['instances']:
+            self.assertEqual(instance['pointCount'], np.count_nonzero(context.internal_instance == instance['id']))
+            self.assertGreater(instance['pointCount'], 0)
 
     def test_discovers_two_layers_parallel_rods_and_individual_webs(self):
         first, member_size = synthetic_context()

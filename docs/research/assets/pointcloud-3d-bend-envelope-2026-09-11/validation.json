@@ -1,0 +1,95 @@
+{
+  "runId": "20260911T154430-b25ed409",
+  "sourcePoints": 9216369,
+  "hardForbiddenPoints": 574894,
+  "layerCounts": {
+    "0": 7402141,
+    "1": 513311,
+    "2": 767480,
+    "3": 288419,
+    "4": 245018
+  },
+  "classes": {
+    "geometry_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1554051,
+      "3": 1771428,
+      "4": 574894
+    },
+    "projection_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1448323,
+      "3": 1877156,
+      "4": 574894
+    },
+    "fused_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1479425,
+      "3": 1846054,
+      "4": 574894
+    },
+    "refined_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1479425,
+      "3": 1846054,
+      "4": 574894
+    }
+  },
+  "baseline": {
+    "previousFittedSteel": 1727875,
+    "designHardHits": 82300,
+    "step05NoiseHits": 82302
+  },
+  "totalS": 33.090363200000866,
+  "step05": {
+    "reviewedCandidatePointCount": 194400,
+    "removedPointCount": 19482,
+    "confirmedSteelReviewExcluded": true
+  },
+  "assertions": "source-order arrays, table/frame exclusions, branch/fusion/final hard veto passed",
+  "envelope": {
+    "kind": "composite-steel-envelope",
+    "vertices": 97568,
+    "triangles": 195092,
+    "bodyVolumeM3": 0.09319362339568699,
+    "curveVolumesM3": [
+      9.377716439593029e-06,
+      9.377716439185188e-06,
+      9.37771643952588e-06,
+      9.377716439394547e-06,
+      9.377716439358877e-06,
+      9.37771643927973e-06,
+      9.377716439461442e-06,
+      9.377716439624362e-06,
+      9.37771643900521e-06,
+      9.377716439624867e-06
+    ],
+    "componentVolumeSumM3": 0.09328740056008104,
+    "volumeSumNote": "upper bound of union volume; body/tube joints may overlap",
+    "previousVolumeM3": 0.2314388487715718,
+    "componentVolumeReductionPercent": 59.69241937763227,
+    "arcFitCount": 10,
+    "arcFitMaxResidualM": 5.93275428784068e-16,
+    "componentClosedOrientationPassed": true,
+    "curveFaceCentersAndInnerOuterOffsetsPassed": true,
+    "persistedSurfaceAllSourceMaskMatches": true,
+    "step05HardVetoPassed": true,
+    "designSurfaceSamplesRetained": 77760,
+    "params": {
+      "gridSpacingM": 0.010125231509393465,
+      "lateralAllowanceM": 0.012,
+      "registrationAllowanceM": 0.004,
+      "webAllowanceM": 0.004,
+      "externalLengthAllowanceM": 0.012,
+      "supportRadiusM": 0.004,
+      "relaxationPasses": 0,
+      "hookSurfaceAllowanceM": 0.002,
+      "hookProtection": "swept-3d-curve",
+      "curveShellCount": 10
+    }
+  }
+}

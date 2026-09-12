@@ -13,19 +13,21 @@ from .pointcloud_normals import PointCloudContext, estimate_normals
 from .normal_geometry_classifier import classify_geometry
 from .projection_geometry_classifier import classify_projection
 from .pointcloud_fusion import fuse_classifications
+from .shared_floating_noise import prepare_floating_scene, denoise_branch, ATTRIBUTES as FLOATING_ATTRIBUTES
 from .shared_scene import prepare_scene, regions_from_partition, partition_region_report, ATTRIBUTES as SCENE_ATTRIBUTES
 from .region_refinement import reuse_fusion_partition
 from .internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRIBUTES
 from .rebar_dimension_priors import load_dimension_priors
 
-VERSION = "shared-segmentation-v16-fixture-density-denoising"
+VERSION = "shared-segmentation-v28-step05-steel-boundary"
+SCENE_ATTRIBUTES = {**SCENE_ATTRIBUTES, **FLOATING_ATTRIBUTES}
 CLASS_ATTRIBUTES = {"geometry_class": "u1", "geometry_support": "<f4", "geometry_recovered": "u1"}
 PROJECTION_ATTRIBUTES = {"projection_class": "u1", "projection_layer": "u1"}
 FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered": "u1", "fused_reason": "u1", "fused_steel_score": "<f4", "fused_steel_evidence": "u1"}
 REFINEMENT_ATTRIBUTES = {"refined_class": "u1", "refined_region": "u1", "refined_zone": "u1", "refined_changed": "u1", "refined_reason": "u1"}
 
 
-def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None):
+def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None):
     if type(through_step) is not int or through_step not in range(1,7):
         raise ValueError("through_step must be 1–6 (ending at UI Step 05)")
     progress = progress or (lambda *args: None)
@@ -58,7 +60,10 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
             arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
         t0 = time.perf_counter()
         with threadpool_limits(limits=1):
-            preprocessing = prepare_scene(context, output={name: arrays[name] for name in SCENE_ATTRIBUTES}, progress=progress)
+            preprocessing = prepare_scene(context, output={name: arrays[name] for name in SCENE_ATTRIBUTES if name not in FLOATING_ATTRIBUTES}, progress=progress)
+            layering, floating_zones = prepare_floating_scene(context, design_inventory,
+                output={name: arrays[name] for name in FLOATING_ATTRIBUTES}, progress=progress)
+            preprocessing.update(layering=layering, floatingZones=floating_zones)
         timing['preprocessingS'] = time.perf_counter()-t0
         t0 = time.perf_counter()
         attributes = {**CLASS_ATTRIBUTES, **(PROJECTION_ATTRIBUTES if through_step >= 3 else {})}
@@ -71,13 +76,44 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
             began = time.perf_counter()
             result = classify_geometry(context, workers=normal_workers,
                 output={name: arrays[name] for name in CLASS_ATTRIBUTES}, progress=progress)
+            result['floatingDenoising'] = denoise_branch(context, arrays['geometry_class'],
+                cache=context.classification_cache, stage='02A', workers=normal_workers, progress=progress)
+            arrays['geometry_recovered'][arrays['geometry_class'] != 3] = 0
+            arrays['geometry_support'][arrays['geometry_class'] == 4] = 0
+            result['noiseClass'] = 4
+            result['classNames'] = {**result.get('classNames', {}), '4': '悬浮噪音'}
+            result['colors'] = {**result.get('colors', {}), '4': '#ef476f'}
+            result['counts'] = dict(zip(('table', 'fixture', 'rebar', 'noise'),
+                map(int, np.bincount(arrays['geometry_class'], minlength=5)[1:5])))
             return result, time.perf_counter()-began
         def projection_branch():
             began = time.perf_counter()
             result = classify_projection(context.positions, context.normals, context.normal_valid,
                 workers=projection_workers, output={name: arrays[name] for name in PROJECTION_ATTRIBUTES}, progress=progress,
                 prepared=context.scene_cache["projection"], region_owned=context.scene_cache["region_owned"])
-            return result, time.perf_counter()-began
+            report, cache, branch_output = result
+            report['floatingDenoising'] = denoise_branch(context, arrays['projection_class'],
+                cache=cache, stage='02B', workers=projection_workers, progress=progress)
+            report['noiseClass'] = 4
+            report['classNames'] = {**report.get('classNames', {}), '4': '悬浮噪音'}
+            report['colors'] = {**report.get('colors', {}), '4': '#ef476f'}
+            for layer in report.get('layers', []):
+                selected = arrays['projection_layer'] == layer['id']
+                layer['classCounts'] = dict(zip(('table', 'fixture', 'rebar', 'noise'),
+                    map(int, np.bincount(arrays['projection_class'][selected], minlength=5)[1:5])))
+            # Keep the debug image aligned with this branch's own labels.
+            if 'image_labels' in cache:
+                top_labels = np.zeros_like(cache['image_labels']).ravel()
+                prepared = context.scene_cache['projection']
+                for start in range(0, count, 262144):
+                    stop = min(count, start + 262144)
+                    pixels = cache['source_to_pixel'][start:stop]
+                    visible = ~prepared['table_mask'][start:stop] & (np.abs(context.positions[start:stop, 2] - prepared['zmax'][pixels]) < 1.e-7)
+                    np.maximum.at(top_labels, pixels[visible], arrays['projection_class'][start:stop][visible])
+                cache['image_labels'] = top_labels.reshape(cache['image_labels'].shape)
+            report['counts'] = dict(zip(('table', 'fixture', 'rebar', 'noise'),
+                map(int, np.bincount(arrays['projection_class'], minlength=5)[1:5])))
+            return (report, cache, branch_output), time.perf_counter()-began
         if through_step >= 3:
             # One enclosing BLAS limit keeps its process-global state
             # stable until both tasks finish; nested normal limits restore 1.

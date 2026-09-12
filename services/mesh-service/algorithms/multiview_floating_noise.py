@@ -12,10 +12,10 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
-from scipy.spatial import cKDTree
+from scipy.spatial import cKDTree, ConvexHull, QhullError
 
 
-VERSION = 'floating-multiview-v2-density'
+VERSION = 'floating-multiview-v3-conservative-top-view'
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,9 @@ class Parameters:
     observed_support_radius: float = .003
     minimum_negative_views: int = 3
     high_score_negative_views: int = 4
+    local_round_radius: float = .014
+    top_view_margin: float = .012
+    top_view_fixture_fraction: float = .25
     density_window_cells: int = 13
     density_fixture_fraction: float = .50
     high_score_density_fixture_fraction: float = .65
@@ -198,6 +201,57 @@ def _bent_fragment(points, normals):
     return bool(np.mean(supported) >= .3)
 
 
+def _definite_nonrod(points, normals):
+    """Positive ball/broad-sheet evidence; a failed cylinder fit is inconclusive."""
+    if len(points) < 8 or normals is None:
+        return False
+    lengths = np.linalg.norm(normals, axis=1)
+    valid = np.isfinite(normals).all(axis=1) & (lengths > .5)
+    if valid.sum() < 8:
+        return False
+    nn = normals[valid] / lengths[valid, None]
+    normal_values = np.linalg.eigvalsh(nn.T @ nn / len(nn))
+    centered = points - points.mean(0)
+    values, axes = np.linalg.eigh(centered.T @ centered / len(points))
+    extent = np.ptp(centered @ axes, axis=0)
+    ball = values[0] > .35 * values[2] and normal_values[0] > .15
+    sheet = (extent[1] >= .020 and values[0] < .04 * values[1]
+             and normal_values[2] > .95)
+    return bool(ball or sheet)
+
+
+def _local_round_support(points, normals, high_fraction, p):
+    """Rescue measured rod patches inside mixed components, never the whole island."""
+    supported = np.zeros(len(points), bool)
+    if normals is None or len(points) < 8 or not np.any(high_fraction):
+        return supported
+    tree = cKDTree(points)
+    for row in range(len(points)):
+        neighbors = tree.query_ball_point(points[row], p.local_round_radius)
+        if np.mean(high_fraction[neighbors]) < .25:
+            continue
+        if _round_fragment(points[neighbors], normals[neighbors], minimum_length=.008,
+                           surface_error=.0008, normal_spread=.08):
+            supported[neighbors] = True
+    return supported
+
+
+def _outside_top_footprint(points, reference, margin):
+    """Conservative XY hull of frozen measured steel; no candidate self-support."""
+    outside = np.zeros(len(points), bool)
+    if len(reference) < 3:
+        return outside, 0
+    # Translate before Qhull/equation evaluation for survey coordinates.
+    origin = reference[:, :2].mean(0)
+    try:
+        hull = ConvexHull(reference[:, :2] - origin)
+    except QhullError:
+        return outside, 0
+    for equation in hull.equations:
+        outside |= ((points[:, :2] - origin) @ equation[:2] + equation[2]) > margin
+    return outside, len(hull.vertices)
+
+
 def _view_support(centers, reliable, angle, p):
     """Compare islands with independent observed traces in overlapping slices.
 
@@ -337,7 +391,7 @@ def _density_view(steel, fixture, angle, p):
 
 def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None,
                          observed_support_mask=None, fixture_points=None, fixture_normals=None,
-                         observed_continuation_mask=None,
+                         observed_continuation_mask=None, exterior_mask=None,
                          workers=1, params=None, progress=None):
     """Return original-row noise decisions and an auditable component report."""
     p = params or Parameters()
@@ -363,6 +417,9 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
                     else np.asarray(observed_continuation_mask, dtype=bool))
     if continuation.shape != (len(points),):
         raise ValueError('observed_continuation_mask must correspond to source rows')
+    exterior = np.zeros(len(points), bool) if exterior_mask is None else np.asarray(exterior_mask, dtype=bool)
+    if exterior.shape != (len(points),):
+        raise ValueError('exterior_mask must correspond to source rows')
     high = scores >= .9-1e-6
     removed = np.zeros(len(points), bool)
     report = dict(version=VERSION, candidatePointCount=int(review.sum()),
@@ -375,7 +432,8 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
                   parameters=asdict(p), views=[], components=[],
                   scope='review_mask candidates; all retained steel supplies context',
                   densityReview=dict(enabled=False, removedPointCount=0, highScoreRemovedPointCount=0),
-                  rule='sliced silhouettes and relative layer density + independent 3D evidence; high scores require stronger evidence')
+                  topViewReview=dict(enabled=False, removedPointCount=0),
+                  rule='sliced silhouettes + explicit nonrod/fixture evidence for high scores; local rod protection and exterior XY footprint review')
     if not len(points) or not review.any():
         report['skippedReason'] = 'no review candidates'
         return removed, report
@@ -403,6 +461,9 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
     row_labels = labels[inverse]
     plausible = np.zeros(count, bool)
     spans = np.zeros(count)
+    definite_nonrod = np.zeros(count, bool)
+    local_round = np.zeros(len(centers), bool)
+    high_fraction = np.bincount(inverse, weights=high[active]) / np.bincount(inverse)
     for component in range(count):
         cells = order[starts[component]:starts[component+1]]
         xyz = centers[cells]
@@ -412,6 +473,9 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
         # floating sheet can have all three. Require measured round surface.
         plausible[component] = (_round_fragment(xyz, nn) or _round_geometry(xyz) or
                                 (spans[component] >= .020 and _bent_fragment(xyz, nn)))
+        definite_nonrod[component] = _definite_nonrod(xyz, nn)
+        if not plausible[component]:
+            local_round[cells] = _local_round_support(xyz, nn, high_fraction[cells], p)
     fixture, fixture_nn = _fixture_voxels(fixture_points, fixture_normals, p)
     cell_normals = None if normals is None else normals[active[representatives]]
     surface_support = _fixture_surface_support(centers, cell_normals, fixture, fixture_nn, p, workers)
@@ -467,12 +531,45 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
                       (density_votes >= p.minimum_negative_views))
     strong_density_reject = ((surface_fraction >= p.high_score_fixture_component_fraction) &
                              (strong_density_votes >= p.high_score_negative_views))
-    unsupported = ~plausible[row_labels] & has_steel_reference
-    density_rows = density_reject[row_labels] & ~continuation[active]
-    strong_density_rows = strong_density_reject[row_labels] & ~continuation[active]
-    ordinary_reject = (unsupported & (votes[row_labels] >= p.minimum_negative_views)) | density_rows
-    strong_reject = (unsupported & (votes[row_labels] >= p.high_score_negative_views)) | strong_density_rows
+    # Only strong measured round components with substantial independent high
+    # scores extend the frozen footprint. Ambiguous rescued points cannot expand it.
+    component_high = np.bincount(labels, weights=high_fraction, minlength=count) / np.bincount(labels)
+    footprint_components = plausible & (component_high >= .5) & (surface_fraction < .1)
+    footprint = np.vstack((anchor_points, centers[footprint_components[labels]]))
+    top_outside, hull_vertices = _outside_top_footprint(centers, footprint, p.top_view_margin)
+    top_fraction = np.zeros(count)
+    for component in range(count):
+        cells = order[starts[component]:starts[component+1]]
+        top_fraction[component] = np.mean(top_outside[cells])
+    top_reject = ((top_fraction >= .75) & (surface_fraction >= p.top_view_fixture_fraction)
+                  & (hull_vertices >= 3))
+    # A footprint alone is never permission to discard an exposed rod, and this
+    # extra branch cannot override a high fusion score.
+    protected_rows = continuation[active] | local_round[inverse]
+    top_round = local_round.copy()
+    for component in np.flatnonzero(top_reject & plausible):
+        cells = order[starts[component]:starts[component+1]]
+        nn = None if cell_normals is None else cell_normals[cells]
+        top_round[cells] = _local_round_support(centers[cells], nn, high_fraction[cells], p)
+    top_rows = (top_reject[row_labels] & exterior[active] & ~protected_rows
+                & top_outside[inverse] & surface_support[inverse]
+                & ~top_round[inverse] & ~high[active])
+    unsupported = ~plausible[row_labels] & has_steel_reference & ~protected_rows
+    density_rows = density_reject[row_labels] & ~protected_rows
+    strong_density_rows = strong_density_reject[row_labels] & ~protected_rows
+    ordinary_reject = (unsupported & (votes[row_labels] >= p.minimum_negative_views)) | density_rows | top_rows
+    strong_reject = (unsupported & definite_nonrod[row_labels] & (votes[row_labels] >= p.high_score_negative_views)) | strong_density_rows
     removed[active] = review[active] & np.where(high[active], strong_reject, ordinary_reject)
+    report['highScoreIsolationBlockedPointCount'] = int(np.count_nonzero(
+        review[active] & high[active] & unsupported & (votes[row_labels] >= p.high_score_negative_views)
+        & ~definite_nonrod[row_labels] & ~strong_density_rows))
+    report['localRoundProtectedPointCount'] = int(np.count_nonzero(review[active] & local_round[inverse] & ~removed[active]))
+    report['topViewReview'].update(enabled=bool(hull_vertices >= 3 and exterior.any()),
+        referencePointCount=len(footprint), hullVertexCount=hull_vertices,
+        outsideCandidatePointCount=int(np.count_nonzero(review[active] & exterior[active] & top_outside[inverse])),
+        removedPointCount=int(np.count_nonzero(removed[active] & top_rows)),
+        additionalRemovedPointCount=int(np.count_nonzero(removed[active] & top_rows & ~density_rows & ~(unsupported & (votes[row_labels] >= p.minimum_negative_views)))),
+        rule='XY measured-steel hull + component-wide exterior distance + independent fixture surface; high scores preserved')
     density_removed = removed[active] & np.where(high[active], strong_density_rows, density_rows)
     report['densityReview'].update(removedPointCount=int(density_removed.sum()),
         highScoreRemovedPointCount=int(np.count_nonzero(density_removed & high[active])),
@@ -481,7 +578,7 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
         highScoreRejectedComponentCount=int(np.count_nonzero(strong_density_reject)))
     report['removedPointCount'] = int(removed.sum())
     report['highScoreRemovedPointCount'] = int(np.count_nonzero(removed & high))
-    protected_active = review[active] & ~removed[active] & (plausible[row_labels] | continuation[active])
+    protected_active = review[active] & ~removed[active] & (plausible[row_labels] | protected_rows)
     report['protectedCandidatePointCount'] = int(review.sum()-review[active].sum()+protected_active.sum())
     report['blockedRemovalPointCount'] = int(np.count_nonzero(review[active] & high[active] & ordinary_reject & ~strong_reject))
     report['componentCount'] = count
@@ -499,6 +596,9 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
             reviewedPointCount=int(review_count[component]), removedPointCount=int(removed_count[component]),
             spanM=float(spans[component]), negativeViews=int(votes[component]),
             measuredRoundSurface=bool(plausible[component]),
+            definiteNonrodShape=bool(definite_nonrod[component]),
+            topViewOutsideFraction=float(top_fraction[component]),
+            topViewFixtureRejected=bool(top_reject[component]),
             measuredShapeProtected=bool(plausible[component] and not removed_count[component]),
             fixtureSurfaceFraction=float(surface_fraction[component]),
             densityNegativeViews=int(density_votes[component]),

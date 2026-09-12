@@ -15,7 +15,7 @@ from algorithms.normal_geometry_classifier import Parameters, recover_rebar
 VERSION = "geometry-projection-fusion-v5-preserved-branch-evidence"
 REASONS = {"1": "两路一致", "2": "台面证据", "3": "法向量钢筋证据",
            "4": "投影细长证据", "5": "钢筋轴线连续性恢复", "6": "实体夹具面支持",
-           "7": "共享区域钢筋归属"}
+           "7": "共享区域钢筋归属", "8": "共享悬浮去噪否决"}
 PROTECTION_THRESHOLD = .9
 SCORE_LEVELS = {"none": 0., "regionOnly": .25, "axisOnly": .5,
                 "singleMeasured": .65, "bothMeasured": 1.}
@@ -128,6 +128,11 @@ def fuse_classifications(context, *, workers=1, output=None, progress=None):
         reason[axis_restore] = 5
         result[region] = 3
         reason[region] = 7
+        # Only classifier evidence participates in fusion. Design cloth hits
+        # are review candidates for step 05, never an independent class vote.
+        noise = ((aa == 4) & ~projection_evidence[start:stop]) | ((bb == 4) & ~normal_evidence[start:stop])
+        result[noise] = 4
+        reason[noise] = 8
         # The score records measured branch support, not agreement between
         # labels that may have been assigned from the shared spatial scene.
         spatial_candidate = region.copy()
@@ -154,9 +159,10 @@ def fuse_classifications(context, *, workers=1, output=None, progress=None):
         high_confidence += int(np.count_nonzero(score >= PROTECTION_THRESHOLD))
         evidence_counts += np.bincount(evidence, minlength=16)
     timings["sourceMappingS"] = time.perf_counter()-t0
-    counts = np.bincount(labels, minlength=4)
+    counts = np.bincount(labels, minlength=5)
     report = {"version": VERSION, "pointCount": len(a), "elapsedS": time.perf_counter()-started,
-              "counts": dict(zip(("table", "fixture", "rebar"), map(int, counts[1:4]))),
+              "counts": dict(zip(("table", "fixture", "rebar", "noise"), map(int, counts[1:5]))),
+              "noiseClass": 4,
               "agreement": {"agreePoints": agreement, "disagreePoints": len(a)-agreement},
               "recovery": {"recoveredFromProjectionPoints": int(recovered.sum()),
                            "recoveredBothPoints": recovered_both, "passes": 1},

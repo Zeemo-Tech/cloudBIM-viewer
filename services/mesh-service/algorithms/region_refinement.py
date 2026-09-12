@@ -176,7 +176,7 @@ def refine_regions(context, region_report, *, workers=1, params=None, output=Non
                'bandToSteel': transitions(2, 3), 'exteriorToFixture': transitions(3, 2),
                'exteriorToSteel': transitions(3, 3), 'totalChanged': int(changed.sum())}
     report = {'version': VERSION, 'pointCount': count, 'parameters': asdict(params), 'elapsedS': time.perf_counter()-started,
-              'counts': dict(zip(('table', 'fixture', 'rebar'), map(int, counts[1:4]))),
+              'counts': dict(zip(('table', 'fixture', 'rebar', 'noise'), map(int, counts[1:5]))),
               'regionCounts': dict(zip(('table', 'interior', 'exterior', 'fixture', 'unlocated'), map(int, region_counts))),
               'changes': changes, 'frame': frame, 'diagnostics': diagnostics, 'timings': timings,
               'reasonNames': REASON_NAMES, 'zoneNames': ZONE_NAMES,
@@ -200,11 +200,11 @@ def reuse_fusion_partition(context, region_report, *, output):
     for name, array in output.items():
         setattr(context, name, array)
     context.refinement_cache = {}
-    counts = np.bincount(context.fused_class, minlength=4)
+    counts = np.bincount(context.fused_class, minlength=5)
     regions = np.bincount(context.fused_region, minlength=5)
     return {'version': 'fusion-partition-pass-through-v1', 'mode': 'fusion-pass-through',
             'pointCount': len(context.positions), 'elapsedS': 0., 'timings': {},
-            'counts': dict(zip(('table', 'fixture', 'rebar'), map(int, counts[1:4]))),
+            'counts': dict(zip(('table', 'fixture', 'rebar', 'noise'), map(int, counts[1:5]))),
             'regionCounts': dict(zip(('table', 'interior', 'exterior', 'fixture', 'unlocated'), map(int, regions))),
             'frame': region_report['frame'], 'zoneNames': ZONE_NAMES, 'reasonNames': {'0': '沿用融合结果'},
             'changes': {'totalChanged': 0}, 'diagnostics': {'enabled': False, 'reusedPartition': True},

@@ -14,6 +14,7 @@ const context = vm.createContext({THREE, $, Uint32Array, Float32Array,
     _internalInstances: new Uint32Array([0,1,2,3,0,0]), _internalConfidence: new Float32Array(6)},
   internalRebarGeometry: new THREE.BufferGeometry(),
   internalTypeColors: {4:'#94a3b8',5:'#ef476f'},
+  hardMaskVisible: () => true,
   hexColor: value => new THREE.Color(value ?? '#fff').toArray(),
   instanceColor: () => [1,1,1], fmt: String,
   updateInternalLegend() {}, rebuildInternalAxes() {}, requestRender() {},
@@ -49,6 +50,13 @@ assert.equal(context.pointScoreTrace(context.current, 5).spatialOverride, true);
 assert.equal(context.pointScoreTrace(context.current, 5).protectionViolation, false);
 context.current._complete = {complete_class:new Uint8Array([1,4,3,3,3,4])};
 assert.equal(context.pointScoreTrace(context.current, 1).protectionViolation, true, 'Step 06 cannot silently gain the Step 05 override');
+context.current._complete.complete_cluster = new Uint32Array([0,77,0,0,0,0]);
+context.current.completeRebar = {designReview:{finalClusterFilter:{highScoreOverrideAllowed:true,
+  decisions:[{clusterId:77,lengthRatio:.1,pointCountRatio:.05}]}}};
+assert.equal(context.pointScoreTrace(context.current, 1).finalOverride, true);
+assert.equal(context.pointScoreTrace(context.current, 1).protectionViolation, false);
+context.current.completeRebar.designReview.finalClusterFilter.decisions[0].clusterId=78;
+assert.equal(context.pointScoreTrace(context.current, 1).protectionViolation, true, 'override requires a decision for this exact cluster');
 // External noise must disappear from steel even though it has no internal
 // instance. The same row remains inspectable in the noise and before filters.
 context.current._refinedRegions[5] = 2;

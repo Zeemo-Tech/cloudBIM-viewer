@@ -38,6 +38,8 @@ class PointCloudContext:
     neighbor_radius: np.ndarray | None = None
     shared_table_mask: np.ndarray | None = None
     partition_zone: np.ndarray | None = None
+    shared_layer: np.ndarray | None = None
+    shared_floating_noise: np.ndarray | None = None
     scene_cache: dict | None = None
     fused_steel_score: np.ndarray | None = None
     fused_steel_evidence: np.ndarray | None = None

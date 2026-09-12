@@ -7,9 +7,10 @@ const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.met
 const html = await readFile(new URL('./pointcloud-debug/index.html', import.meta.url), 'utf8');
 
 const nav = [...html.matchAll(/data-step="([^"]+)"/g)].map(match => match[1]);
-assert.deepEqual(nav.slice(0, 7), ['raw', 'normal', 'tableRemoval', 'partition', 'classification', 'projection', 'fusion']);
+assert.deepEqual(nav.slice(0, 8), ['raw', 'normal', 'tableRemoval', 'partition', 'floatingZones', 'classification', 'projection', 'fusion']);
 assert.match(html, /data-step="tableRemoval"[^>]*disabled><span class="num">01B<\/span>台面移除/);
 assert.match(html, /data-step="partition"[^>]*disabled><span class="num">01C<\/span>钢筋分区/);
+assert.match(html, /data-step="floatingZones"[^>]*disabled><span class="num">01D<\/span>钢筋分层与禁飞区/);
 assert.match(html, /<span class="num">03<\/span>评分融合/);
 assert.match(html, /id="refinementStep" data-step="refinement" hidden disabled><span class="num">04<\/span>边带与类别整理/);
 assert.deepEqual([...html.matchAll(/<option value="([1-7])"(?: selected)?>/g)].slice(0, 6).map(match => match[1]), ['1','2','3','4','6','7']);
@@ -19,6 +20,8 @@ assert.match(html, /id="pointInspector"/);
 
 assert.match(source, /preview\.sharedTableMaskUrl/);
 assert.match(source, /preview\.partitionZonesUrl/);
+assert.match(source, /preview\.sharedLayersUrl/);
+assert.match(source, /preview\.sharedFloatingNoiseUrl/);
 assert.match(source, /preview\.fusedSteelScoreUrl/);
 assert.match(source, /preview\.fusedSteelEvidenceUrl/);
 assert.match(source, /const fusedSteelScores = fusedScoreBytes \? new Float32Array\(fusedScoreBytes\) : null/);

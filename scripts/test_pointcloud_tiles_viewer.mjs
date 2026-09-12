@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import * as THREE from 'three';
 
 const source = fs.readFileSync(new URL('./pointcloud-debug/viewer.js', import.meta.url), 'utf8');
 
@@ -116,7 +117,34 @@ vm.runInContext("completeTileFailed = false; preferredSemanticTag = 'internal'",
 assert.equal(context.completeTilesSupported(), false, 'unsupported detailed semantics must use the sample fallback');
 vm.runInContext("controls.completeClassFilter.value = '2'", context);
 assert.equal(context.completeTilesSupported(), true, 'specific result filters do not intersect the unified semantic filter');
+context.THREE=THREE;
+context.current={completeRebar:{clusters:[{id:7,category:'curved-exterior'}],
+  designReview:{operations:[],finalClusterFilter:{decisions:[{clusterId:8}]}}}};
+context.controls.completeInstanceFilter={value:'all'};
+context.controls.completeColorMode={value:'classes'};
+context.controls.size={value:'2'};
+context.completeTileRecords=new Map();
+context.refreshCompleteTilePresentation=()=>true;
+context.semanticTagMatches=()=>true;
+vm.runInContext([extractFunction('completeOperationSets'),extractFunction('completeTilesHideHardNoise'),extractFunction('applyCompleteTileAppearance')].join('\n'),context);
+const part={object:new THREE.Points(new THREE.BufferGeometry(),new THREE.PointsMaterial()),
+  classes:parsed.classes,instances:parsed.instances,clusters:parsed.clusters};
+context.completeTileRecords.set('test',{ready:true,parts:[part]});
+for (const [filter,expected] of [['hooks',[1]],['final-rejected',[2]]]) {
+  context.controls.completeClassFilter.value=filter;
+  assert.equal(context.completeTilesSupported(),true);
+  context.applyCompleteTileAppearance();
+  assert.deepEqual([...part.object.geometry.index.array],expected);
+}
 assert.deepEqual([1, 2, 3, 3, 4].map((cls, index) => context.completeTileSemanticLabel(cls, index === 3 ? 5 : 0)), [1, 2, 9, 3, 10]);
+context.current.preprocessing={floatingZones:{forbiddenRule:{scope:'all-source-points'}}};
+context.controls.completeClassFilter.value='all';
+vm.runInContext("preferredSemanticTag = 'all'", context);
+context.applyCompleteTileAppearance();
+assert.deepEqual([...part.object.geometry.index.array], [0,1], 'new all-source hard mask never lets tile noise leak into all-result views');
+context.controls.completeClassFilter.value='4';
+context.applyCompleteTileAppearance();
+assert.deepEqual([...part.object.geometry.index.array], [2], 'explicit noise filtering remains available for tile diagnostics');
 
 const readyA = {id: 'a'}, readyB = {id: 'b'};
 const records = new Map([['a', readyA], ['b', readyB]]);

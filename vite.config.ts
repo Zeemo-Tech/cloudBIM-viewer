@@ -13,6 +13,9 @@ export default defineConfig(({ mode }) => {
   return {
     server: {
       host: '0.0.0.0',
+      watch: {
+        ignored: ['**/.cloudbim/**', '**/backend/data/**'],
+      },
       proxy: {
         '/health': createProxyConfig(apiProxyTarget),
         '/auth': createProxyConfig(apiProxyTarget),

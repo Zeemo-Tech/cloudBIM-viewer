@@ -8,8 +8,9 @@ const PREVIEW_RENDER_LIMIT = 300_000;
 const COMPLETE_TILE_SETTLE_MS = 180;
 const runQuery = new URLSearchParams(window.location.search).get('run');
 let requestedRun = /^\d{8}T\d{6}-[0-9a-f]{8}$/.test(runQuery || '') ? runQuery : null;
-let current = null, rawGeometry = null, normalGeometry = null, tableRemovalGeometry = null, partitionGeometry = null, classGeometry = null, projectionGeometry = null, fusionGeometry = null, refinementGeometry = null, internalRebarGeometry = null, designPriorGeometry = null, arrowLines = null;
+let current = null, rawGeometry = null, normalGeometry = null, tableRemovalGeometry = null, partitionGeometry = null, floatingZonesGeometry = null, classGeometry = null, projectionGeometry = null, fusionGeometry = null, refinementGeometry = null, internalRebarGeometry = null, designPriorGeometry = null, arrowLines = null;
 let frameOverlays = [];
+let floatingGeometryOverlays = [];
 let internalAxisGroup = null;
 let designPriorLines = null;
 let poller = null, loadToken = 0, frame = 0, rightScene = 'normal';
@@ -41,6 +42,7 @@ const rawScene = new THREE.Scene();
 const normalScene = new THREE.Scene();
 const tableRemovalScene = new THREE.Scene();
 const partitionScene = new THREE.Scene();
+const floatingZonesScene = new THREE.Scene();
 const classScene = new THREE.Scene();
 const projectionScene = new THREE.Scene();
 const fusionScene = new THREE.Scene();
@@ -63,6 +65,7 @@ const rawMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, 
 const normalMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
 const tableRemovalMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
 const partitionMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
+const floatingZonesMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
 const classMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
 const projectionMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
 const fusionMaterial = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true });
@@ -73,6 +76,7 @@ const normalPoints = new THREE.Points(new THREE.BufferGeometry(), normalMaterial
 const emptyClassGeometry = new THREE.BufferGeometry();
 const tableRemovalPoints = new THREE.Points(emptyClassGeometry, tableRemovalMaterial);
 const partitionPoints = new THREE.Points(emptyClassGeometry, partitionMaterial);
+const floatingZonesPoints = new THREE.Points(emptyClassGeometry, floatingZonesMaterial);
 const classPoints = new THREE.Points(emptyClassGeometry, classMaterial);
 const projectionPoints = new THREE.Points(emptyClassGeometry, projectionMaterial);
 const fusionPoints = new THREE.Points(emptyClassGeometry, fusionMaterial);
@@ -82,6 +86,7 @@ rawScene.add(rawPoints);
 normalScene.add(normalPoints);
 tableRemovalScene.add(tableRemovalPoints);
 partitionScene.add(partitionPoints);
+floatingZonesScene.add(floatingZonesPoints);
 classScene.add(classPoints);
 projectionScene.add(projectionPoints);
 fusionScene.add(fusionPoints);
@@ -126,6 +131,7 @@ function render() {
   const scene = rightScene === 'normal' ? normalScene
     : rightScene === 'tableRemoval' ? tableRemovalScene
       : rightScene === 'partition' ? partitionScene
+    : rightScene === 'floatingZones' ? floatingZonesScene
     : rightScene === 'classification' ? classScene
       : rightScene === 'projection' ? projectionScene
         : rightScene === 'fusion' ? fusionScene
@@ -256,7 +262,9 @@ function completeOperationSets() {
       operation.sourceInstanceIds.forEach(id => splitIds.add(id));
     }
   }
-  return {separatedClusters, mergedIds, bridgeIds, splitIds};
+  const hookClusters = new Set((current?.completeRebar?.clusters || []).filter(c => c.category === 'curved-exterior').map(c => c.id));
+  const finalRejectedClusters = new Set((current?.completeRebar?.designReview?.finalClusterFilter?.decisions || []).map(c => c.clusterId));
+  return {separatedClusters, mergedIds, bridgeIds, splitIds, hookClusters, finalRejectedClusters};
 }
 
 function completeTilesSupported() {
@@ -265,7 +273,7 @@ function completeTilesSupported() {
   const filter = $('completeClassFilter').value;
   if (['all', 'resolved', '3'].includes(filter)
     && !new Set(['before', 'all', 'steel', 'fixture', 'table', 'noise', 'pending', 'unknown']).has(preferredSemanticTag)) return false;
-  return new Set(['all', 'resolved', '1', '2', '3', '4', 'pending', 'merged', 'bridged', 'split', 'separated']).has(filter);
+  return new Set(['all', 'resolved', '1', '2', '3', '4', 'pending', 'merged', 'bridged', 'split', 'separated', 'hooks', 'final-rejected']).has(filter);
 }
 
 function completeTileSemanticLabel(cls, instance) {
@@ -274,6 +282,11 @@ function completeTileSemanticLabel(cls, instance) {
   if (cls === 3) return instance ? 3 : 9;
   if (cls === 4) return 10;
   return 0;
+}
+
+function completeTilesHideHardNoise(cls, filter) {
+  if (cls !== 4 || current?.preprocessing?.floatingZones?.forbiddenRule?.scope !== 'all-source-points') return false;
+  return !(['4', 'filtered'].includes(filter) || ['before', 'noise'].includes(preferredSemanticTag));
 }
 
 function completeTileStyleTargets(records, targetRecord) {
@@ -343,7 +356,7 @@ function applyCompleteTileAppearance(targetRecord = null) {
   const filter = $('completeClassFilter').value;
   const instanceFilter = $('completeInstanceFilter').value;
   const colorMode = $('completeColorMode').value;
-  const {separatedClusters, mergedIds, bridgeIds, splitIds} = completeOperationSets();
+  const {separatedClusters, mergedIds, bridgeIds, splitIds, hookClusters, finalRejectedClusters} = completeOperationSets();
   const filterKey = `${filter}/${instanceFilter}/${preferredSemanticTag}`;
   const classColors = {1:[0x64, 0x74, 0x8b], 2:[0xf5, 0x9e, 0x0b], 3:[0x2d, 0xd4, 0xbf], 4:[0xef, 0x47, 0x6f]};
   for (const record of completeTileStyleTargets(completeTileRecords, targetRecord)) {
@@ -379,10 +392,12 @@ function applyCompleteTileAppearance(targetRecord = null) {
               : filter === 'bridged' ? cls === 3 && instance > 0 && bridgeIds.has(instance)
                 : filter === 'split' ? cls === 3 && instance > 0 && splitIds.has(instance)
                   : filter === 'separated' ? separatedClusters.has(cluster)
+                    : filter === 'hooks' ? hookClusters.has(cluster)
+                      : filter === 'final-rejected' ? finalRejectedClusters.has(cluster)
                     : filter === 'all' || cls === Number(filter);
         const semanticMatch = !['all', 'resolved', '3'].includes(filter)
           || semanticTagMatches(completeTileSemanticLabel(cls, instance), preferredSemanticTag);
-        if (classMatch && semanticMatch && (instanceFilter === 'all' || instance === Number(instanceFilter))) {
+        if (!completeTilesHideHardNoise(cls, filter) && classMatch && semanticMatch && (instanceFilter === 'all' || instance === Number(instanceFilter))) {
           part.indices[selected++] = index;
         }
       }
@@ -536,6 +551,7 @@ function releasePreview() {
   normalGeometry?.dispose();
   tableRemovalGeometry?.dispose();
   partitionGeometry?.dispose();
+  floatingZonesGeometry?.dispose();
   classGeometry?.dispose();
   projectionGeometry?.dispose();
   fusionGeometry?.dispose();
@@ -550,6 +566,7 @@ function releasePreview() {
   normalGeometry = null;
   tableRemovalGeometry = null;
   partitionGeometry = null;
+  floatingZonesGeometry = null;
   classGeometry = null;
   projectionGeometry = null;
   fusionGeometry = null;
@@ -558,11 +575,13 @@ function releasePreview() {
   classPoints.geometry = emptyClassGeometry;
   tableRemovalPoints.geometry = emptyClassGeometry;
   partitionPoints.geometry = emptyClassGeometry;
+  floatingZonesPoints.geometry = emptyClassGeometry;
   projectionPoints.geometry = emptyClassGeometry;
   fusionPoints.geometry = emptyClassGeometry;
   refinementPoints.geometry = emptyClassGeometry;
   internalRebarPoints.geometry = emptyClassGeometry;
   disposeFrameOverlays();
+  disposeFloatingGeometryOverlays();
 }
 
 function normalColors(normals, valid, mode) {
@@ -596,6 +615,7 @@ const classPalette = {
   1: [0x64 / 255, 0x74 / 255, 0x8b / 255],
   2: [0xf5 / 255, 0x9e / 255, 0x0b / 255],
   3: [0x2d / 255, 0xd4 / 255, 0xbf / 255],
+  4: [0xef / 255, 0x47 / 255, 0x6f / 255],
 };
 
 function classColors(classes) {
@@ -682,6 +702,66 @@ function applyPartitionAppearance() {
   requestRender();
 }
 
+const floatingLayerNames = { 0: '未分层', 1: '底层钢筋', 2: '顶层钢筋', 3: '腹杆层' };
+const floatingLayerColors = { 0: '#94a3b8', 1: '#38bdf8', 2: '#fb7185', 3: '#facc15' };
+function floatingLayerColor(id) { return floatingLayerColors[id] || ['#a78bfa','#fb923c','#34d399','#f472b6'][Math.max(0, Number(id) - 4) % 4]; }
+
+function floatingZoneColors(layers, forbidden) {
+  const colors = new Float32Array(layers.length * 3);
+  for (let index = 0; index < layers.length; index += 1) {
+    colors.set(hexColor(forbidden?.[index] ? '#ef476f' : floatingLayerColor(layers[index]), '#94a3b8'), index * 3);
+  }
+  return colors;
+}
+
+function updateFloatingLegend() {
+  const ids = current?.preprocessing?.layering?.layers?.map(layer => Number(layer.id)).filter(Number.isFinite)
+    || [...new Set(current?._sharedLayers || [])].sort((a, b) => a - b);
+  $('floatingLegend').replaceChildren(...ids.map((value) => {
+    const row = document.createElement('span');
+    const swatch = document.createElement('i');
+    swatch.className = 'swatch'; swatch.style.background = floatingLayerColor(value);
+    const layer = current?.preprocessing?.layering?.layers?.find(item => Number(item.id) === value);
+    row.append(swatch, layer?.name || (value === 0 ? '未分层' : `层 ${value}${Number.isFinite(layer?.heightM) ? ` · ${(layer.heightM * 1000).toFixed(1)} mm` : ''}`));
+    return row;
+  }), (() => {
+    const row = document.createElement('span');
+    const swatch = document.createElement('i');
+    swatch.className = 'swatch'; swatch.style.background = '#ef476f';
+    row.append(swatch, ['review-only', 'step05-residual-veto', 'step05-steel-boundary'].includes(current?.preprocessing?.floatingZones?.forbiddenRule?.action) ? '禁飞区待复核' : '历史禁飞区命中');
+    return row;
+  })());
+}
+
+function applyFloatingZonesAppearance() {
+  if (!floatingZonesGeometry || !current?._sharedLayers || !current?._sharedFloatingNoise) return;
+  const layer = $('floatingLayerFilter').value;
+  const forbiddenOnly = $('floatingForbiddenOnly').checked;
+  const reviewOnly = ['review-only', 'step05-residual-veto', 'step05-steel-boundary'].includes(current.preprocessing?.floatingZones?.forbiddenRule?.action);
+  const selected = filterIndexedGeometry(floatingZonesGeometry, current._sharedLayers.length, (index) =>
+    current._sharedTableMask?.[index] !== 1
+    && (forbiddenOnly ? current._sharedFloatingNoise[index] === 1 : reviewOnly || current._sharedFloatingNoise[index] !== 1)
+    && (layer === 'all' || current._sharedLayers[index] === Number(layer)));
+  const report = current.preprocessing?.floatingZones;
+  const reason = report?.enabled === false ? `；${report.reason || '禁飞区未启用'}` : '';
+  const allSource = report?.forbiddenRule?.kind === 'outside-continuous-outer-envelope' && report?.forbiddenRule?.scope === 'all-source-points';
+  const hardCount = fmt(current._sharedFloatingNoise.reduce((sum, value) => sum + value, 0));
+  $('floatingHint').textContent = reviewOnly
+    ? `当前显示 ${fmt(selected)} 个${forbiddenOnly ? '禁飞区候选' : '非台面预览'}点；红色仅表示布外待复核，${report?.forbiddenRule?.action === 'step05-steel-boundary' ? '05 步剔除包络外的全部钢筋点，实例、分数和分区不再豁免。' : report?.forbiddenRule?.action === 'step05-residual-veto' ? '05 步直接剔除无可靠支撑的布外待定残点，已拟合杆件与实测延续部分保留。' : '05 步结合实测结构判断悬浮噪音。'}${reason}`
+    : forbiddenOnly
+    ? `当前仅显示 ${fmt(selected)} 个红色硬禁飞区命中。`
+    : `当前显示 ${fmt(selected)} 个非台面预览点；${hardCount} 个硬禁飞区命中默认隐藏，勾选“仅显示禁飞区命中”可检查。${allSource ? '布外点已强制排除，不参与后续计算。' : ''}${reason}`;
+  updateFloatingLegend();
+  requestRender();
+}
+
+function hardMaskVisible(index, step, explicit = false) {
+  if (['review-only', 'step05-residual-veto', 'step05-steel-boundary'].includes(current?.preprocessing?.floatingZones?.forbiddenRule?.action)) return true;
+  if (!['classification', 'projection', 'fusion', 'refinement', 'internalRebar', 'completeRebar'].includes(step)
+    || current?._sharedFloatingNoise?.[index] !== 1) return true;
+  return explicit || preferredSemanticTag === 'before' || preferredSemanticTag === 'noise';
+}
+
 const internalTypeNames = { 0: '非内部钢筋', 1: '下层钢筋', 2: '上层钢筋', 3: '腹杆', 4: '待定钢筋', 5: '噪音' };
 const internalTypeColors = { 1: '#38bdf8', 2: '#fb7185', 3: '#facc15', 4: '#94a3b8', 5: '#ef476f' };
 const defaultInternalFamilyNames = { 1: '纵向钢筋', 2: '横向整长钢筋', 3: '短钢筋', 4: '腹杆直段' };
@@ -722,6 +802,8 @@ function stepSemanticData(manifest, step) {
   const regionLabels = [0,4,5,2,11], typeLabels = [0,6,7,8,9,10];
   for (let i = 0; i < count; i++) {
     let label = classes?.[i] ?? 0;
+    // Class 4 is the stable cross-stage representation of removed noise.
+    if (label === 4) label = 10;
     if (label === 0 && ((step === 'classification' && manifest.classification?.pendingClass === 0)
       || (step === 'projection' && manifest.projection?.pendingClass === 0))) label = 9;
     if (label === 3 && regions) label = regionLabels[regions[i]] ?? 3;
@@ -766,7 +848,7 @@ function filterSemanticGeometry(geometry, step, additional = null) {
   const indices = new Uint32Array(data.labels.length);
   let count = 0;
   for (let i = 0; i < data.labels.length; i++) {
-    if (allowed[data.labels[i]] && (!additional || additional(i))) indices[count++] = i;
+    if (allowed[data.labels[i]] && hardMaskVisible(i, step) && (!additional || additional(i))) indices[count++] = i;
   }
   geometry.setIndex(new THREE.BufferAttribute(indices.subarray(0, count), 1));
   geometry.setDrawRange(0, count);
@@ -799,6 +881,7 @@ function updateSemanticControls() {
 function applyCurrentSemanticFilter() {
   if (rightScene === 'tableRemoval') applyTableRemovalAppearance();
   else if (rightScene === 'partition') applyPartitionAppearance();
+  else if (rightScene === 'floatingZones') applyFloatingZonesAppearance();
   else if (rightScene === 'classification') applyClassFilter();
   else if (rightScene === 'projection') applyProjectionFilter();
   else if (rightScene === 'fusion') applyFusionAppearance();
@@ -1018,6 +1101,21 @@ function installCompletePreview() {
     const d = report.designReview;
     rows.splice(4, rows.length - 4, ['设计模型', d.modelInfo?.name || '当前模型'],
       ['设计整筋 / 匹配单元', `${fmt(d.designPhysicalBars)} / ${fmt(d.designMatchingUnits)}`],
+      ...(d.clusterQuality ? [
+        ['目标簇数（腹杆逐段） / 实际簇数', `${fmt(d.clusterQuality.expectedClusterCount)} / ${fmt(d.clusterQuality.observedClusterCount)}`],
+        ['数量与逐根对应', d.clusterQuality.countMatches ? '一致' : `待核对（差 ${d.clusterQuality.countDelta > 0 ? '+' : ''}${d.clusterQuality.countDelta}）`],
+        ['长度 / 宽度异常簇', fmt(d.clusterQuality.shapeMismatchCount)],
+        ['明显过短 / 弯钩宽度缺失', `${fmt(d.clusterQuality.tooShortCount)} / ${fmt(d.clusterQuality.hookWidthMissingCount)}`],
+        ['弯钩保护 / 新接续点', `${fmt(d.hookProtectedPointCount)} / ${fmt(d.hookAttachedPointCount)}`],
+        ...(d.hookClusters ? [
+          ['弯曲外筋区域 / 保护簇 / 已整簇合并', `${fmt(d.hookClusters.expectedRegionCount)} / ${fmt(d.hookClusters.detectedClusterCount)} / ${fmt(d.hookClusters.mergedClusterCount)}`],
+          ['弯曲外筋拆分 / 删除点', `${fmt(d.hookClusters.splitClusterCount)} / ${fmt(d.hookClusters.filteredPointCount)}`],
+        ] : []),
+        ...(d.finalClusterFilter ? [
+          ['最后整簇过滤', `${fmt(d.finalClusterFilter.removedInstanceCount)} 个实例 / ${fmt(d.finalClusterFilter.removedComponentCount)} 个残片 / ${fmt(d.finalClusterFilter.removedPointCount)} 点`],
+        ] : []),
+        ['末尾细小悬浮噪音', `${fmt(d.finalDenoising?.removedComponentCount)} 簇 / ${fmt(d.finalDenoising?.removedPointCount)} 点`],
+      ] : []),
       ['原内部实例 / 最终内外实例', `${fmt(d.observedInstancesBefore)} / ${fmt(d.observedInstancesAfter)}`],
       ['合并 / 拆分 / 新建', `${fmt(d.mergedInstances)} / ${fmt(d.splitInstances)} / ${fmt(d.newInstances)}`],
       ...(Number.isFinite(d.earlyExtensionPoints) ? [['删除前轴向接续', `${fmt(d.earlyExtensionClusters)} 簇 / ${fmt(d.earlyExtensionPoints)} 点`]] : []),
@@ -1038,6 +1136,8 @@ function applyCompleteAppearance() {
   const instances = baseline ? current._internalInstances : current._complete.complete_instance;
   const operations = current.completeRebar.designReview?.operations || [];
   const separatedClusters = new Set(operations.filter(o => o.action === 'separate').map(o => o.clusterId));
+  const hookClusters = new Set((current.completeRebar.clusters || []).filter(c => c.category === 'curved-exterior').map(c => c.id));
+  const finalRejectedClusters = new Set((current.completeRebar.designReview?.finalClusterFilter?.decisions || []).map(c => c.clusterId));
   const mergedIds = new Set(operations.filter(o => o.action === 'merge').flatMap(o => o.sourceInstanceIds));
   const bridgeIds = new Set(operations.filter(o => o.action === 'merge' && o.acrossFixture).flatMap(o => o.sourceInstanceIds));
   for (const o of operations) if (o.action === 'attach' && o.phase === 'before_filter') o.instanceIds.forEach(id => bridgeIds.add(id));
@@ -1065,8 +1165,11 @@ function applyCompleteAppearance() {
       : filter === 'bridged' ? classes[i] === 3 && finalId > 0 && (bridgeIds.has(finalId) || bridgeIds.has(current._internalInstances[i]))
       : filter === 'split' ? splitIds.has(finalId)
       : filter === 'separated' ? separatedClusters.has(current._complete.complete_cluster?.[i])
+      : filter === 'hooks' ? hookClusters.has(current._complete.complete_cluster?.[i])
+      : filter === 'final-rejected' ? finalRejectedClusters.has(current._complete.complete_cluster?.[i])
       : filter === 'all' || (filter === 'extended' ? instances[i] > 0 && !current._internalInstances[i] : filter === 'pending' ? classes[i] === 3 && !instances[i] : classes[i] === Number(filter));
-    if (matches && (!useSemantic || semanticTagMatches(semantic.labels[i], semanticId)) && (instance === 'all' || instances[i] === Number(instance))) selected[size++] = i;
+    const explicitHardMask = filter === '4' || filter === 'filtered' || desiredTag === 'before' || desiredTag === 'noise';
+    if (matches && hardMaskVisible(i, 'completeRebar', explicitHardMask) && (!useSemantic || semanticTagMatches(semantic.labels[i], semanticId)) && (instance === 'all' || instances[i] === Number(instance))) selected[size++] = i;
   }
   if ($('completeColorMode').value === 'score' && current._fusedSteelScores) colors.set(fusionScoreColors(current._fusedSteelScores));
   completeGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -1088,6 +1191,7 @@ function applyCompleteAppearance() {
     : `显示 ${fmt(size)} 个样本点。此历史结果使用较弱的设计复核约束；可重新运行第六步应用当前算法。遮挡处不补点；轴线表示实测拟合段。`;
   if (Number.isFinite(current.completeRebar.designReview?.earlyExtensionPoints)) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。先沿可靠内部钢筋的端部轴线接续外露点，再做设计关联和噪音清理。短外露段可继承内部编号；多个钢筋同时解释的点保留待定。可筛选跨夹具接续、本步过滤点。遮挡处不补点；外部轴线表示接续依据。`;
   if (Number.isFinite(current.completeRebar.designReview?.separatedExteriorClusters)) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。先分离同轴外露钢筋与横向夹具边缘，再接续内部实例并清理剩余分支。选择“粘连簇拆分对照”可比较处理前后，查看保留的钢筋和移除的边缘。原连通簇颜色用于追溯来源，不代表最终实例。遮挡处不补点。`;
+  if (current.completeRebar.designReview?.hookClusters) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。弯曲外筋已单独分类并锁定，只能整簇合并。内外钢筋全部接续后，最后按设计长度和同类钢筋参考点数过滤异常簇。可筛选“受保护弯曲外筋”和“最后整簇过滤”，对照第五步查看。`;
   if ($('completeColorMode').value === 'score' && current._fusedSteelScores) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点，颜色沿用 03 的融合支持分数。点击点云可核对 03 → 05 → 06 的类别及高分保护状态；噪音也显示删除前分数。`;
   if (typeof applyCompleteTileAppearance === 'function' && applyCompleteTileAppearance()) {
     $('completeHint').textContent = $('completeHint').textContent.replace(`显示 ${fmt(size)} 个样本点。`, '当前使用按视野加载的高密度 Tiles LOD。');
@@ -1214,7 +1318,7 @@ function applyInternalRebarAppearance() {
     && (instance === 'all' || current._internalInstances[index] === Number(instance)));
   const baselineStep = current.refinement?.mode === 'fusion-pass-through' ? '03' : '04';
   $('internalRebarHint').textContent = current.internalRebar?.denoising?.exteriorReviewEnabled
-    ? `当前显示 ${fmt(selected)} 个预览点；内外钢筋均已做空间去噪，内部钢筋另外识别实例。夹具、台面沿用第 ${baselineStep} 步结果。噪音可在统一分类筛选中单独查看。`
+    ? `当前显示 ${fmt(selected)} 个预览点；内外钢筋均已做空间去噪，内部钢筋另外识别实例。${current.internalRebar?.denoising?.designBoundaryAppliesToAllSteel ? '钢筋结果的布外点全部移除；选择“全部钢筋”可检查，台面、夹具为独立对照类别。' : ''}夹具、台面沿用第 ${baselineStep} 步结果。噪音可在统一分类筛选中单独查看。`
     : `当前显示 ${fmt(selected)} 个预览点；夹具、台面和外部钢筋沿用第 ${baselineStep} 步结果。待定钢筋仍被保留；噪音可在统一分类筛选中单独查看。`;
   if (mode === 'score' && current._fusedSteelScores) $('internalRebarHint').textContent = `当前显示 ${fmt(selected)} 个预览点，颜色沿用 03 的融合支持分数。噪音也显示删除前分数；点击点云可核对类别变化和空间复核结果。几何拟合分数是另一个指标。`;
   updateInternalLegend();
@@ -1253,6 +1357,111 @@ function disposeFrameOverlays() {
     });
   }
   frameOverlays = [];
+}
+
+function disposeFloatingGeometryOverlays() {
+  for (const { scene, group } of floatingGeometryOverlays) {
+    scene.remove(group);
+    group.traverse((object) => { object.geometry?.dispose(); object.material?.dispose(); });
+  }
+  floatingGeometryOverlays = [];
+}
+
+function finitePoint(point) {
+  return Array.isArray(point) && point.length === 3 && point.every(value => Number.isFinite(Number(value)));
+}
+
+function scanPoint(point, origin) {
+  return new THREE.Vector3(Number(point[0]) - origin[0], Number(point[1]) - origin[1], Number(point[2]) - origin[2]);
+}
+
+function normalizedSurface(surface, kind) {
+  if (surface?.kind !== kind || surface?.closed !== true || !Array.isArray(surface.verticesM) || surface.verticesM.length < 4
+    || surface.verticesM.some(point => !finitePoint(point)) || !Array.isArray(surface.triangles) || !surface.triangles.length
+    || surface.triangles.some(triangle => !Array.isArray(triangle) || triangle.length !== 3 || triangle.some(index => !Number.isSafeInteger(index) || index < 0 || index >= surface.verticesM.length))) return null;
+  return surface;
+}
+
+function normalizedOuterEnvelope(envelope) {
+  if (envelope?.kind === 'triangulated-cloth') {
+    const body = normalizedSurface(envelope, 'triangulated-cloth');
+    return body && Number.isSafeInteger(envelope.upperVertexCount) && envelope.upperVertexCount >= 3 && envelope.upperVertexCount * 2 === envelope.verticesM.length ? envelope : null;
+  }
+  if (envelope?.kind !== 'composite-steel-envelope' || envelope.closed !== true || !normalizedSurface(envelope, 'composite-steel-envelope')) return null;
+  if (envelope.body !== null && !normalizedOuterEnvelope(envelope.body)) return null;
+  if (!Array.isArray(envelope.curveShells) || envelope.curveShells.some(shell => !normalizedSurface(shell, 'swept-curve')
+    || !Array.isArray(shell.centerlineM) || shell.centerlineM.length < 2 || shell.centerlineM.some(point => !finitePoint(point)))) return null;
+  return envelope;
+}
+
+function outerEnvelopeMesh(envelope, origin, color = 0x67e8f9) {
+  const positions = envelope.verticesM.flatMap(point => scanPoint(point, origin).toArray());
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(envelope.triangles.flat());
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color, transparent: true, opacity: .2, side: THREE.DoubleSide, depthWrite: false, shininess: 20, flatShading: envelope.kind === 'triangulated-cloth'}));
+  mesh.renderOrder = 12;
+  return mesh;
+}
+
+function outerEnvelopeSections(envelope, origin) {
+  const positions = [], axis = envelope.xyAxes?.[0] || [1, 0];
+  const vertices = envelope.verticesM.map(point => scanPoint(point, origin));
+  const projected = vertices.map(point => point.x * axis[0] + point.y * axis[1]);
+  const [low, high] = projected.reduce(([min, max], value) => [Math.min(min, value), Math.max(max, value)], [Infinity, -Infinity]);
+  // Actual intersections of three vertical cutting planes with the shell.
+  // Shared triangle-edge endpoints join into closed section contours.
+  for (const fraction of [.23, .5, .77]) {
+    const plane = low + fraction * (high - low);
+    for (const triangle of envelope.triangles) {
+      const hits = [];
+      for (let edge = 0; edge < 3; edge += 1) {
+        const a = triangle[edge], b = triangle[(edge + 1) % 3];
+        const da = projected[a] - plane, db = projected[b] - plane;
+        if ((da <= 0 && db > 0) || (db <= 0 && da > 0)) hits.push(vertices[a].clone().lerp(vertices[b], da / (da - db)));
+      }
+      if (hits.length === 2) positions.push(...hits[0].toArray(), ...hits[1].toArray());
+    }
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color:0x67e8f9, transparent:true, opacity:.62, depthTest:false}));
+  lines.name = 'floatingPlanes'; lines.renderOrder = 15; return lines;
+}
+
+function rebuildFloatingGeometryOverlays() {
+  disposeFloatingGeometryOverlays();
+  const report = current?.preprocessing?.floatingZones, origin = current?.preview?.origin;
+  if (!report || !finitePoint(origin)) return;
+  const envelope = normalizedOuterEnvelope(report.outerEnvelope);
+  const scenes = [floatingZonesScene, classScene, projectionScene, internalRebarScene];
+  for (const scene of scenes) {
+    const group = new THREE.Group();
+    if (envelope) {
+      // The point-cloud scenes otherwise contain no lights. Give the cloth
+      // its own illumination so smooth normals reveal the web undulations.
+      group.add(new THREE.HemisphereLight(0xd5f8ff, 0x26314b, 2));
+      const light = new THREE.DirectionalLight(0xffffff, 1.5); light.position.set(1, -1, 2); group.add(light);
+      const shells = new THREE.Group(); shells.name = 'floatingVolumes'; shells.visible = $('floatingVolumes').checked;
+      const body = envelope.kind === 'composite-steel-envelope' ? envelope.body : envelope;
+      if (body) shells.add(outerEnvelopeMesh(body, origin));
+      for (const curve of envelope.kind === 'composite-steel-envelope' ? envelope.curveShells : []) {
+        const curveMesh = outerEnvelopeMesh(curve, origin, 0x22b8cf); curveMesh.name = 'sweptCurveShell'; shells.add(curveMesh);
+      }
+      group.add(shells);
+      const sections = outerEnvelopeSections(envelope, origin); sections.visible = $('floatingPlanes').checked; group.add(sections);
+    }
+    const lines = new THREE.Group(); lines.name = 'steelCenterlines';
+    const positions = [];
+    for (const segment of report.designSegments || []) if (finitePoint(segment?.startM) && finitePoint(segment?.endM)) positions.push(...scanPoint(segment.startM, origin).toArray(), ...scanPoint(segment.endM, origin).toArray());
+    if (positions.length) { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); lines.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color:0xa78bfa, transparent:true, opacity:.88, depthTest:false}))); }
+    lines.visible = $('steelCenterlines').checked; group.add(lines); scene.add(group); floatingGeometryOverlays.push({scene, group});
+  }
+  const tolerance = envelope?.parameters;
+  const clearanceHint = tolerance ? ` ${tolerance.envelopeExpansionM ? `包络额外放宽 ${fmtHeight(tolerance.envelopeExpansionM)}。` : ''}当前余量：横向表面 ${fmtHeight(tolerance.lateralAllowanceM)}，配准 ${fmtHeight(tolerance.registrationAllowanceM)}，腹杆 ${fmtHeight(tolerance.webAllowanceM)}，弯筋表面 ${fmtHeight(tolerance.hookSurfaceAllowanceM)}；${tolerance.hookProtection === 'shared-inner-outer-bend-cloth' ? '主体按层铺平、边界直角折回，同排弯头共用内外曲面。' : '弯筋使用三维扫掠曲面保护。'}` : '';
+  $('floatingGeometryHint').textContent = envelope
+    ? `青色连续外包络内包括层间空隙；审查域中包络外点标记为候选，${report.forbiddenRule?.action === 'step05-steel-boundary' ? '05 步以此包络为钢筋结果硬边界，不设实例、分数、分区或距离豁免。' : report.forbiddenRule?.action === 'step05-residual-veto' ? '05 步对无可靠支撑的布外待定残点执行禁飞区过滤。' : '是否删除由悬浮噪音复核决定。'}${clearanceHint}`
+    : '该历史结果没有连续外包络；可显示设计中心线。请重新运行以查看精确禁飞边界。';
 }
 
 function makeDashedFrame(corners, height, origin, color) {
@@ -1381,9 +1590,13 @@ function pointScoreTrace(manifest, index) {
   const highScore = fused === 3 && threshold !== null && score >= threshold;
   const spatialReview = manifest.internalRebar?.denoising?.highScoreOverrideAllowed === true;
   const spatialOverride = highScore && spatialReview && internal === 4;
+  const finalReview = manifest.completeRebar?.designReview?.finalClusterFilter;
+  const finalDecision = finalReview?.highScoreOverrideAllowed === true
+    ? finalReview.decisions?.find(d => d.clusterId === manifest._complete?.complete_cluster?.[index]) : null;
+  const finalOverride = highScore && complete === 4 && !!finalDecision;
   return {score, evidence, fused, internal, complete,
-    protected: highScore, spatialReview, spatialOverride,
-    protectionViolation: highScore && !spatialOverride && (internal === 4 || complete === 4)};
+    protected: highScore, spatialReview, spatialOverride, finalOverride, finalDecision,
+    protectionViolation: highScore && !spatialOverride && (internal === 4 || (complete === 4 && !finalOverride))};
 }
 
 function fusionLowScoreThreshold(manifest = current) {
@@ -1396,7 +1609,7 @@ function isFusionPassThrough(manifest = current) {
 }
 
 function projectionClassValueInvalid(value, manifest) {
-  return value > 3 || (value === 0 && manifest?.projection?.pendingClass !== 0);
+  return value > 4 || (value === 0 && manifest?.projection?.pendingClass !== 0);
 }
 
 function defaultPreviewStep(manifest, available) {
@@ -1459,16 +1672,20 @@ function applyFusionAppearance() {
 
 function applyClassFilter() {
   if (!classGeometry || !current?._classes) return;
+  const filter = $('classFilter').value;
   filterSemanticGeometry(classGeometry, 'classification', index =>
-    !$('classRecoveredOnly').checked || current._recovered?.[index] === 1);
+    (!$('classRecoveredOnly').checked || current._recovered?.[index] === 1)
+    && (filter === 'all' || filter === 'recovered' || (filter === 'excludeStatic' ? current._classes[index] !== 1 && current._classes[index] !== 2 : current._classes[index] === Number(filter))));
   requestRender();
 }
 
 function applyProjectionFilter() {
   if (!projectionGeometry || !current?._projectionClasses) return;
   const layer = $('projectionLayerFilter').value;
+  const classFilter = $('projectionClassFilter').value;
   filterSemanticGeometry(projectionGeometry, 'projection', index =>
-    layer === 'all' || current._projectionLayers[index] === Number(layer));
+    (layer === 'all' || current._projectionLayers[index] === Number(layer))
+    && (classFilter === 'all' || current._projectionClasses[index] === Number(classFilter)));
   requestRender();
 }
 
@@ -1617,6 +1834,10 @@ function showStep(step) {
     setStatus('该历史结果没有共享钢筋分区预览；请重新运行以生成 01C 数据。');
     return;
   }
+  if (step === 'floatingZones' && (!current?._sharedLayers || !current?._sharedFloatingNoise)) {
+    setStatus('该历史结果没有共享钢筋分层或禁飞区预览；请重新运行以生成 01D 数据。');
+    return;
+  }
   if (step === 'classification' && !current?._classes) {
     setStatus('该历史结果只有第 1 步法向量；请重新运行至第 2 步以查看几何分类。');
     return;
@@ -1647,14 +1868,18 @@ function showStep(step) {
   document.querySelector('.after').textContent = step === 'normal'
     ? '01 · 法向量' : step === 'tableRemoval' ? '01B · 台面移除结果'
       : step === 'partition' ? '01C · 共享钢筋分区'
+      : step === 'floatingZones' ? '01D · 钢筋分层与禁飞区'
       : step === 'classification' ? '02A · 法向量几何分类'
       : step === 'projection' ? '02B · 投影图像分类'
         : step === 'fusion' ? '03 · 评分融合'
           : step === 'refinement' ? '04 · 边带与类别整理'
             : step === 'internalRebar' ? '05 · 内部钢筋分层与悬浮去噪' : step === 'completeRebar' ? '06 · 设计辅助实例整理与去噪' : step === 'designPrior' ? '07 · 设计先验复核' : '00 · 原始颜色 / 强度';
-  $('semanticControls').hidden = ['raw', 'normal', 'tableRemoval', 'partition'].includes(step);
+  $('semanticControls').hidden = ['raw', 'normal', 'tableRemoval', 'partition', 'floatingZones'].includes(step);
   $('tableRemovalControls').hidden = step !== 'tableRemoval' || !current?._sharedTableMask;
   $('partitionControls').hidden = step !== 'partition' || !current?._partitionZones;
+  $('floatingZonesControls').hidden = step !== 'floatingZones' || !current?._sharedLayers;
+  $('floatingGeometryControls').hidden = !['floatingZones', 'classification', 'projection', 'internalRebar'].includes(step)
+    || !current?.preprocessing?.floatingZones;
   $('classificationControls').hidden = step !== 'classification' || !current?._classes;
   $('projectionControls').hidden = step !== 'projection' || !current?._projectionClasses;
   $('fusionControls').hidden = step !== 'fusion' || !current?._fusedClasses;
@@ -1664,7 +1889,7 @@ function showStep(step) {
   $('designPriorControls').hidden = step !== 'designPrior' || !current?._designPrior;
   updateFrameControls();
   setProjectionView(step === 'projection' ? projectionView : '3d');
-  if (step === 'partition') fit('top');
+  if (step === 'partition' || step === 'floatingZones') fit('top');
 }
 
 function inspectFusionPoint(event) {
@@ -1693,7 +1918,7 @@ function inspectFusionPoint(event) {
   const labels = current.fusion?.score?.evidenceNames;
   const evidence = labels ? fusionEvidenceBits.filter(([bit]) => trace.evidence & bit).map(([bit]) => labels[String(bit)]).filter(Boolean).join(' + ') : fusionEvidenceLabel(trace.evidence);
   inspector.style.whiteSpace = 'pre-line';
-  inspector.textContent = `样本点 #${index} · 03 融合支持分数 ${trace.score.toFixed(3)}\n${evidence || '无明确支持证据'}\n03 ${className(trace.fused)} → 05 ${className(trace.internal)} → 06 ${className(trace.complete)}\n${trace.protectionViolation ? '异常：高分保护点被标为噪音' : trace.spatialOverride ? '多视图与三维证据已推翻高分' : trace.protected ? (trace.spatialReview ? '高分：需充分空间证据才能删除' : '达到高分保护阈值') : '需结合实测结构检查'}；分数不是校准概率`;
+  inspector.textContent = `样本点 #${index} · 03 融合支持分数 ${trace.score.toFixed(3)}\n${evidence || '无明确支持证据'}\n03 ${className(trace.fused)} → 05 ${className(trace.internal)} → 06 ${className(trace.complete)}\n${trace.protectionViolation ? '异常：高分保护点被标为噪音' : trace.finalOverride ? `最后整簇复核：长度仅为设计的 ${(100*trace.finalDecision.lengthRatio).toFixed(1)}%，点数为参考的 ${(100*trace.finalDecision.pointCountRatio).toFixed(1)}%` : trace.spatialOverride ? '多视图与三维证据已推翻高分' : trace.protected ? (trace.spatialReview ? '高分：需充分空间证据才能删除' : '达到高分保护阈值') : '需结合实测结构检查'}；分数不是校准概率`;
   inspector.hidden = false;
 }
 
@@ -1702,6 +1927,7 @@ function metrics(manifest) {
   const preprocessing = manifest.preprocessing;
   const tableRemoval = preprocessing?.tableRemoval;
   const partition = preprocessing?.partition;
+  const floatingZones = preprocessing?.floatingZones;
   const classification = manifest.classification;
   const projection = manifest.projection;
   const fusion = manifest.fusion;
@@ -1722,7 +1948,7 @@ function metrics(manifest) {
   const classificationRate = classificationS > 0 ? classification.pointCount / classificationS : NaN;
   const branchStats = [classification ? `02A ${fmt(classificationS, ' s')}` : '', projection ? `02B ${fmt(projectionS, ' s')}` : ''].filter(Boolean).join(' · ');
   const branchMode = projection ? (manifest.branchExecution?.mode === 'parallel' ? '并行' : '串行') : '分类';
-  const preprocessingStats = [tableRemoval ? `台面移除 ${fmt(tableRemovalS, ' s')}` : '', partition ? `钢筋分区 ${fmt(partitionS, ' s')}` : ''].filter(Boolean).join(' · ');
+  const preprocessingStats = [tableRemoval ? `台面移除 ${fmt(tableRemovalS, ' s')}` : '', partition ? `钢筋分区 ${fmt(partitionS, ' s')}` : '', floatingZones ? `分层/禁飞区 ${fmt(floatingZones.elapsedS, ' s')}` : ''].filter(Boolean).join(' · ');
   const finalStats = [fusion ? `评分融合 ${fmt(fusionS, ' s')}` : '', regions ? `区域归属 ${fmt(regionsS, ' s')}` : '', refinement && !refinementPassThrough ? `边带整理 ${fmt(refinementS, ' s')}` : '', internalRebar ? `内部钢筋 ${fmt(internalRebarS, ' s')}` : '', manifest.completeRebar ? `实例整理 ${fmt(manifest.completeRebar.elapsedS, ' s')}` : ''].filter(Boolean).join(' · ');
   $('quickStats').textContent = `法向量 ${fmt(t.normalsS, ' s')}${preprocessingStats ? ` · ${preprocessingStats}` : ''}${branchStats ? ` · ${branchStats}` : ''}${Number.isFinite(t.classifiersWallS) ? ` · ${branchMode}墙钟 ${fmt(t.classifiersWallS, ' s')}` : ''}${finalStats ? ` · ${finalStats}` : ''} · 全流程 ${fmt(t.totalS, ' s')}`;
   const rows = [
@@ -1741,6 +1967,18 @@ function metrics(manifest) {
       ['01C 夹具边带 / 外框外部', `${fmt(counts.band)} / ${fmt(counts.exterior)}`],
       ['01C 共享双框', frame.detected ? `已检出 · 外框 ${fmt((frame.outerCornersM || frame.cornersM)?.length)} 点 · 内框 ${fmt(frame.innerCornersM?.length)} 点` : '未检出'],
       ['01C 钢筋分区耗时', fmt(partitionS, ' s')],
+    );
+  }
+  if (floatingZones) {
+    const params = floatingZones.outerEnvelope?.parameters || floatingZones.params || {};
+    const marginLabels = {lateralAllowanceM: '横向', registrationAllowanceM: '配准', webAllowanceM: '腹杆', hookSurfaceAllowanceM: '弯筋表面', in_plane_half_width_m: '平面内半宽', layer_half_height_m: '分层半高', end_halo_m: '端部光环'};
+    const marginText = Object.entries(marginLabels).filter(([key]) => Number.isFinite(params[key]))
+      .map(([key, name]) => `${name} ${fmtHeight(params[key])}`).join(' · ');
+    rows.splice(3, 0,
+      ['01D 钢筋层 / 连续外包络', `${fmt((preprocessing.layering?.layers || []).length)} / ${floatingZones.outerEnvelope?.closed ? `${fmt(floatingZones.outerEnvelope.verticesM?.length)} 顶点` : '未生成'}`],
+      ['01D 审查范围 / 禁飞区候选', `${fmt(floatingZones.eligiblePointCount)} / ${fmt(floatingZones.forbiddenPointCount)}`],
+      ['01D 包络裕量', marginText || '未报告单独裕量；以报告参数为准'],
+      ['01D 设计中心线', Array.isArray(floatingZones.designSegments) && floatingZones.designSegments.length ? `${fmt(floatingZones.designSegments.length)} 段` : `跳过：${floatingZones.designAvailability?.reason || floatingZones.designReason || '设计数据不可用'}`],
     );
   }
   if (tableRemoval) {
@@ -1768,7 +2006,7 @@ function metrics(manifest) {
   if (projection) {
     const counts = projection.counts || {};
     const projectionRate = projectionS > 0 ? projection.pointCount / projectionS : NaN;
-    const layerHeights = (projection.layers || []).map((layer) => `${layer.name || `层 ${layer.id}`} ${fmtHeight(layer.heightM)}（距台面 ${fmtHeight(layer.relativeHeightM)}）`).join('；');
+    const layerHeights = (projection.layers || []).map((layer) => `${layer.name || `层 ${layer.id}${Number.isFinite(layer.heightM) ? ` · ${(layer.heightM * 1000).toFixed(1)} mm` : ''}`} ${fmtHeight(layer.heightM)}（距台面 ${fmtHeight(layer.relativeHeightM)}）`).join('；');
     const projectionTimingRows = Object.entries(projection.timings || {})
       .filter(([, value]) => Number.isFinite(value))
       .map(([name, value]) => [`02B · ${name}`, value < .01 ? fmt(value * 1000, ' ms') : fmt(value, ' s')]);
@@ -1874,7 +2112,18 @@ function metrics(manifest) {
       ['05 处理范围点数', fmt(internalRebar.pointCount)],
       ['05 下层 / 上层 / 腹杆', `${fmt(counts.lower)} / ${fmt(counts.upper)} / ${fmt(counts.web)}`],
       ['05 待定钢筋点', fmt(counts.unassigned)],
-      ['05 噪音（已过滤）', fmt(internalRebar.denoising?.removedPointCount ?? counts.noise ?? 0)],
+      ['05 新增残余噪音', fmt(internalRebar.denoising?.removedPointCount ?? counts.noise ?? 0)],
+      ...(internalRebar.denoising?.designVetoEnabled ? [
+        ['05 禁飞区过滤 / 其中额外删除', `${fmt(internalRebar.denoising.designHardRemovedPointCount)} / ${fmt(internalRebar.denoising.additionalDesignRemovedPointCount)}`],
+        [internalRebar.denoising.designBoundaryAppliesToAllSteel ? '05 布外残留钢筋（应为 0）' : '05 布外受保护点', fmt(internalRebar.denoising.designProtectedPointCount)],
+      ] : []),
+      ...(internalRebar.denoising?.confirmedSteelReviewExcluded ? [
+        ['01D / 02 已排除噪音', fmt(internalRebar.denoising.earlierRemovedPointCount)],
+        ['05 多视角残余候选', fmt(internalRebar.denoising.reviewedCandidatePointCount)],
+        ['05 复核范围', internalRebar.denoising.designBoundaryAppliesToAllSteel
+          ? '多视图检查残余点；包络边界检查全部钢筋，包括已确认实例'
+          : '仅未分配且缺少支撑的残余点；已确认实例不复审'],
+      ] : []),
       ...(internalRebar.denoising?.exteriorReviewEnabled ? [
         ['05 内部 / 外部噪音', `${fmt(internalRebar.denoising.interiorRemovedPointCount)} / ${fmt(internalRebar.denoising.exteriorRemovedPointCount)}`],
       ] : []),
@@ -1884,6 +2133,11 @@ function metrics(manifest) {
         ['05 可靠实测支撑点', fmt(internalRebar.denoising.frozenObservedPointCount)],
         ['05 空间证据推翻高分', fmt(internalRebar.denoising.highScoreRemovedPointCount)],
         ['05 移除片段', fmt(internalRebar.denoising.removedComponentCount ?? 0)],
+      ] : []),
+      ...(internalRebar.denoising?.topViewReview?.enabled ? [
+        ['05 俯视复核新增过滤', fmt(internalRebar.denoising.topViewReview.additionalRemovedPointCount)],
+        ['05 局部圆杆表面保护', fmt(internalRebar.denoising.localRoundProtectedPointCount)],
+        ['05 孤立证据不足而保留的高分点', fmt(internalRebar.denoising.highScoreIsolationBlockedPointCount)],
       ] : []),
       ...(Number.isFinite(internalRebar.denoising?.lowerBandReviewedPointCount) ? [
         ['05 下层高度带内审查 / 移除', `${fmt(internalRebar.denoising.lowerBandReviewedPointCount)} / ${fmt(internalRebar.denoising.lowerBandRemovedPointCount)}`],
@@ -1929,6 +2183,8 @@ async function loadManifest(manifest) {
     const refinementPassThrough = isFusionPassThrough(manifest);
     const hasTableRemoval = Boolean(manifest.preprocessing?.tableRemoval && preview.sharedTableMaskUrl);
     const hasPartition = Boolean(hasTableRemoval && manifest.preprocessing?.partition?.frame && preview.partitionZonesUrl);
+    const hasFloatingZones = Boolean(manifest.preprocessing?.layering && manifest.preprocessing?.floatingZones
+      && preview.sharedLayersUrl && preview.sharedFloatingNoiseUrl);
     const hasProjection = Boolean(manifest.projection && preview.projectionClassesUrl && preview.projectionLayersUrl);
     const hasFusion = Boolean(manifest.fusion && manifest.regions && preview.fusedClassesUrl && preview.fusedRegionsUrl);
     const hasFusionScores = Boolean(hasFusion && preview.fusedSteelScoreUrl && preview.fusedSteelEvidenceUrl);
@@ -1938,6 +2194,8 @@ async function loadManifest(manifest) {
       preview.positionsUrl, preview.normalsUrl, preview.colorsUrl, preview.validUrl,
       hasTableRemoval ? preview.sharedTableMaskUrl : null,
       hasPartition ? preview.partitionZonesUrl : null,
+      hasFloatingZones ? preview.sharedLayersUrl : null,
+      hasFloatingZones ? preview.sharedFloatingNoiseUrl : null,
       preview.classesUrl || null, preview.recoveredUrl || null,
       hasProjection ? preview.projectionClassesUrl : null,
       hasProjection ? preview.projectionLayersUrl : null,
@@ -1972,13 +2230,15 @@ async function loadManifest(manifest) {
       loadDesignPriorPreview(manifest, trackedFetch),
       Promise.all(coreUrls.map((url) => url ? trackedFetch(url) : Promise.resolve(null))),
     ]);
-    const [positionBytes, normalBytes, colorBytes, validBytes, tableMaskBytes, partitionZoneBytes, classBytes, recoveredBytes, projectionClassBytes, projectionLayerBytes, fusedClassBytes, fusedRegionBytes, fusedRecoveredBytes, fusedScoreBytes, fusedEvidenceBytes, refinedClassBytes, refinedRegionBytes, refinedZoneBytes, refinedChangedBytes, internalTypeBytes, internalInstanceBytes, internalSegmentBytes, internalConfidenceBytes] = coreBytes;
+    const [positionBytes, normalBytes, colorBytes, validBytes, tableMaskBytes, partitionZoneBytes, sharedLayerBytes, sharedFloatingNoiseBytes, classBytes, recoveredBytes, projectionClassBytes, projectionLayerBytes, fusedClassBytes, fusedRegionBytes, fusedRecoveredBytes, fusedScoreBytes, fusedEvidenceBytes, refinedClassBytes, refinedRegionBytes, refinedZoneBytes, refinedChangedBytes, internalTypeBytes, internalInstanceBytes, internalSegmentBytes, internalConfidenceBytes] = coreBytes;
     if (token !== loadToken) return;
     await showLoadPhase(`正在校验 ${fmt(renderPointCount)} 个预览点…`);
     const positions = new Float32Array(positionBytes), normals = new Float32Array(normalBytes);
     const colors = new Uint8Array(colorBytes), valid = new Uint8Array(validBytes);
     const sharedTableMask = tableMaskBytes ? new Uint8Array(tableMaskBytes) : null;
     const partitionZones = partitionZoneBytes ? new Uint8Array(partitionZoneBytes) : null;
+    const sharedLayers = sharedLayerBytes ? new Uint8Array(sharedLayerBytes) : null;
+    const sharedFloatingNoise = sharedFloatingNoiseBytes ? new Uint8Array(sharedFloatingNoiseBytes) : null;
     const classes = classBytes ? new Uint8Array(classBytes) : null;
     const recovered = recoveredBytes ? new Uint8Array(recoveredBytes) : null;
     const projectionClasses = projectionClassBytes ? new Uint8Array(projectionClassBytes) : null;
@@ -1997,11 +2257,19 @@ async function loadManifest(manifest) {
     const internalSegments = internalSegmentBytes ? new Uint32Array(internalSegmentBytes) : null;
     const internalConfidence = internalConfidenceBytes ? new Float32Array(internalConfidenceBytes) : null;
     const count = preview.pointCount;
-    if (positions.length !== count * 3 || normals.length !== count * 3 || colors.length !== count * 3 || valid.length !== count || (sharedTableMask && sharedTableMask.length !== count) || (partitionZones && partitionZones.length !== count) || (classes && classes.length !== count) || (recovered && recovered.length !== count) || (projectionClasses && projectionClasses.length !== count) || (projectionLayers && projectionLayers.length !== count) || (fusedClasses && fusedClasses.length !== count) || (fusedRegions && fusedRegions.length !== count) || (fusedRecovered && fusedRecovered.length !== count) || (fusedSteelScores && fusedSteelScores.length !== count) || (fusedSteelEvidence && fusedSteelEvidence.length !== count) || (refinedClasses && refinedClasses.length !== count) || (refinedRegions && refinedRegions.length !== count) || (refinedZones && refinedZones.length !== count) || (refinedChanged && refinedChanged.length !== count) || (internalTypes && internalTypes.length !== count) || (internalInstances && internalInstances.length !== count) || (internalSegments && internalSegments.length !== count) || (internalConfidence && internalConfidence.length !== count)) {
+    if (positions.length !== count * 3 || normals.length !== count * 3 || colors.length !== count * 3 || valid.length !== count || (sharedTableMask && sharedTableMask.length !== count) || (partitionZones && partitionZones.length !== count) || (sharedLayers && sharedLayers.length !== count) || (sharedFloatingNoise && sharedFloatingNoise.length !== count) || (classes && classes.length !== count) || (recovered && recovered.length !== count) || (projectionClasses && projectionClasses.length !== count) || (projectionLayers && projectionLayers.length !== count) || (fusedClasses && fusedClasses.length !== count) || (fusedRegions && fusedRegions.length !== count) || (fusedRecovered && fusedRecovered.length !== count) || (fusedSteelScores && fusedSteelScores.length !== count) || (fusedSteelEvidence && fusedSteelEvidence.length !== count) || (refinedClasses && refinedClasses.length !== count) || (refinedRegions && refinedRegions.length !== count) || (refinedZones && refinedZones.length !== count) || (refinedChanged && refinedChanged.length !== count) || (internalTypes && internalTypes.length !== count) || (internalInstances && internalInstances.length !== count) || (internalSegments && internalSegments.length !== count) || (internalConfidence && internalConfidence.length !== count)) {
       throw new Error('预览数组长度与 Manifest 元数据不一致');
     }
     if (sharedTableMask?.some((value) => value > 1)) throw new Error('共享台面预览无效：掩码只能为 0 或 1');
     if (partitionZones?.some((value) => value > 3)) throw new Error('共享钢筋分区预览无效：分区标签必须为 0 至 3');
+    const declaredLayerIds = new Set((manifest.preprocessing?.layering?.layers || []).map(layer => Number(layer.id)).filter(Number.isFinite));
+    if (sharedLayers?.some((value) => value !== 0 && declaredLayerIds.size && !declaredLayerIds.has(value))) {
+      throw new Error('共享钢筋分层预览包含 Manifest 未声明的层编号');
+    }
+    if (sharedFloatingNoise?.some((value) => value > 1)) throw new Error('共享禁飞区预览无效：掩码只能为 0 或 1');
+    if ((manifest.preprocessing?.layering || manifest.preprocessing?.floatingZones) && !hasFloatingZones) {
+      throw new Error('钢筋分层与禁飞区 Manifest 缺少共享分层或禁飞区候选预览数据');
+    }
     if (fusedSteelScores?.some((value) => !Number.isFinite(value) || value < 0 || value > 1)) throw new Error('融合支持分数无效：数值必须位于 0 至 1');
     if (fusedSteelEvidence?.some((value) => value > 15)) throw new Error('融合证据位掩码无效：仅支持 A、B、轴线恢复和共享分区归属');
     if (recovered && !classes) throw new Error('恢复掩码缺少对应的分类预览数据');
@@ -2016,15 +2284,15 @@ async function loadManifest(manifest) {
     if (manifest.refinement && !hasFusion) throw new Error('空间整理 Manifest 缺少作为变化基线的融合预览数据');
     if (projectionClasses?.some((value) => projectionClassValueInvalid(value, manifest))) {
       throw new Error(manifest.projection?.pendingClass === 0
-        ? '投影分类预览无效：类别标签必须为 0 至 3'
-        : '投影分类预览无效：类别标签必须为 1、2 或 3');
+        ? '投影分类预览无效：类别标签必须为 0 至 4'
+        : '投影分类预览无效：类别标签必须为 1、2、3 或 4（噪音）');
     }
     const projectionLayerIds = new Set((manifest.projection?.layers || []).map((layer) => Number(layer.id)));
     if (projectionLayers?.some((value) => value !== 0 && !projectionLayerIds.has(value))) {
       throw new Error('投影分层预览包含 Manifest 未声明的层编号');
     }
-    if (fusedClasses?.some((value) => value < 1 || value > 3)) {
-      throw new Error('融合语义预览无效：类别标签必须为 1、2 或 3');
+    if (fusedClasses?.some((value) => value < 1 || value > 4)) {
+      throw new Error('融合语义预览无效：类别标签必须为 1、2、3 或 4（噪音）');
     }
     if (fusedRegions?.some((value) => value > 4)) {
       throw new Error('融合区域预览无效：区域标签必须为 0 至 5');
@@ -2032,8 +2300,8 @@ async function loadManifest(manifest) {
     if (fusedRecovered?.some((value, index) => value > 1 || (value === 1 && fusedClasses[index] !== 3))) {
       throw new Error('融合恢复掩码无效：只能标记最终类别为钢筋的点');
     }
-    if (refinedClasses?.some((value) => value < 1 || value > 3)) {
-      throw new Error('空间整理类别预览无效：类别标签必须为 1、2 或 3');
+    if (refinedClasses?.some((value) => value < 1 || value > 4)) {
+      throw new Error('空间整理类别预览无效：类别标签必须为 1、2、3 或 4（噪音）');
     }
     if (refinedRegions?.some((value) => value > 4)) {
       throw new Error('空间整理区域预览无效：区域标签必须为 0 至 5');
@@ -2050,9 +2318,9 @@ async function loadManifest(manifest) {
       throw new Error('沿用融合结果的数据与第 03 步或共享分区不一致');
     }
     if (refinedRegions?.some((region, index) =>
-      (region === 0 && refinedClasses[index] !== 1)
+      (refinedClasses[index] !== 4 && ((region === 0 && refinedClasses[index] !== 1)
       || (region === 3 && refinedClasses[index] !== 2)
-      || ([1, 2, 4].includes(region) && refinedClasses[index] !== 3))) {
+      || ([1, 2, 4].includes(region) && refinedClasses[index] !== 3))))) {
       throw new Error('空间整理类别与区域不一致');
     }
     if (internalTypes?.some((value) => value > 5)) {
@@ -2165,6 +2433,13 @@ async function loadManifest(manifest) {
       nextPartition.setAttribute('color', new THREE.BufferAttribute(zoneColors(partitionZones), 3));
       nextPartition.boundingSphere = previewBounds.clone();
     }
+    let nextFloatingZones = null;
+    if (sharedLayers && sharedFloatingNoise) {
+      nextFloatingZones = new THREE.BufferGeometry();
+      nextFloatingZones.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      nextFloatingZones.setAttribute('color', new THREE.BufferAttribute(floatingZoneColors(sharedLayers, sharedFloatingNoise), 3));
+      nextFloatingZones.boundingSphere = previewBounds.clone();
+    }
     let nextClass = null;
     if (classes) {
       nextClass = new THREE.BufferGeometry();
@@ -2201,29 +2476,36 @@ async function loadManifest(manifest) {
       nextInternalRebar.boundingSphere = previewBounds.clone();
     }
     releasePreview();
-    rawGeometry = nextRaw; normalGeometry = nextNormal; tableRemovalGeometry = nextTableRemoval; partitionGeometry = nextPartition; classGeometry = nextClass; projectionGeometry = nextProjection; fusionGeometry = nextFusion; refinementGeometry = nextRefinement; internalRebarGeometry = nextInternalRebar;
+    rawGeometry = nextRaw; normalGeometry = nextNormal; tableRemovalGeometry = nextTableRemoval; partitionGeometry = nextPartition; floatingZonesGeometry = nextFloatingZones; classGeometry = nextClass; projectionGeometry = nextProjection; fusionGeometry = nextFusion; refinementGeometry = nextRefinement; internalRebarGeometry = nextInternalRebar;
     rawPoints.geometry = rawGeometry; normalPoints.geometry = normalGeometry;
     tableRemovalPoints.geometry = tableRemovalGeometry || emptyClassGeometry;
     partitionPoints.geometry = partitionGeometry || emptyClassGeometry;
+    floatingZonesPoints.geometry = floatingZonesGeometry || emptyClassGeometry;
     classPoints.geometry = classGeometry || emptyClassGeometry;
     projectionPoints.geometry = projectionGeometry || emptyClassGeometry;
     fusionPoints.geometry = fusionGeometry || emptyClassGeometry;
     refinementPoints.geometry = refinementGeometry || emptyClassGeometry;
     internalRebarPoints.geometry = internalRebarGeometry || emptyClassGeometry;
-    current = { ...manifest, _complete: complete, _designPrior: designPrior, _positions: positions, _normals: normals, _valid: valid, _sharedTableMask: sharedTableMask, _partitionZones: partitionZones, _classes: classes, _recovered: recovered, _projectionClasses: projectionClasses, _projectionLayers: projectionLayers, _fusedClasses: fusedClasses, _fusedRegions: fusedRegions, _fusedRecovered: fusedRecovered, _fusedSteelScores: fusedSteelScores, _fusedSteelEvidence: fusedSteelEvidence, _refinedClasses: refinedClasses, _refinedRegions: refinedRegions, _refinedZones: refinedZones, _refinedChanged: refinedChanged, _internalTypes: internalTypes, _internalInstances: internalInstances, _internalSegments: internalSegments, _internalConfidence: internalConfidence, _internalFamilies: internalFamilies, _internalInstanceById: internalInstanceById };
+    current = { ...manifest, _complete: complete, _designPrior: designPrior, _positions: positions, _normals: normals, _valid: valid, _sharedTableMask: sharedTableMask, _partitionZones: partitionZones, _sharedLayers: sharedLayers, _sharedFloatingNoise: sharedFloatingNoise, _classes: classes, _recovered: recovered, _projectionClasses: projectionClasses, _projectionLayers: projectionLayers, _fusedClasses: fusedClasses, _fusedRegions: fusedRegions, _fusedRecovered: fusedRecovered, _fusedSteelScores: fusedSteelScores, _fusedSteelEvidence: fusedSteelEvidence, _refinedClasses: refinedClasses, _refinedRegions: refinedRegions, _refinedZones: refinedZones, _refinedChanged: refinedChanged, _internalTypes: internalTypes, _internalInstances: internalInstances, _internalSegments: internalSegments, _internalConfidence: internalConfidence, _internalFamilies: internalFamilies, _internalInstanceById: internalInstanceById };
     installCompletePreview();
     installCompleteTiles();
     installDesignPriorPreview();
     if (hasPartition || hasRefinement || hasInternalRebar) $('frameOverlay').checked = true;
     rebuildFrameOverlays();
+    rebuildFloatingGeometryOverlays();
     $('empty').hidden = true;
     $('sample').textContent = `样本 ${fmt(preview.pointCount)} / 全量 ${fmt(preview.totalPointCount)}`;
     $('source').textContent = `源文件：${manifest.source?.name || '未知'} · ${fmt(manifest.source?.pointCount)} 点`;
     metrics(manifest);
     $('showRemovedTable').checked = false;
     $('partitionZoneFilter').value = 'all';
+    const floatingLayerOptions = [['all', '全部非台面点'], ['0', '未分层'], ...(manifest.preprocessing?.layering?.layers || []).map(layer => [String(layer.id), layer.name || `层 ${layer.id}${Number.isFinite(layer.heightM) ? ` · ${(layer.heightM * 1000).toFixed(1)} mm` : ''}`])];
+    $('floatingLayerFilter').replaceChildren(...floatingLayerOptions.map(([value, label]) => new Option(label, value)));
+    $('floatingLayerFilter').value = 'all';
+    $('floatingForbiddenOnly').checked = false;
     $('tableRemovalStep').disabled = !sharedTableMask;
     $('partitionStep').disabled = !partitionZones;
+    $('floatingZonesStep').disabled = !(sharedLayers && sharedFloatingNoise);
     $('classificationStep').disabled = !classes;
     $('projectionStep').disabled = !projectionClasses;
     $('fusionStep').disabled = !fusedClasses;
@@ -2239,7 +2521,7 @@ async function loadManifest(manifest) {
     $('unknownLegend').hidden = threeClass && !hasClassificationPending;
     $('unknownLegendLabel').textContent = hasClassificationPending ? '区域保留的待定候选' : '待定（旧版结果）';
     const previousFilter = $('classFilter').value;
-    const filters = [['all', '全部'], ['3', '仅钢筋'], ['1', '仅台面'], ['2', '仅夹具（含方管）']];
+    const filters = [['all', '全部'], ['3', '仅钢筋'], ['4', '仅噪音'], ['1', '仅台面'], ['2', '仅夹具（含方管）']];
     if (recovered) filters.splice(2, 0, ['recovered', '仅本轮归还的钢筋']);
     if (hasClassificationPending) filters.push(['0', '仅待定候选']);
     else if (!threeClass) filters.push(['0', '仅待定（旧版）'], ['excludeStatic', '排除台面与夹具']);
@@ -2253,14 +2535,16 @@ async function loadManifest(manifest) {
       ? `台面和钢筋以外统一归夹具；方管侧面、圆角、边缘属于同一类。${recovered ? '可勾选仅本步恢复的钢筋作额外筛选。' : ''}`
       : '旧版分类结果：待定点保留原有类别。筛选只改变显示。';
     const previousProjectionClass = $('projectionClassFilter').value;
-    $('projectionClassFilter').value = ['all', '1', '2', '3'].includes(previousProjectionClass) ? previousProjectionClass : 'all';
+    const projectionClassOptions = [['all', '全部'], ['1', '台面'], ['2', '夹具'], ['3', '钢筋'], ['4', '噪音']];
+    $('projectionClassFilter').replaceChildren(...projectionClassOptions.map(([value, label]) => new Option(label, value)));
+    $('projectionClassFilter').value = projectionClassOptions.some(([value]) => value === previousProjectionClass) ? previousProjectionClass : 'all';
     $('projectionHint').textContent = manifest.projection?.retentionRestored
       ? '保留 02B 的投影分类、腹杆恢复及上下层高度范围。高度保留计入 B 路支持；共享区域保留不重复计分。'
       : manifest.projection?.pendingClass === 0
       ? '类别 0 是高度保留的待定候选，类别 3 仅表示本分支独立实测的钢筋。'
       : '02B 是独立的投影图像分类结果；筛选不会合并或修改 02A 结果。';
     const previousLayer = $('projectionLayerFilter').value;
-    const layerOptions = [['all', '全部高度'], ['0', '层间 / 未归层'], ...(manifest.projection?.layers || []).map((layer) => [String(layer.id), `${layer.name || `层 ${layer.id}`} · Z ${fmtHeight(layer.heightM)}`])];
+    const layerOptions = [['all', '全部高度'], ['0', '层间 / 未归层'], ...(manifest.projection?.layers || []).map((layer) => [String(layer.id), `${layer.name || `层 ${layer.id}${Number.isFinite(layer.heightM) ? ` · ${(layer.heightM * 1000).toFixed(1)} mm` : ''}`} · Z ${fmtHeight(layer.heightM)}`])];
     $('projectionLayerFilter').replaceChildren(...layerOptions.map(([value, label]) => new Option(label, value)));
     $('projectionLayerFilter').value = layerOptions.some(([value]) => value === previousLayer) ? previousLayer : 'all';
     $('layerSummary').replaceChildren(...(manifest.projection?.layers || []).map((layer) => {
@@ -2382,7 +2666,7 @@ async function status() {
     if (!priorAvailable && $('priorMode').value !== 'off') { $('priorMode').value = 'off'; if ($('throughStep').value === '7') $('throughStep').value = '6'; }
     for (const option of $('throughStep').options) if (option.value === '7') option.disabled = !priorAvailable;
     const priorSummary = typeof state.priorSummary === 'string' ? state.priorSummary : state.priorSummary ? Object.entries(state.priorSummary).map(([key, value]) => `${key} ${value}`).join(' · ') : '';
-    $('priorModeHint').textContent = priorAvailable ? priorSummary : (priorSummary || '当前源文件没有可用设计先验；仍可运行基线流程。');
+    $('priorModeHint').textContent = priorAvailable ? `${priorSummary}；01D 将使用该模型划分禁飞区，上方开关仅控制第六步实例整理。` : (priorSummary || '当前源文件没有可用设计先验；仍可运行基线流程。');
     if (Number.isFinite(state.maxWorkers)) {
       $('workers').max = String(state.maxWorkers);
       if (!workerLimitInitialized) {
@@ -2450,7 +2734,7 @@ $('arrows').addEventListener('change', buildArrows);
 $('length').addEventListener('input', () => { $('lengthValue').textContent = Number($('length').value).toFixed(3); buildArrows(); });
 $('size').addEventListener('input', () => {
   $('sizeValue').textContent = $('size').value;
-  rawMaterial.size = normalMaterial.size = tableRemovalMaterial.size = partitionMaterial.size = classMaterial.size = projectionMaterial.size = fusionMaterial.size = refinementMaterial.size = internalRebarMaterial.size = completeMaterial.size = designPriorPoints.material.size = Number($('size').value);
+  rawMaterial.size = normalMaterial.size = tableRemovalMaterial.size = partitionMaterial.size = floatingZonesMaterial.size = classMaterial.size = projectionMaterial.size = fusionMaterial.size = refinementMaterial.size = internalRebarMaterial.size = completeMaterial.size = designPriorPoints.material.size = Number($('size').value);
   for (const record of completeTileRecords.values()) {
     for (const part of record.parts) {
       const materials = Array.isArray(part.object.material) ? part.object.material : [part.object.material];
@@ -2465,6 +2749,17 @@ $('classFilter').addEventListener('change', applyClassFilter);
 $('classRecoveredOnly').addEventListener('change', applyClassFilter);
 $('fusionRecoveredOnly').addEventListener('change', applyFusionAppearance);
 $('projectionClassFilter').addEventListener('change', applyProjectionFilter);
+$('floatingLayerFilter').addEventListener('change', applyFloatingZonesAppearance);
+$('floatingForbiddenOnly').addEventListener('change', applyFloatingZonesAppearance);
+for (const [id, name] of [['floatingPlanes', 'floatingPlanes'], ['floatingVolumes', 'floatingVolumes'], ['steelCenterlines', 'steelCenterlines']]) {
+  $(id).addEventListener('change', () => {
+    for (const { group } of floatingGeometryOverlays) {
+      const overlay = group.getObjectByName(name);
+      if (overlay) overlay.visible = $(id).checked;
+    }
+    requestRender();
+  });
+}
 $('projectionLayerFilter').addEventListener('change', applyProjectionFilter);
 $('fusionColorMode').addEventListener('change', applyFusionAppearance);
 $('fusionScoreFilter').addEventListener('change', applyFusionAppearance);

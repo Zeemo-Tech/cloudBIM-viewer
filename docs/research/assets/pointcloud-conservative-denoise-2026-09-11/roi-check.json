@@ -1,0 +1,18 @@
+{
+  "shortRodCore": {
+    "minM": [
+      2.186,
+      -1.419,
+      0.031
+    ],
+    "maxM": [
+      2.274,
+      -1.399,
+      0.044
+    ],
+    "pointCount": 1464,
+    "beforeRemoved": 1464,
+    "afterRemoved": 0,
+    "step06Retained": 1464
+  }
+}

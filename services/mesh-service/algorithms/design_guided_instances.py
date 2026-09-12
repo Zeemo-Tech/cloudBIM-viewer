@@ -14,7 +14,7 @@ from .internal_rebar import InternalRebarParameters, _fit_cylinder, _split_paral
 from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters, _terminal_rays
 from .design_prior_refinement import PriorParameters, _candidates
 
-VERSION = 'design-guided-instances-v7-preserve-spatial-noise'
+VERSION = 'design-guided-instances-v9-locked-hooks-final-filter'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -447,7 +447,8 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
                  (np.asarray(fused_scores) <= LOW_SCORE_THRESHOLD) & (context.refined_class == 3))
     blocked_noise_rows = np.zeros(count, bool)
     internal_noise = context.internal_type == 5
-    spatial_override = internal_report.get('denoising', {}).get('highScoreOverrideAllowed') is True
+    spatial_override = (internal_report.get('denoising', {}).get('highScoreOverrideAllowed') is True
+                        or internal_report.get('denoising', {}).get('designBoundaryAppliesToAllSteel') is True)
     if spatial_override:
         # Step 05 has already weighed the fusion score against independent
         # spatial evidence. The same old score cannot undo that decision here.
@@ -464,9 +465,15 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     units = inventory['units']; operations = []; rejected = 0
     next_id = max(original, default=0)+1
     next_segment = max([s['id'] for s in segments],default=0)+1
+    from .rebar_hook_clusters import freeze_hook_clusters, merge_hook_clusters, verify_hook_clusters
+    from .rebar_cluster_quality import final_fragment_filter, design_cluster_quality
+    from .rebar_final_filter import filter_final_clusters
+    progress('第 6 步：识别并锁定弯曲外筋整簇（只能合并）', 0, count)
+    hook_groups, hook_protected, hook_report = freeze_hook_clusters(context, out, inventory, segments)
+    deferred_noise = np.zeros(count, bool)
     # Cluster only still-retained, unassigned steel. No candidate discarded by
     # Step 05 is reintroduced, even if it lies exactly on an IFC centerline.
-    loose = np.flatnonzero(steel & (out['complete_instance']==0))
+    loose = np.flatnonzero(steel & (out['complete_instance']==0) & ~hook_protected)
     clusters = exterior_clusters(context.positions[loose], ExtensionParameters())
     out['complete_cluster'][loose] = clusters
     total_clusters = int(clusters.max()) if len(clusters) else 0
@@ -475,6 +482,14 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     order = np.argsort(clusters,kind='stable'); counts = np.bincount(clusters,minlength=total_clusters+1)
     offsets = np.r_[0,np.cumsum(counts[1:])]; grouped = loose[order]
     cluster_records = [{'id':i,'pointCount':int(counts[i])} for i in range(1,total_clusters+1)]
+    for group in hook_groups:
+        record = dict(id=len(cluster_records)+1, pointCount=len(group['rows']),
+            category='curved-exterior', locked=True, allowedOperations=['merge'],
+            designUnitId=group['designUnitId'], designBarId=group['designBarId'],
+            boundsM=group['region']['boundsM'], status='protected-pending')
+        cluster_records.append(record); group['record'] = record
+        group['region']['clusterId'] = record['id']
+        out['complete_cluster'][group['rows']] = record['id']
     jobs = []
     owners = out['complete_instance']; owned = np.flatnonzero(owners>0)
     ordered = owned[np.argsort(owners[owned],kind='stable')]
@@ -499,7 +514,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     mixed_clusters={o['clusterId'] for o in early_operations if o['action']=='separate'}
     split_jobs=[]
     for old_id,rows,cluster in jobs:
-        if not old_id:rows=rows[~early_protected[rows]]
+        rows=rows[~(hook_protected[rows] if old_id else early_protected[rows])]
         if cluster in mixed_clusters and len(rows):
             # Once the axial branch is peeled off, disconnected edge remnants
             # must be fitted and filtered independently. Keep source cluster IDs
@@ -577,21 +592,9 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             suspect = (not e['strong'] and planar and e['fixtureNearFraction'] > .3 and
                        (e['radiusAtBound'] or e['crossSectionThickness'] < .00025))
             candidate = (out['complete_class'][rows] == 3) & (noise | (suspect & low_score[rows]))
-            if np.any(candidate):
-                blocked = rows[protected_high[rows] & candidate]
-                filtered = rows[~protected_high[rows] & candidate]
-                blocked_noise_rows[blocked] = True
-                if len(filtered):
-                    out['complete_class'][filtered]=4
-                    for name in ('complete_instance','complete_segment','complete_confidence'): out[name][filtered]=0
-                    rejected+=len(filtered)
-                    operations.append({'action':'filter','sourceInstanceId':old_id,'clusterId':cluster,'pointCount':len(filtered),
-                        'protectedPointCount':len(blocked),
-                        'reason':'planar_fixture_remnant_with_failed_round_sections','normalFlatness':e['normalFlatness'],'surfaceErrorM':e['surfaceError']})
-                rows = rows[~candidate | protected_high[rows]]
-                if not len(rows):
-                    continue
-                e['pointCount'] = len(rows)
+            # Evidence may disqualify an axis as a growth seed, but semantics are
+            # decided only after every inner/outer connection has been attempted.
+            deferred_noise[rows[candidate]] = True
             instance_id=old_id
             if split or (old_id==0 and e['strong']):
                 instance_id=old_id if split and group_index==0 and old_id else next_id
@@ -669,8 +672,10 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         for old,target in remap.items():
             if old<len(mapping):mapping[old]=target
         out['complete_instance'][early_rows]=mapping[out['complete_instance'][early_rows]]
-    # Reject fixture-like groups BEFORE they can seed exterior growth. An
-    # already associated design slot cannot protect a strip of the clamp surface.
+    # Fixture-like groups cannot seed growth, but remain available until the final
+    # filter so fragments are never deleted before the inner/outer merge finishes.
+    growth_blocked_owners = {a['instanceId'] for a in atoms if a['instanceId'] and np.all(deferred_noise[a['rows']])}
+    growth_blocked_owners -= {a['instanceId'] for a in atoms if a['instanceId'] and not np.any(deferred_noise[a['rows']])}
     for group in members.values():
         es=[summaries[i] for i in group];weights=[len(atoms[i]['rows']) for i in group]
         anchor=any(e['strong'] and e['length']>.12 and e['fixtureNearFraction']<.2 for e in es)
@@ -684,17 +689,9 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         for i in group:
             a=atoms[i];rows=a['rows']
             candidate=(out['complete_class'][rows] == 3) & (fixture_edge | (suspect_edge & low_score[rows]))
-            blocked=rows[protected_high[rows] & candidate]
-            selected=rows[~protected_high[rows] & candidate]
-            blocked_noise_rows[blocked]=True
-            if not len(selected):continue
-            out['complete_class'][selected]=4
-            for name in ('complete_instance','complete_segment','complete_confidence'):out[name][selected]=0
-            rejected+=len(selected)
-            if len(selected)==len(rows):a['instanceId']=0;choices[i]=None
-            operations.append({'action':'filter','sourceInstanceId':a['originalInstanceId'],'clusterId':a['clusterId'],
-                'pointCount':len(selected),'protectedPointCount':len(blocked),'reason':'design_competition_fixture_edge',
-                'fixtureNearFraction':near,'fixtureSurfaceFraction':plane,'extraInstancePenalty':params.extra_instance_penalty})
+            deferred_noise[rows[candidate]] = True
+            if fixture_edge and a['instanceId']:
+                growth_blocked_owners.add(a['instanceId'])
     # Weak stand-alone fits must compete for an established observed cylinder.
     # In particular, old Step 05 identities do not exempt fixture edges from QA.
     strong_owners={a['instanceId'] for i,a in enumerate(atoms) if a['summary']['strong'] and a['instanceId'] and
@@ -723,12 +720,12 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     models=[m for m in models if m['instanceId'] in live]
     search_models=[]
     for a in atoms:
-        if a['instanceId'] not in live or not a['summary']['strong']:continue
+        if a['instanceId'] not in live or not a['summary']['strong'] or a['instanceId'] in growth_blocked_owners:continue
         for m in a['summary']['coreFits']:
             search_models.append({**m,'instanceId':a['instanceId']})
     for index,m,sign,_ in _terminal_rays(search_models):
         search_models[index]['low' if sign<0 else 'high']+=sign*params.exterior_reach
-    pending=np.flatnonzero((out['complete_class']==3)&(out['complete_instance']==0))
+    pending=np.flatnonzero((out['complete_class']==3)&(out['complete_instance']==0)&~hook_protected)
     attached=len(early_rows)
     if len(pending) and search_models:
         assigned,score,ownership=assign_cylinders(context.positions[pending],context.normals[pending],search_models,
@@ -760,6 +757,27 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             attached+=len(selected)
             operations.append({'action':'attach','clusterId':int(cluster),'instanceIds':list(map(int,np.unique(chosen))),
                 'pointCount':len(selected),'reason':'exclusive_cluster_cylinder_support' if exclusive else 'competing_observed_cylinder_surfaces'})
+    associations = {}
+    for i, a in enumerate(atoms):
+        if a['instanceId']:
+            associations.setdefault(a['instanceId'], set())
+            if choices[i] is not None:
+                associations[a['instanceId']].add(choices[i])
+    hook_operations = merge_hook_clusters(context, out, hook_groups, associations, units, segments, hook_report, workers=workers)
+    operations.extend(hook_operations)
+    attached += sum(o['pointCount'] for o in hook_operations)
+    progress('第 6 步：内外筋合并完成，执行最终整簇过滤', 0, count)
+    safe_owners = strong_owners-growth_blocked_owners
+    candidate = deferred_noise & ~hook_protected & ~np.isin(out['complete_instance'], list(safe_owners))
+    blocked_noise_rows |= candidate & protected_high
+    selected = np.flatnonzero(candidate & ~protected_high)
+    if len(selected):
+        out['complete_class'][selected] = 4
+        for name in ('complete_instance', 'complete_segment', 'complete_confidence'):
+            out[name][selected] = 0
+        rejected += len(selected)
+        operations.append(dict(action='filter', phase='final_after_all_merges', pointCount=len(selected),
+            reason='deferred_fixture_evidence_without_successful_observed_connection'))
     # Positive fixture evidence plus failure to join a measured rod is now a
     # rejection, not an indefinitely retained "steel, pending" classification.
     for i,a in enumerate(atoms):
@@ -767,7 +785,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         fixture=e['fixtureNearFraction']>.45 or e['fixtureSurfaceFraction']>.3
         suspect_fixture=e['fixtureNearFraction']>.25 or e['fixtureSurfaceFraction']>.15
         if not ((fixture or suspect_fixture) and (not e['strong'] or extra)):continue
-        candidate=((out['complete_instance'][rows]==0)&(out['complete_class'][rows]==3) &
+        candidate=(~hook_protected[rows] & (out['complete_instance'][rows]==0)&(out['complete_class'][rows]==3) &
                    (fixture | (suspect_fixture & low_score[rows])))
         blocked=rows[candidate & protected_high[rows]]
         blocked_noise_rows[blocked]=True
@@ -788,7 +806,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     exterior_denoising = {'removedPointCount': 0}
     review_score = np.zeros(count, bool) if fused_scores is None else np.asarray(fused_scores) < PROTECTION_THRESHOLD
     pending_suspect = np.flatnonzero(review_score & (context.refined_zone != 1) &
-                                    (out['complete_class'] == 3) & (out['complete_instance'] == 0))
+                                    (out['complete_class'] == 3) & (out['complete_instance'] == 0) & ~hook_protected)
     if len(pending_suspect):
         from .floating_noise import floating_noise_mask
         live_counts = np.bincount(out['complete_segment'], minlength=next_segment)
@@ -805,10 +823,22 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         if len(selected):
             operations.append({'action': 'filter', 'pointCount': len(selected),
                 'reason': 'non_high_score_exterior_without_observed_support'})
+    progress('第 6 步：最终细小悬浮残片与设计数量形态复核', 0, count)
+    final_cluster_filter = filter_final_clusters(context, out, inventory, associations, hook_protected, cluster_records)
+    rejected += final_cluster_filter['removedPointCount']
+    operations.extend(dict(action='filter', phase='final_after_all_merges', **decision)
+                      for decision in final_cluster_filter['decisions'])
+    final_denoising = final_fragment_filter(context, out, workers=workers, protected=hook_protected)
+    rejected += final_denoising['removedPointCount']
+    if final_denoising['removedPointCount']:
+        operations.append({'action': 'filter', 'phase': 'final_statistics',
+            'pointCount': final_denoising['removedPointCount'],
+            'reason': 'tiny_low_score_components_without_retained_steel_support'})
     # Rebuild all point counts from final ownership. Empty original fits/instances
     # are not counted as observed rods. IDs stay stable where possible.
     segment_counts=np.bincount(out['complete_segment'],minlength=next_segment)
     segments=[{**s,'pointCount':int(segment_counts[s['id']])} for s in segments if segment_counts[s['id']]>0]
+    verify_hook_clusters(out, hook_groups)
     instances=[]; associations={}
     for i,a in enumerate(atoms):
         if a['instanceId']:
@@ -830,6 +860,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         if i['designUnitId']:owners_by_unit[i['designUnitId']].append(i['id'])
     diagnostics=[{'designUnitId':u['designUnitId'],'kind':u['kind'],'observedInstanceIds':owners_by_unit[u['designUnitId']],
         'status':'unobserved' if not owners_by_unit[u['designUnitId']] else 'multiple_fragments_or_conflict' if len(owners_by_unit[u['designUnitId']])>1 else 'associated'} for u in units]
+    cluster_quality = design_cluster_quality(context, out, instances, inventory)
     for name,values in out.items():setattr(context,name,values)
     counts=np.bincount(out['complete_class'],minlength=5)
     surviving_ids={i['id'] for i in instances}
@@ -857,6 +888,12 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             'lowScoreThreshold':LOW_SCORE_THRESHOLD,
             'lowScoreFilteredPoints':int(np.count_nonzero(low_score & (out['complete_class'] == 4))),
             'exteriorDenoising':exterior_denoising,
+            'finalDenoising':final_denoising,
+            'finalClusterFilter':final_cluster_filter,
+            'hookClusters':hook_report,
+            'clusterQuality':cluster_quality,
+            'hookProtectedPointCount':int(np.count_nonzero(hook_protected)),
+            'hookAttachedPointCount':sum(o['pointCount'] for o in hook_operations),
             'pendingInstances':sum(i['reviewStatus']=='pending' for i in instances),
             'unobservedUnits':sum(u['status']=='unobserved' for u in diagnostics),
             'conflictingUnits':sum(u['status']=='multiple_fragments_or_conflict' for u in diagnostics),
@@ -866,6 +903,6 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             'reclusteredExteriorParts':sum(o.get('residualPartCount',0) for o in early_operations if o['action']=='separate'),
             'earlyAmbiguousPoints':int(np.count_nonzero(early_protected))-len(early_rows),
             'acrossFixtureMerges':sum(o['action']=='merge' and o.get('acrossFixture',False) and bool(o.get('finalInstanceId')) for o in operations),
-            'qualityStatus':'requires_visual_review','countPolicy':'one observed group per design run; penalized extra instances; fixture evidence required for rejection'},
+            'qualityStatus':'requires_visual_review','countPolicy':'merge curved exterior clusters only; finish all connections before rejecting whole clusters with both design-length and point-count deficits'},
         'inputPolicy':'Step 05 retained steel only; no recovery of discarded points; measured XYZ unchanged'}
     return report

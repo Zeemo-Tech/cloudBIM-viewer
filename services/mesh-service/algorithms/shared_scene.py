@@ -22,7 +22,7 @@ def regions_from_partition(classes, zones, output=None):
         stop = min(start+262144, len(classes))
         c, z = classes[start:stop], zones[start:stop]
         regions[start:stop] = np.where(c == 1, 0, np.where(c == 2, 3,
-            np.where(z == 0, 4, np.where(z == 3, 2, 1))))
+            np.where((z == 0) | (c == 4), 4, np.where(z == 3, 2, 1))))
     return regions
 
 

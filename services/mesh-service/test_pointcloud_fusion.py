@@ -94,7 +94,7 @@ class PointCloudFusionTests(unittest.TestCase):
         np.testing.assert_array_equal(context.geometry_class, before_a)
         np.testing.assert_array_equal(context.projection_class, before_b)
         self.assertEqual(set(map(int, context.fused_class)), {1, 2, 3})
-        self.assertEqual(set(REASONS), {"1", "2", "3", "4", "5", "6", "7"})
+        self.assertEqual(set(REASONS), {"1", "2", "3", "4", "5", "6", "7", "8"})
         np.testing.assert_allclose(context.fused_steel_score,
             [0, 0, 0, 0, .5, .65, .65, .65, 1, 0])
         np.testing.assert_array_equal(context.fused_steel_evidence,

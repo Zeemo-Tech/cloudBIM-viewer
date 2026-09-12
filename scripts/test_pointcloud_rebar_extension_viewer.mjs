@@ -20,6 +20,7 @@ const sandbox = vm.createContext({THREE, $, Uint8Array, Uint32Array, Float32Arra
   fetchBytes:async name=>data[name].buffer, Option:function(text,value){this.text=text;this.value=value;},
   document:{createElement:()=>({})}, fmt:String, requestRender:()=>{},
   hexColor:hex=>new THREE.Color(hex).toArray(), internalTypeColors:{4:'#94a3b8'},
+  hardMaskVisible:()=>true,
   current:null, completeGeometry:null, completeAxisLines:null, completeRebarScene:new THREE.Scene(),
   completePoints:new THREE.Points(),
 });
@@ -64,6 +65,15 @@ sandbox.current = {...sandbox.current, _refinedClasses:new Uint8Array([1,2,3,3,3
   completeRebar:{...manifest.completeRebar,designReview:{operations:[{action:'merge',sourceInstanceIds:[1,2],acrossFixture:true}]}},
   files:{resolvedSteelLasUrl:'/resolved.las',pendingSteelLasUrl:'/pending.las'}};
 $('completeCompare').value='result';sandbox.installCompletePreview();
+// Count equality alone is not success when a design unit has no observed owner.
+sandbox.current.completeRebar.designReview.clusterQuality={expectedClusterCount:2,observedClusterCount:2,
+  countDelta:0,countMatches:false,shapeMismatchCount:1,tooShortCount:1,hookWidthMissingCount:0};
+sandbox.current.completeRebar.designReview.finalDenoising={removedComponentCount:3,removedPointCount:7};
+sandbox.installCompletePreview();
+const summary=$('completeSummary').children.map(node=>node.textContent);
+assert(summary.includes('目标簇数（腹杆逐段） / 实际簇数：2 / 2'));
+assert(summary.includes('数量与逐根对应：待核对（差 0）'));
+assert(summary.includes('末尾细小悬浮噪音：3 簇 / 7 点'));
 assert.equal($('resolvedSteelLas').href,'/resolved.las');
 assert.equal($('pendingSteelLas').href,'/pending.las');
 for (const [filter,expected] of [['filtered',[5]],['merged',[2,3]],['bridged',[2,3]],['resolved',[2,3]]]) {
@@ -86,6 +96,16 @@ sandbox.current._complete.complete_cluster[5]=7;
 sandbox.current.completeRebar.designReview.operations=[{action:'separate',clusterId:7}];
 $('completeClassFilter').value='separated';sandbox.applyCompleteAppearance();
 assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[3,5]);
+$('completeCompare').value='result';
+sandbox.current._complete.complete_cluster[5]=8;
+sandbox.current.completeRebar.clusters=[{id:7,category:'curved-exterior'},{id:8,category:'rejected-final-cluster'}];
+sandbox.current.completeRebar.designReview.finalClusterFilter={decisions:[{clusterId:8}]};
+for (const [filter,expected] of [['hooks',[3]],['final-rejected',[5]]]) {
+  $('completeClassFilter').value=filter;sandbox.applyCompleteAppearance();
+  assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),expected);
+}
+$('completeClassFilter').value='separated';
+sandbox.current._complete.complete_cluster[5]=7;
 $('completeCompare').value='baseline';sandbox.applyCompleteAppearance();
 assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[3,5]);
 console.log('Extension preview: loading, legacy absence, filters, instance selection, axes and malformed data passed.');

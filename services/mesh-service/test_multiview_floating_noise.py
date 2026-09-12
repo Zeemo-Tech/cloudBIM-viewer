@@ -58,16 +58,17 @@ class MultiviewNoiseTests(unittest.TestCase):
         removed, _ = self.run_scene(p, np.tile([0, 0, 1.], (len(p), 1)))
         self.assertTrue(removed.all())
 
-    def test_long_thin_and_large_flat_islands_have_no_size_immunity(self):
+    def test_low_score_thin_sheets_and_high_score_broad_sheets_are_removed(self):
         for length, width in ((.15, .010), (.40, .06)):
             x, y = np.meshgrid(np.arange(0, length, .002), np.arange(.06, .06+width, .002))
             p = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, .035)))
-            removed, _ = self.run_scene(p, np.tile([0, 0, 1.], (len(p), 1)))
-            self.assertTrue(removed.all())
+            for score in (.65, 1.):
+                removed, _ = self.run_scene(p, np.tile([0, 0, 1.], (len(p), 1)), score=score)
+                self.assertEqual(bool(removed.all()), score < .9 or width >= .020)
 
-    def test_unobserved_gap_pair_cannot_support_itself(self):
+    def test_low_score_unobserved_gap_pair_cannot_support_itself(self):
         p = np.array([[.30, .004, 0], [.301, .004, 0]])
-        removed, _ = self.run_scene(p, np.tile([0, 1, 0.], (2, 1)))
+        removed, _ = self.run_scene(p, np.tile([0, 1, 0.], (2, 1)), score=.65)
         self.assertTrue(removed.all())
 
     def test_fitted_gap_high_score_pair_does_not_become_observed_support(self):
@@ -83,14 +84,37 @@ class MultiviewNoiseTests(unittest.TestCase):
             removed, report = multiview_noise_mask(points, normals=normals, steel_scores=np.ones(len(points)),
                 review_mask=np.ones(len(points), bool), observed_support_mask=observed, workers=workers)
             self.assertFalse(removed[:-2].any())
-            self.assertTrue(removed[-2:].all())
-            self.assertEqual(report['highScoreRemovedPointCount'], 2)
+            self.assertFalse(removed[-2:].any(), 'isolation alone cannot disprove high-score fragments')
+            self.assertEqual(report['highScoreRemovedPointCount'], 0)
+            self.assertEqual(report['frozenObservedPointCount'], len(points)-2)
 
     def test_short_round_fragment_and_occlusion_gap_survive(self):
         for start, end in [([.19, 0, 0], [.197, 0, 0]), ([.3, .1, .02], [.308, .1, .02])]:
             p, n = rod(start, end)
             removed, _ = self.run_scene(p, n, score=.65)
             self.assertFalse(removed.any())
+
+    def test_incomplete_high_score_short_rod_with_missing_normals_is_retained(self):
+        p, n = rod([.3, .1, .02], [.308, .1, .02])
+        partial = n[:, 2] > .8
+        p = p[partial]
+        removed, _ = self.run_scene(p, np.zeros_like(p), score=1.)
+        self.assertFalse(removed.any())
+
+    def test_local_rod_in_mixed_sheet_component_survives_without_rescuing_sheet(self):
+        p, n = rod([.3, 0, .03], [.34, 0, .03])
+        x, y = np.meshgrid(np.arange(.34, .46, .0015), np.arange(-.004, .10, .0015))
+        sheet = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, .03)))
+        anchor, an = rod([0, 0, 0], [.18, 0, 0])
+        xyz = np.vstack((anchor, p, sheet))
+        nn = np.vstack((an, n, np.tile([0, 0, 1.], (len(sheet), 1))))
+        scores = np.r_[np.ones(len(anchor)), np.where(np.arange(len(p)) % 2, .65, 1.), np.full(len(sheet), .65)]
+        removed, report = multiview_noise_mask(xyz, normals=nn, steel_scores=scores,
+            review_mask=np.ones(len(xyz), bool))
+        self.assertFalse(removed[:len(anchor)+len(p)].any())
+        self.assertTrue(removed[len(anchor)+len(p):][sheet[:, 0] > .38].all())
+        self.assertGreater(report['localRoundProtectedPointCount'], 0)
+
 
     def test_bent_hook_survives(self):
         first, nn = rod([.20, 0, 0], [.23, 0, 0])
@@ -205,6 +229,50 @@ class FixtureDensityTests(unittest.TestCase):
             removed, _ = multiview_noise_mask(points, normals=normals,
                 review_mask=np.ones(len(points), bool), fixture_points=fixture, fixture_normals=missing)
             self.assertFalse(removed.any())
+
+
+class TopViewNoiseTests(unittest.TestCase):
+    def scene(self, *, score=.65, exterior=True, fixture=True, rotate=0., offset=0.):
+        points, normals, fp, fn = rounded_fixture_lip(.03)
+        sparse = (fp[:, 1] >= -.003) & (fn[:, 2] > .8) & (fp[:, 0] > -.003) & (fp[:, 0] < .033)
+        fp, fn = fp[sparse] + [0, .08, 0], fn[sparse]
+        anchor, an = rod([0, 0, 0], [.18, 0, 0])
+        xyz = np.vstack((anchor, points + [0, .08, 0]))
+        nn = np.vstack((an, normals))
+        angle = np.deg2rad(rotate)
+        r = np.array([[np.cos(angle), -np.sin(angle), 0], [np.sin(angle), np.cos(angle), 0], [0, 0, 1]])
+        return multiview_noise_mask(xyz @ r.T + offset, normals=nn @ r.T,
+            steel_scores=np.r_[np.ones(len(anchor)), np.full(len(points), score)],
+            review_mask=np.ones(len(xyz), bool),
+            exterior_mask=np.r_[np.zeros(len(anchor), bool), np.full(len(points), exterior)],
+            fixture_points=fp @ r.T + offset if fixture else None,
+            fixture_normals=fn @ r.T if fixture else None)
+
+    def test_exterior_fixture_patch_needs_top_view_after_passing_side_views(self):
+        baseline, _ = self.scene(exterior=False)
+        self.assertFalse(baseline.any())
+        for angle, offset in [(0, 0), (37, 1000000), (91, 0)]:
+            removed, report = self.scene(rotate=angle, offset=offset)
+            self.assertGreater(removed.sum(), 0)
+            self.assertEqual(report['topViewReview']['additionalRemovedPointCount'], int(removed.sum()))
+            self.assertEqual(report['highScoreRemovedPointCount'], 0)
+            # Only the fixture-supported part is deleted, not the entire arc.
+            self.assertLess(removed.sum(), 793)
+
+    def test_top_view_preserves_high_scores_and_requires_fixture_evidence(self):
+        for kwargs in [dict(score=1.), dict(fixture=False)]:
+            removed, _ = self.scene(**kwargs)
+            self.assertFalse(removed.any())
+
+    def test_degenerate_footprint_cannot_delete_and_exterior_rows_are_validated(self):
+        from algorithms.multiview_floating_noise import _outside_top_footprint
+        outside, vertices = _outside_top_footprint(np.array([[1., 1., 1.]]),
+            np.array([[0., 0, 0], [1., 0, 0], [2., 0, 0]]), .012)
+        self.assertFalse(outside.any())
+        self.assertEqual(vertices, 0)
+        with self.assertRaisesRegex(ValueError, 'exterior_mask'):
+            multiview_noise_mask(np.zeros((3, 3)), review_mask=np.ones(3, bool),
+                exterior_mask=np.ones(2, bool))
 
 
 if __name__ == '__main__':

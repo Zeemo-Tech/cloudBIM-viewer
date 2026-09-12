@@ -14,7 +14,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 from algorithms.rebar_tracks import diameter_priors, regularize_models, reconcile_tracks, grow_track_ends, track_statistics, remove_explained_fragments
 
-VERSION = 'internal-rebar-tracks-v8-fixture-density-denoising'
+VERSION = 'internal-rebar-tracks-v9-conservative-top-view'
 PROTECTION_THRESHOLD = .9
 TYPES = {'0': '非内部钢筋', '1': '下层钢筋', '2': '上层钢筋', '3': '腹杆', '4': '钢筋（实例待定）', '5': '悬浮噪音'}
 ATTRIBUTES = {'internal_type': 'u1', 'internal_instance': '<u4',
@@ -400,6 +400,8 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         values[:] = 0
     scope = np.flatnonzero((context.refined_class == 3) & (context.refined_zone == 1))
     output['internal_type'][scope] = 4
+    prior_noise = context.refined_class == 4
+    output['internal_type'][prior_noise] = 5
     models, bands, histogram = [], [], {}
     model_cache = None
     recovery_cache = None
@@ -409,7 +411,7 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
                    'reusedResidualTree': False, 'webInstanceUnit': 'one straight diagonal segment'}
     if len(scope):
         t0 = time.perf_counter()
-        progress('第 5 步：提取内部钢筋 / 高度分层', 0, len(scope))
+        progress('第 5 步：复用 01D 分层 / 提取内部钢筋', 0, len(scope))
         cache = context.classification_cache; grid = cache['grid']; residual = cache['residual_ids']
         occupied = np.bincount(grid.source_to_cell[scope], minlength=len(grid.points)) > 0
         local_ids = np.flatnonzero(occupied[residual]); cells = residual[local_ids]
@@ -417,7 +419,13 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         points = (grid.points[cells]+grid.origin) @ rotation.T
         directions = cache['features']['axis'][local_ids] @ rotation.T
         linearity = cache['features']['linearity'][local_ids]
-        bands, histogram = _height_bands(points, directions, linearity, params)
+        shared_layering = (getattr(context, 'scene_cache', None) or {}).get('layering')
+        if shared_layering is not None:
+            bands = shared_layering['bands']
+            histogram = shared_layering.get('heightHistogram', {})
+            diagnostics['reusedPreclassificationLayers'] = True
+        else:
+            bands, histogram = _height_bands(points, directions, linearity, params)
         timings['layersS'] = time.perf_counter()-t0
         t0 = time.perf_counter()
         progress('第 5 步：水平钢筋圆柱实例', 0, len(cells))
@@ -520,7 +528,8 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
             'segmentIds':[s['id'] for s in parts], 'lengthM':info['lengthM'],'diameterM':info['diameterM'],
             'family':info['family'],'lengthAnomaly':info['lengthAnomaly'],
             'modelKind':'cylinder' if len(parts)==1 else 'piecewise-cylinder'})
-    from .multiview_floating_noise import multiview_noise_mask, observed_cylinder_support, observed_cylinder_continuation
+    from .multiview_floating_noise import observed_cylinder_support, observed_cylinder_continuation
+    from .shared_floating_noise import review_floating_noise
     t0 = time.perf_counter()
     progress('第 5 步：清理无结构支撑的悬浮点', 0, len(scope))
     support_rows = np.flatnonzero(context.refined_class == 3)
@@ -531,21 +540,26 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
     continuation = observed_cylinder_continuation(support_points,
         None if context.normals is None else context.normals[support_rows],
         output['internal_segment'][support_rows], segments, observed, workers=workers)
-    # The frame bounds instance fitting, not denoising. Exterior floating caps
-    # must be reviewed too; fusion scores alone cannot turn them into anchors.
+    # The residual mask limits only observed multiview review. The independent
+    # cloth boundary applies to all steel, including assigned and supported rows.
+    residual_review = (output['internal_instance'][support_rows] == 0) & ~observed & ~continuation
     fixture_rows = np.flatnonzero(context.refined_class == 2)
-    removed, denoising = multiview_noise_mask(support_points, review_mask=np.ones(len(support_rows), bool),
+    removed, denoising = review_floating_noise(support_points,
+        hard_mask=None if getattr(context, 'shared_floating_noise', None) is None else context.shared_floating_noise[support_rows], review_mask=residual_review,
         normals=None if context.normals is None else context.normals[support_rows],
         fixture_points=context.positions[fixture_rows],
         fixture_normals=None if context.normals is None else context.normals[fixture_rows],
         observed_support_mask=observed, workers=workers,
-        observed_continuation_mask=continuation,
+        observed_continuation_mask=continuation, exterior_mask=~interior,
         steel_scores=None if fused_score is None else np.asarray(fused_score)[support_rows], progress=progress)
     denoising['protectionThreshold'] = PROTECTION_THRESHOLD
-    denoising.update(scope='all retained steel; internal and exterior candidates share spatial review',
+    denoising['earlierRemovedPointCount'] = int(prior_noise.sum())
+    denoising.update(scope='unassigned residuals without reliable support; confirmed steel is context only',
+        designBoundaryAppliesToAllSteel=True,
+        confirmedSteelReviewExcluded=True,
         exteriorReviewEnabled=True,
-        interiorCandidatePointCount=int(np.count_nonzero(interior)),
-        exteriorCandidatePointCount=int(np.count_nonzero(~interior)),
+        interiorCandidatePointCount=int(np.count_nonzero(interior & residual_review)),
+        exteriorCandidatePointCount=int(np.count_nonzero(~interior & residual_review)),
         interiorRemovedPointCount=int(np.count_nonzero(removed & interior)),
         exteriorRemovedPointCount=int(np.count_nonzero(removed & ~interior)))
     noise_ids = support_rows[removed]

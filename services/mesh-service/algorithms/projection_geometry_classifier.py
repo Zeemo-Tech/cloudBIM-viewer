@@ -380,7 +380,7 @@ def _multiview_webs(positions, table_mask, labels, params, workers, progress, re
     return recovered, report, cache
 
 
-def prepare_projection(positions, normals, normal_valid, *, params=None, progress=None):
+def prepare_projection(positions, normals, normal_valid, *, params=None, progress=None, fixed_table=None, fixed_table_mask=None):
     """Fit the table and rasterize once, before independent classification branches."""
     params = params or ProjectionParameters()
     progress = progress or (lambda *args: None)
@@ -396,7 +396,7 @@ def prepare_projection(positions, normals, normal_valid, *, params=None, progres
     pixels = nx*ny
     nz = int(np.floor((hi[2]-lo[2])/params.histogram_bin))+1
     t0 = time.perf_counter()
-    table = _table_plane(positions, normals, normal_valid, lo[2], params)
+    table = _table_plane(positions, normals, normal_valid, lo[2], params) if fixed_table_mask is None else fixed_table
     timings["tableFitS"] = time.perf_counter()-t0
     t0 = time.perf_counter()
     progress("投影路线：移除台面 / 汇总 XY 和 Z", 0, count)
@@ -417,6 +417,8 @@ def prepare_projection(positions, normals, normal_valid, *, params=None, progres
             plane = np.asarray(table["origin"]); slopes = np.asarray(table["slopes"])
             height = p[:, 2]-plane[2]-(p[:, :2]-plane[:2]) @ slopes
             table_mask[start:stop] = height <= params.table_clearance
+        if fixed_table_mask is not None:
+            table_mask[start:stop] = fixed_table_mask[start:stop]
         keep = ~table_mask[start:stop]
         kept_ids = ids[keep]; z = p[keep, 2]
         # bincount + occupied-index assignment avoids an Npixels allocation

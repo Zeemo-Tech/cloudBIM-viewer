@@ -186,7 +186,8 @@ def write_preview(directory, context, colors, run_id, limit):
               "colors": colors[ids], "valid": context.normal_valid[ids],
               "source_indices": ids.astype("<u8")}
     if context.shared_table_mask is not None:
-        arrays.update(shared_table_mask=context.shared_table_mask[ids], partition_zones=context.partition_zone[ids])
+        arrays.update(shared_table_mask=context.shared_table_mask[ids], partition_zones=context.partition_zone[ids],
+                      shared_layers=context.shared_layer[ids], shared_floating_noise=context.shared_floating_noise[ids])
     if context.geometry_class is not None:
         arrays["classes"] = context.geometry_class[ids]
         arrays["recovered"] = context.geometry_recovered[ids]
@@ -216,7 +217,8 @@ def write_preview(directory, context, colors, run_id, limit):
             "sampling": "deterministic evenly spaced source record indices; visualization only",
             **{name + "Url": f"{base}/{name}.bin" for name in ("positions", "normals", "colors", "valid")},
             "sourceIndicesUrl": f"{base}/source_indices.bin",
-            **({"sharedTableMaskUrl": f"{base}/shared_table_mask.bin", "partitionZonesUrl": f"{base}/partition_zones.bin"}
+            **({"sharedTableMaskUrl": f"{base}/shared_table_mask.bin", "partitionZonesUrl": f"{base}/partition_zones.bin",
+                 "sharedLayersUrl": f"{base}/shared_layers.bin", "sharedFloatingNoiseUrl": f"{base}/shared_floating_noise.bin"}
                if context.shared_table_mask is not None else {}),
             **({"classesUrl": f"{base}/classes.bin", "recoveredUrl": f"{base}/recovered.bin"}
                if context.geometry_class is not None else {}),
@@ -281,14 +283,17 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         t0 = time.perf_counter()
         progress("校验源点云", 0, 1)
         digest = source_hash(source)
-        inventory = validate_snapshot(design_prior, source, digest) if prior_mode != 'off' else None
+        inventory = validate_snapshot(design_prior, source, digest) if design_prior is not None else None
         positions, colors = load_positions(source, directory, progress)
         timing["readS"] = time.perf_counter() - t0
         stages = segment_points(positions, directory, k=k, workers=workers, through_step=min(through_step, 6),
-                                source=source, progress=progress)
+                                source=source, progress=progress, design_inventory=inventory)
         context, arrays, shapes, computation = stages.context, stages.arrays, stages.shapes, stages.computation
         timing.update(stages.timing)
         preprocessing = stages.preprocessing
+        if preprocessing and design_prior is not None:
+            preprocessing['floatingZones'].update(snapshotFingerprint=design_prior.get('fingerprint'),
+                modelInfo=design_prior.get('modelInfo', {}), sourceSha256=digest)
         count = len(positions)
         classification, projection, fusion = stages.classification, stages.projection, stages.fusion
         regions, refinement = stages.regions, stages.refinement
@@ -323,19 +328,19 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             atomic_json(directory/'design-prior.json', prior_report)
         if internal_rebar is not None:
             atomic_json(directory / 'internal-instances.json', internal_rebar)
-        if classification:
+        if classification and context.classification_cache is not None:
             cache = context.classification_cache
             np.savez(directory / "classification-features.npz", grid_positions=cache["grid"].points,
                      grid_projectors=cache["grid"].projectors, source_to_cell=cache["grid"].source_to_cell,
                      residual_ids=cache["residual_ids"], patch_ids=cache["patch_ids"], cell_labels=cache["cell_labels"],
                      recovered_cells=cache["recovered_cells"], strong_bars=cache["strong_bars"],
                      **cache["features"])
-        if projection is not None:
+        if projection is not None and context.projection_cache is not None:
             np.savez(directory / "projection-features.npz", **context.projection_cache)
-        if fusion is not None:
+        if fusion is not None and context.fusion_cache is not None:
             np.savez(directory / "fusion-features.npz", **{name: value for name, value in context.fusion_cache.items() if name != "axis_tree"})
             np.savez(directory / "region-features.npz", **context.region_cache)
-        if refinement is not None:
+        if refinement is not None and context.refinement_cache is not None:
             np.savez(directory / "refinement-features.npz", **context.refinement_cache)
         for array in [positions, colors, *arrays.values()]:
             array.flush()
@@ -343,7 +348,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         t0 = time.perf_counter()
         progress("生成效果预览", 0, 1)
         preview = write_preview(directory, context, colors, run_id, preview_limit)
-        if projection is not None:
+        if projection is not None and context.projection_cache is not None:
             write_projection_artifacts(directory, run_id, projection, context.projection_cache)
         timing["previewS"] = time.perf_counter() - t0
         if source_stamp(source) != stamp:
@@ -368,9 +373,10 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             "validNormalCount": valid, "invalidNormalCount": count - valid,
             "steps": [{"id": "00-source", "pointCount": count}, {"id": "01-normals", "pointCount": count}]
                      + ([{"id": "01-table-removal", "pointCount": count, "dependsOn": ["01-normals"]},
-                         {"id": "01-partition", "pointCount": count, "dependsOn": ["01-table-removal"]}] if preprocessing else [])
-                     + ([{"id": "02-classification", "pointCount": count, "dependsOn": ["01-partition"]}] if classification else [])
-                     + ([{"id": "02-projection", "pointCount": count, "dependsOn": "01-partition"}] if projection else [])
+                         {"id": "01-partition", "pointCount": count, "dependsOn": ["01-table-removal"]},
+                         {"id": "01-layering", "pointCount": count, "dependsOn": ["01-partition"]}] if preprocessing else [])
+                     + ([{"id": "02-classification", "pointCount": count, "dependsOn": ["01-layering"]}] if classification else [])
+                     + ([{"id": "02-projection", "pointCount": count, "dependsOn": ["01-layering"]}] if projection else [])
                      + ([{"id": "03-fusion", "pointCount": count, "dependsOn": ["02-classification", "02-projection"]}] if fusion else [])
                      + ([{"id": "05-internal-rebar", "pointCount": internal_rebar['pointCount'], "dependsOn": ["03-fusion"]}] if internal_rebar is not None else [])
                      + ([{'id': '06-design-guided-instances', 'pointCount': count, 'dependsOn': ['05-internal-rebar']}] if complete_rebar is not None else [])
@@ -389,7 +395,8 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                             "peakRssMB": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
                             "peakRssScope": "process lifetime high-water mark", 'normalComputation': computation},
             "timingScope": "server pipeline wall time; excludes HTTP queue/download/browser render; OS page cache not flushed",
-            "cache": {"scope": "live StepRun.context for subsequent steps of this run", "treeBuildCount": 1,
+            "cache": {"scope": "same full-source context for independent classifiers, fusion and instance review", "treeBuildCount": 1,
+                      "computationalSourceIndexFile": None,
                       "sourceSha256": digest, "positionMutationAllowed": False,
                       "restart": "NPY attributes persist; KD tree is rebuilt, never unpickled"},
             "attributes": {"identity": "array row i = original source LAS record i (zero-based)",
@@ -397,12 +404,14 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                            "normal": "unit eigenvector of smallest PCA eigenvalue; sign not oriented",
                            "invalid": "normal_valid=0 and normal=(0,0,0) for degenerate neighborhoods",
                            **({"shared_table_mask": "1 tabletop excluded before both classifiers; source records retained",
-                               "partition_zone": "0 unlocated, 1 strict inner, 2 frame band, 3 exterior; source XY ownership"} if preprocessing else {}),
-                           **({"geometry_class": "Geometry retention: 1 table, 2 fixture, 3 steel including recovery and shared-region retention; independent evidence stored separately",
+                               "partition_zone": "0 unlocated, 1 strict inner, 2 frame band, 3 exterior; source XY ownership",
+                               "shared_layer": "0 unassigned, 1 bottom steel, 2 top steel, 3 web layer; geometric candidates before classification",
+                               "shared_floating_noise": "1 outside expanded design cloth; step 05 rejects all steel outside, regardless of instance or score; never clips classifier input"} if preprocessing else {}),
+                           **({"geometry_class": "4 removed floating noise; Geometry retention: 1 table, 2 fixture, 3 steel including recovery and shared-region retention; independent evidence stored separately",
                                "geometry_recovered": "1 = measured rebar recovery during this run; only final steel rows"} if classification else {}),
-                           **({"projection_class": "Projection retention: 1 table, 2 fixture, 3 steel including upper/lower height and shared-region retention; independent evidence stored separately",
+                           **({"projection_class": "4 removed floating noise; Projection retention: 1 table, 2 fixture, 3 steel including upper/lower height and shared-region retention; independent evidence stored separately",
                                "projection_layer": "0 outside detected Z bands; other ids refer to projection.layers"} if projection else {}),
-                           **({"fused_class": "Evidence fusion: 1 table, 2 fixture, 3 rebar",
+                           **({"fused_class": "Evidence fusion: 1 table, 2 fixture, 3 rebar, 4 noise",
                                "fused_region": "0 table, 1 interior steel, 2 exterior steel, 3 fixture, 4 unlocated steel",
                                "fused_recovered": "1 = recovered projection junction or B non-steel-to-fused steel",
                                "fused_reason": "Rule id, see fusion.reasonNames; not a confidence probability",
@@ -421,7 +430,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                            **({'complete_class': '1 table, 2 fixture, 3 rebar, 4 noise',
                                'complete_instance': 'Observed instance IDs after design-assisted merge/split; 0 pending or non-rebar',
                                'complete_segment': 'Internal fit part or exterior cluster attachment segment; does not imply a cylinder fit to hook points',
-                               'complete_cluster': 'Pre-refinement connected component of retained unassigned steel; 0 existing internal instance/out of scope',
+                               'complete_cluster': 'Observed component, locked curved-exterior atom, or final rejected cluster; category and provenance in completeRebar.clusters; 0 ungrouped',
                                'complete_confidence': 'Internal fit score or exterior cluster attachment score; not pointwise hook fit or calibrated probability'} if complete_rebar is not None else {}),
                            "lasExtraBytes": {**ATTRIBUTES, **(SCENE_ATTRIBUTES if preprocessing else {}), **(CLASS_ATTRIBUTES if classification else {}),
                                              **(PROJECTION_ATTRIBUTES if projection else {}), **(FUSION_LAS_ATTRIBUTES if fusion else {}),
