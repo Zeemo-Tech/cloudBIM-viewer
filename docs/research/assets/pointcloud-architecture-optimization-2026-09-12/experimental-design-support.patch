@@ -5,7 +5,7 @@ index 702f7dc..eadffdd 100644
 @@ -14,7 +14,7 @@ from scipy.sparse.csgraph import connected_components
  from scipy.spatial import cKDTree
  from algorithms.rebar_tracks import diameter_priors, regularize_models, reconcile_tracks, grow_track_ends, track_statistics, remove_explained_fragments
- 
+
 -VERSION = 'internal-rebar-tracks-v9-conservative-top-view'
 +VERSION = 'internal-rebar-tracks-v10-survival-evidence'
  PROTECTION_THRESHOLD = .9
@@ -73,12 +73,12 @@ index 1624279..f46bfad 100644
 +++ b/services/mesh-service/algorithms/multiview_floating_noise.py
 @@ -16,7 +16,7 @@ from scipy.spatial import cKDTree, ConvexHull, QhullError
  from .spatial_keys import unique_integer_rows
- 
- 
+
+
 -VERSION = 'floating-multiview-v3-conservative-top-view'
 +VERSION = 'floating-multiview-v4-eligible-support'
- 
- 
+
+
  @dataclass(frozen=True)
 @@ -393,6 +393,7 @@ def _density_view(steel, fixture, angle, p):
  def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None,
@@ -167,7 +167,7 @@ index fd8e87d..6173c24 100644
 @@ -249,6 +249,41 @@ class InternalRebarTests(unittest.TestCase):
              self.assertEqual(instance['pointCount'], np.count_nonzero(context.internal_instance == instance['id']))
              self.assertGreater(instance['pointCount'], 0)
- 
+
 +    def test_hard_veto_rows_cannot_anchor_observed_or_continuation_support(self):
 +        context, member_size = synthetic_context()
 +        context.fused_steel_score = np.ones(len(context.positions), np.float32)
@@ -213,7 +213,7 @@ index 88782c0..26968c8 100644
 @@ -71,6 +71,26 @@ class MultiviewNoiseTests(unittest.TestCase):
          removed, _ = self.run_scene(p, np.tile([0, 1, 0.], (2, 1)), score=.65)
          self.assertTrue(removed.all())
- 
+
 +    def test_design_excluded_round_component_cannot_supply_multiview_evidence(self):
 +        # A hard-vetoed measured rod used to make this remote unobserved pair
 +        # eligible for rejection.  It must be absent from the positive-view
@@ -244,7 +244,7 @@ index 291ab3c..0ccab0e 100644
 @@ -51,6 +51,21 @@ class SharedFloatingNoiseTests(unittest.TestCase):
          self.assertEqual(report['highScoreRemovedPointCount'], 1)
          self.assertEqual(report['designProtectedPointCount'], 0)
- 
+
 +    def test_step05_design_veto_rows_are_excluded_from_multiview_support(self):
 +        captured = {}
 +

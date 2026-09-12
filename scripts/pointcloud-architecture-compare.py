@@ -67,7 +67,7 @@ def compare(baseline, candidate, output):
     output.mkdir(parents=True, exist_ok=True)
     np.save(output/'changed-source-indices.npy', rows.astype('<u8'))
     with (output/'changed-points.csv').open('w', newline='') as stream:
-        writer = csv.writer(stream)
+        writer = csv.writer(stream, lineterminator='\n')
         writer.writerow(['source_index','x','y','z','before_class','after_class','before_instance',
                          'after_instance','fusion_score','after_step05_type'])
         for row in rows:
