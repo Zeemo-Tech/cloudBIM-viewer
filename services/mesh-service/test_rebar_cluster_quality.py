@@ -1,9 +1,11 @@
 """Final Step 06 count/shape checks and retained hooked-bar ownership."""
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 from algorithms.design_guided_instances import refine_instances
 from algorithms.rebar_cluster_quality import final_fragment_filter
+from algorithms import design_guided_instances, rebar_cluster_quality, rebar_terminal_polish
 from rebar_design_prior import inventory_from_bars
 from test_design_guided_instances import scene, inventory
 
@@ -120,6 +122,58 @@ class ClusterQualityTests(unittest.TestCase):
         self.assertEqual(r['assignedSatellitePointCount'], 2)
         np.testing.assert_array_equal(out['complete_instance'][n:n+2], 0)
         np.testing.assert_array_equal(out['complete_segment'][n:n+2], 0)
+
+    def test_final_disposition_removes_high_score_pending_support_before_satellite_review(self):
+        ctx, report, _ = scene([([0, 0, 0], [1, 0, 0])])
+        main_count = len(ctx.positions)
+        satellite = np.c_[np.linspace(.4, .405, 10), np.full(10, .2), np.zeros(10)]
+        # These high-score pending rows are only 1 mm from the low-score,
+        # detached assigned satellite.  The original ordering let them protect it.
+        pending = satellite + np.array([0., .001, 0.])
+        ctx.positions = np.vstack([ctx.positions, satellite, pending])
+        ctx.normals = np.vstack([ctx.normals, np.tile([0., 0., 1.], (len(satellite) + len(pending), 1))])
+        for name, values in vars(ctx).items():
+            if name in ('positions', 'normals'):
+                continue
+            if name in ('refined_class', 'refined_zone'):
+                extra = np.full(len(satellite) + len(pending), 3, values.dtype)
+            elif name == 'internal_type':
+                extra = np.r_[np.ones(len(satellite)), np.full(len(pending), 4)].astype(values.dtype)
+            elif name in ('internal_instance', 'internal_segment'):
+                extra = np.r_[np.ones(len(satellite)), np.zeros(len(pending))].astype(values.dtype)
+            else:
+                extra = np.r_[np.full(len(satellite), .9), np.zeros(len(pending))].astype(values.dtype)
+            setattr(ctx, name, np.r_[values, extra])
+        ctx.fused_steel_score = np.r_[np.ones(main_count), np.full(len(satellite), .2), np.ones(len(pending))]
+        satellite_rows = np.arange(main_count, main_count + len(satellite))
+        pending_rows = np.arange(main_count + len(satellite), len(ctx.positions))
+        stages = []
+        original_terminal = rebar_terminal_polish.polish_fixture_terminals
+        original_tail = design_guided_instances.filter_overlength_tails
+        original_fragment = rebar_cluster_quality.final_fragment_filter
+
+        def terminal(*args, **kwargs):
+            stages.append('terminal')
+            return original_terminal(*args, **kwargs)
+
+        def tails(*args, **kwargs):
+            stages.append('tail')
+            return original_tail(*args, **kwargs)
+
+        def fragment(context, out, **kwargs):
+            self.assertEqual(stages, ['terminal', 'tail'])
+            np.testing.assert_array_equal(out['complete_class'][pending_rows], 4)
+            np.testing.assert_array_equal(out['complete_instance'][pending_rows], 0)
+            return original_fragment(context, out, **kwargs)
+
+        with patch.object(rebar_terminal_polish, 'polish_fixture_terminals', terminal), \
+             patch.object(design_guided_instances, 'filter_overlength_tails', tails), \
+             patch.object(rebar_cluster_quality, 'final_fragment_filter', fragment):
+            result = refine_instances(ctx, report, inventory([([0, 0, 0], [1, 0, 0])]))
+        np.testing.assert_array_equal(ctx.complete_class[:main_count], 3)
+        np.testing.assert_array_equal(ctx.complete_class[satellite_rows], 4)
+        np.testing.assert_array_equal(ctx.complete_class[pending_rows], 4)
+        self.assertEqual(result['designReview']['finalDenoising']['assignedSatellitePointCount'], len(satellite))
 
 
 if __name__ == '__main__':

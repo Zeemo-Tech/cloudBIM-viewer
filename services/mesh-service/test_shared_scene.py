@@ -146,6 +146,13 @@ class SharedSceneTests(unittest.TestCase):
                 self.assertEqual(run.refinement['mode'], 'fusion-pass-through')
                 np.testing.assert_array_equal(run.context.refined_class, run.context.fused_class)
                 self.assertFalse(run.context.refined_changed.any())
+                for alias, source in [('refined_class', 'fused_class'), ('refined_region', 'fused_region'),
+                                      ('refined_zone', 'partition_zone')]:
+                    view = getattr(run.context, alias)
+                    self.assertTrue(np.shares_memory(view, getattr(run.context, source)))
+                    with self.assertRaises(ValueError):
+                        view[0] = 0
+                    self.assertFalse((path/f'{alias}.npy').exists())
                 both = (run.context.classification_cache['source_steel_evidence'] &
                         run.context.projection_cache['source_steel_evidence'] & (run.context.fused_class == 3))
                 np.testing.assert_array_equal(run.context.fused_steel_score == 1, both)
@@ -171,7 +178,10 @@ class SharedSceneTests(unittest.TestCase):
             ids = np.fromfile(result.directory/'preview/source_indices.bin', dtype='<u8')
             for name, preview_name, dtype in (
                 ('shared_table_mask', 'shared_table_mask', 'u1'), ('partition_zone', 'partition_zones', 'u1'),
-                ('fused_steel_score', 'fused_steel_score', '<f4'), ('fused_steel_evidence', 'fused_steel_evidence', 'u1')):
+                ('fused_steel_score', 'fused_steel_score', '<f4'), ('fused_steel_evidence', 'fused_steel_evidence', 'u1'),
+                ('refined_class', 'refined_classes', 'u1'), ('refined_region', 'refined_regions', 'u1'),
+                ('refined_zone', 'refined_zones', 'u1'), ('refined_changed', 'refined_changed', 'u1'),
+                ('refined_reason', 'refined_reasons', 'u1')):
                 expected = getattr(result.context, name)
                 np.testing.assert_array_equal(saved[name], expected)
                 np.testing.assert_array_equal(np.load(result.directory/f'{name}.npy'), expected)

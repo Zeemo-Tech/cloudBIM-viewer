@@ -188,15 +188,27 @@ def refine_regions(context, region_report, *, workers=1, params=None, output=Non
     return report
 
 
-def reuse_fusion_partition(context, region_report, *, output):
-    """Retain legacy attribute names without a second classification pass."""
+def reuse_fusion_partition(context, region_report, *, output=None):
+    """Bind read-only compatibility views; materialize only for legacy callers.
+
+    The shared algorithm has no refinement pass. Publishing callers write these
+    views to their legacy NPY/LAS columns after computation has finished.
+    """
     if context.fused_class is None or context.partition_zone is None:
         raise ValueError('需要本轮融合结果与共享分区')
-    output['refined_class'][:] = context.fused_class
-    output['refined_region'][:] = context.fused_region
-    output['refined_zone'][:] = context.partition_zone
-    output['refined_changed'][:] = 0
-    output['refined_reason'][:] = 0
+    sources = {'refined_class': context.fused_class, 'refined_region': context.fused_region,
+               'refined_zone': context.partition_zone}
+    if output is None:
+        output = {name: np.asarray(source).view() for name, source in sources.items()}
+        zero = np.broadcast_to(np.array(0, np.uint8), (len(context.positions),))
+        output.update(refined_changed=zero, refined_reason=zero)
+        for array in output.values():
+            array.flags.writeable = False
+    else:
+        for name, source in sources.items():
+            output[name][:] = source
+        output['refined_changed'][:] = 0
+        output['refined_reason'][:] = 0
     for name, array in output.items():
         setattr(context, name, array)
     context.refinement_cache = {}

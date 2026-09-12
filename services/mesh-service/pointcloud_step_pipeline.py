@@ -22,7 +22,7 @@ from algorithms.internal_rebar import ATTRIBUTES as INTERNAL_ATTRIBUTES
 from algorithms.rebar_extension import ATTRIBUTES as COMPLETE_ATTRIBUTES
 from algorithms.design_prior_refinement import ATTRIBUTES as PRIOR_ATTRIBUTES, MODES as PRIOR_MODES, refine_design_prior
 from rebar_design_inputs import resolve_design_inputs, VERSION as DESIGN_INPUT_VERSION
-from algorithms.design_guided_instances import refine_instances
+from algorithms.design_guided_instances import refine_instances, VERSION as GUIDED_VERSION
 
 
 ATTRIBUTES = {"normal_x": "<f4", "normal_y": "<f4", "normal_z": "<f4",
@@ -344,8 +344,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             np.savez(directory / "region-features.npz", **context.region_cache)
         if refinement is not None and context.refinement_cache is not None:
             np.savez(directory / "refinement-features.npz", **context.refinement_cache)
+            # Legacy files belong to publication, not another algorithm stage.
+            # Runtime views remain read-only and share the fused source arrays.
+            for name in REFINEMENT_ATTRIBUTES:
+                np.save(directory / f'{name}.npy', arrays[name], allow_pickle=False)
         for array in [positions, colors, *arrays.values()]:
-            array.flush()
+            if isinstance(array, np.memmap):
+                array.flush()
         timing["persistS"] = time.perf_counter() - t0
         t0 = time.perf_counter()
         progress("生成效果预览", 0, 1)
@@ -365,7 +370,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         valid = int(np.count_nonzero(context.normal_valid))
         timing["totalS"] = time.perf_counter() - started
         manifest = {
-            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
+            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ("+" + GUIDED_VERSION if through_step == 7 else ""), "runId": run_id,
             "createdAt": datetime.now(timezone.utc).isoformat(), "completed": True,
             "runMode": "fresh-source-all-steps", "orientation": "unoriented",
             "source": {"name": source.name, "path": str(source), "sha256": digest, "pointCount": count,

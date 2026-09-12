@@ -15,7 +15,7 @@ from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters,
 from .design_prior_refinement import PriorParameters, _candidates
 from .rebar_overlength_tails import CLUSTER_CARRY, DIRECT_EXTENSION, filter_overlength_tails
 
-VERSION = 'design-guided-instances-v15-overlength-tail-recovery'
+VERSION = 'design-guided-instances-v16-final-unassigned-disposition'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -819,40 +819,11 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             'fixtureNearFraction':e['fixtureNearFraction'],'fixtureSurfaceFraction':e['fixtureSurfaceFraction'],
             'extraInstancePenalty':params.extra_instance_penalty if extra else 0.})
         if not np.any(out['complete_instance'][rows]):a['instanceId']=0;choices[i]=None
-    # Step 05 has already checked inner support. Here check only still-loose
-    # non-high-score exterior rows against surviving observed finite rods; a design
-    # line cannot provide the missing physical support.
-    exterior_denoising = {'removedPointCount': 0}
-    review_score = np.zeros(count, bool) if fused_scores is None else np.asarray(fused_scores) < PROTECTION_THRESHOLD
-    pending_suspect = np.flatnonzero(review_score & (context.refined_zone != 1) &
-                                    (out['complete_class'] == 3) & (out['complete_instance'] == 0) & ~hook_protected)
-    if len(pending_suspect):
-        from .floating_noise import floating_noise_mask
-        live_counts = np.bincount(out['complete_segment'], minlength=next_segment)
-        reliable_segments = [{**s, 'pointCount': int(live_counts[s['id']])} for s in segments
-                             if s['instanceId'] in strong_owners and live_counts[s['id']] > 0]
-        anchors = protected_high & (out['complete_class'] == 3)
-        removed, exterior_denoising = floating_noise_mask(context.positions[pending_suspect],
-            np.full(len(pending_suspect), 4, np.uint8), [], reliable_segments, workers=workers,
-            steel_scores=np.asarray(fused_scores)[pending_suspect], protected=protected_high[pending_suspect],
-            observed_support_points=context.positions[anchors])
-        selected = pending_suspect[removed]
-        out['complete_class'][selected] = 4
-        rejected += len(selected)
-        if len(selected):
-            operations.append({'action': 'filter', 'pointCount': len(selected),
-                'reason': 'non_high_score_exterior_without_observed_support'})
-    progress('第 6 步：最终细小悬浮残片与设计数量形态复核', 0, count)
-    final_cluster_filter = filter_final_clusters(context, out, inventory, associations, hook_protected, cluster_records)
-    rejected += final_cluster_filter['removedPointCount']
-    operations.extend(dict(action='filter', phase='final_after_all_merges', **decision)
-                      for decision in final_cluster_filter['decisions'])
-    final_denoising = final_fragment_filter(context, out, workers=workers, protected=hook_protected)
-    rejected += final_denoising['removedPointCount']
-    if final_denoising['removedPointCount']:
-        operations.append({'action': 'filter', 'phase': 'final_statistics',
-            'pointCount': final_denoising['removedPointCount'],
-            'reason': 'tiny_low_score_components_without_retained_steel_support'})
+    # Final unassigned disposition supersedes the old exterior floating-noise
+    # scan.  It is deliberately delayed until every possible attachment has run.
+    exterior_denoising = dict(removedPointCount=0, enabled=False,
+        supersededBy='final_unassigned_disposition',
+        reason='all remaining unassigned steel candidates are rejected together')
     # Polish after all merges: inner and exterior fragments share their final
     # instance ID.  Local segment ends beside a fixture remain visible even when
     # they are not extrema of that merged instance.
@@ -890,6 +861,26 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         operations.append(dict(action='filter', phase='final_unassigned_noise',
             pointCount=residual_count, reason='unassigned_after_all_instance_processing'))
     rejected += residual_count
+    # Only live assigned rows may now provide support.  This second final review
+    # is intentionally after terminal/tail cleanup and pending disposition, so a
+    # soon-to-be-removed high-score island cannot protect an owned satellite.
+    progress('第 6 步：最终细小悬浮残片与设计数量形态复核', 0, count)
+    final_cluster_filter = filter_final_clusters(
+        context, out, inventory, associations, hook_protected, cluster_records,
+        review_unassigned=False)
+    rejected += final_cluster_filter['removedPointCount']
+    operations.extend(dict(action='filter', phase='final_after_all_merges', **decision)
+                      for decision in final_cluster_filter['decisions'])
+    final_denoising = final_fragment_filter(context, out, workers=workers, protected=hook_protected)
+    rejected += final_denoising['removedPointCount']
+    if final_denoising['removedPointCount']:
+        operations.append({'action': 'filter', 'phase': 'final_statistics',
+            'pointCount': final_denoising['removedPointCount'],
+            'reason': 'tiny_low_score_components_without_retained_steel_support'})
+    # The tail filter returns a snapshot suitable for its own work.  Rebuild the
+    # shared final groups after all later decisions before diagnostics consume it.
+    from .rebar_overlength_tails import retained_instance_groups
+    final_groups = retained_instance_groups(out)
     # Rebuild all point counts from final ownership. Empty original fits/instances
     # are not counted as observed rods. IDs stay stable where possible.
     segment_counts=np.bincount(out['complete_segment'],minlength=next_segment)

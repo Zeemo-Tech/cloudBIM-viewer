@@ -6,7 +6,8 @@ from .design_prior_refinement import _candidates, PriorParameters
 from .rebar_extension import exterior_clusters, ExtensionParameters
 
 
-def filter_final_clusters(context, out, inventory, associations, protected, cluster_records):
+def filter_final_clusters(context, out, inventory, associations, protected, cluster_records,
+                          *, review_unassigned=True):
     units = inventory['units']
     unit_centers = np.array([(np.asarray(u['startM'])+u['endM'])/2 for u in units])
     unit_axes = np.array([u['direction'] for u in units])
@@ -20,7 +21,7 @@ def filter_final_clusters(context, out, inventory, associations, protected, clus
     for owner, group in zip(values, np.split(rows[order], starts[1:])):
         if owner:
             populations.append((int(owner), group))
-        else:
+        elif review_unassigned:
             group = group[~protected[group]]
             if not len(group):
                 continue
@@ -54,7 +55,10 @@ def filter_final_clusters(context, out, inventory, associations, protected, clus
         removedComponentCount=0, removedPointCount=0, highScoreRemovedPointCount=0,
         highScoreOverrideAllowed=True, maximumLengthRatio=.35, maximumPointCountRatio=.35,
         referencePolicy='same design slot winner, otherwise >=3 nearby comparable matched bars',
-        decisions=[], reviewedComponentCount=len(measured))
+        decisions=[], reviewedComponentCount=len(measured),
+        reviewUnassigned=review_unassigned,
+        unassignedPolicy=('clustered_for_diagnostics' if review_unassigned
+                          else 'superseded_by_final_unassigned_disposition'))
     scores = getattr(context, 'fused_steel_score', None)
     for m in measured:
         u = m['candidate']

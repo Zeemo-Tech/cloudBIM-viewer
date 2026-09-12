@@ -114,8 +114,10 @@ class GuidedTests(unittest.TestCase):
                 np.testing.assert_array_equal(ctx.complete_class[count:], 4)
                 np.testing.assert_array_equal(ctx.complete_class[:count], 3)
                 np.testing.assert_array_equal(ctx.positions, before)
-                self.assertEqual(result['designReview']['exteriorDenoising']['removedPointCount'], 2)
-                self.assertEqual(result['designReview']['finalUnassignedNoise']['removedPointCount'], 1)
+                exterior = result['designReview']['exteriorDenoising']
+                self.assertFalse(exterior['enabled'])
+                self.assertEqual(exterior['supersededBy'], 'final_unassigned_disposition')
+                self.assertEqual(result['designReview']['finalUnassignedNoise']['removedPointCount'], 3)
                 self.assertEqual(result['designReview']['finalUnassignedNoise']['highScoreRemovedPointCount'], 1)
                 self.assertEqual(result['unassignedRebarPointCount'], 0)
                 for name in ('complete_instance', 'complete_segment', 'complete_confidence'):

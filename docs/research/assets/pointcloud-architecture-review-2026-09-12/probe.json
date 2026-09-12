@@ -1,0 +1,118 @@
+{
+  "commit": "6d78b3a",
+  "inputRun": ".cloudbim/speed-review-20260912/final/3-candidate/20260912T104253-e5f44619",
+  "source": {
+    "name": "source.las",
+    "path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/source.las",
+    "sha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+    "pointCount": 9216369,
+    "sizeBytes": 184327607,
+    "unchangedDuringRun": true
+  },
+  "pointCount": 9216369,
+  "scope": "single cached Step 06 replay per mode; shared full-source tree built outside timing; no publishing; report provenance may differ",
+  "runs": [
+    {
+      "mode": "baseline",
+      "wallS": 8.421629641990876,
+      "timings": {
+        "exteriorReview": {
+          "elapsedS": 0.552934292005375,
+          "candidates": 588,
+          "removed": 198
+        },
+        "clusterReview": {
+          "elapsedS": 0.20818824900197797,
+          "reviewed": 361,
+          "removed": 12774,
+          "removedOwners": 4
+        },
+        "fragmentReview": {
+          "elapsedS": 0.8739301829918986,
+          "removedPointCount": 0,
+          "removedComponentCount": 0,
+          "reviewedComponentCount": 982,
+          "maximumSpanM": 0.02,
+          "maximumRelativeSpan": 0.08,
+          "maximumScore": 0.5,
+          "assignedSatellitePointCount": 0,
+          "minimumSeparationM": 0.012,
+          "rule": "tiny residuals or detached instance satellites; all scores low; separated from retained steel; largest owned component preserved",
+          "medianObservedSpanM": 0.12013376467657699,
+          "effectiveMaximumSpanM": 0.009610701174126159
+        }
+      },
+      "differingSourceRows": {
+        "complete_class": 0,
+        "complete_instance": 0,
+        "complete_segment": 0,
+        "complete_confidence": 0,
+        "complete_cluster": 0
+      },
+      "counts": {
+        "table": 5315996,
+        "fixture": 1890864,
+        "rebar": 1857478,
+        "noise": 152031
+      },
+      "instanceCount": 210,
+      "finalUnassignedNoise": {
+        "removedPointCount": 3207,
+        "highScoreRemovedPointCount": 2495,
+        "protectedHookRemovedPointCount": 0,
+        "policy": "after all connections and filters, every remaining unassigned steel candidate becomes noise"
+      }
+    },
+    {
+      "mode": "skip_exterior_residual_review",
+      "wallS": 7.893756648001727,
+      "timings": {
+        "exteriorReview": {
+          "elapsedS": 4.439993062987924e-06,
+          "candidates": 588,
+          "removed": 0
+        },
+        "clusterReview": {
+          "elapsedS": 0.21072323800763115,
+          "reviewed": 363,
+          "removed": 12960,
+          "removedOwners": 4
+        },
+        "fragmentReview": {
+          "elapsedS": 0.883028137992369,
+          "removedPointCount": 1,
+          "removedComponentCount": 1,
+          "reviewedComponentCount": 984,
+          "maximumSpanM": 0.02,
+          "maximumRelativeSpan": 0.08,
+          "maximumScore": 0.5,
+          "assignedSatellitePointCount": 0,
+          "minimumSeparationM": 0.012,
+          "rule": "tiny residuals or detached instance satellites; all scores low; separated from retained steel; largest owned component preserved",
+          "medianObservedSpanM": 0.12013376467657699,
+          "effectiveMaximumSpanM": 0.009610701174126159
+        }
+      },
+      "differingSourceRows": {
+        "complete_class": 0,
+        "complete_instance": 0,
+        "complete_segment": 0,
+        "complete_confidence": 0,
+        "complete_cluster": 9154
+      },
+      "counts": {
+        "table": 5315996,
+        "fixture": 1890864,
+        "rebar": 1857478,
+        "noise": 152031
+      },
+      "instanceCount": 210,
+      "finalUnassignedNoise": {
+        "removedPointCount": 3218,
+        "highScoreRemovedPointCount": 2495,
+        "protectedHookRemovedPointCount": 0,
+        "policy": "after all connections and filters, every remaining unassigned steel candidate becomes noise"
+      }
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 """Shared production/workbench segmentation; no artifact publishing or UI work.
 
-The exact same ordered stages power both entry points. Arrays are persisted in
+The exact same ordered stages power both entry points. Computation arrays use
 caller-owned scratch storage so full-source XYZ is never concatenated in RAM.
+Legacy refined_* attributes are read-only views, materialized by the publisher.
 """
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ from .region_refinement import reuse_fusion_partition
 from .internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRIBUTES
 from .rebar_dimension_priors import load_dimension_priors
 
-VERSION = "shared-segmentation-v28-step05-steel-boundary"
+VERSION = "shared-segmentation-v29-evidence-finalization"
 SCENE_ATTRIBUTES = {**SCENE_ATTRIBUTES, **FLOATING_ATTRIBUTES}
 CLASS_ATTRIBUTES = {"geometry_class": "u1", "geometry_support": "<f4", "geometry_recovered": "u1"}
 PROJECTION_ATTRIBUTES = {"projection_class": "u1", "projection_layer": "u1"}
@@ -155,13 +156,11 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
         regions = partition_region_report(context, context.fused_region)
         timing["regionsS"] = time.perf_counter()-t0
     if through_step >= 5:
+        t0 = time.perf_counter()
+        refinement = reuse_fusion_partition(context, regions)
         for name, dtype in REFINEMENT_ATTRIBUTES.items():
             shapes[name] = ((count,), dtype)
-            arrays[name] = np.lib.format.open_memmap(directory / f"{name}.npy", mode="w+", dtype=dtype, shape=(count,))
-        t0 = time.perf_counter()
-        with threadpool_limits(limits=1):
-            refinement = reuse_fusion_partition(context, regions,
-                output={name: arrays[name] for name in REFINEMENT_ATTRIBUTES})
+            arrays[name] = getattr(context, name)
         timing['refinementS'] = time.perf_counter()-t0
     if through_step >= 6:
         for name, dtype in INTERNAL_ATTRIBUTES.items():
