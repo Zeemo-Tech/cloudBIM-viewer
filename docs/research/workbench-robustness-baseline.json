@@ -1,0 +1,21 @@
+{
+  "codeCommit": "b24758139f97b879fcf9a248265e0c9aed66d741",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "sourcePoints": 9216369,
+  "runId": "20260912T040926-50718a97",
+  "workers": 16,
+  "k": 32,
+  "priorMode": "topology",
+  "robustnessMode": "off",
+  "elapsedS": 40.88583925399871,
+  "expectedUnits": 210,
+  "acceptanceVersion": "observed-design-acceptance-v1",
+  "initialAcceptanceFailures": {
+    "length": 22,
+    "diameter": 17,
+    "position": 33,
+    "unsupported_surface": 2,
+    "direction": 132
+  },
+  "notes": "Immutable reference; full acceptance details are emitted by evaluate-workbench-acceptance.py. A straight-unit source assignment is required; endpoints from old piecewise reports are not used."
+}
