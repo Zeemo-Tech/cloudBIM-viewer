@@ -1,0 +1,515 @@
+{
+  "codeCommit": "850d65c",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "workers": 16,
+  "k": 32,
+  "baselineCommit": "b24758139f97b879fcf9a248265e0c9aed66d741",
+  "frozenBaselineSeconds": 40.88583925399871,
+  "matrix": [
+    {
+      "mode": "off",
+      "runId": "20260912T061018-76149aa5",
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/worktrees/robustness/.cloudbim/robustness-validation/verified-matrix/off/20260912T061018-76149aa5",
+      "timings": {
+        "readS": 0.1815426950051915,
+        "treeS": 1.8051773049955955,
+        "normalsS": 5.381816903987783,
+        "preprocessingS": 4.368452430993784,
+        "classificationS": 6.1035238379990915,
+        "projectionS": 8.281775734998519,
+        "classifiersWallS": 8.28339576999133,
+        "fusionS": 0.7746531480079284,
+        "regionsS": 0.032716107001760975,
+        "refinementS": 0.03466186700097751,
+        "internalRebarS": 7.830390442992211,
+        "guidedInstancesS": 8.879638243000954,
+        "persistS": 9.622963300993433,
+        "previewS": 0.7213839780015405,
+        "totalS": 47.92669167999702
+      },
+      "status": "failed",
+      "geometryPassed": false,
+      "expected": 210,
+      "observed": 210,
+      "failedInstances": 171,
+      "missing": [],
+      "duplicates": [],
+      "topologyFailures": 243
+    },
+    {
+      "mode": "on",
+      "runId": "20260912T061108-dcdf67e6",
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/worktrees/robustness/.cloudbim/robustness-validation/verified-matrix/on/20260912T061108-dcdf67e6",
+      "timings": {
+        "readS": 0.1710635219933465,
+        "treeS": 1.7887206209998112,
+        "normalsS": 5.385518888011575,
+        "preprocessingS": 4.444839503004914,
+        "classificationS": 6.022338087001117,
+        "projectionS": 8.35593367399997,
+        "classifiersWallS": 8.357533029004117,
+        "fusionS": 0.7619005129963625,
+        "regionsS": 0.032372405999922194,
+        "refinementS": 0.03517916300916113,
+        "designEvidenceS": 16.731370369991055,
+        "internalRebarS": 7.752729266998358,
+        "guidedInstancesS": 9.095025596005144,
+        "designAssignmentAcceptanceS": 5.081457672000397,
+        "persistS": 2.625663184982841,
+        "previewS": 0.7207702259911457,
+        "totalS": 62.99648757498653
+      },
+      "status": "failed",
+      "geometryPassed": false,
+      "expected": 210,
+      "observed": 210,
+      "failedInstances": 169,
+      "missing": [],
+      "duplicates": [],
+      "topologyFailures": 236,
+      "changedClassPoints": 5139,
+      "newSteelPoints": 4547,
+      "removedSteelPoints": 381
+    },
+    {
+      "mode": "no-candidates",
+      "runId": "20260912T061212-c7276fa3",
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/worktrees/robustness/.cloudbim/robustness-validation/verified-matrix/no-candidates/20260912T061212-c7276fa3",
+      "timings": {
+        "readS": 0.17931045600562356,
+        "treeS": 1.785292179993121,
+        "normalsS": 5.191874516996904,
+        "preprocessingS": 4.323526591004338,
+        "classificationS": 6.091521083988482,
+        "projectionS": 8.142866953989142,
+        "classifiersWallS": 8.1444698300038,
+        "fusionS": 0.75921515400114,
+        "regionsS": 0.03273694599920418,
+        "refinementS": 0.035516725009074435,
+        "designEvidenceS": 0.06500719000177924,
+        "internalRebarS": 7.706713988998672,
+        "guidedInstancesS": 8.938231715001166,
+        "designAssignmentAcceptanceS": 1.6371541550033726,
+        "persistS": 2.6150243430020055,
+        "previewS": 0.7309386459965026,
+        "totalS": 42.15688925598806
+      },
+      "status": "failed",
+      "geometryPassed": false,
+      "expected": 210,
+      "observed": 210,
+      "failedInstances": 171,
+      "missing": [],
+      "duplicates": [],
+      "topologyFailures": 243,
+      "changedClassPoints": 0,
+      "newSteelPoints": 0,
+      "removedSteelPoints": 0
+    },
+    {
+      "mode": "no-reclassification",
+      "runId": "20260912T061256-ac87dcb0",
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/worktrees/robustness/.cloudbim/robustness-validation/verified-matrix/no-reclassification/20260912T061256-ac87dcb0",
+      "timings": {
+        "readS": 0.17512378700484987,
+        "treeS": 1.7911647029977757,
+        "normalsS": 5.578542351999204,
+        "preprocessingS": 4.3903967720107175,
+        "classificationS": 6.105597119996673,
+        "projectionS": 8.154775734001305,
+        "classifiersWallS": 8.156413010001415,
+        "fusionS": 0.7684509300015634,
+        "regionsS": 0.03276348899817094,
+        "refinementS": 0.035325589997228235,
+        "designEvidenceS": 16.961395186997834,
+        "internalRebarS": 7.7715876159927575,
+        "guidedInstancesS": 8.974323385002208,
+        "designAssignmentAcceptanceS": 5.079827957000816,
+        "persistS": 2.557671672999277,
+        "previewS": 0.7162230560061289,
+        "totalS": 63.00188645700109
+      },
+      "status": "failed",
+      "geometryPassed": false,
+      "expected": 210,
+      "observed": 210,
+      "failedInstances": 169,
+      "missing": [],
+      "duplicates": [],
+      "topologyFailures": 235,
+      "changedClassPoints": 1160,
+      "newSteelPoints": 973,
+      "removedSteelPoints": 187
+    },
+    {
+      "mode": "no-topology",
+      "runId": "20260912T061400-fb460daf",
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/worktrees/robustness/.cloudbim/robustness-validation/verified-matrix/no-topology/20260912T061400-fb460daf",
+      "timings": {
+        "readS": 0.17763631300476845,
+        "treeS": 1.7877121360070305,
+        "normalsS": 5.265650966000976,
+        "preprocessingS": 4.480099156993674,
+        "classificationS": 6.16519959300058,
+        "projectionS": 8.151742475005449,
+        "classifiersWallS": 8.153233952994924,
+        "fusionS": 0.773090303002391,
+        "regionsS": 0.03242683899588883,
+        "refinementS": 0.035443713000859134,
+        "designEvidenceS": 16.667371415998787,
+        "internalRebarS": 7.777399261991377,
+        "guidedInstancesS": 9.049991766005405,
+        "designAssignmentAcceptanceS": 2.385332384001231,
+        "persistS": 2.5675984300032724,
+        "previewS": 0.7226760410121642,
+        "totalS": 59.88744809599302
+      },
+      "status": "failed",
+      "geometryPassed": false,
+      "expected": 210,
+      "observed": 210,
+      "failedInstances": 169,
+      "missing": [],
+      "duplicates": [],
+      "topologyFailures": 236,
+      "changedClassPoints": 5139,
+      "newSteelPoints": 4547,
+      "removedSteelPoints": 381
+    }
+  ],
+  "audit": {
+    "codeCommit": "850d65c",
+    "sourcePointCount": 9216369,
+    "offVsFrozenBaseline": {
+      "normals": 0,
+      "normal_valid": 0,
+      "shared_table_mask": 0,
+      "partition_zone": 0,
+      "shared_layer": 0,
+      "shared_floating_noise": 0,
+      "geometry_class": 0,
+      "projection_class": 0,
+      "fused_class": 0,
+      "fused_steel_score": 0,
+      "internal_type": 0,
+      "internal_instance": 0,
+      "complete_class": 0,
+      "complete_instance": 0
+    },
+    "frozenInputsOnVsOff": {
+      "normals": 0,
+      "normal_valid": 0,
+      "shared_table_mask": 0,
+      "partition_zone": 0,
+      "shared_layer": 0,
+      "shared_floating_noise": 0,
+      "geometry_class": 0,
+      "projection_class": 0,
+      "fused_class": 0,
+      "fused_steel_score": 0
+    },
+    "hardBoundarySteelPoints": 0,
+    "step05RemovedRestoredPoints": 0,
+    "lasNpySourceRowsVerified": 9216369,
+    "verifiedGeometryRegions": {
+      "instances": 39,
+      "points": 390231,
+      "removedSteelPoints": 0,
+      "wrongDesignOwnershipPoints": 0,
+      "regressedUnits": []
+    },
+    "failureReasons": {
+      "off": {
+        "length": 22,
+        "diameter": 17,
+        "position": 33,
+        "unsupported_surface": 2,
+        "direction": 132
+      },
+      "on": {
+        "length": 21,
+        "diameter": 18,
+        "position": 33,
+        "unsupported_surface": 2,
+        "direction": 130
+      },
+      "no-candidates": {
+        "length": 22,
+        "diameter": 17,
+        "position": 33,
+        "unsupported_surface": 2,
+        "direction": 132
+      },
+      "no-reclassification": {
+        "length": 21,
+        "diameter": 18,
+        "position": 33,
+        "unsupported_surface": 2,
+        "direction": 130
+      },
+      "no-topology": {
+        "length": 21,
+        "diameter": 18,
+        "position": 33,
+        "unsupported_surface": 2,
+        "direction": 130
+      }
+    }
+  },
+  "engineeringScenes": [
+    {
+      "case": "baseline",
+      "sourcePoints": 117025,
+      "finalInstanceCount": 4,
+      "steelPrecision": 1.0,
+      "recallByGroup": {
+        "fixture": 1.0,
+        "noiseInner": 1.0,
+        "noiseOuter": 1.0,
+        "steel6": 1.0,
+        "steel8": 1.0,
+        "table": 1.0
+      },
+      "ownershipByRod": {
+        "('steel6', True)": {
+          "ids": [
+            1
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel6', False)": {
+          "ids": [
+            2
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', True)": {
+          "ids": [
+            3
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', False)": {
+          "ids": [
+            4
+          ],
+          "unassignedPoints": 0
+        }
+      },
+      "geometryPassed": true
+    },
+    {
+      "case": "density75",
+      "sourcePoints": 87669,
+      "finalInstanceCount": 4,
+      "steelPrecision": 1.0,
+      "recallByGroup": {
+        "fixture": 1.0,
+        "noiseInner": 1.0,
+        "noiseOuter": 1.0,
+        "steel6": 1.0,
+        "steel8": 1.0,
+        "table": 1.0
+      },
+      "ownershipByRod": {
+        "('steel6', True)": {
+          "ids": [
+            2
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel6', False)": {
+          "ids": [
+            1
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', True)": {
+          "ids": [
+            4
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', False)": {
+          "ids": [
+            3
+          ],
+          "unassignedPoints": 0
+        }
+      },
+      "geometryPassed": true
+    },
+    {
+      "case": "density50",
+      "sourcePoints": 58580,
+      "finalInstanceCount": 4,
+      "steelPrecision": 1.0,
+      "recallByGroup": {
+        "fixture": 1.0,
+        "noiseInner": 1.0,
+        "noiseOuter": 1.0,
+        "steel6": 1.0,
+        "steel8": 1.0,
+        "table": 1.0
+      },
+      "ownershipByRod": {
+        "('steel6', True)": {
+          "ids": [
+            2
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel6', False)": {
+          "ids": [
+            1
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', True)": {
+          "ids": [
+            4
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', False)": {
+          "ids": [
+            3
+          ],
+          "unassignedPoints": 0
+        }
+      },
+      "geometryPassed": true
+    },
+    {
+      "case": "noise_sigma_0.25mm",
+      "sourcePoints": 117025,
+      "finalInstanceCount": 4,
+      "steelPrecision": 1.0,
+      "recallByGroup": {
+        "fixture": 1.0,
+        "noiseInner": 1.0,
+        "noiseOuter": 1.0,
+        "steel6": 1.0,
+        "steel8": 1.0,
+        "table": 1.0
+      },
+      "ownershipByRod": {
+        "('steel6', True)": {
+          "ids": [
+            1
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel6', False)": {
+          "ids": [
+            2
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', True)": {
+          "ids": [
+            3
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', False)": {
+          "ids": [
+            4
+          ],
+          "unassignedPoints": 0
+        }
+      },
+      "geometryPassed": true
+    },
+    {
+      "case": "10mm_occlusion",
+      "sourcePoints": 116641,
+      "finalInstanceCount": 4,
+      "steelPrecision": 1.0,
+      "recallByGroup": {
+        "fixture": 1.0,
+        "noiseInner": 1.0,
+        "noiseOuter": 1.0,
+        "steel6": 1.0,
+        "steel8": 1.0,
+        "table": 1.0
+      },
+      "ownershipByRod": {
+        "('steel6', True)": {
+          "ids": [
+            1
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel6', False)": {
+          "ids": [
+            2
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', True)": {
+          "ids": [
+            3
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', False)": {
+          "ids": [
+            4
+          ],
+          "unassignedPoints": 0
+        }
+      },
+      "geometryPassed": true
+    },
+    {
+      "case": "upper_half_surface",
+      "sourcePoints": 99381,
+      "finalInstanceCount": 4,
+      "steelPrecision": 1.0,
+      "recallByGroup": {
+        "fixture": 1.0,
+        "noiseInner": 1.0,
+        "noiseOuter": 1.0,
+        "steel6": 1.0,
+        "steel8": 1.0,
+        "table": 1.0
+      },
+      "ownershipByRod": {
+        "('steel6', True)": {
+          "ids": [
+            6
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel6', False)": {
+          "ids": [
+            5
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', True)": {
+          "ids": [
+            3
+          ],
+          "unassignedPoints": 0
+        },
+        "('steel8', False)": {
+          "ids": [
+            4
+          ],
+          "unassignedPoints": 0
+        }
+      },
+      "geometryPassed": true
+    }
+  ],
+  "tests": {
+    "pythonAlgorithmTests": 108,
+    "pythonApiTests": 12,
+    "javascriptSuites": 4,
+    "fullManifestLoadChecks": 2,
+    "realBrowserInteraction": "unverified: no browser provider available"
+  },
+  "promotion": "disabled; full geometry/topology acceptance failed"
+}
