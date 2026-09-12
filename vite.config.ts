@@ -26,6 +26,10 @@ export default defineConfig(({ mode }) => {
         '/mesh': createProxyConfig(apiProxyTarget),
         '/scans': createProxyConfig(apiProxyTarget),
         '/alignments': createProxyConfig(apiProxyTarget),
+        // Measurement records use a top-level DELETE endpoint in the backend
+        // (`/measurements/:measurementId`) in addition to the asset-scoped
+        // list/create endpoints above.
+        '/measurements': createProxyConfig(apiProxyTarget),
       },
     },
     resolve: {

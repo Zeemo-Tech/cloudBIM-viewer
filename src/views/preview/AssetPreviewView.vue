@@ -9,9 +9,11 @@ import {
   FullScreen,
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import { getAssetDetail } from '@/api/backend-file'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import RebarSegmentationPanel from '@/components/preview/RebarSegmentationPanel.vue'
+import PointcloudAxesTriad from '@/components/preview/PointcloudAxesTriad.vue'
 import PointcloudViewCube from '@/components/preview/PointcloudViewCube.vue'
 import PointcloudColorRangeBar, {
   type PointcloudColorRamp,
@@ -71,6 +73,7 @@ const rebarResult = ref<RebarSegmentationResult | null>(null)
 const rebarInspection = ref<RebarInspection | null>(null)
 const measurementBackendIds = new Map<string, number>()
 let measurementLoadToken = 0
+let pointcloudAppearanceLoadToken = 0
 
 const bimControls = reactive({
   showAxes: true,
@@ -80,7 +83,7 @@ const bimControls = reactive({
 })
 
 const pointcloudControls = reactive({
-  showAxes: false,
+  showAxes: true,
   showGrid: false,
   sectionEnabled: false,
   colorMode: 'intensity' as PointcloudColorMode | 'original' | 'custom',
@@ -168,7 +171,9 @@ function applyPanelSettings() {
     return
   }
 
-  panel.setShowAxes?.(pointcloudControls.showAxes)
+  // Match the calibration page: this setting controls the camera-linked
+  // viewport triad, not an additional world-space AxesHelper in the scene.
+  panel.setShowAxes?.(false)
   panel.setShowGrid?.(pointcloudControls.showGrid)
   panel.setSectionState?.(pointcloudControls.sectionEnabled)
   if (pointcloudControls.colorMode === 'custom') {
@@ -214,6 +219,34 @@ function handlePointcloudColorStats(stats: {
   hasRgb: boolean
 }) {
   pointcloudIntensityHistogram.value = stats.histogram
+}
+
+function normalizePointcloudColor(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() || ''
+  return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : null
+}
+
+async function loadPointcloudAppearance() {
+  const assetId = props.assetId
+  const token = ++pointcloudAppearanceLoadToken
+  if (props.previewType !== 'pointcloud' || !assetId) return
+
+  try {
+    const response = await getAssetDetail(assetId)
+    if (token !== pointcloudAppearanceLoadToken) return
+
+    const savedColor = normalizePointcloudColor(response.data?.pointcloudColor)
+    if (savedColor) {
+      pointcloudControls.pointColor = savedColor
+      pointcloudControls.colorMode = 'custom'
+    } else {
+      pointcloudControls.colorMode = 'original'
+    }
+  } catch (error) {
+    if (token === pointcloudAppearanceLoadToken) {
+      console.warn('[AssetPreview] 读取点云显示颜色失败', error)
+    }
+  }
 }
 
 function handleRebarResult(result: RebarSegmentationResult | null) {
@@ -398,6 +431,7 @@ watch(
     pointcloudControls.showGrid,
     pointcloudControls.sectionEnabled,
     pointcloudControls.colorMode,
+    pointcloudControls.pointColor,
     pointcloudColorRamp.value,
     pointcloudColorRange.value.min,
     pointcloudColorRange.value.max,
@@ -416,6 +450,7 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', syncFullscreenState)
   applyPanelSettings()
   void loadMeasurements()
+  void loadPointcloudAppearance()
 })
 
 onBeforeUnmount(() => {
@@ -430,6 +465,7 @@ watch(
     rebarResult.value = null
     rebarInspection.value = null
     void loadMeasurements()
+    void loadPointcloudAppearance()
   },
 )
 </script>
@@ -643,12 +679,11 @@ watch(
         @roll="rollPointcloudView"
       />
 
-      <div class="pointcloud-axes-triad" aria-hidden="true">
-        <span class="axis axis-x">X</span>
-        <span class="axis axis-y">Y</span>
-        <span class="axis axis-z">Z</span>
-        <i></i>
-      </div>
+      <PointcloudAxesTriad
+        v-show="pointcloudControls.showAxes"
+        class="preview-pointcloud-axes-triad"
+        :pose="pointcloudCameraPose"
+      />
 
       <PointcloudColorRangeBar
         v-model:range="pointcloudColorRange"
@@ -1253,67 +1288,14 @@ watch(
   font-variant-numeric: tabular-nums;
 }
 
-.pointcloud-axes-triad {
+.preview-pointcloud-axes-triad {
   position: absolute;
   z-index: 25;
-  left: 24px;
-  bottom: 24px;
-  width: 88px;
-  height: 88px;
+  left: 8px;
+  bottom: 8px;
+  width: 112px;
+  height: 112px;
   pointer-events: none;
-}
-
-.pointcloud-axes-triad i {
-  position: absolute;
-  left: 42px;
-  bottom: 40px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #dbe5f8;
-}
-
-.pointcloud-axes-triad .axis {
-  position: absolute;
-  left: 44px;
-  bottom: 42px;
-  width: 34px;
-  height: 2px;
-  transform-origin: left center;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.pointcloud-axes-triad .axis::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-}
-
-.pointcloud-axes-triad .axis::after {
-  content: '';
-  position: absolute;
-  right: -1px;
-  top: -3px;
-  border-left: 6px solid currentColor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-}
-
-.pointcloud-axes-triad .axis-x {
-  color: #f06969;
-  transform: rotate(12deg);
-}
-
-.pointcloud-axes-triad .axis-y {
-  color: #6ecb8b;
-  transform: rotate(-108deg);
-}
-
-.pointcloud-axes-triad .axis-z {
-  color: #72a8f2;
-  transform: rotate(142deg);
 }
 
 .pointcloud-viewer-status {

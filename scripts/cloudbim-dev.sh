@@ -210,7 +210,9 @@ start() {
   require_command npm
   require_command curl
   require_command lsof
-  require_command setsid
+  # GNU coreutils `setsid` is not installed by default on macOS. The
+  # frontend does not require a separate session there, so fall back to
+  # `nohup` when setsid is unavailable.
 
   mkdir -p "$RUNTIME_DIR"
   ensure_env_files
@@ -234,9 +236,15 @@ start() {
 
   if ! pid_is_running "$FRONTEND_PID_FILE"; then
     log "Starting frontend"
-    setsid env "VITE_API_PROXY_TARGET=http://127.0.0.1:$BACKEND_PORT" \
-      "$ROOT_DIR/node_modules/.bin/vite" --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" \
-      >"$RUNTIME_DIR/frontend.log" 2>&1 < /dev/null &
+    if command -v setsid >/dev/null 2>&1; then
+      setsid env "VITE_API_PROXY_TARGET=http://127.0.0.1:$BACKEND_PORT" \
+        "$ROOT_DIR/node_modules/.bin/vite" --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" \
+        >"$RUNTIME_DIR/frontend.log" 2>&1 < /dev/null &
+    else
+      nohup env "VITE_API_PROXY_TARGET=http://127.0.0.1:$BACKEND_PORT" \
+        "$ROOT_DIR/node_modules/.bin/vite" --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" \
+        >"$RUNTIME_DIR/frontend.log" 2>&1 < /dev/null &
+    fi
     echo $! >"$FRONTEND_PID_FILE"
   fi
 
