@@ -22,6 +22,7 @@ from algorithms.internal_rebar import ATTRIBUTES as INTERNAL_ATTRIBUTES
 from algorithms.rebar_extension import ATTRIBUTES as COMPLETE_ATTRIBUTES
 from algorithms.design_prior_refinement import ATTRIBUTES as PRIOR_ATTRIBUTES, MODES as PRIOR_MODES, refine_design_prior
 from rebar_design_inputs import resolve_design_inputs, VERSION as DESIGN_INPUT_VERSION
+from algorithms.design_evidence_contract import MODES as ROBUSTNESS_MODES, VERSION as ROBUSTNESS_VERSION, ATTRIBUTES as REVIEW_ATTRIBUTES
 from algorithms.design_guided_instances import refine_instances
 
 
@@ -96,6 +97,8 @@ def write_las(source, output, context, subsets=None):
             attributes.update(INTERNAL_ATTRIBUTES)
         if context.complete_class is not None:
             attributes.update(COMPLETE_ATTRIBUTES)
+        if context.review_state is not None:
+            attributes.update(REVIEW_ATTRIBUTES)
         if getattr(context, 'prior_class', None) is not None:
             attributes.update(PRIOR_ATTRIBUTES)
         for name, dtype in attributes.items():
@@ -146,6 +149,8 @@ def write_las(source, output, context, subsets=None):
                 if getattr(context, 'prior_class', None) is not None:
                     for name in PRIOR_ATTRIBUTES:
                         result[name] = getattr(context, name)[offset:stop]
+                if context.review_state is not None:
+                    for name in REVIEW_ATTRIBUTES:result[name]=getattr(context,name)[offset:stop]
                 writer.write_points(result)
                 for kind, subset_writer in subset_writers.items():
                     final_classes = (context.refined_class if context.refined_class is not None else context.fused_class)
@@ -209,6 +214,8 @@ def write_preview(directory, context, colors, run_id, limit):
         arrays.update({name: getattr(context, name)[ids] for name in COMPLETE_ATTRIBUTES})
     if getattr(context, 'prior_class', None) is not None:
         arrays.update({name: getattr(context, name)[ids] for name in PRIOR_ATTRIBUTES})
+    if context.review_state is not None:
+        arrays.update({name:getattr(context,name)[ids] for name in REVIEW_ATTRIBUTES})
     for name, array in arrays.items():
         array.tofile(preview_dir / f"{name}.bin")
     base = f"/runs/{run_id}/preview"
@@ -217,6 +224,7 @@ def write_preview(directory, context, colors, run_id, limit):
             "sampling": "deterministic evenly spaced source record indices; visualization only",
             **{name + "Url": f"{base}/{name}.bin" for name in ("positions", "normals", "colors", "valid")},
             "sourceIndicesUrl": f"{base}/source_indices.bin",
+            **({name+'Url':f'{base}/{name}.bin' for name in REVIEW_ATTRIBUTES} if context.review_state is not None else {}),
             **({"sharedTableMaskUrl": f"{base}/shared_table_mask.bin", "partitionZonesUrl": f"{base}/partition_zones.bin",
                  "sharedLayersUrl": f"{base}/shared_layers.bin", "sharedFloatingNoiseUrl": f"{base}/shared_floating_noise.bin"}
                if context.shared_table_mask is not None else {}),
@@ -248,7 +256,7 @@ class StepRun:
 
 
 def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, preview_limit=1000000, progress=None, through_step=1,
-                    prior_mode='off', design_prior=None):
+                    prior_mode='off', design_prior=None, robustness_mode='off', robustness_policy=None, acceptance_policy=None, baseline_seconds=None):
     """Always starts at raw source, never resumes a previous algorithm result.
 
     A successful run publishes a self-contained LAS and NPY attribute columns.
@@ -271,6 +279,10 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         raise ValueError('第 06 步需要服务端设计模型、粗配准快照及设计辅助模式')
     if through_step < 7 and prior_mode != 'off':
         raise ValueError('设计辅助仅用于第 06 步（throughStep=7）')
+    if robustness_mode not in ROBUSTNESS_MODES:
+        raise ValueError('robustnessMode 必须为 off / design-evidence')
+    if robustness_mode != 'off' and (through_step < 6 or not isinstance(design_prior,dict)):
+        raise ValueError('设计证据复核需要有效设计快照并至少计算到第 05 步')
     progress = progress or (lambda *args: None)
     started, cpu_started = time.perf_counter(), time.process_time()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
@@ -285,11 +297,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         digest = source_hash(source)
         design_inputs = resolve_design_inputs(design_prior, source, digest)
         inventory = design_inputs.inventory
+        if robustness_mode != 'off' and not inventory.get('units'):
+            raise ValueError('设计证据复核需要已解析的设计直段')
         positions, colors = load_positions(source, directory, progress)
         timing["readS"] = time.perf_counter() - t0
         stages = segment_points(positions, directory, k=k, workers=workers, through_step=min(through_step, 6),
                                 source=source, progress=progress, design_inventory=inventory,
-                                dimension_priors=design_inputs.dimensions)
+                                dimension_priors=design_inputs.dimensions, robustness_mode=robustness_mode, robustness_policy=robustness_policy)
         context, arrays, shapes, computation = stages.context, stages.arrays, stages.shapes, stages.computation
         timing.update(stages.timing)
         preprocessing = stages.preprocessing
@@ -311,6 +325,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             complete_rebar['designReview'].update(snapshotFingerprint=design_prior['fingerprint'],
                 modelInfo=design_prior.get('modelInfo', {}), preparation=design_prior.get('preparation', {}))
             timing['guidedInstancesS'] = complete_rebar['elapsedS']
+        acceptance=None
+        if robustness_mode != 'off' and complete_rebar is not None:
+            from algorithms.design_review import finalize_review
+            began=time.perf_counter()
+            with threadpool_limits(limits=1):
+                acceptance=finalize_review(context,complete_rebar,inventory,acceptance_policy=acceptance_policy)
+            timing['designAssignmentAcceptanceS']=time.perf_counter()-began
         t0 = time.perf_counter()
         progress("持久化点云及法向量属性", 0, 1)
         las_name = "pointcloud-with-classes.las" if classification else "pointcloud-with-normals.las"
@@ -364,13 +385,20 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         timing["persistS"] += time.perf_counter() - t0
         valid = int(np.count_nonzero(context.normal_valid))
         timing["totalS"] = time.perf_counter() - started
+        if acceptance is not None:
+            acceptance.update(elapsedS=timing['totalS'],baselineS=baseline_seconds,performancePassed=None if baseline_seconds is None else timing['totalS']<=acceptance['policy']['max_time_ratio']*baseline_seconds)
+            acceptance['status']=('passed' if acceptance['performancePassed'] else 'pending_performance') if acceptance['geometryPassed'] and acceptance['performancePassed'] is not False else 'failed'
+            atomic_json(directory/'design-acceptance.json',acceptance)
+        if context.design_review_report is not None:
+            atomic_json(directory/'design-evidence.json',context.design_review_report)
         manifest = {
-            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
+            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ('+'+ROBUSTNESS_VERSION if robustness_mode != 'off' else '') + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
             "createdAt": datetime.now(timezone.utc).isoformat(), "completed": True,
             "runMode": "fresh-source-all-steps", "orientation": "unoriented",
             "source": {"name": source.name, "path": str(source), "sha256": digest, "pointCount": count,
                        "sizeBytes": stamp[2], "unchangedDuringRun": True},
-            "priorMode": prior_mode,
+            "priorMode": prior_mode, "robustnessMode": robustness_mode,
+            "acceptance": acceptance, "designEvidence": context.design_review_report,
             "designInputs": design_inputs.report,
             "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step},
             "validNormalCount": valid, "invalidNormalCount": count - valid,
@@ -441,7 +469,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                                              **(PRIOR_ATTRIBUTES if prior_report is not None else {})},
                            "columns": {name: name + ".npy" for name in ("positions", "colors", *shapes)}},
             "preview": preview,
-            "files": {**({'completeSteelLasUrl': f'/runs/{run_id}/complete-steel.las',
+            "files": {**({'designEvidenceUrl':f'/runs/{run_id}/design-evidence.json','designAcceptanceUrl':f'/runs/{run_id}/design-acceptance.json' if acceptance is not None else None} if context.design_review_report is not None else {}), **({'completeSteelLasUrl': f'/runs/{run_id}/complete-steel.las',
                                 'noiseLasUrl': f'/runs/{run_id}/noise-only.las',
                                 'resolvedSteelLasUrl': f'/runs/{run_id}/resolved-steel.las',
                                 'pendingSteelLasUrl': f'/runs/{run_id}/pending-steel.las',

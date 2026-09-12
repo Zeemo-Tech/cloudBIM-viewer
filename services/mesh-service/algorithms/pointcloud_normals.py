@@ -72,6 +72,11 @@ class PointCloudContext:
     complete_segment: np.ndarray | None = None
     complete_confidence: np.ndarray | None = None
     complete_cluster: np.ndarray | None = None
+    review_state: np.ndarray | None = None
+    review_reason: np.ndarray | None = None
+    review_changed: np.ndarray | None = None
+    design_candidates: list | None = None
+    design_review_report: dict | None = None
     dimension_priors: dict | None = None
 
     @classmethod

@@ -66,6 +66,8 @@ def manifest_summary(manifest):
         "createdAt": manifest.get("createdAt"),
         "completed": manifest.get("completed") is True,
         "priorMode": manifest.get("priorMode", "off"),
+        "robustnessMode": manifest.get("robustnessMode", "off"),
+        "acceptanceStatus": (manifest.get("acceptance") or {}).get("status","not-evaluated"),
         "throughStep": parameters.get("throughStep"),
         "source": {"name": source.get("name"), "pointCount": source.get("pointCount")},
         "manifestUrl": f"/runs/{run_id}/manifest.json",
@@ -165,7 +167,7 @@ class DebugState:
         with self.lock:
             return dict(self.state)
 
-    def start(self, k, workers, through_step=6, prior_mode='off'):
+    def start(self, k, workers, through_step=6, prior_mode='off', robustness_mode='off'):
         with self.lock:
             if self.state["status"] == "running":
                 return False
@@ -177,7 +179,7 @@ class DebugState:
                 self.run = None
                 snapshot = prepare_snapshot(self.prior_config) if self.prior_config and through_step >= 2 else None
                 self.run = run_from_source(self.source, self.output, k=k, workers=workers, progress=self.progress,
-                    through_step=through_step, prior_mode=prior_mode, design_prior=snapshot,
+                    through_step=through_step, prior_mode=prior_mode, design_prior=snapshot, robustness_mode=robustness_mode,
                     preview_limit=self.preview_limit)
                 self._install_tiles_mvp()
                 manifest = self.run.manifest
@@ -371,11 +373,16 @@ def handler_for(state, allowed_hosts=()):
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("Expected application/json")
                 params = json.loads(self.rfile.read(length))
-                if not isinstance(params, dict) or set(params) - {"k", "workers", "throughStep", "priorMode"}:
-                    raise ValueError("Only k, workers, throughStep and priorMode may be specified")
+                if not isinstance(params, dict) or set(params) - {"k", "workers", "throughStep", "priorMode", "robustnessMode"}:
+                    raise ValueError("Only k, workers, throughStep, priorMode and robustnessMode may be specified")
                 k, workers = params.get("k", 32), params.get("workers", available_workers())
                 through_step = params.get("throughStep", 6)
                 prior_mode = params.get('priorMode', 'off')
+                robustness_mode=params.get('robustnessMode','off')
+                if robustness_mode not in ('off','design-evidence'):
+                    raise ValueError('robustnessMode 必须为 off / design-evidence')
+                if robustness_mode != 'off' and (type(through_step) is not int or through_step<6 or state.prior_config is None):
+                    raise ValueError('设计证据复核需要设计快照并至少计算到第 05 步')
                 if prior_mode not in PRIOR_MODES:
                     raise ValueError('priorMode 必须为 off / geometry / topology')
                 if through_step == 7 and (prior_mode == 'off' or state.prior_config is None):
@@ -390,7 +397,7 @@ def handler_for(state, allowed_hosts=()):
                     raise ValueError(f"workers 必须是 1–{available_workers()} 的整数")
             except (ValueError, TypeError) as exc:
                 return self.json_response(400, {"error": str(exc)})
-            if not state.start(k, workers, through_step, prior_mode):
+            if not state.start(k, workers, through_step, prior_mode, robustness_mode):
                 return self.json_response(409, {"error": "已有计算正在运行"})
             self.json_response(202, {"status": "running"})
     return Handler
@@ -411,6 +418,7 @@ def main():
     parser.add_argument("--preview-limit", type=int, default=DEFAULT_PREVIEW_LIMIT,
                         help=f"maximum browser preview points (default: {DEFAULT_PREVIEW_LIMIT})")
     parser.add_argument('--prior-config', type=Path, help='server-owned source/model/alignment JSON; never accepted from browser')
+    parser.add_argument('--robustness-mode',choices=('off','design-evidence'),default='off')
     parser.add_argument('--prior-mode', choices=PRIOR_MODES, default='off')
     parser.add_argument("--run", action="store_true", help="run from source immediately after startup")
     parser.add_argument("--compute-only", action="store_true", help="one isolated computation, no HTTP server")
@@ -426,12 +434,14 @@ def main():
         parser.error('Step 06 requires --prior-config and --prior-mode geometry/topology')
     if args.through_step != 7 and args.prior_mode != 'off':
         parser.error('Design assistance requires --through-step 7')
+    if args.robustness_mode != 'off' and (args.through_step<6 or args.prior_config is None):
+        parser.error('Design evidence requires --prior-config and --through-step 6/7')
     if args.preview_limit < 1:
         parser.error('--preview-limit must be positive')
     if args.compute_only:
         snapshot = prepare_snapshot(args.prior_config) if args.prior_config and args.through_step >= 2 else None
         result = run_from_source(source, output, k=args.k, workers=args.workers, through_step=args.through_step,
-            prior_mode=args.prior_mode, design_prior=snapshot, preview_limit=args.preview_limit)
+            prior_mode=args.prior_mode, design_prior=snapshot, robustness_mode=args.robustness_mode, preview_limit=args.preview_limit)
         tile_state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
         tile_state.run = result
         tile_state._install_tiles_mvp()
@@ -444,7 +454,7 @@ def main():
     state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
     server = ThreadingHTTPServer((args.host, args.port), handler_for(state, allowed_hosts))
     if args.run:
-        state.start(args.k, args.workers, args.through_step, args.prior_mode)
+        state.start(args.k, args.workers, args.through_step, args.prior_mode, args.robustness_mode)
     print(f"Point cloud step debugger listening on {args.host}:{args.port}", flush=True)
     print(f"Durable point attributes: {output}", flush=True)
     try:

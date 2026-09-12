@@ -1056,6 +1056,9 @@ async function loadCompletePreview(manifest, fetcher = fetchBytes) {
   if (!manifest.completeRebar) return null;
   const specs = {complete_class: Uint8Array, complete_instance: Uint32Array, complete_segment: Uint32Array, complete_confidence: Float32Array};
   if (manifest.completeRebar.clusters) specs.complete_cluster = Uint32Array;
+  for (const [name, Type] of [['review_state', Uint8Array], ['review_reason', Uint16Array], ['review_changed', Uint8Array]]) {
+    if (manifest.preview[name + 'Url']) specs[name] = Type;
+  }
   const arrays = Object.fromEntries(await Promise.all(Object.entries(specs).map(async ([name, Type]) => {
     const url = manifest.preview[name + 'Url'];
     if (!url) throw new Error('整根钢筋预览缺少 ' + name);
@@ -1161,6 +1164,8 @@ function applyCompleteAppearance() {
   }
   const colors = new Float32Array(classes.length * 3), selected = new Uint32Array(classes.length);
   const filter = $('completeClassFilter').value, instance = $('completeInstanceFilter').value;
+  const conflictUnits = new Set([...(current.acceptance?.topologyFailures || []).flatMap(e=>[e.from,e.to]),...(current.acceptance?.duplicateUnits || [])]);
+  const failedIds = new Set((current.acceptance?.instances || []).filter(r => !r.passed || conflictUnits.has(r.designUnitId)).map(r => r.instanceId));
   const semantic = typeof stepSemanticData === 'function' ? stepSemanticData(current, baseline ? 'internalRebar' : 'completeRebar') : null;
   const useSemantic = semantic && ['resolved', '3', 'all'].includes(filter);
   const desiredTag = typeof preferredSemanticTag === 'string' ? preferredSemanticTag : 'all';
@@ -1170,7 +1175,9 @@ function applyCompleteAppearance() {
   for (let i = 0; i < classes.length; i++) {
     colors.set($('completeColorMode').value === 'clusters' && current._complete.complete_cluster?.[i] ? instanceColor(current._complete.complete_cluster[i]) : classes[i] === 3 && !instances[i] ? instanceColor(0) : classes[i] === 3 && $('completeColorMode').value === 'instances' ? instanceColor(instances[i]) : hexColor(palette[classes[i]]), i * 3);
     const finalId = current._complete.complete_instance[i];
-    const matches = filter === 'resolved' ? classes[i] === 3 && instances[i] > 0
+    const matches = filter === 'review-changed' ? Boolean(current._complete.review_changed?.[i])
+      : filter === 'acceptance-failed' ? failedIds.has(finalId)
+      : filter === 'resolved' ? classes[i] === 3 && instances[i] > 0
       : filter === 'filtered' ? current._refinedClasses?.[i] === 3 && current._internalTypes?.[i] !== 5 && current._complete.complete_class[i] === 4
       : filter === 'merged' ? classes[i] === 3 && finalId > 0 && (mergedIds.has(finalId) || mergedIds.has(current._internalInstances[i]))
       : filter === 'bridged' ? classes[i] === 3 && finalId > 0 && (bridgeIds.has(finalId) || bridgeIds.has(current._internalInstances[i]))
@@ -2520,6 +2527,7 @@ async function loadManifest(manifest) {
     $('classificationStep').disabled = !classes;
     $('projectionStep').disabled = !projectionClasses;
     $('fusionStep').disabled = !fusedClasses;
+    $('refinementStep').textContent = manifest.robustnessMode === 'design-evidence' ? '04 局部设计复核' : '04 空间整理';
     $('refinementStep').hidden = refinementPassThrough;
     $('refinementStep').disabled = !refinedClasses || refinementPassThrough;
     $('internalRebarStep').disabled = !internalTypes;
@@ -2652,7 +2660,8 @@ async function loadManifest(manifest) {
     projectionView = '3d';
     showStep(defaultPreviewStep(manifest, {complete, internalTypes, refinedClasses, fusedClasses, projectionClasses, classes, partitionZones, sharedTableMask}));
     fit(rightScene === 'partition' ? 'top' : 'oblique');
-    setStatus(`完成 · ${manifest.runId}`);
+    if (typeof renderRobustnessReview === 'function') renderRobustnessReview();
+    setStatus(`计算完成 · ${manifest.acceptance ? (manifest.acceptance.status === 'passed' ? '验收通过' : manifest.acceptance.status === 'pending_performance' ? '几何通过，性能未验证' : '验收未通过') : '未执行最终验收'} · ${manifest.runId}`);
     window.pointcloudDebug = { current, renderer, rawScene, normalScene, tableRemovalScene, partitionScene, classScene, projectionScene, fusionScene, refinementScene, internalRebarScene, completeRebarScene, designPriorScene, camera, loadManifest };
   } catch (error) {
     if (token !== loadToken) return;
@@ -2677,6 +2686,8 @@ async function status() {
     if (!priorAvailable && $('priorMode').value !== 'off') { $('priorMode').value = 'off'; if ($('throughStep').value === '7') $('throughStep').value = '6'; }
     for (const option of $('throughStep').options) if (option.value === '7') option.disabled = !priorAvailable;
     const priorSummary = typeof state.priorSummary === 'string' ? state.priorSummary : state.priorSummary ? Object.entries(state.priorSummary).map(([key, value]) => `${key} ${value}`).join(' · ') : '';
+    $('robustnessMode').options[1].disabled = !priorAvailable;
+    if (!priorAvailable) $('robustnessMode').value = 'off';
     $('priorModeHint').textContent = priorAvailable ? `${priorSummary}；01D 将使用该模型划分禁飞区，上方开关仅控制第六步实例整理。` : (priorSummary || '当前源文件没有可用设计先验；仍可运行基线流程。');
     if (Number.isFinite(state.maxWorkers)) {
       $('workers').max = String(state.maxWorkers);
@@ -2711,7 +2722,7 @@ $('run').addEventListener('click', async () => {
     $('run').disabled = true;
     const response = await fetch(`${api}/run`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ k: Number($('k').value), workers: Number($('workers').value), throughStep: Number($('throughStep').value), priorMode: $('priorMode').value }),
+      body: JSON.stringify({ k: Number($('k').value), workers: Number($('workers').value), throughStep: Number($('throughStep').value), priorMode: $('priorMode').value, robustnessMode: $('robustnessMode').value }),
     });
     if (response.status === 409) throw new Error('已有任务正在运行');
     if (!response.ok) throw new Error(await response.text());
@@ -2848,3 +2859,41 @@ $('png').addEventListener('click', () => {
 
 status();
 requestRender();
+
+
+function renderRobustnessReview() {
+  const report = current?.acceptance;
+  $('robustnessPanel').hidden = !report;
+  if (!report) return;
+  $('robustnessBaseline').textContent='一键对比基线';
+  const performance = report.performancePassed == null ? '性能尚未同条件验证' : report.performancePassed ? '性能通过' : '性能超时';
+  $('acceptanceStatus').textContent = `${report.status === 'passed' ? '验收通过' : report.status === 'pending_performance' ? '几何通过，性能未验证' : '验收未通过'} · ${report.observedInstances}/${report.expectedInstances} 实例 · ${report.failedInstances} 项实例不合格 · 缺失 ${report.missingUnits.length} · 重复 ${report.duplicateUnits.length} · 拓扑冲突 ${report.topologyFailures.length} · ${performance}`;
+  const table = $('acceptanceTable'); table.replaceChildren();
+  const header = document.createElement('tr');
+  for (const label of ['实例','长度 实测/设计 mm','位置差 mm','方向差 °','直径 实测/设计 mm','验收']) { const cell=document.createElement('th');cell.textContent=label;header.append(cell); }
+  table.append(header);
+  const mm = value => Number.isFinite(value) ? (value*1000).toFixed(1) : '—';
+  for (const item of report.instances) {
+    const row=document.createElement('tr');row.title=item.designUnitId || '未关联设计';
+    const topology=report.topologyFailures.some(edge => edge.from === item.designUnitId || edge.to === item.designUnitId);
+    for (const value of [`#${item.instanceId}`,`${mm(item.lengthM)}/${mm(item.designLengthM)}`,mm(item.positionErrorM),Number.isFinite(item.angleErrorDegrees) ? item.angleErrorDegrees.toFixed(1) : '—',`${mm(item.diameterM)}/${mm(item.designDiameterM)}`,item.passed && !topology ? '通过' : [...item.reasons,...(topology?['拓扑冲突']:[])].join('、')]) { const cell=document.createElement('td');cell.textContent=value;row.append(cell); }
+    row.style.cursor='pointer';row.onclick=()=>{ $('completeInstanceFilter').value=String(item.instanceId);$('completeClassFilter').value='3';applyCompleteAppearance();fit(lastView); };
+    table.append(row);
+  }
+}
+let robustnessComparisonReturn = null;
+$('robustnessBaseline').addEventListener('click', async () => {
+  if (robustnessComparisonReturn) { const result=robustnessComparisonReturn;robustnessComparisonReturn=null;await loadManifest(result);return; }
+  try {
+    const runs=await (await fetch('/api/runs')).json();
+    const candidates=runs.filter(r => r.runId !== current.runId && (r.robustnessMode || 'off') === 'off');
+    for (const record of candidates) {
+      const manifest=await (await fetch(record.manifestUrl || `/runs/${encodeURIComponent(record.runId)}/manifest.json`)).json();
+      if (manifest.source?.sha256 !== current.source.sha256 || manifest.parameters?.workers !== current.parameters.workers || manifest.parameters?.k !== current.parameters.k || manifest.parameters?.throughStep !== current.parameters.throughStep || manifest.priorMode !== current.priorMode || manifest.designInputs?.design?.provenance?.snapshotFingerprint !== current.designInputs?.design?.provenance?.snapshotFingerprint) continue;
+      robustnessComparisonReturn=current;await loadManifest(manifest);
+      $('robustnessPanel').hidden=false;$('acceptanceStatus').textContent='正在查看同源、同设计、同线程的关闭模式基线';$('robustnessBaseline').textContent='返回本轮复核';return;
+    }
+    setStatus('尚无同条件基线，请关闭鲁棒性复核运行一次后再对比。');
+  } catch(error) { setStatus(error.message,true); }
+});
+$('robustnessMode').addEventListener('change',()=>{ if ($('robustnessMode').value !== 'off' && Number($('throughStep').value)<6) $('throughStep').value='6'; });

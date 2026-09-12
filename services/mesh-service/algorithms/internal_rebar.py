@@ -505,6 +505,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         output['internal_segment'][scope] = instance
         output['internal_confidence'][scope] = confidence
         timings['sourceAssignmentS'] = time.perf_counter()-t0
+    if getattr(context,'design_candidates',None):
+        from .design_review import seed_internal
+        seed_internal(context,models,output)
+        scope=np.flatnonzero((context.refined_class==3)&((context.refined_zone==1)|(output['internal_instance']>0)))
     segment_counts = np.bincount(output['internal_segment'][scope], minlength=len(models)+1)
     fused_score = getattr(context, 'fused_steel_score', None)
     measured_counts = high_counts = None

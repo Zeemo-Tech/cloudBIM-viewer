@@ -96,6 +96,9 @@ def evaluate_evidence(metrics: Mapping[str, Any], *, policy: RobustnessPolicy | 
         missing.update(_labels(metrics, "support", "point_count", "occupied_cells"))
         missing.add("measured-support")
 
+    if bool(_value(metrics,"missing_endpoints",False)):missing.add("unobserved-endpoints")
+    if float(arc)<p.min_arc_degrees:missing.add("visible-arc")
+    if not support_ok:missing.add("axial-or-spatial-support")
     if not normals_ok:
         missing.update(_labels(metrics, "normals", "normal_valid_fraction"))
         missing.add("normals")
@@ -159,6 +162,9 @@ def _field(item: Any, name: str, default: Any = None) -> Any:
 
 
 def _source_set(item: Any) -> set[str]:
+    rows = _field(item,"rows",None)
+    if rows is not None:
+        return {str(value) for value in rows}
     raw = _field(item, "source_ids", None)
     if raw is None:
         raw = _field(item, "provenance", {})

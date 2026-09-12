@@ -54,7 +54,9 @@ class PriorApiTests(unittest.TestCase):
                 except urllib.error.HTTPError as exc:return exc.code
             try:
                 self.assertEqual(post({}),202)
-                state.start.assert_called_with(32,MODULE.available_workers(),6,'off')
+                state.start.assert_called_with(32,MODULE.available_workers(),6,'off','off')
+                self.assertEqual(post({'throughStep':6,'robustnessMode':'design-evidence'}),400)
+                self.assertEqual(post({'robustnessMode':'invalid'}),400)
                 self.assertEqual(post({'priorMode':'geometry'}),400)
                 self.assertEqual(post({'priorMode':'topology','ifcPath':'/tmp/a.ifc'}),400)
                 self.assertEqual(post({'priorMode':True}),400)
@@ -62,7 +64,9 @@ class PriorApiTests(unittest.TestCase):
                 self.assertEqual(post({'priorMode':'topology'}),400)
                 self.assertEqual(post({'throughStep':7}),400)
                 self.assertEqual(post({'throughStep':7,'priorMode':'topology'}),202)
-                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology')
+                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology','off')
+                self.assertEqual(post({'throughStep':7,'priorMode':'topology','robustnessMode':'design-evidence'}),202)
+                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology','design-evidence')
                 self.assertEqual(post({'throughStep':8,'priorMode':'off'}),400)
                 self.assertEqual(post({'priorMode':'geometry','throughStep':6}),400)
                 self.assertEqual(post({'priorMode':{'path':'/tmp/anything'}}),400)

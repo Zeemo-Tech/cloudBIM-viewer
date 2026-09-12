@@ -29,9 +29,13 @@ class Reason(IntEnum):
     NO_NEW_SUPPORT = 10
     TOPOLOGY_CONFLICT = 11
     MISSING_ENDPOINTS = 12
+    DENOISING_COUNTEREVIDENCE = 13
 
 @dataclass(frozen=True)
 class RobustnessPolicy:
+    enable_candidates: bool = True
+    enable_reclassification: bool = True
+    enable_topology_retry: bool = True
     voxel_size: float = .002
     window_margin: float = .018
     endpoint_margin: float = .025

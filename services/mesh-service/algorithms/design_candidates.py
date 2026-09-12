@@ -11,7 +11,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from .design_evidence_contract import Candidate, RobustnessPolicy
-from .design_evidence import evaluate_evidence
+from .design_evidence import evaluate_evidence, retry_decision
 from .rebar_tracks import _fixed_radius
 
 
@@ -28,7 +28,7 @@ def _sample(rows, points, voxel, limit):
     """One stable source row per spatial voxel, then a stable bounded sample."""
     keys = np.floor(points[rows] / voxel).astype(np.int64)
     # Coordinate ordering makes sampling invariant to source-row permutation.
-    order = np.lexsort((keys[:, 2], keys[:, 1], keys[:, 0]))
+    order = np.lexsort((points[rows,2],points[rows,1],points[rows,0],keys[:,2],keys[:,1],keys[:,0]))
     keys, ordered_rows = keys[order], rows[order]
     _, first = np.unique(keys, axis=0, return_index=True)
     chosen = ordered_rows[first]
@@ -78,7 +78,7 @@ def _metrics(points, normals, normal_valid, model, policy, fixture_fraction):
         alignment, normal_fraction, plane_coherence = None, 0., 0.
     span = float(np.ptp(t)) if len(t) else 0.
     return dict(point_count=int(len(points)), occupied_cells=int(len(cells)), occupied_bins=int(len(axial)),
-                span_m=span, cylinder_error_m=cylinder_error, plane_error_m=plane_error,
+                span_m=span, axial_coverage=float(len(axial)/max(1,np.ceil(span/policy.axial_bin))), cylinder_error_m=cylinder_error, plane_error_m=plane_error,
                 radial_alignment=alignment, normal_valid_fraction=normal_fraction,
                 arc_degrees=arc, angle_degrees=0., offset_m=0., diameter_error_m=0.,
                 plane_coherence=plane_coherence,
@@ -117,19 +117,20 @@ def _surface_rows(points, rows, model, tolerance):
 
 def _short_pools(points, rows, start, end, axis, policy):
     """Bound a same-layer scene-wide search into directional local pools."""
-    t = (points[rows] - start) @ axis
-    rows = rows[(t >= -policy.endpoint_margin) & (t <= np.linalg.norm(end-start) + policy.endpoint_margin)]
-    if not len(rows):
-        return []
-    cross = _basis(axis); lateral = points[rows] @ cross.T
-    # Deterministic coarse XY cells intentionally allow arbitrary XY translation
-    # while preventing a whole layer from becoming one fit.
-    keys = np.floor(lateral / max(.03, policy.max_offset)).astype(np.int64)
-    order = np.lexsort((keys[:, 1], keys[:, 0])); keys, rows = keys[order], rows[order]
-    _, starts = np.unique(keys, axis=0, return_index=True)
-    ends = np.r_[starts[1:], len(rows)]
-    groups = [rows[a:b] for a, b in zip(starts, ends) if b-a >= 3]
-    return sorted(groups, key=lambda group: (-len(group), int(group.min())))[:policy.max_unit_candidates]
+    if not len(rows):return []
+    transverse=np.array([-axis[1],axis[0],0.]);transverse/=np.linalg.norm(transverse)
+    q=points[rows]@transverse
+    order=np.argsort(q,kind='stable');rows=rows[order];q=q[order]
+    cuts=np.r_[0,np.flatnonzero(np.diff(q)>.004)+1,len(rows)]
+    groups=[]
+    for lo,hi in zip(cuts[:-1],cuts[1:]):
+        group=rows[lo:hi]
+        t=points[group]@axis;order=np.argsort(t,kind='stable');group=group[order];t=t[order]
+        gaps=np.r_[0,np.flatnonzero(np.diff(t)>.035)+1,len(group)]
+        for a,b in zip(gaps[:-1],gaps[1:]):
+            part=group[a:b]
+            if len(part)>=12 and .02<=t[b-1]-t[a]<=np.linalg.norm(end-start)+.025:groups.append(part)
+    return sorted(groups,key=lambda g:(-len(g),*np.mean(points[g],axis=0)))[:policy.max_unit_candidates]
 
 
 def generate_candidates(context, inventory, *, policy=None, workers=1, progress=None):
@@ -155,7 +156,7 @@ def generate_candidates(context, inventory, *, policy=None, workers=1, progress=
     if tree is None:
         tree = (getattr(context, 'classification_cache', None) or {}).get('tree')
     if tree is None and eligible.any():
-        tree = cKDTree(positions[eligible])
+        tree = cKDTree(positions)
     eligible_rows = np.flatnonzero(eligible)
     candidates, attempts = [], []
     for ordinal, unit in enumerate(units):
@@ -177,25 +178,28 @@ def generate_candidates(context, inventory, *, policy=None, workers=1, progress=
         else:
             rows = eligible_rows[nearby] if len(nearby) else np.empty(0, int)
         rows = rows[_finite_window(positions[rows], start, end, reach)] if len(rows) else rows
-        excluded_nearby = int(_finite_window(positions[hard & ~table], start, end, reach).sum())
+        excluded_nearby = int(np.count_nonzero(hard[nearby])) if getattr(tree,'n',0)==count else 0
         pools = [rows]
         if kind == 'short' and len(eligible_rows):
-            layer = getattr(context, 'shared_layer', None)
-            layer_rows = eligible_rows
-            if layer is not None:
-                layer_rows = layer_rows[np.asarray(layer)[layer_rows] == np.asarray(layer)[np.argmin(np.abs(positions[:, 2]-center[2]))]]
+            layer_rows=eligible_rows[np.abs(positions[eligible_rows,2]-center[2])<=policy.short_layer_tolerance+radius]
             pools = _short_pools(positions, layer_rows, start, end, axis, policy)
         initial = dict(center=center, axis=axis, radius=radius, low=-length / 2, high=length / 2,
-                       type=TYPE.get(kind, 1))
+                       type=3 if kind=='web' else (2 if unit.get('layerId',1)>1 else 1))
         for pool_number, pool in enumerate(pools):
+          history=[]
+          local_initial=dict(initial)
+          if kind=='short' and len(pool):
+              local_initial['center']=np.median(positions[pool],axis=0)
+              along=(positions[pool]-local_initial['center'])@axis
+              local_initial['low'],local_initial['high']=float(along.min()),float(along.max())
           # Baseline plus two actually different bounded support passes.
           for attempt in range(min(2, policy.max_retries) + 1):
-            strategy = ('baseline', 'widened-local-scale', 'local-normal-reestimate')[attempt]
+            strategy = ('baseline', 'adjust_support_or_normals', 'compare_neighbors')[attempt]
             sample_rows = _sample(pool, positions, policy.voxel_size * (policy.retry_scale ** attempt), policy.max_fit_points)
             if len(sample_rows) < 3:
                 attempts.append({'unitId': unit.get('designUnitId'), 'pool': pool_number, 'attempt': attempt, 'strategy': strategy, 'accepted': False, 'reason': 'no-observed-support', 'pointCount': int(len(sample_rows))})
-                continue
-            model = _fit_model(positions[sample_rows], initial, radius)
+                break
+            model = _fit_model(positions[sample_rows], local_initial, radius)
             tolerance = policy.max_surface_error * (policy.retry_scale if attempt else 1.)
             support = _surface_rows(positions, pool, model, tolerance)
             # Refit once from surface-only support, so clutter from the broad
@@ -208,16 +212,18 @@ def generate_candidates(context, inventory, *, policy=None, workers=1, progress=
                 continue
             use_normals = normals[support]
             use_valid = valid[support]
-            if attempt == 2 and not use_valid.any():
-                # PCA supplies a local plane normal only as a measured-normal
-                # substitute for reporting; it never manufactures support.
-                _, _, vh = np.linalg.svd(positions[support]-positions[support].mean(0), full_matrices=False)
-                use_normals = np.tile(vh[-1], (len(support), 1)); use_valid = np.ones(len(support), bool)
+            if attempt==1 and np.mean(use_valid)<.5 and len(support)>=12:
+                # Independently recompute local kNN PCA normals; never broadcast a global plane normal.
+                local_tree=cKDTree(positions[pool]);_,nn=local_tree.query(positions[support],k=min(12,len(pool)),workers=workers)
+                near=positions[pool[nn]];near-=near.mean(1,keepdims=True)
+                eigen,axes=np.linalg.eigh(np.einsum('nki,nkj->nij',near,near))
+                use_normals=axes[:,:,0];use_valid=(eigen[:,1]>1e-12)&(eigen[:,0]<eigen[:,1]*.8)
             metrics = _metrics(positions[support], use_normals, use_valid, model, policy, fixture[support].mean())
-            metrics['offset_m'] = float(np.linalg.norm((model['center']-center) -
-                                              axis * ((model['center']-center) @ axis)))
+            metrics['design_position_offset_m']=float(np.linalg.norm((model['center']-center)-axis*((model['center']-center)@axis)))
+            metrics['offset_m']=abs(float(model['center'][2]-center[2])) if kind=='short' else metrics['design_position_offset_m']
             metrics['angle_degrees'] = float(np.degrees(np.arccos(np.clip(abs(model['axis'] @ axis), -1, 1))))
             metrics['diameter_error_m'] = 0.
+            metrics['missing_endpoints']=metrics['span_m']<length-max(.020,.05*length)
             metrics['excluded_nearby_count'] = excluded_nearby
             metrics['branch_support_counts'] = _branch_support(context, support)
             # Measurements share the same source rows even where 02A/02B both
@@ -227,18 +233,26 @@ def generate_candidates(context, inventory, *, policy=None, workers=1, progress=
                                      ('point_count', 'occupied_cells', 'occupied_bins', 'span_m',
                                       'cylinder_error_m', 'radial_alignment', 'arc_degrees')}
             observed_t = (positions[support] - model['center']) @ model['axis']
-            model['low'], model['high'] = (float(value) for value in np.quantile(observed_t, [.01, .99]))
+            model['low'], model['high'] = (float(value) for value in np.quantile(observed_t, [.001, .999]))
             decision = evaluate_evidence(metrics, policy=policy)
             proposal = Candidate(str(unit['designUnitId']), support.astype(np.int64), model, metrics, attempt,
                                  provenance={'designBarId': unit.get('designBarId'), 'designUnitId': unit.get('designUnitId'),
                                              'sources': ('observed-source-rows',)})
-            final_attempt = attempt == min(2, policy.max_retries)
+            proposal.evidence=decision
+            retry=retry_decision(proposal,history,policy=policy)
+            final_attempt = attempt == min(2, policy.max_retries) or not retry['retry']
+            history.append(dict(attempt=attempt,source_ids=support.tolist(),support_signature=(len(support),int(use_valid.sum()))))
             if decision.accepted or final_attempt:
                 candidates.append(proposal)
             attempts.append({'unitId': unit.get('designUnitId'), 'pool': pool_number, 'attempt': attempt, 'strategy': strategy,
                              'accepted': bool(decision.accepted), 'reason': decision.reason.name.lower(),
                              'pointCount': int(len(support))})
             if decision.accepted or final_attempt:
+                break
+            if attempt==1:
+                # Global independent-neighbor comparison occurs in the adapter; no identical local refit.
+                if not decision.accepted and not final_attempt:candidates.append(proposal)
+                attempts.append({'unitId':unit['designUnitId'],'attempt':2,'strategy':'stop','accepted':False,'reason':'no_new_local_support'})
                 break
     report = {'version': 'design-candidates-v1', 'parameters': asdict(policy), 'candidateCount': len(candidates),
               'attempts': attempts, 'eligiblePointCount': int(eligible.sum()), 'hardExcludedPointCount': int(hard.sum()),

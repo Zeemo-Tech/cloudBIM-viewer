@@ -36,7 +36,7 @@ def resolve_design_inputs(snapshot, source_path, source_sha256):
         },
         'consumers': {
             'diameters': '05 observed-cylinder regularization; 06 design-unit association and cylinder models',
-            'alignedCenterlines': '01D layers and envelope; 06 instance matching',
+            'alignedCenterlines': '01D layers and envelope; optional pre-05 fixed-radius candidates; 06 matching and independent acceptance',
             'counts': '06 physical-parent and straight-unit matching diagnostics',
         },
         'algorithmPolicy': {

@@ -27,7 +27,7 @@ FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered
 REFINEMENT_ATTRIBUTES = {"refined_class": "u1", "refined_region": "u1", "refined_zone": "u1", "refined_changed": "u1", "refined_reason": "u1"}
 
 
-def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None):
+def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None, robustness_mode='off', robustness_policy=None):
     if type(through_step) is not int or through_step not in range(1,7):
         raise ValueError("through_step must be 1–6 (ending at UI Step 05)")
     progress = progress or (lambda *args: None)
@@ -163,6 +163,24 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
             refinement = reuse_fusion_partition(context, regions,
                 output={name: arrays[name] for name in REFINEMENT_ATTRIBUTES})
         timing['refinementS'] = time.perf_counter()-t0
+    if robustness_mode == 'design-evidence' and through_step >= 5:
+        from .design_evidence_contract import ATTRIBUTES as REVIEW_ATTRIBUTES
+        from .design_review import prepare_review
+        for name,dtype in REVIEW_ATTRIBUTES.items():
+            shapes[name]=((count,),dtype)
+            arrays[name]=np.lib.format.open_memmap(directory / f'{name}.npy',mode='w+',dtype=dtype,shape=(count,))
+        began=time.perf_counter()
+        with threadpool_limits(limits=1):
+            prepare_review(context,design_inventory,output={n:arrays[n] for n in REVIEW_ATTRIBUTES},workers=workers,progress=progress,policy=robustness_policy)
+        context.refined_changed[:]=(context.refined_class!=context.fused_class)
+        context.refined_reason[:]=context.refined_changed
+        regions_from_partition(context.refined_class,context.refined_zone,output=context.refined_region)
+        refinement.update(version='design-evidence-review-v1',mode='design-evidence-review',
+            counts=dict(zip(('table','fixture','rebar','noise'),map(int,np.bincount(context.refined_class,minlength=5)[1:5]))),
+            regionCounts=dict(zip(('table','interior','exterior','fixture','unlocated'),map(int,np.bincount(context.refined_region,minlength=5)))),
+            changes={'totalChanged':int(context.refined_changed.sum())},reasonNames={'0':'沿用融合结果','1':'设计候选的实测表面支持'},
+            policy='融合证据冻结；设计提出候选，实测证据复核；硬边界不可恢复')
+        timing['designEvidenceS']=time.perf_counter()-began
     if through_step >= 6:
         for name, dtype in INTERNAL_ATTRIBUTES.items():
             shapes[name] = ((count,), dtype)

@@ -104,7 +104,7 @@ def evaluate_acceptance(positions, owners, classes, instances, inventory, *, pol
     passed=bool(units) and len(ids)==len(units) and not missing and not duplicates and not failed and not topology
     geometry_passed=passed
     if performance is False:passed=False
-    return dict(version=VERSION,status='passed' if passed else 'failed',geometryPassed=geometry_passed,
+    return dict(version=VERSION,status=('passed' if performance is True else 'pending_performance') if passed else 'failed',geometryPassed=geometry_passed,
                 policy=asdict(policy),expectedInstances=len(units),observedInstances=len(ids),missingUnits=missing,
                 duplicateUnits=duplicates,failedInstances=failed,topologyFailures=topology,instances=result,
                 performancePassed=performance,elapsedS=elapsed_s,baselineS=baseline_s,

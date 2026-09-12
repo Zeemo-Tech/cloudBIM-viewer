@@ -56,7 +56,9 @@ class DesignCandidateTests(unittest.TestCase):
         points, normals, _ = cylinder((0,.085,0), (.12,.085,0), radius=.006)
         result, _ = generate_candidates(context(points, normals), unit('short'))
         self.assertTrue(result)
-        self.assertGreater(result[0].metrics['offset_m'], .04)
+        self.assertGreater(result[0].metrics['design_position_offset_m'], .04)
+        from algorithms.design_evidence import evaluate_evidence
+        self.assertTrue(evaluate_evidence(result[0].metrics).accepted)
 
     def test_all_units_are_processed_beyond_per_unit_candidate_cap(self):
         clouds = [cylinder((0, i*.04, 0), (.12, i*.04, 0), radius=.006) for i in range(9)]
