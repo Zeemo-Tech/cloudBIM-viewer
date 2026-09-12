@@ -86,6 +86,7 @@ def finalize_review(context, report, inventory, *, acceptance_policy=None):
     candidates=getattr(context,'design_candidates',None) or []
     policy=RobustnessPolicy(**context.design_review_report['policy'])
     units=inventory['units']
+    by_id={u['designUnitId']:u for u in units}
     owners=context.complete_instance; classes=context.complete_class
     before=evaluate_acceptance(context.positions,owners,classes,report['instances'],inventory,policy=acceptance_policy)
     good={r['instanceId'] for r in before['instances'] if r['passed']}
@@ -107,6 +108,19 @@ def finalize_review(context, report, inventory, *, acceptance_policy=None):
         summaries.append(summary);atoms.append(dict(instanceId=i+1,summary=summary))
     ranked,_=_candidate_sets(summaries,inventory,'geometry')
     good_units={r['designUnitId'] for r in before['instances'] if r['passed']}
+    for i,c in enumerate(live):
+        if by_id[c.unit_id]['kind']=='short':
+            # Same-layer translation has no XY position prior, including matching.
+            ranked[i]=[]
+            for j,u in enumerate(units):
+                if u['kind']!='short':continue
+                center=(np.array(u['startM'])+u['endM'])/2
+                direction=np.array(u['endM'])-u['startM'];direction/=np.linalg.norm(direction)
+                angle=abs(float(c.model['axis']@direction))
+                if abs(center[2]-c.model['center'][2])>policy.short_layer_tolerance or angle<np.cos(np.deg2rad(policy.max_angle_degrees)):continue
+                cost=abs(c.metrics['span_m']-u['lengthM'])/max(.020,.05*u['lengthM'])+abs(2*c.model['radius']-u['diameterM'])/.0015+3*(1-angle)
+                ranked[i].append((float(cost),j))
+            ranked[i].sort()
     ranked=[[(cost,u) for cost,u in row if units[u]['designUnitId'] not in good_units] for row in ranked]
     choices,extras=_assign_units({i:[i] for i in range(len(atoms))},atoms,ranked,units,GuidedParameters())
     retries=[]
@@ -114,6 +128,7 @@ def finalize_review(context, report, inventory, *, acceptance_policy=None):
     if anchors and summaries and policy.enable_topology_retry and policy.max_retries>=2:
         topology_ranked,_=_candidate_sets(summaries,inventory,'topology')
         for i,c in enumerate(live):
+            if by_id[c.unit_id]['kind']=='short':continue
             instruction=retry_decision(dict(unit_id=c.unit_id,rows=c.rows,attempt=1),[],anchors=anchors,policy=policy)
             if instruction['retry'] and instruction['action']=='compare_neighbors':
                 revised=[(cost,u) for cost,u in topology_ranked[i] if units[u]['designUnitId'] not in good_units]

@@ -48,6 +48,35 @@ def _finite_window(points, start, end, reach):
     return (t >= -reach) & (t <= length + reach) & (radial <= reach)
 
 
+def _competing_plane_patches(points,normals,valid,cylinder_residual,policy):
+    """Measured flat faces distinguish square sections from round surfaces.
+
+    Each plane and cylinder residual uses the SAME subset. Highly concentrated
+    normals only propose a plane; curvature which fits the cylinder better vetoes it.
+    """
+    if np.count_nonzero(valid)<12:return 0.,0
+    nn=normals[valid].copy();largest=np.argmax(np.abs(nn),axis=1)
+    nn*=np.where(nn[np.arange(len(nn)),largest]<0,-1,1)[:,None]
+    keys,inverse,counts=np.unique(np.rint(nn*4).astype(int),axis=0,return_inverse=True,return_counts=True)
+    covered=np.zeros(len(points),bool);directions=[]
+    for group in np.argsort(-counts,kind='stable')[:8]:
+        direction=nn[inverse==group].mean(0);direction/=np.linalg.norm(direction)
+        if any(abs(direction@d)>.98 for d in directions):continue
+        rows=np.flatnonzero(valid&(np.abs(normals@direction)>=policy.plane_normal_alignment))
+        if len(rows)<policy.min_planar_patch_fraction*len(points):continue
+        projection=points[rows]@direction;mid=(projection.min()+projection.max())/2
+        successful=False
+        for part in (rows[projection<=mid],rows[projection>mid]):
+            if len(part)<max(12,policy.min_planar_patch_fraction*len(points)):continue
+            centered=points[part]-points[part].mean(0);_,_,basis=np.linalg.svd(centered,full_matrices=False)
+            plane_error=float(np.median(np.abs(centered@basis[-1])))
+            cylinder_error=float(np.median(cylinder_residual[part]))
+            if plane_error<policy.plane_advantage*cylinder_error and abs(basis[-1]@direction)>=policy.plane_normal_alignment:
+                covered[part]=True;successful=True
+        if successful:directions.append(direction)
+    return float(covered.mean()),len(directions)
+
+
 def _metrics(points, normals, normal_valid, model, policy, fixture_fraction):
     axis = model['axis']; center = model['center']; radius = model['radius']
     delta = points - center; t = delta @ axis
@@ -63,8 +92,8 @@ def _metrics(points, normals, normal_valid, model, policy, fixture_fraction):
         plane_error = math.inf
     cross = _basis(axis)
     angles = np.arctan2(radial_vector @ cross[1], radial_vector @ cross[0])
-    bins = np.unique(np.floor((angles + np.pi) / (2 * np.pi) * 24).astype(int))
-    arc = float(len(bins) * 15.)
+    ordered_angles=np.sort(np.mod(angles,2*np.pi))
+    arc=float(np.degrees(2*np.pi-np.max(np.diff(np.r_[ordered_angles,ordered_angles[0]+2*np.pi])))) if len(angles) else 0.
     cells = np.unique(np.floor(points / policy.voxel_size).astype(np.int64), axis=0)
     axial = np.unique(np.floor(t / policy.axial_bin).astype(np.int64))
     valid = np.asarray(normal_valid, bool) & np.isfinite(normals).all(axis=1)
@@ -76,12 +105,13 @@ def _metrics(points, normals, normal_valid, model, policy, fixture_fraction):
         plane_coherence = float(np.mean(np.abs(normals[valid] @ plane_normal))) if len(points) >= 3 else 0.
     else:
         alignment, normal_fraction, plane_coherence = None, 0., 0.
+    patch_fraction,patch_count=_competing_plane_patches(points,normals,valid,np.abs(radial-radius),policy)
     span = float(np.ptp(t)) if len(t) else 0.
     return dict(point_count=int(len(points)), occupied_cells=int(len(cells)), occupied_bins=int(len(axial)),
                 span_m=span, axial_coverage=float(len(axial)/max(1,np.ceil(span/policy.axial_bin))), cylinder_error_m=cylinder_error, plane_error_m=plane_error,
                 radial_alignment=alignment, normal_valid_fraction=normal_fraction,
                 arc_degrees=arc, angle_degrees=0., offset_m=0., diameter_error_m=0.,
-                plane_coherence=plane_coherence,
+                plane_coherence=plane_coherence, planar_patch_fraction=patch_fraction,planar_patch_count=patch_count,
                 fixture_fraction=float(fixture_fraction), design_only=False,
                 hard_excluded=0)
 

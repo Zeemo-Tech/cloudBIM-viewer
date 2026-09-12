@@ -50,6 +50,8 @@ class RobustnessPolicy:
     min_arc_degrees: float = 20.
     confirmed_arc_degrees: float = 60.
     plane_advantage: float = .80
+    plane_normal_alignment: float = .995
+    min_planar_patch_fraction: float = .20
     match_margin: float = .12
     max_retries: int = 2
     retry_scale: float = 1.5

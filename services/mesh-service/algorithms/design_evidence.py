@@ -115,6 +115,7 @@ def evaluate_evidence(metrics: Mapping[str, Any], *, policy: RobustnessPolicy | 
                       float(normals) >= _PLANE_NORMAL_FRACTION)
     plane_wins = (plane_measured and _finite(cyl_error) and
                   float(plane_error) <= float(cyl_error) * p.plane_advantage)
+    plane_wins |= (float(_value(metrics,'planar_patch_fraction',0))>=2*p.min_planar_patch_fraction and int(_value(metrics,'planar_patch_count',0))>=2)
     if plane_wins:
         negative.update(_labels(metrics, "plane", "plane_error_m", "plane_coherence", "fixture_fraction"))
         if not negative:
