@@ -3,7 +3,9 @@
 提供 REST API：
 - /remesh：接收网格文件，执行均匀化/简化后返回处理结果
 - /c2m/compute：Cloud-to-Mesh Distance 计算
-- /rebar/segment：无标注钢筋几何 PoC
+- /pointcloud-denoise/compute：配准后点云分类与去噪
+- /analysis-mesh/build：钢筋保形分析网格
+- /analysis-c2m/build：逐钢筋偏差对比
 
 离线诊断（容器内，原始网格与 remesh 产物对比法向统计）：
   docker compose run --rm mesh-service \\

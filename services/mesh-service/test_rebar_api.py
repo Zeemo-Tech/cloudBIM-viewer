@@ -366,12 +366,15 @@ class RebarApiTests(unittest.TestCase):
             _asgi_post(self._app(heavy_task=heavy_task), "/rebar/segment", payload)
         )
 
-    def test_main_app_registers_the_rebar_contract(self):
+    def test_main_app_excludes_legacy_rebar_contract(self):
         schema = mesh_main.app.openapi()
 
-        self.assertIn("/rebar/segment", schema["paths"])
-        request_schema = schema["paths"]["/rebar/segment"]["post"]["requestBody"]
-        self.assertIn("application/json", request_schema["content"])
+        self.assertNotIn("/rebar/segment", schema["paths"])
+        self.assertNotIn("/rebar/algorithms", schema["paths"])
+        self.assertNotIn("/rebar/compute", schema["paths"])
+        self.assertIn("/pointcloud-denoise/compute", schema["paths"])
+        self.assertIn("/analysis-mesh/build", schema["paths"])
+        self.assertIn("/analysis-c2m/build", schema["paths"])
 
     def test_api_parameter_defaults_match_geometry_core(self):
         self.assertEqual(RebarParams().model_dump(), asdict(RebarSegmentationParams()))

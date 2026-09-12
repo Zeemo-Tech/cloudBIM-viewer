@@ -342,7 +342,16 @@ class InternalRebarTests(unittest.TestCase):
                     "features": {"axis": np.zeros((10, 3))}}
                 return {"counts": {"table": 0, "fixture": 0, "rebar": 10}}
 
-            def prepare(context, output, progress):
+            def prepare(
+                context,
+                *,
+                output=None,
+                progress=None,
+                fixed_table=None,
+                fixed_table_mask=None,
+            ):
+                self.assertIsNone(fixed_table)
+                self.assertIsNone(fixed_table_mask)
                 output["shared_table_mask"][:] = 0
                 output["partition_zone"][:] = 1
                 context.shared_table_mask = output["shared_table_mask"]
