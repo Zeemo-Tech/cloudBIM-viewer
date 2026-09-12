@@ -182,6 +182,30 @@ def _restore_crossings(present, joined, static, thin, walls, pixel, params):
     return connected | thin, connected & ~thin
 
 
+def _side_slice_candidates(ids, shape, pixel, params, closing_structure, wide_structure, dilation_structure):
+    """Run the unchanged silhouette predicate on a bounded, zero-padded raster."""
+    if not len(ids):
+        return np.zeros(0, bool)
+    ny, nx = shape
+    y, x = np.divmod(ids, nx)
+    # Two closing passes, two opening passes and the two final dilations:
+    # retaining their complete combined stencil also preserves components.
+    # Clamping to the original image keeps its actual border_value=0 behavior.
+    radius = wide_structure.shape[0]//2
+    halo = 2*radius+4
+    y0, y1 = max(0, int(y.min())-halo), min(ny, int(y.max())+halo+1)
+    x0, x1 = max(0, int(x.min())-halo), min(nx, int(x.max())+halo+1)
+    local_ids = (y-y0)*(x1-x0)+x-x0
+    present = np.zeros((y1-y0, x1-x0), bool)
+    present.ravel()[local_ids] = True
+    joined = ndimage.binary_closing(present, structure=closing_structure)
+    wide = ndimage.binary_opening(joined, structure=wide_structure)
+    static = ndimage.binary_dilation(wide, structure=dilation_structure)
+    thin = _long_thin_components(joined & ~static, pixel, params)
+    thin = ndimage.binary_dilation(thin, structure=dilation_structure) & ~static & present
+    return thin.ravel()[local_ids]
+
+
 def _multiview_webs(positions, table_mask, labels, params, workers, progress, region_owned=None):
     """Recover measured inclined rods hidden in XY, without using 02A labels.
 
@@ -217,21 +241,19 @@ def _multiview_webs(positions, table_mask, labels, params, workers, progress, re
         proposed = np.zeros(len(rows), bool)
         width = max(params.side_slice_width, params.max_bar_width*3)
         step = width/2
+        # Footprints depend only on this view's pixel size; raster bounds below
+        # depend on each depth slice's actual occupied pixels.
+        closing_structure = np.ones((3, 3), bool)
+        wide_structure = _disk(max(1, int(np.ceil(params.max_bar_width/(2*pixel)))))
+        dilation_structure = _disk(1)
         slices = 0
         for low in np.arange(-step, depth.max()+step*.5, step):
             begin, end = np.searchsorted(sorted_depth, [low, low+width])
             selected = order[begin:end]
             if len(selected) < 8:
                 continue
-            present = np.zeros((ny, nx), bool)
-            present.ravel()[ids[selected]] = True
-            joined = ndimage.binary_closing(present, structure=np.ones((3, 3), bool))
-            radius = max(1, int(np.ceil(params.max_bar_width/(2*pixel))))
-            wide = ndimage.binary_opening(joined, structure=_disk(radius))
-            static = ndimage.binary_dilation(wide, structure=_disk(1))
-            thin = _long_thin_components(joined & ~static, pixel, params)
-            thin = ndimage.binary_dilation(thin, structure=_disk(1)) & ~static & present
-            proposed[selected] |= thin.ravel()[ids[selected]]
+            proposed[selected] |= _side_slice_candidates(ids[selected], (ny, nx), pixel, params,
+                closing_structure, wide_structure, dilation_structure)
             slices += 1
         votes += proposed
         key = f"side_{angle:g}"

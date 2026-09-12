@@ -5,7 +5,7 @@ point be planar. Edges, corners and unclaimed points belong to the same fixture
 class. Every source row receives one of the three scene classes.
 """
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 import time
 
 import numpy as np
@@ -450,15 +450,22 @@ def recover_rebar(points, features, strong_bars, tree, candidates, params, worke
     return recovered
 
 
-def fixture_patch_ownership(patches, params):
-    """Keep modest faces and matching perpendicular tube faces as one fixture."""
+def fixture_patch_ownership(patches, params, *, return_tube_faces=False):
+    """Keep modest faces and matching perpendicular tube faces as one fixture.
+
+    ``tube_faces`` is useful independently of the width threshold.  Returning
+    it here lets the caller retain that distinction without repeating the
+    bounded all-patch comparison.
+    """
     if not patches:
-        return np.zeros(0, bool)
+        empty = np.zeros(0, bool)
+        return (empty, empty) if return_tube_faces else empty
     widths = np.array([p["widths"] for p in patches])
     blocked = widths[:, 1] > params.recovery_fixture_width
     centers = np.array([p["center"] for p in patches])
     normals = np.array([p["normal"] for p in patches])
     axes = np.array([p["long_axis"] for p in patches])
+    tube_faces = np.zeros(len(patches), bool)
     # Work in bounded blocks: patch count can grow on much larger scenes.
     for start in range(0, len(patches), 128):
         stop = min(start+128, len(patches))
@@ -469,8 +476,9 @@ def fixture_patch_ownership(patches, params):
         same_tube &= np.abs(axes[start:stop] @ axes.T) > .94
         same_tube &= across < params.max_bar_width*2
         same_tube &= np.abs(along) < (widths[start:stop, 2, None]+widths[None, :, 2])*.5
-        blocked[start:stop] |= same_tube.any(axis=1)
-    return blocked
+        tube_faces[start:stop] = same_tube.any(axis=1)
+    blocked |= tube_faces
+    return (blocked, tube_faces) if return_tube_faces else blocked
 
 
 def classify_geometry(context: PointCloudContext, *, workers=None, params=None, output=None, progress=None):
@@ -544,8 +552,7 @@ def classify_geometry(context: PointCloudContext, *, workers=None, params=None, 
         fixture_tree = None
         broad_fixture = np.zeros(len(points), bool)
         wide_fixture = np.zeros(len(points), bool)
-        owned_patches = fixture_patch_ownership(patches, params)
-        tube_faces = fixture_patch_ownership(patches, replace(params, recovery_fixture_width=np.inf))
+        owned_patches, tube_faces = fixture_patch_ownership(patches, params, return_tube_faces=True)
         if len(fixture_anchors):
             fixture_tree = cKDTree(points[fixture_anchors])
             fixture_rows = np.flatnonzero(fixture_candidates)

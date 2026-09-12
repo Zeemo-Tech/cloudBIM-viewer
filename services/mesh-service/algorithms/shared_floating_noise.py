@@ -7,6 +7,7 @@ import time
 import numpy as np
 from . import multiview_floating_noise
 from .design_floating_zones import build_floating_zones, classify_floating_zones
+from .spatial_keys import unique_integer_rows
 
 ATTRIBUTES = {'shared_layer': 'u1', 'shared_floating_noise': 'u1'}
 
@@ -41,7 +42,7 @@ def prepare_floating_scene(context, inventory=None, *, output, progress=None):
     if len(scope):
         points = context.positions[scope]
         origin = points.min(axis=0)
-        _, representatives = np.unique(np.floor((points-origin)/.003).astype(np.int64), axis=0, return_index=True)
+        _, representatives = unique_integer_rows(np.floor((points-origin)/.003).astype(np.int64), return_index=True)
         points = points[representatives]
         normals = context.normals[scope[representatives]]
         valid = context.normal_valid[scope[representatives]].astype(bool)

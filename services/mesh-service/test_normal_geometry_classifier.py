@@ -1,9 +1,11 @@
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 import numpy as np
 
 from algorithms.pointcloud_normals import PointCloudContext, estimate_normals, available_workers
-from algorithms.normal_geometry_classifier import classify_geometry, projector6
+from algorithms.normal_geometry_classifier import (Parameters, classify_geometry,
+                                                    fixture_patch_ownership, projector6)
 
 
 def make_context(points, normals):
@@ -40,6 +42,35 @@ def square_tube(half=.004):
 
 
 class NormalGeometryTests(unittest.TestCase):
+    def test_fixture_ownership_combines_width_and_tube_masks_without_changing_either(self):
+        # Exercise multiple bounded blocks, perpendicular tube faces, isolated
+        # narrow faces, and faces rejected solely by the width threshold.
+        patches = []
+        for index in range(257):
+            patches.append({
+                'widths': np.array([.002, .010 if index % 5 else .030, .060]),
+                'center': np.array([index*.100, 0., 0.]),
+                'normal': np.array([1., 0., 0.]),
+                'long_axis': np.array([0., 1., 0.]),
+            })
+        # Put a perpendicular pair inside the same narrow tube, so neither
+        # face relies on the width rule to be retained.
+        patches[128].update(center=np.array([1., 1., 1.]), normal=np.array([1., 0., 0.]))
+        patches[129].update(center=np.array([1.001, 1., 1.]), normal=np.array([0., 0., 1.]))
+        params = Parameters()
+
+        owned, tube_faces = fixture_patch_ownership(patches, params, return_tube_faces=True)
+        legacy_owned = fixture_patch_ownership(patches, params)
+        legacy_tube_faces = fixture_patch_ownership(
+            patches, replace(params, recovery_fixture_width=np.inf)
+        )
+
+        np.testing.assert_array_equal(owned, legacy_owned)
+        np.testing.assert_array_equal(tube_faces, legacy_tube_faces)
+        np.testing.assert_array_equal(owned, (np.array([p['widths'][1] for p in patches]) > params.recovery_fixture_width) | tube_faces)
+        self.assertTrue(tube_faces[128])
+        self.assertTrue(tube_faces[129])
+
     def test_sparse_apparent_fixture_face_does_not_veto_an_inclined_bar(self):
         points, normals = round_tube(radius=.004, length=.18)
         angle = np.pi/4

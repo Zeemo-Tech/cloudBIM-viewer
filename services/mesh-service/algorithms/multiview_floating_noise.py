@@ -13,6 +13,7 @@ from scipy.ndimage import uniform_filter
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree, ConvexHull, QhullError
+from .spatial_keys import unique_integer_rows
 
 
 VERSION = 'floating-multiview-v3-conservative-top-view'
@@ -121,8 +122,8 @@ def observed_cylinder_continuation(points, normals, segment_ids, segments, obser
 
 
 def _components(points, p):
-    keys, inverse = np.unique(np.floor((points-points.min(0))/p.voxel_size).astype(np.int64),
-                              axis=0, return_inverse=True)
+    keys, inverse = unique_integer_rows(np.floor((points-points.min(0))/p.voxel_size).astype(np.int64),
+                                        return_inverse=True)
     mass = np.bincount(inverse)
     centers = np.column_stack([np.bincount(inverse, weights=points[:, i])/mass for i in range(3)])
     pairs = cKDTree(centers).query_pairs(p.connection_radius, output_type='ndarray')
@@ -299,8 +300,8 @@ def _fixture_voxels(points, normals, p):
     points, normals = points[valid], normals[valid]/lengths[valid, None]
     if not len(points):
         return points, normals
-    _, first, inverse = np.unique(np.floor(points/p.voxel_size).astype(np.int64),
-                                  axis=0, return_index=True, return_inverse=True)
+    _, first, inverse = unique_integer_rows(np.floor(points/p.voxel_size).astype(np.int64),
+                                            return_index=True, return_inverse=True)
     mass = np.bincount(inverse)
     centers = np.column_stack([np.bincount(inverse, weights=points[:, i])/mass for i in range(3)])
     return centers, normals[first]
@@ -489,8 +490,8 @@ def multiview_noise_mask(points, *, review_mask, normals=None, steel_scores=None
     # Spatially balanced frozen observations join the view context once. No
     # newly rescued candidate becomes an anchor during view evaluation.
     if len(anchor_points):
-        _, first = np.unique(np.floor((anchor_points-anchor_points.min(0))/p.voxel_size).astype(np.int64),
-                             axis=0, return_index=True)
+        _, first = unique_integer_rows(np.floor((anchor_points-anchor_points.min(0))/p.voxel_size).astype(np.int64),
+                                       return_index=True)
         view_points = np.vstack((centers, anchor_points[first]))
         view_reliable = np.r_[plausible[labels], np.ones(len(first), bool)]
     else:

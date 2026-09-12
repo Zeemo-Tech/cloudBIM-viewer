@@ -9,6 +9,7 @@ from scipy.spatial import cKDTree
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from algorithms.region_refinement import frame_zones
+from .spatial_keys import unique_integer_rows
 
 VERSION = 'rebar-cluster-extension-v3-score-protection'
 ATTRIBUTES = {'complete_class': 'u1', 'complete_instance': '<u4',
@@ -52,7 +53,7 @@ def exterior_clusters(points, params):
     if not len(points):
         return np.zeros(0, np.uint32)
     cells = np.floor((points-points.min(axis=0))/params.cluster_voxel).astype(np.int64)
-    _, inverse = np.unique(cells, axis=0, return_inverse=True)
+    _, inverse = unique_integer_rows(cells, return_inverse=True)
     mass = np.bincount(inverse)
     centers = np.column_stack([np.bincount(inverse, weights=points[:, axis])/mass for axis in range(3)])
     pairs = cKDTree(centers).query_pairs(params.cluster_connection_radius, output_type='ndarray')

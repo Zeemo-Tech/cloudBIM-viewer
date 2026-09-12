@@ -247,23 +247,29 @@ def _inside_mesh(points: np.ndarray, vertices: np.ndarray, triangles: np.ndarray
     """Winding membership against the exact exported triangles, in small batches."""
     result = np.zeros(len(points), bool)
     tri = vertices[triangles]; edge1, edge2 = tri[:, 1]-tri[:, 0], tri[:, 2]-tri[:, 0]
+    # Triangle-only geometry is invariant across query batches.
+    normal = np.cross(edge1, edge2); norm2 = np.einsum("ti,ti->t", normal, normal)
+    plane_tolerance = 1e-8*np.sqrt(norm2)[:, None]
+    dot00 = np.einsum("ti,ti->t", edge1, edge1)[:, None]
+    dot01 = np.einsum("ti,ti->t", edge1, edge2)[:, None]
+    dot11 = np.einsum("ti,ti->t", edge2, edge2)[:, None]
+    surface_denominator = np.maximum(dot00*dot11-dot01*dot01, 1e-18)
     for start in range(0, len(points), 384):
         query = points[start:start+384]
         # Treat the displayed surface itself as inside.  This removes ray
         # ambiguity at shared triangle edges before parity testing.
-        normal = np.cross(edge1, edge2); norm2 = np.einsum("ti,ti->t", normal, normal)
         relative = query[None, :, :]-tri[:, None, 0, :]
-        plane = np.abs(np.einsum("tqi,ti->tq", relative, normal)) <= 1e-8*np.sqrt(norm2)[:, None]
-        dot00 = np.einsum("ti,ti->t", edge1, edge1)[:, None]; dot01 = np.einsum("ti,ti->t", edge1, edge2)[:, None]
-        dot11 = np.einsum("ti,ti->t", edge2, edge2)[:, None]
+        signed_plane = np.einsum("tqi,ti->tq", relative, normal)
+        plane = np.abs(signed_plane) <= plane_tolerance
         dot20 = np.einsum("tqi,ti->tq", relative, edge1); dot21 = np.einsum("tqi,ti->tq", relative, edge2)
-        denominator = dot00*dot11-dot01*dot01
-        u_surface = (dot11*dot20-dot01*dot21)/np.maximum(denominator, 1e-18)
-        v_surface = (dot00*dot21-dot01*dot20)/np.maximum(denominator, 1e-18)
+        u_surface = (dot11*dot20-dot01*dot21)/surface_denominator
+        v_surface = (dot00*dot21-dot01*dot20)/surface_denominator
         on_surface = plane & (u_surface >= -1e-8) & (v_surface >= -1e-8) & (u_surface+v_surface <= 1+1e-8)
-        a, b, c = tri[:, None, 0, :]-query, tri[:, None, 1, :]-query, tri[:, None, 2, :]-query
+        a, b, c = -relative, tri[:, None, 1, :]-query, tri[:, None, 2, :]-query
         la, lb, lc = np.linalg.norm(a, axis=2), np.linalg.norm(b, axis=2), np.linalg.norm(c, axis=2)
-        numerator = np.einsum("tqi,tqi->tq", a, np.cross(b, c))
+        # b=a+edge1 and c=a+edge2, so a.(b x c)=a.(edge1 x edge2).
+        # Reuse the signed plane distance instead of an M x N x 3 cross product.
+        numerator = -signed_plane
         denominator = la*lb*lc + np.einsum("tqi,tqi->tq", a, b)*lc + np.einsum("tqi,tqi->tq", b, c)*la + np.einsum("tqi,tqi->tq", c, a)*lb
         winding = np.abs(np.sum(2*np.arctan2(numerator, denominator), axis=0))
         result[start:start+len(query)] = on_surface.any(axis=0) | (winding > 2*np.pi)

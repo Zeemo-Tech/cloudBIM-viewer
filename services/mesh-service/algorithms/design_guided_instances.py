@@ -547,7 +547,10 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         # suggest two lanes, but cannot turn the two visible sides of one rod
         # into two rods. Both explanations must persist along the same span.
         parts = _split_parallel_points(xyz,kind,InternalRebarParameters(),depth=1)
-        fits = [_fit_cylinder(p,kind,InternalRebarParameters()) for p in parts]
+        # Cylinder fits below only decide a two-part split. The splitter has
+        # already supplied the evidence for a single part; refitting it here
+        # used to be discarded immediately by the len(parts) gate.
+        fits = [_fit_cylinder(p,kind,InternalRebarParameters()) for p in parts] if len(parts)==2 else []
         split = len(parts)==2 and all(m and not m['radiusAtBound'] for m in fits)
         if split:
             sample_tree=cKDTree(xyz)
