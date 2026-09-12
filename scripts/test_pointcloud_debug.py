@@ -168,6 +168,15 @@ class PreviewApiTests(unittest.TestCase):
             finally:
                 server.shutdown();server.server_close();thread.join()
 
+    def test_workbench_default_preview_is_one_million_points(self):
+        self.assertEqual(MODULE.DEFAULT_PREVIEW_LIMIT, 1_000_000)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.las"
+            source.touch()
+            state = MODULE.DebugState(source, root / "runs")
+            self.assertEqual(state.snapshot()["previewLimit"], 1_000_000)
+
     def test_status_and_history_use_small_summaries_but_manifest_stays_available(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -271,10 +280,11 @@ class PreviewApiTests(unittest.TestCase):
         running_branch = viewer[viewer.index("if (running) {"):viewer.index("} else {", viewer.index("if (running) {"))]
         self.assertIn("suspendCompleteTilesForRun();", running_branch)
 
-    def test_viewer_caps_old_previews_and_reports_loading_phases(self):
+    def test_viewer_loads_the_manifest_preview_without_a_second_browser_cap(self):
         viewer = Path(__file__).with_name("pointcloud-debug").joinpath("viewer.js").read_text()
-        self.assertIn("const PREVIEW_RENDER_LIMIT = 300_000", viewer)
-        self.assertIn("previewPoints=${renderPointCount}&sourcePoints=${storedPointCount}", viewer)
+        self.assertNotIn("PREVIEW_RENDER_LIMIT", viewer)
+        self.assertIn("const preview = manifest.preview", viewer)
+        self.assertNotIn("    installCompleteTiles();", viewer)
         self.assertIn("正在下载预览数据", viewer)
         self.assertIn("正在校验", viewer)
         self.assertIn("正在构建预览场景", viewer)

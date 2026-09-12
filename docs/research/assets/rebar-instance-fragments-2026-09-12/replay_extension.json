@@ -1,0 +1,21 @@
+[
+  {
+    "exteriorReachM": 0.5,
+    "sourcePoints": 96737,
+    "tipPoints": 101,
+    "assignedTo78": 40,
+    "tipOwners": [
+      0,
+      78
+    ]
+  },
+  {
+    "exteriorReachM": 0.08,
+    "sourcePoints": 96737,
+    "tipPoints": 101,
+    "assignedTo78": 0,
+    "tipOwners": [
+      0
+    ]
+  }
+]

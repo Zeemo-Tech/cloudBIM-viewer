@@ -4,7 +4,6 @@ import { TilesRenderer } from '3d-tiles-renderer';
 
 const $ = (id) => document.getElementById(id);
 const api = '/api';
-const PREVIEW_RENDER_LIMIT = 300_000;
 const COMPLETE_TILE_SETTLE_MS = 180;
 const runQuery = new URLSearchParams(window.location.search).get('run');
 let requestedRun = /^\d{8}T\d{6}-[0-9a-f]{8}$/.test(runQuery || '') ? runQuery : null;
@@ -16,7 +15,7 @@ let designPriorLines = null;
 let poller = null, loadToken = 0, frame = 0, rightScene = 'normal';
 let canvasWidth = 0, canvasHeight = 0;
 let workerLimitInitialized = false;
-let compareSource = true, lastView = 'oblique', projectionView = '3d';
+let compareSource = false, lastView = 'oblique', projectionView = '3d';
 let completeTiles = null;
 let completeTileRecords = new Map();
 let completeTileReadyCount = 0;
@@ -29,7 +28,7 @@ const completeTileColorCache = new Map();
 
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setClearColor(0x0b1020);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   $('view').append(renderer.domElement);
@@ -269,6 +268,8 @@ function completeOperationSets() {
 }
 
 function completeTilesSupported() {
+  if (semanticVisibilityCustomized) return false;
+  if ($('resultColorMode')?.value === 'layers') return false;
   if ($('completeColorMode')?.value === 'score') return false;
   if (!completeTiles || completeTileFailed || $('completeCompare').value === 'baseline') return false;
   const filter = $('completeClassFilter').value;
@@ -287,7 +288,8 @@ function completeTileSemanticLabel(cls, instance) {
 
 function completeTilesHideHardNoise(cls, filter) {
   if (cls !== 4 || current?.preprocessing?.floatingZones?.forbiddenRule?.scope !== 'all-source-points') return false;
-  return !(['4', 'filtered'].includes(filter) || ['before', 'noise'].includes(preferredSemanticTag));
+  return !(['4', 'filtered'].includes(filter) || ['before', 'noise'].includes(preferredSemanticTag)
+    || (semanticVisibilityCustomized && visibleSemanticCodes.has(10)));
 }
 
 function completeTileStyleTargets(records, targetRecord) {
@@ -679,12 +681,10 @@ function filterIndexedGeometry(geometry, count, predicate) {
 
 function applyTableRemovalAppearance() {
   if (!tableRemovalGeometry || !current?._sharedTableMask) return;
-  const showTable = $('showRemovedTable').checked;
-  const selected = filterIndexedGeometry(tableRemovalGeometry, current._sharedTableMask.length,
-    index => showTable || current._sharedTableMask[index] === 0);
-  $('tableRemovalHint').textContent = showTable
-    ? `当前显示 ${fmt(selected)} 个预览点；台面点以原始颜色显示。`
-    : `当前显示 ${fmt(selected)} 个预览点；右侧已隐藏共享台面，左侧保留原始对照。`;
+  const data = stepSemanticData(current, 'tableRemoval');
+  tableRemovalGeometry.setAttribute('color', new THREE.BufferAttribute(resultDisplayColors(data, 'tableRemoval') || semanticColors(data), 3));
+  const selected = filterSemanticGeometry(tableRemovalGeometry, 'tableRemoval');
+  $('tableRemovalHint').textContent = `当前显示 ${fmt(selected)} 个预览点。`;
   requestRender();
 }
 
@@ -702,10 +702,9 @@ function updatePartitionLegend() {
 
 function applyPartitionAppearance() {
   if (!partitionGeometry || !current?._partitionZones) return;
-  const zone = $('partitionZoneFilter').value;
-  filterIndexedGeometry(partitionGeometry, current._partitionZones.length, index =>
-    current._sharedTableMask?.[index] !== 1
-    && (zone === 'all' || current._partitionZones[index] === Number(zone)));
+  const data = stepSemanticData(current, 'partition');
+  partitionGeometry.setAttribute('color', new THREE.BufferAttribute(resultDisplayColors(data, 'partition') || semanticColors(data), 3));
+  filterSemanticGeometry(partitionGeometry, 'partition');
   updatePartitionLegend();
   requestRender();
 }
@@ -743,22 +742,10 @@ function updateFloatingLegend() {
 
 function applyFloatingZonesAppearance() {
   if (!floatingZonesGeometry || !current?._sharedLayers || !current?._sharedFloatingNoise) return;
-  const layer = $('floatingLayerFilter').value;
-  const forbiddenOnly = $('floatingForbiddenOnly').checked;
-  const reviewOnly = ['review-only', 'step05-residual-veto', 'step05-steel-boundary'].includes(current.preprocessing?.floatingZones?.forbiddenRule?.action);
-  const selected = filterIndexedGeometry(floatingZonesGeometry, current._sharedLayers.length, (index) =>
-    current._sharedTableMask?.[index] !== 1
-    && (forbiddenOnly ? current._sharedFloatingNoise[index] === 1 : reviewOnly || current._sharedFloatingNoise[index] !== 1)
-    && (layer === 'all' || current._sharedLayers[index] === Number(layer)));
-  const report = current.preprocessing?.floatingZones;
-  const reason = report?.enabled === false ? `；${report.reason || '禁飞区未启用'}` : '';
-  const allSource = report?.forbiddenRule?.kind === 'outside-continuous-outer-envelope' && report?.forbiddenRule?.scope === 'all-source-points';
-  const hardCount = fmt(current._sharedFloatingNoise.reduce((sum, value) => sum + value, 0));
-  $('floatingHint').textContent = reviewOnly
-    ? `当前显示 ${fmt(selected)} 个${forbiddenOnly ? '禁飞区候选' : '非台面预览'}点；红色仅表示布外待复核，${report?.forbiddenRule?.action === 'step05-steel-boundary' ? '05 步剔除包络外的全部钢筋点，实例、分数和分区不再豁免。' : report?.forbiddenRule?.action === 'step05-residual-veto' ? '05 步直接剔除无可靠支撑的布外待定残点，已拟合杆件与实测延续部分保留。' : '05 步结合实测结构判断悬浮噪音。'}${reason}`
-    : forbiddenOnly
-    ? `当前仅显示 ${fmt(selected)} 个红色硬禁飞区命中。`
-    : `当前显示 ${fmt(selected)} 个非台面预览点；${hardCount} 个硬禁飞区命中默认隐藏，勾选“仅显示禁飞区命中”可检查。${allSource ? '布外点已强制排除，不参与后续计算。' : ''}${reason}`;
+  const data = stepSemanticData(current, 'floatingZones');
+  floatingZonesGeometry.setAttribute('color', new THREE.BufferAttribute(resultDisplayColors(data, 'floatingZones') || semanticColors(data), 3));
+  const selected = filterSemanticGeometry(floatingZonesGeometry, 'floatingZones');
+  $('floatingHint').textContent = `当前显示 ${fmt(selected)} 个预览点。`;
   updateFloatingLegend();
   requestRender();
 }
@@ -767,7 +754,8 @@ function hardMaskVisible(index, step, explicit = false) {
   if (['review-only', 'step05-residual-veto', 'step05-steel-boundary'].includes(current?.preprocessing?.floatingZones?.forbiddenRule?.action)) return true;
   if (!['classification', 'projection', 'fusion', 'refinement', 'internalRebar', 'completeRebar'].includes(step)
     || current?._sharedFloatingNoise?.[index] !== 1) return true;
-  return explicit || preferredSemanticTag === 'before' || preferredSemanticTag === 'noise';
+  return explicit || preferredSemanticTag === 'before' || preferredSemanticTag === 'noise'
+    || (semanticVisibilityCustomized && visibleSemanticCodes.has(10));
 }
 
 const internalTypeNames = { 0: '非内部钢筋', 1: '下层钢筋', 2: '上层钢筋', 3: '腹杆', 4: '待定钢筋', 5: '噪音' };
@@ -777,23 +765,36 @@ const internalFamilyColors = { 1: '#22c55e', 2: '#a78bfa', 3: '#f97316', 4: '#fa
 
 // One display vocabulary; persisted stage IDs retain their original meaning.
 const semanticTags = [
-  {id:'all', name:'全部（不含噪音）'}, {id:'before', name:'全部（含噪音）'},
-  {id:'steel', name:'全部钢筋', codes:[3,4,5,6,7,8,9,11], color:'#2dd4bf'},
+  {id:'all', name:'全部（不含噪音）'},
+  {id:'allSteel', name:'全部钢筋', codes:[3,4,5,6,7,8,9,11], color:'#34d399'},
+  {id:'cleanSteel', name:'全部钢筋（去噪后）', codes:[4,5,6,7,8,9], color:'#34d399', steps:['internalRebar','completeRebar']},
+  {id:'table', name:'台面', codes:[1], color:'#64748b'},
+  {id:'fixture', name:'夹具', codes:[2], color:'#f59e0b'},
   {id:'internal', name:'内部钢筋', codes:[4,6,7,8,9], color:'#2dd4bf'},
   {id:'external', name:'外部钢筋', codes:[5], color:'#f472b6'},
   {id:'upper', name:'上层钢筋', codes:[7], color:'#fb7185'},
   {id:'web', name:'腹杆', codes:[8], color:'#facc15'},
   {id:'lower', name:'下层钢筋', codes:[6], color:'#38bdf8'},
-  {id:'fixture', name:'夹具', codes:[2], color:'#f59e0b'},
-  {id:'table', name:'台面', codes:[1], color:'#64748b'},
   {id:'noise', name:'噪音', codes:[10], color:'#ef476f'},
-  {id:'pending', name:'待定候选', codes:[9], color:'#94a3b8'},
-  {id:'unlocated', name:'未定位钢筋', codes:[11], color:'#60a5fa'},
-  {id:'unknown', name:'未分类', codes:[0], color:'#94a3b8'},
 ];
-const semanticPalette = ['#94a3b8','#64748b','#f59e0b','#2dd4bf','#2dd4bf','#f472b6',
-  '#38bdf8','#fb7185','#facc15','#94a3b8','#ef476f','#60a5fa'].map(color => hexColor(color, color));
+const semanticAliasTags = {
+  before: {id:'before', codes:[0,1,2,3,4,5,6,7,8,9,10,11]},
+  steel: {id:'steel', codes:[3,4,5,6,7,8,9,11]},
+  pending: {id:'pending', codes:[9]},
+  unlocated: {id:'unlocated', codes:[11]},
+  unknown: {id:'unknown', codes:[0]},
+};
+function semanticTagById(id) { return semanticTags.find(tag => tag.id === id) || semanticAliasTags[id]; }
+const semanticPaletteHex = ['#94a3b8','#64748b','#f59e0b','#2dd4bf','#2dd4bf','#f472b6',
+  '#38bdf8','#fb7185','#facc15','#2dd4bf','#ef476f','#2dd4bf'];
+const categoryPaletteHex = ['#94a3b8','#64748b','#f59e0b','#2dd4bf','#2dd4bf','#a78bfa',
+  '#2dd4bf','#2dd4bf','#2dd4bf','#2dd4bf','#ef476f','#2dd4bf'];
+const semanticPalette = semanticPaletteHex.map(color => hexColor(color, color));
+const categoryPalette = categoryPaletteHex.map(color => hexColor(color, color));
 let preferredSemanticTag = 'all';
+let preferredResultColorMode = 'layers';
+let semanticVisibilityCustomized = false;
+const visibleSemanticCodes = new Set([0,1,2,3,4,5,6,7,8,9,11]);
 
 function stepSemanticData(manifest, step) {
   if (!manifest) return null;
@@ -807,14 +808,22 @@ function stepSemanticData(manifest, step) {
   const completeTypes = step === 'completeRebar' ? new Map((manifest.completeRebar?.instances || []).map(i => [i.id, i.type])) : null;
   const count = classes?.length ?? manifest.preview?.pointCount ?? 0;
   const labels = new Uint8Array(count), counts = new Uint32Array(12);
-  const regionLabels = [0,4,5,2,11], typeLabels = [0,6,7,8,9,10];
+  const regionLabels = [0,4,5,2,4], typeLabels = [0,6,7,8,9,10];
   for (let i = 0; i < count; i++) {
     let label = classes?.[i] ?? 0;
+    if (['tableRemoval', 'partition', 'floatingZones'].includes(step)) {
+      if (manifest._sharedTableMask?.[i] === 1) label = 1;
+      else if (manifest._partitionZones?.[i] === 2) label = 2;
+      else if (manifest._partitionZones?.[i] === 3) label = 5;
+      else label = 4;
+    }
     // Class 4 is the stable cross-stage representation of removed noise.
-    if (label === 4) label = 10;
+    if (classes && label === 4) label = 10;
     if (label === 0 && ((step === 'classification' && manifest.classification?.pendingClass === 0)
       || (step === 'projection' && manifest.projection?.pendingClass === 0))) label = 9;
-    if (label === 3 && regions) label = regionLabels[regions[i]] ?? 3;
+    if (label === 3 && regions) label = regionLabels[regions[i]] ?? 4;
+    if (label === 3) label = manifest._partitionZones?.[i] === 3 ? 5 : 4;
+    if ([4,9,11].includes(label) && manifest._sharedLayers?.[i] > 0) label = typeLabels[manifest._sharedLayers[i]] ?? label;
     if (types?.[i] > 0) label = typeLabels[types[i]] ?? label;
     if (step === 'completeRebar') {
       if (classes?.[i] === 4) label = 10;
@@ -826,19 +835,43 @@ function stepSemanticData(manifest, step) {
     labels[i] = label;
     counts[label]++;
   }
-  const data = {labels, counts};
+  const data = {labels, counts, step};
   manifest._semanticCache.set(step, data);
   return data;
 }
 
 function semanticTagAvailable(data, tag) {
-  return tag.id === 'all' || tag.id === 'before' || Boolean(data && tag.codes.some(code => data.counts[code] > 0));
+  return tag.id === 'all' || tag.id === 'before'
+    || Boolean(data && (!tag.steps || tag.steps.includes(data.step)) && tag.codes.some(code => data.counts[code] > 0));
 }
 
 function semanticTagMatches(label, tagId) {
   if (tagId === 'before') return true;
   if (tagId === 'all') return label !== 10;
-  return semanticTags.find(tag => tag.id === tagId)?.codes.includes(label) ?? false;
+  return semanticTagById(tagId)?.codes.includes(label) ?? false;
+}
+
+function semanticTagCodes(tag) {
+  return tag.id === 'all' ? [0,1,2,3,4,5,6,7,8,9,11] : (tag.codes || []);
+}
+
+function semanticTagChecked(data, tag) {
+  const present = semanticTagCodes(tag).filter(code => data?.counts?.[code] > 0);
+  return present.length > 0 && present.every(code => visibleSemanticCodes.has(code));
+}
+
+function setSemanticTagVisible(tag, visible) {
+  for (const code of semanticTagCodes(tag)) {
+    if (visible) visibleSemanticCodes.add(code); else visibleSemanticCodes.delete(code);
+  }
+  semanticVisibilityCustomized = true;
+}
+
+function showOnlySemanticTag(tag) {
+  visibleSemanticCodes.clear();
+  for (const code of semanticTagCodes(tag)) visibleSemanticCodes.add(code);
+  semanticVisibilityCustomized = true;
+  preferredSemanticTag = tag.id;
 }
 
 function semanticColors(data) {
@@ -847,12 +880,72 @@ function semanticColors(data) {
   return colors;
 }
 
+function categoryColors(data) {
+  const colors = new Float32Array(data.labels.length * 3);
+  for (let i = 0; i < data.labels.length; i++) colors.set(categoryPalette[data.labels[i]], i*3);
+  return colors;
+}
+
+function resultColorModeAvailable(mode, step = rightScene, manifest = current) {
+  if (mode === 'categories') return true;
+  if (mode === 'layers') {
+    if (step === 'internalRebar') return Boolean(manifest?._internalTypes);
+    if (step === 'completeRebar') return Boolean(manifest?._complete && manifest?.completeRebar?.instances);
+    return Boolean(manifest?._sharedLayers)
+      && ['floatingZones','classification','projection','fusion','refinement'].includes(step);
+  }
+  if (mode === 'instances') return step === 'internalRebar'
+    ? Boolean(manifest?._internalInstances)
+    : step === 'completeRebar' && Boolean(manifest?._complete?.complete_instance);
+  return false;
+}
+
+function activeResultColorMode(step = rightScene) {
+  return resultColorModeAvailable(preferredResultColorMode, step) ? preferredResultColorMode : 'categories';
+}
+
+function resultDisplayColors(data, step = rightScene) {
+  const mode = $('resultColorMode')?.value;
+  if (!data || !['categories','layers','instances'].includes(mode)) return null;
+  if (mode === 'layers') return semanticColors(data);
+  const colors = categoryColors(data);
+  if (mode !== 'instances') return colors;
+  const instances = step === 'completeRebar' ? current?._complete?.complete_instance : current?._internalInstances;
+  if (!instances) return colors;
+  for (let i = 0; i < data.labels.length; i++) {
+    if (instances[i] > 0 && [4,5,6,7,8,9,11].includes(data.labels[i])) colors.set(instanceColor(instances[i]), i*3);
+  }
+  return colors;
+}
+
+function updateResultColorControls() {
+  const select = $('resultColorMode');
+  if (!select) return;
+  for (const option of Array.from(select.options || [])) option.disabled = !resultColorModeAvailable(option.value);
+  const active = activeResultColorMode();
+  select.value = active;
+  if (active === 'instances') {
+    $('resultColorHint').textContent = '每根已编号钢筋使用独立颜色；未编号钢筋保持类别颜色。';
+  } else if (active === 'layers') {
+    $('resultColorHint').textContent = '下层蓝、上层粉、腹杆黄；台面、夹具和外部钢筋保持固定颜色。';
+  } else if (preferredResultColorMode === 'instances') {
+    $('resultColorHint').textContent = '逐个实例着色在第 05、06 步可用；当前暂用类别着色。';
+  } else if (preferredResultColorMode === 'layers') {
+    $('resultColorHint').textContent = '当前步骤尚未产生分层结果，暂用类别着色。';
+  } else {
+    $('resultColorHint').textContent = '台面、夹具、内部钢筋、外部钢筋和噪音使用固定颜色。';
+  }
+  if ($('internalColorMode')) $('internalColorMode').value = active === 'instances' ? 'instances' : 'types';
+  if ($('completeColorMode')) $('completeColorMode').value = active === 'instances' ? 'instances' : 'classes';
+}
+
 function filterSemanticGeometry(geometry, step, additional = null) {
   const data = stepSemanticData(current, step);
   if (!geometry || !data) return 0;
-  const desired = semanticTags.find(tag => tag.id === preferredSemanticTag);
+  const desired = semanticTagById(preferredSemanticTag);
   const tagId = semanticTagAvailable(data, desired) ? desired.id : 'all';
-  const allowed = Array.from({length:12}, (_, code) => semanticTagMatches(code, tagId));
+  const allowed = Array.from({length:12}, (_, code) => semanticVisibilityCustomized
+    ? visibleSemanticCodes.has(code) : semanticTagMatches(code, tagId));
   const indices = new Uint32Array(data.labels.length);
   let count = 0;
   for (let i = 0; i < data.labels.length; i++) {
@@ -865,23 +958,80 @@ function filterSemanticGeometry(geometry, step, additional = null) {
 
 function updateSemanticControls() {
   const data = stepSemanticData(current, rightScene);
-  const desired = semanticTags.find(tag => tag.id === preferredSemanticTag);
+  const desired = semanticTagById(preferredSemanticTag);
   const available = semanticTagAvailable(data, desired);
+  const hasClassifiedResults = semanticTags.slice(1).some(tag => semanticTagAvailable(data, tag));
   $('semanticFilter').replaceChildren(...semanticTags.map(tag => {
     const option = new Option(tag.name, tag.id);
     option.disabled = !semanticTagAvailable(data, tag);
     return option;
   }));
   $('semanticFilter').value = available ? preferredSemanticTag : 'all';
-  $('semanticHint').textContent = available
-    ? '各步骤使用相同分类名称；灰色表示本步骤尚未产出，或当前预览没有该类点。内部钢筋包含上层、腹杆、下层和待定钢筋。'
-    : `本步骤没有“${desired.name}”可显示，暂显示全部（不含噪音）；切回支持该类别的步骤时恢复筛选。`;
-  $('semanticLegend').replaceChildren(...semanticTags.filter(tag => tag.codes).map(tag => {
-    const row = document.createElement('span');
-    row.className = semanticTagAvailable(data, tag) ? '' : 'unavailable';
-    const swatch = document.createElement('i');
-    swatch.className = 'swatch'; swatch.style.background = tag.color;
-    row.append(swatch, tag.name);
+  $('semanticHint').textContent = !hasClassifiedResults
+    ? '这一步尚未产生分类；后续步骤仍使用同一组分类名称。'
+    : semanticVisibilityCustomized
+      ? '使用右侧开关组合显示类别；点击类别名称可只看这一类。'
+    : available
+      ? '使用右侧开关控制显隐；点击类别名称可快速只看这一类。'
+      : `这一步没有“${desired.name}”，暂时显示全部结果。`;
+  $('semanticLegend').replaceChildren(...semanticTags.map(tag => {
+    const enabled = semanticTagAvailable(data, tag);
+    const activeTagId = available ? preferredSemanticTag : 'all';
+    const presentCodes = semanticTagCodes(tag).filter(code => data?.counts?.[code] > 0);
+    const checked = semanticVisibilityCustomized
+      ? semanticTagChecked(data, tag)
+      : presentCodes.length > 0 && presentCodes.every(code => semanticTagMatches(code, activeTagId));
+    const row = document.createElement('div');
+    row.className = `categoryChoice${tag.id === 'all' ? ' categoryAll' : ''}`;
+    row.classList.toggle('active', checked);
+    row.classList.toggle('disabled', !enabled);
+    if (tag.color) {
+      const swatch = document.createElement('i');
+      const colorMode = $('resultColorMode')?.value;
+      const isSteel = tag.codes?.some(code => [4,5,6,7,8,9,11].includes(code));
+      swatch.className = 'swatch';
+      swatch.style.background = colorMode === 'instances' && isSteel
+        ? 'linear-gradient(90deg,#22c55e,#a78bfa,#f97316)'
+        : colorMode === 'categories' && tag.codes?.length ? categoryPaletteHex[tag.codes[0]] : tag.color;
+      row.append(swatch);
+    } else {
+      const spacer = document.createElement('i');
+      row.append(spacer);
+    }
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'categorySolo';
+    name.textContent = tag.name;
+    name.disabled = !enabled;
+    name.title = `只看${tag.name}`;
+    name.addEventListener('click', () => {
+      showOnlySemanticTag(tag);
+      $('semanticFilter').value = tag.id;
+      updateSemanticControls();
+      applyCurrentSemanticFilter();
+    });
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = data
+      ? fmt(tag.codes ? tag.codes.reduce((sum, code) => sum + data.counts[code], 0) : data.labels.length - data.counts[10])
+      : '—';
+    const toggle = document.createElement('label');
+    toggle.className = 'visibilityToggle';
+    toggle.title = `${checked ? '隐藏' : '显示'}${tag.name}`;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = checked;
+    input.disabled = !enabled;
+    input.setAttribute('aria-label', `${checked ? '隐藏' : '显示'}${tag.name}`);
+    const track = document.createElement('span');
+    track.className = 'visibilityTrack';
+    input.addEventListener('change', () => {
+      setSemanticTagVisible(tag, input.checked);
+      updateSemanticControls();
+      applyCurrentSemanticFilter();
+    });
+    toggle.append(input, track);
+    row.append(name, count, toggle);
     return row;
   }));
 }
@@ -1126,6 +1276,10 @@ function installCompletePreview() {
           ['最后整簇过滤', `${fmt(d.finalClusterFilter.removedInstanceCount)} 个实例 / ${fmt(d.finalClusterFilter.removedComponentCount)} 个残片 / ${fmt(d.finalClusterFilter.removedPointCount)} 点`],
         ] : []),
         ['末尾细小悬浮噪音', `${fmt(d.finalDenoising?.removedComponentCount)} 簇 / ${fmt(d.finalDenoising?.removedPointCount)} 点`],
+        ...(d.overlengthTailFilter?.enabled ? [[
+          '异常超长尾部回收', `${fmt(d.overlengthTailFilter.reclaimedInstanceCount)} 个实例 / ${fmt(d.overlengthTailFilter.removedPointCount)} 点 · ${d.overlengthTailFilter.elapsedS.toFixed(3)} 秒`,
+        ]] : []),
+        ...(d.finalUnassignedNoise ? [['最终未成实例残点归噪音', `${fmt(d.finalUnassignedNoise.removedPointCount)} 点`]] : []),
       ] : []),
       ['原内部实例 / 最终内外实例', `${fmt(d.observedInstancesBefore)} / ${fmt(d.observedInstancesAfter)}`],
       ['合并 / 拆分 / 新建', `${fmt(d.mergedInstances)} / ${fmt(d.splitInstances)} / ${fmt(d.newInstances)}`],
@@ -1162,9 +1316,9 @@ function applyCompleteAppearance() {
   const colors = new Float32Array(classes.length * 3), selected = new Uint32Array(classes.length);
   const filter = $('completeClassFilter').value, instance = $('completeInstanceFilter').value;
   const semantic = typeof stepSemanticData === 'function' ? stepSemanticData(current, baseline ? 'internalRebar' : 'completeRebar') : null;
-  const useSemantic = semantic && ['resolved', '3', 'all'].includes(filter);
+  const useSemantic = semantic && (semanticVisibilityCustomized || ['resolved', '3', 'all'].includes(filter));
   const desiredTag = typeof preferredSemanticTag === 'string' ? preferredSemanticTag : 'all';
-  const semanticId = semantic && semanticTagAvailable(semantic, semanticTags.find(t => t.id === desiredTag)) ? desiredTag : 'all';
+  const semanticId = semantic && semanticTagAvailable(semantic, semanticTagById(desiredTag)) ? desiredTag : 'all';
   const palette = {1:'#64748b',2:'#f59e0b',3:'#2dd4bf',4:'#ef476f'};
   let size = 0;
   for (let i = 0; i < classes.length; i++) {
@@ -1180,9 +1334,15 @@ function applyCompleteAppearance() {
       : filter === 'final-rejected' ? finalRejectedClusters.has(current._complete.complete_cluster?.[i])
       : filter === 'all' || (filter === 'extended' ? instances[i] > 0 && !current._internalInstances[i] : filter === 'pending' ? classes[i] === 3 && !instances[i] : classes[i] === Number(filter));
     const explicitHardMask = filter === '4' || filter === 'filtered' || desiredTag === 'before' || desiredTag === 'noise';
-    if (matches && hardMaskVisible(i, 'completeRebar', explicitHardMask) && (!useSemantic || semanticTagMatches(semantic.labels[i], semanticId)) && (instance === 'all' || instances[i] === Number(instance))) selected[size++] = i;
+    const semanticVisible = !useSemantic || (semanticVisibilityCustomized
+      ? visibleSemanticCodes.has(semantic?.labels[i])
+      : typeof semanticTagMatches !== 'function' || semanticTagMatches(semantic?.labels[i], semanticId));
+    if (matches && hardMaskVisible(i, 'completeRebar', explicitHardMask) && semanticVisible && (instance === 'all' || instances[i] === Number(instance))) selected[size++] = i;
   }
-  if ($('completeColorMode').value === 'score' && current._fusedSteelScores) colors.set(fusionScoreColors(current._fusedSteelScores));
+  const resultColors = semantic ? resultDisplayColors(semantic, baseline ? 'internalRebar' : 'completeRebar') : null;
+  if (resultColors) colors.set(resultColors);
+  else if ($('completeColorMode').value === 'classes' && semantic) colors.set(semanticColors(semantic));
+  else if ($('completeColorMode').value === 'score' && current._fusedSteelScores) colors.set(fusionScoreColors(current._fusedSteelScores));
   completeGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   completeGeometry.setIndex(new THREE.BufferAttribute(selected.subarray(0, size), 1));
   completeGeometry.setDrawRange(0, size);
@@ -1279,7 +1439,7 @@ function rebuildInternalAxes() {
   if (!$('internalAxes').checked || !current?.internalRebar?.segments?.length) return;
   const origin = current.preview?.origin;
   if (!Array.isArray(origin) || origin.length !== 3) return;
-  const desired = semanticTags.find(tag => tag.id === preferredSemanticTag);
+  const desired = semanticTagById(preferredSemanticTag);
   const typeFilter = semanticTagAvailable(stepSemanticData(current, 'internalRebar'), desired) ? desired.id : 'all';
   const familyFilter = $('internalFamilyFilter').value;
   const instanceFilter = $('internalInstanceFilter').value;
@@ -1313,10 +1473,11 @@ function applyInternalRebarAppearance() {
   if (!internalRebarGeometry || !current?._internalTypes) return;
   const data = stepSemanticData(current, 'internalRebar');
   const mode = $('internalColorMode').value;
-  const colors = mode === 'types' ? semanticColors(data)
+  const unifiedColors = resultDisplayColors(data, 'internalRebar');
+  const colors = unifiedColors || (mode === 'types' ? semanticColors(data)
     : mode === 'score' && current._fusedSteelScores ? fusionScoreColors(current._fusedSteelScores)
-    : internalColors(mode, current._internalTypes, current._internalInstances, current._internalConfidence, current._internalFamilies);
-  if (mode !== 'types' && mode !== 'score') {
+    : internalColors(mode, current._internalTypes, current._internalInstances, current._internalConfidence, current._internalFamilies));
+  if (!unifiedColors && mode !== 'types' && mode !== 'score') {
     for (let i = 0; i < data.labels.length; i++) {
       if (current._internalTypes[i] === 0 || current._internalTypes[i] === 5) colors.set(semanticPalette[data.labels[i]], i*3);
     }
@@ -1469,7 +1630,13 @@ function rebuildFloatingGeometryOverlays() {
     lines.visible = $('steelCenterlines').checked; group.add(lines); scene.add(group); floatingGeometryOverlays.push({scene, group});
   }
   const tolerance = envelope?.parameters;
-  const clearanceHint = tolerance ? ` ${tolerance.envelopeExpansionM ? `包络额外放宽 ${fmtHeight(tolerance.envelopeExpansionM)}。` : ''}当前余量：横向表面 ${fmtHeight(tolerance.lateralAllowanceM)}，配准 ${fmtHeight(tolerance.registrationAllowanceM)}，腹杆 ${fmtHeight(tolerance.webAllowanceM)}，弯筋表面 ${fmtHeight(tolerance.hookSurfaceAllowanceM)}；${tolerance.hookProtection === 'shared-inner-outer-bend-cloth' ? '主体按层铺平、边界直角折回，同排弯头共用内外曲面。' : '弯筋使用三维扫掠曲面保护。'}` : '';
+  const bendHint = tolerance?.hookPartition === 'whole-straight-and-bend-cross-section'
+    ? '弯钩排按完整平直段 + 弯钩作为一个整体分区，同排共用内外曲面。'
+    : '主体按层铺平、边界直角折回，同排弯头共用内外曲面。';
+  const bodyHint = tolerance?.heightRule === 'uniform-short-bar-top-plus-webs'
+    ? `普通内部钢筋不分区，上表面统一为短筋最高上表面 ${fmtHeight(tolerance.shortBarTopSurfaceM)} + 阈值 ${fmtHeight(tolerance.upperSurfaceAllowanceM)} = ${fmtHeight(tolerance.uniformUpperHeightM)}；腹杆继续保留独立解析包络。`
+    : '';
+  const clearanceHint = tolerance ? ` ${tolerance.envelopeExpansionM ? `包络额外放宽 ${fmtHeight(tolerance.envelopeExpansionM)}。` : ''}当前余量：横向表面 ${fmtHeight(tolerance.lateralAllowanceM)}，配准 ${fmtHeight(tolerance.registrationAllowanceM)}，腹杆 ${fmtHeight(tolerance.webAllowanceM)}，弯筋表面 ${fmtHeight(tolerance.hookSurfaceAllowanceM)}；${bodyHint}${tolerance.hookProtection === 'shared-inner-outer-bend-cloth' ? bendHint : '弯筋使用三维扫掠曲面保护。'}` : '';
   $('floatingGeometryHint').textContent = envelope
     ? `青色连续外包络内包括层间空隙；审查域中包络外点标记为候选，${report.forbiddenRule?.action === 'step05-steel-boundary' ? '05 步以此包络为钢筋结果硬边界，不设实例、分数、分区或距离豁免。' : report.forbiddenRule?.action === 'step05-residual-veto' ? '05 步对无可靠支撑的布外待定残点执行禁飞区过滤。' : '是否删除由悬浮噪音复核决定。'}${clearanceHint}`
     : '该历史结果没有连续外包络；可显示设计中心线。请重新运行以查看精确禁飞边界。';
@@ -1554,8 +1721,9 @@ function updateRefinementLegend() {
 function applyRefinementAppearance() {
   if (!refinementGeometry || !current?._refinedClasses) return;
   const mode = $('refinementColorMode').value;
-  const colors = mode === 'zones' ? zoneColors(current._refinedZones)
-    : semanticColors(stepSemanticData(current, 'refinement'));
+  const data = stepSemanticData(current, 'refinement');
+  const colors = resultDisplayColors(data, 'refinement') || (mode === 'zones' ? zoneColors(current._refinedZones)
+    : semanticColors(data));
   refinementGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const zone = $('refinementZoneFilter').value;
   filterSemanticGeometry(refinementGeometry, 'refinement', index =>
@@ -1658,11 +1826,12 @@ function applyFusionAppearance() {
   if (!fusionGeometry || !current?._fusedClasses) return;
   $('pointInspector').hidden = true;
   const mode = $('fusionColorMode').value;
-  const colors = mode === 'score' && current._fusedSteelScores
+  const data = stepSemanticData(current, 'fusion');
+  const colors = resultDisplayColors(data, 'fusion') || (mode === 'score' && current._fusedSteelScores
     ? fusionScoreColors(current._fusedSteelScores)
     : mode === 'regions'
       ? regionColors(current._fusedRegions, current.regions?.colors)
-      : semanticColors(stepSemanticData(current, 'fusion'));
+      : semanticColors(data));
   fusionGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const evidenceFilter = $('fusionScoreFilter').value;
   const threshold = fusionProtectionThreshold();
@@ -1683,6 +1852,8 @@ function applyFusionAppearance() {
 
 function applyClassFilter() {
   if (!classGeometry || !current?._classes) return;
+  const data = stepSemanticData(current, 'classification');
+  classGeometry.setAttribute('color', new THREE.BufferAttribute(resultDisplayColors(data, 'classification') || semanticColors(data), 3));
   const filter = $('classFilter').value;
   filterSemanticGeometry(classGeometry, 'classification', index =>
     (!$('classRecoveredOnly').checked || current._recovered?.[index] === 1)
@@ -1692,6 +1863,8 @@ function applyClassFilter() {
 
 function applyProjectionFilter() {
   if (!projectionGeometry || !current?._projectionClasses) return;
+  const data = stepSemanticData(current, 'projection');
+  projectionGeometry.setAttribute('color', new THREE.BufferAttribute(resultDisplayColors(data, 'projection') || semanticColors(data), 3));
   const layer = $('projectionLayerFilter').value;
   const classFilter = $('projectionClassFilter').value;
   filterSemanticGeometry(projectionGeometry, 'projection', index =>
@@ -1873,6 +2046,7 @@ function showStep(step) {
   if (step === 'designPrior' && !current?._designPrior) { setStatus(current?.designPrior?.disabledReason || '该历史结果没有可显示的设计先验复核数据。'); return; }
   rightScene = step;
   $('pointInspector').hidden = true;
+  updateResultColorControls();
   updateSemanticControls();
   applyCurrentSemanticFilter();
   document.querySelectorAll('[data-step]').forEach((button) => button.classList.toggle('active', button.dataset.step === step));
@@ -1885,7 +2059,7 @@ function showStep(step) {
         : step === 'fusion' ? '03 · 评分融合'
           : step === 'refinement' ? '04 · 边带与类别整理'
             : step === 'internalRebar' ? '05 · 内部钢筋分层与悬浮去噪' : step === 'completeRebar' ? '06 · 设计辅助实例整理与去噪' : step === 'designPrior' ? '07 · 设计先验复核' : '00 · 原始颜色 / 强度';
-  $('semanticControls').hidden = ['raw', 'normal', 'tableRemoval', 'partition', 'floatingZones'].includes(step);
+  $('semanticControls').hidden = false;
   $('tableRemovalControls').hidden = step !== 'tableRemoval' || !current?._sharedTableMask;
   $('partitionControls').hidden = step !== 'partition' || !current?._partitionZones;
   $('floatingZonesControls').hidden = step !== 'floatingZones' || !current?._sharedLayers;
@@ -2181,15 +2355,7 @@ async function loadManifest(manifest) {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     };
-    const storedPointCount = manifest.preview.pointCount;
-    const renderPointCount = Math.min(storedPointCount, PREVIEW_RENDER_LIMIT);
-    const preview = Object.fromEntries(Object.entries(manifest.preview).map(([key, value]) => {
-      if (renderPointCount === storedPointCount || !key.endsWith('Url') || typeof value !== 'string') return [key, value];
-      const separator = value.includes('?') ? '&' : '?';
-      return [key, `${value}${separator}previewPoints=${renderPointCount}&sourcePoints=${storedPointCount}`];
-    }));
-    preview.pointCount = renderPointCount;
-    preview.storedPointCount = storedPointCount;
+    const preview = manifest.preview;
     manifest = {...manifest, preview};
     const refinementPassThrough = isFusionPassThrough(manifest);
     const hasTableRemoval = Boolean(manifest.preprocessing?.tableRemoval && preview.sharedTableMaskUrl);
@@ -2243,7 +2409,7 @@ async function loadManifest(manifest) {
     ]);
     const [positionBytes, normalBytes, colorBytes, validBytes, tableMaskBytes, partitionZoneBytes, sharedLayerBytes, sharedFloatingNoiseBytes, classBytes, recoveredBytes, projectionClassBytes, projectionLayerBytes, fusedClassBytes, fusedRegionBytes, fusedRecoveredBytes, fusedScoreBytes, fusedEvidenceBytes, refinedClassBytes, refinedRegionBytes, refinedZoneBytes, refinedChangedBytes, internalTypeBytes, internalInstanceBytes, internalSegmentBytes, internalConfidenceBytes] = coreBytes;
     if (token !== loadToken) return;
-    await showLoadPhase(`正在校验 ${fmt(renderPointCount)} 个预览点…`);
+    await showLoadPhase(`正在校验 ${fmt(preview.pointCount)} 个预览点…`);
     const positions = new Float32Array(positionBytes), normals = new Float32Array(normalBytes);
     const colors = new Uint8Array(colorBytes), valid = new Uint8Array(validBytes);
     const sharedTableMask = tableMaskBytes ? new Uint8Array(tableMaskBytes) : null;
@@ -2499,7 +2665,6 @@ async function loadManifest(manifest) {
     internalRebarPoints.geometry = internalRebarGeometry || emptyClassGeometry;
     current = { ...manifest, _complete: complete, _designPrior: designPrior, _positions: positions, _normals: normals, _valid: valid, _sharedTableMask: sharedTableMask, _partitionZones: partitionZones, _sharedLayers: sharedLayers, _sharedFloatingNoise: sharedFloatingNoise, _classes: classes, _recovered: recovered, _projectionClasses: projectionClasses, _projectionLayers: projectionLayers, _fusedClasses: fusedClasses, _fusedRegions: fusedRegions, _fusedRecovered: fusedRecovered, _fusedSteelScores: fusedSteelScores, _fusedSteelEvidence: fusedSteelEvidence, _refinedClasses: refinedClasses, _refinedRegions: refinedRegions, _refinedZones: refinedZones, _refinedChanged: refinedChanged, _internalTypes: internalTypes, _internalInstances: internalInstances, _internalSegments: internalSegments, _internalConfidence: internalConfidence, _internalFamilies: internalFamilies, _internalInstanceById: internalInstanceById };
     installCompletePreview();
-    installCompleteTiles();
     installDesignPriorPreview();
     if (hasPartition || hasRefinement || hasInternalRebar) $('frameOverlay').checked = true;
     rebuildFrameOverlays();
@@ -2685,7 +2850,7 @@ async function status() {
         workerLimitInitialized = true;
       }
     }
-    $('source').textContent = `源文件：${state.sourceName || '未检测到'}${state.progress ? ` · ${state.progress.stage || ''} ${fmt(state.progress.completed)} / ${fmt(state.progress.total)}` : ''}`;
+    $('source').textContent = `源文件：${state.sourceName || '未检测到'}${Number.isFinite(state.previewLimit) ? ` · 固定预览 ${fmt(state.previewLimit)} 点` : ''}${state.progress ? ` · ${state.progress.stage || ''} ${fmt(state.progress.completed)} / ${fmt(state.progress.total)}` : ''}`;
     if (requestedRun && current?.runId !== requestedRun) await loadRun({runId: requestedRun});
     const running = state.status === 'running';
     $('run').disabled = running;
@@ -2729,9 +2894,17 @@ $('run').addEventListener('click', async () => {
 
 $('semanticFilter').addEventListener('change', () => {
   preferredSemanticTag = $('semanticFilter').value;
+  semanticVisibilityCustomized = false;
   if (rightScene === 'completeRebar') { $('completeClassFilter').value = 'all'; $('completeInstanceFilter').value = 'all'; }
   for (const id of ['projectionLayerFilter', 'fusionScoreFilter', 'refinementZoneFilter', 'internalFamilyFilter', 'internalInstanceFilter']) $(id).value = 'all';
   for (const id of ['refinementChangedOnly', 'classRecoveredOnly', 'fusionRecoveredOnly']) $(id).checked = false;
+  updateSemanticControls();
+  applyCurrentSemanticFilter();
+});
+
+$('resultColorMode').addEventListener('change', () => {
+  preferredResultColorMode = $('resultColorMode').value;
+  updateResultColorControls();
   updateSemanticControls();
   applyCurrentSemanticFilter();
 });
@@ -2837,8 +3010,8 @@ document.querySelectorAll('[data-step]').forEach((button) => button.addEventList
 document.querySelectorAll('[data-projection-view]').forEach((button) => button.addEventListener('click', () => setProjectionView(button.dataset.projectionView)));
 renderer.domElement.addEventListener('click', inspectFusionPoint);
 $('png').addEventListener('click', () => {
-  requestRender();
   requestAnimationFrame(() => {
+    render();
     const link = document.createElement('a');
     link.download = `pointcloud-${current?.runId || 'preview'}.png`;
     link.href = renderer.domElement.toDataURL('image/png');

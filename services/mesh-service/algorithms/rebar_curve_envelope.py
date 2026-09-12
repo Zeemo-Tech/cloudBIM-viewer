@@ -20,13 +20,19 @@ def _hooked(points: np.ndarray, bar: dict[str, Any]) -> tuple[bool, np.ndarray]:
     return hooked, (length < .20) | (incline > .12)
 
 
-def split_curve_bars(inventory: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def split_curve_bars(inventory: dict[str, Any], connected_run_m: float = 0., *,
+                     whole_hooked_bar: bool = False) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Move recognised hooked runs out of the cloth inventory.
 
     A curve path retains its actual endpoint and its join with the long body.
-    The remaining body is emitted as contiguous non-hook runs, avoiding an
-    artificial chord across a removed bend.
+    ``whole_hooked_bar`` makes a recognised hook and every connected straight
+    run one atomic path.  This is the production envelope partition: its cross
+    section is the complete straight-plus-hook profile, never a bend detached
+    from its long lead.  The clipped-overlap mode remains available to callers
+    that need the historical body/curve split.
     """
+    if not np.isfinite(connected_run_m) or connected_run_m < 0 or type(whole_hooked_bar) is not bool:
+        raise ValueError("connected_run_m must be finite and non-negative")
     body = deepcopy(inventory)
     body_bars: list[dict[str, Any]] = []
     paths: list[dict[str, Any]] = []
@@ -45,6 +51,11 @@ def split_curve_bars(inventory: dict[str, Any]) -> tuple[dict[str, Any], list[di
         if not hooked or not marked.any():
             body_bars.append(deepcopy(source)); continue
         bar_id = str(source.get("designBarId", source.get("id", ordinal)))
+        if whole_hooked_bar:
+            path = points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > 1e-7]]
+            if len(path) >= 2:
+                paths.append({"designBarId": bar_id, "points": path.tolist(), "radiusM": radius})
+            continue
         # Connected marked runs form a path. Include the first join endpoint.
         start = 0
         while start < len(marked):
@@ -52,6 +63,18 @@ def split_curve_bars(inventory: dict[str, Any]) -> tuple[dict[str, Any], list[di
             end = start + 1
             while end < len(marked) and marked[end]: end += 1
             path = points[start:end+1]
+            if connected_run_m > 0 and start > 0:
+                join, neighbour = points[start], points[start-1]
+                length = float(np.linalg.norm(neighbour-join))
+                if length > 1e-9:
+                    lead = join+(neighbour-join)*(min(connected_run_m, length)/length)
+                    path = np.vstack((lead, path))
+            if connected_run_m > 0 and end < len(marked):
+                join, neighbour = points[end], points[end+1]
+                length = float(np.linalg.norm(neighbour-join))
+                if length > 1e-9:
+                    lead = join+(neighbour-join)*(min(connected_run_m, length)/length)
+                    path = np.vstack((path, lead))
             path = path[np.r_[True, np.linalg.norm(np.diff(path, axis=0), axis=1) > 1e-7]]
             if len(path) >= 2:
                 paths.append({"designBarId": bar_id, "points": path.tolist(), "radiusM": radius})
@@ -74,7 +97,16 @@ def _fit_arc(points: np.ndarray, spacing: float) -> tuple[np.ndarray, float] | N
     if len(points) < 4:
         return None
     segments = np.diff(points, axis=0)
-    segments /= np.maximum(np.linalg.norm(segments, axis=1)[:, None], 1e-12)
+    lengths = np.linalg.norm(segments, axis=1)
+    # A full hook partition deliberately includes its long straight lead.  A
+    # large-radius circle can algebraically fit that lead plus the small elbow,
+    # but densifying the metres-long line at millimetre spacing would both bend
+    # the intended straight section and make exact membership prohibitively
+    # expensive.  Genuine sampled arcs do not contain one chord orders of
+    # magnitude longer than their median chord.
+    if lengths.max() > 8*max(float(np.median(lengths)), 1e-12):
+        return None
+    segments /= np.maximum(lengths[:, None], 1e-12)
     # Four corners of a square are exactly cocircular.  Do not turn a sparse
     # rectilinear bend into an arc merely because its algebraic residual is 0.
     if np.any(np.sum(segments[:-1]*segments[1:], axis=1) < np.cos(np.deg2rad(45.))):

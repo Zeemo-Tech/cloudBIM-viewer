@@ -725,6 +725,7 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
     from algorithms.rebar_base import RebarInputContext
     from rebar_stream import iter_source_chunks, write_raw_labels
     prior = None
+    dimension_priors = None
     if bim_prior is not None:
         if not algo.descriptor.get("capabilities", {}).get("bimPrior", False):
             raise InvalidRebarInputOptionsError("selected algorithm does not support BIM priors")
@@ -745,12 +746,22 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
                 raise StoragePathViolationError("BIM inputs must be regular files inside shared storage")
             paths[key] = str(resolved)
         try:
-            prior = load_bim_prior(**paths, scan_to_bim=list(bim_prior["scan_to_bim"]))
+            if algorithm == "geometric-v6":
+                from algorithms.rebar_dimension_priors import load_dimension_priors
+                dimension_priors = load_dimension_priors(ifc_path=paths["ifc_path"])
+            else:
+                prior = load_bim_prior(**paths, scan_to_bim=list(bim_prior["scan_to_bim"]))
         except (ValueError, OSError, KeyError) as exc:
             raise InvalidBimPriorError("BIM geometry or alignment is unusable") from exc
-        prior["fingerprint"] = bim_prior.get("fingerprint", "")
-    context = RebarInputContext(loaded.points,
-        lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format), prior, point_cloud_path)
+        if prior is not None:
+            prior["fingerprint"] = bim_prior.get("fingerprint", "")
+    context = RebarInputContext(
+        sample=loaded.points,
+        iter_chunks=lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format),
+        bim_prior=prior,
+        source_path=point_cloud_path,
+        dimension_priors=dimension_priors,
+    )
     output = _confined_output_directory(output_directory, storage_root)
     if algo.descriptor.get('analysisSchema') == 'rebar-analysis-v2' and output.exists():
         raise PointCloudInputError('artifact versions are immutable; use a new output directory')

@@ -15,7 +15,7 @@ from .rebar_base import RebarAlgorithm, RebarAlgorithmError, RebarAnalysis, Reba
 from .rebar_v5.contracts import VISUALIZATION
 from .rebar_v5.spatial import SpatialBudgetExceeded
 
-VERSION = '11'
+VERSION = '12'
 CHUNK_SIZE = 262144
 MAX_SOURCE_POINTS = 20_000_000
 SCENE_LOOKUP = np.array([0, 1, 4, 2, 3], np.uint8)
@@ -82,7 +82,7 @@ class GeometricV6Adapter(RebarAlgorithm):
             'analysisSchema': 'rebar-analysis-v2',
             'capabilities': {'class': True, 'direction': True, 'instance': True, 'confidence': True,
                 'sceneClass': True, 'rebarFlags': True, 'rawLabels': True, 'features': True,
-                'intersections': False, 'fixtureKind': False, 'rebarRole': True, 'bimPrior': False},
+                'intersections': False, 'fixtureKind': False, 'rebarRole': True, 'bimPrior': True},
             'inputOptionSchema': {'type': 'object', 'additionalProperties': False,
                 'properties': {'maxInputPoints': {'type': 'integer', 'default': 200000, 'minimum': 3, 'maximum': 200000,
                     'description': 'Bootstrap only; the segmentation processes all finite source points'}}},
@@ -149,7 +149,8 @@ class GeometricV6Adapter(RebarAlgorithm):
                     logging.getLogger(__name__).info('V6 %s', stage)
             with threadpool_limits(limits=1):
                 runtime.stages = segment_points(runtime.points, runtime.path, k=parameters['normal_k'],
-                    workers=runtime.workers, source=context.source_path, through_step=6, progress=progress)
+                    workers=runtime.workers, source=context.source_path, through_step=6, progress=progress,
+                    dimension_priors=context.dimension_priors)
             report = runtime.stages.internal_rebar
             instances = instance_records(report)
             maximum = max([0] + [i['id'] for i in instances])

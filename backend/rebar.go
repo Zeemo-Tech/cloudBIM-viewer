@@ -375,13 +375,21 @@ func (a *app) rebarCompute(c *gin.Context) {
 		return
 	}
 	bimPriorSupported, _ := descriptor.Capabilities["bimPrior"].(bool)
-	if b.BimPrior != nil && !bimPriorSupported {
+	selection := b.BimPrior
+	if b.Algorithm == "geometric-v6" && asset.LinkedBimID != nil {
+		if selection != nil && selection.BimAssetID != *asset.LinkedBimID {
+			fail(c, 422, "bim_prior_unavailable")
+			return
+		}
+		selection = &rebarBimSelection{BimAssetID: *asset.LinkedBimID}
+	}
+	if selection != nil && !bimPriorSupported {
 		fail(c, 422, "selected_algorithm_does_not_support_bim")
 		return
 	}
 	var prior *RebarBimPrior
-	if b.BimPrior != nil {
-		prior, err = a.resolveRebarBimPrior(asset.ID, userID(c), b.BimPrior)
+	if selection != nil {
+		prior, err = a.resolveRebarBimPrior(asset.ID, userID(c), selection)
 		if err != nil {
 			fail(c, 422, "bim_prior_unavailable")
 			return
@@ -501,11 +509,31 @@ func (a *app) rebarLatest(c *gin.Context) {
 		fail(c, 404, "资源不存在")
 		return
 	}
-	if !a.validRebarRow(x, r) {
+	if !a.validRebarRow(x, r) || !a.rebarRowMatchesCurrentBim(*x, r) {
 		fail(c, 404, "资源不存在")
 		return
 	}
 	ok(c, a.rebarResponse(x.ID, r, false))
+}
+
+func (a *app) rebarRowMatchesCurrentBim(asset Asset, row DBAssetDerivative) bool {
+	var snapshot struct {
+		Algorithm struct {
+			ID string `json:"id"`
+		} `json:"algorithm"`
+		BimSnapshot *RebarBimPrior `json:"bimSnapshot"`
+	}
+	if json.Unmarshal([]byte(row.ParamsJSON), &snapshot) != nil {
+		return false
+	}
+	if snapshot.Algorithm.ID != "geometric-v6" {
+		return true
+	}
+	if asset.LinkedBimID == nil {
+		return snapshot.BimSnapshot == nil
+	}
+	current, err := a.resolveRebarBimPrior(asset.ID, asset.OwnerID, &rebarBimSelection{BimAssetID: *asset.LinkedBimID})
+	return err == nil && snapshot.BimSnapshot != nil && snapshot.BimSnapshot.Fingerprint == current.Fingerprint
 }
 func (a *app) rebarResource(c *gin.Context) {
 	x, ok := a.getAsset(c)

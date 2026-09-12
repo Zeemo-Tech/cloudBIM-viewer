@@ -1,9 +1,7 @@
 """Extract conservative rebar diameter and straight-length families from IFC.
 
-The public loader accepts an explicit IFC path.  It also knows the verified
-association for the repository's current YB-1 point cloud.  It deliberately
-does not select a nearby or sole IFC file: filesystem proximity is not evidence
-that a design model belongs to a scan.
+Production callers must provide the IFC selected by the owner-scoped backend.
+A source path alone is never evidence of a BIM association.
 """
 
 from __future__ import annotations
@@ -23,19 +21,6 @@ import numpy as np
 _MAX_SHAPES = 20_000
 _CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
 _DIGEST_CACHE: dict[tuple[str, int, int], str] = {}
-
-# This pairing is documented by the existing BIM-prior asset tests and the
-# rebar V5 recovery evidence.  Both hashes make the local association fail
-# closed if either ignored data asset is replaced.
-_KNOWN_ASSOCIATIONS = {
-    "95b6b41c5857d9eb3407b155": {
-        "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
-        "ifcUploadId": "419278dd32c37508da3af8bd",
-        "ifcSha256": "ceea2b7b65fc89a680de39593059ac7b0068ac5bc13c623ea57a61c8d61ea91a",
-        "evidence": "existing rebar BIM-prior fixture and V5 recovery inventory",
-    }
-}
-
 
 def _stat_key(path: Path) -> tuple[str, int, int]:
     stat = path.stat()
@@ -83,40 +68,8 @@ def _resolve_ifc(source_path: str | None, ifc_path: str | None) -> tuple[Path | 
             return None, None, _unavailable("ifc_path_not_file")
         return resolved, {"selection": "explicit"}, None
 
-    if source_path is None:
-        return None, None, _unavailable("ifc_path_or_associated_source_required")
-    source = Path(source_path).expanduser()
-    try:
-        source = source.resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
-        return None, None, _unavailable("source_path_unavailable", error=type(exc).__name__)
-    if not source.is_file():
-        return None, None, _unavailable("source_path_not_file")
-
-    # Expected layout: <data>/assets/<asset-id>/source.las.  A matching asset ID
-    # alone is insufficient; verify the content hash before following the
-    # recorded upload association.
-    asset_id = source.parent.name if source.parent.parent.name == "assets" else ""
-    association = _KNOWN_ASSOCIATIONS.get(asset_id)
-    if association is None or _sha256(source) != association["sourceSha256"]:
-        return None, None, _unavailable("no_unambiguous_ifc_association")
-    data_root = source.parent.parent.parent
-    candidate = data_root / "uploads" / association["ifcUploadId"] / "source"
-    try:
-        resolved = candidate.resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
-        return None, None, _unavailable("associated_ifc_unavailable", error=type(exc).__name__)
-    if not resolved.is_file() or _sha256(resolved) != association["ifcSha256"]:
-        return None, None, _unavailable("associated_ifc_identity_mismatch")
-    return resolved, {
-        "selection": "verifiedSourceAssociation",
-        "sourcePath": str(source),
-        "sourceName": source.name,
-        "sourceSha256": association["sourceSha256"],
-        "sourceAssetId": asset_id,
-        "ifcUploadId": association["ifcUploadId"],
-        "evidence": association["evidence"],
-    }, None
+    reason = "no_unambiguous_ifc_association" if source_path is not None else "ifc_path_or_associated_source_required"
+    return None, None, _unavailable(reason)
 
 
 def _rounded(value: float, places: int = 9) -> float:

@@ -25,7 +25,7 @@ from rebar_design_prior import prepare_snapshot
 from algorithms.design_prior_refinement import MODES as PRIOR_MODES
 
 
-DEFAULT_PREVIEW_LIMIT = 300_000
+DEFAULT_PREVIEW_LIMIT = 1_000_000
 RUN_SUMMARY_NAME = "summary.json"
 
 
@@ -108,7 +108,8 @@ class DebugState:
         self.run_records = {}
         self.run = None
         self.state = {"status": "idle", "progress": {"stage": "等待运行", "completed": 0, "total": 1},
-                      "error": None, "latest": None, "sourceName": source.name, "maxWorkers": available_workers()}
+                      "error": None, "latest": None, "sourceName": source.name,
+                      "previewLimit": preview_limit, "maxWorkers": available_workers()}
         self.state.update(priorAvailable=False, priorSummary='未配置设计先验')
         if prior_config:
             snapshot = prepare_snapshot(prior_config)

@@ -114,14 +114,10 @@ class RebarDimensionPriorTests(unittest.TestCase):
         self.assertEqual(first["families"], second["families"])
 
     @unittest.skipUnless(CURRENT_SOURCE.is_file() and CURRENT_IFC.is_file(), "local YB-1 assets unavailable")
-    def test_current_scan_uses_only_its_verified_ifc_association(self):
+    def test_source_only_never_uses_a_repository_hardcoded_ifc_association(self):
         result = priors.load_dimension_priors(source_path=str(CURRENT_SOURCE))
-        self.assertTrue(result["available"])
-        self.assertEqual(result["provenance"]["selection"], "verifiedSourceAssociation")
-        self.assertEqual(result["provenance"]["ifcFileName"], "YB-1.ifc")
-        self.assertEqual(result["diametersM"], [.008])
-        self.assertEqual(result["horizontalLengthsM"], [.28, 1.15])
-        self.assertEqual(result["counts"]["shapeCount"], 50)
+        self.assertFalse(result["available"])
+        self.assertEqual(result["reason"], "no_unambiguous_ifc_association")
 
 
 if __name__ == "__main__":

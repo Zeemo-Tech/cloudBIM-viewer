@@ -95,7 +95,7 @@ class GuidedTests(unittest.TestCase):
         np.testing.assert_array_equal(ctx.complete_class[arc], 3)
         np.testing.assert_array_equal(ctx.complete_instance[arc], 1)
 
-    def test_isolated_exterior_low_score_is_rejected_but_high_score_is_protected(self):
+    def test_final_unassigned_residual_is_noise_even_with_high_score(self):
         rod = ([0, 0, 0], [.3, 0, 0])
         for mode in ('geometry', 'topology'):
             with self.subTest(mode=mode):
@@ -111,10 +111,15 @@ class GuidedTests(unittest.TestCase):
                 ctx.fused_steel_score = np.r_[np.ones(count), [.25, .65, 1.]].astype(np.float32)
                 before = ctx.positions.copy()
                 result = refine_instances(ctx, report, inventory([rod]), mode=mode)
-                np.testing.assert_array_equal(ctx.complete_class[count:], [4, 4, 3])
+                np.testing.assert_array_equal(ctx.complete_class[count:], 4)
                 np.testing.assert_array_equal(ctx.complete_class[:count], 3)
                 np.testing.assert_array_equal(ctx.positions, before)
                 self.assertEqual(result['designReview']['exteriorDenoising']['removedPointCount'], 2)
+                self.assertEqual(result['designReview']['finalUnassignedNoise']['removedPointCount'], 1)
+                self.assertEqual(result['designReview']['finalUnassignedNoise']['highScoreRemovedPointCount'], 1)
+                self.assertEqual(result['unassignedRebarPointCount'], 0)
+                for name in ('complete_instance', 'complete_segment', 'complete_confidence'):
+                    np.testing.assert_array_equal(getattr(ctx, name)[count:], 0)
 
     def test_parallel_but_off_axis_external_arc_is_not_protected(self):
         ctx,report,arc=short_external_arc(offset=.04)
@@ -356,7 +361,7 @@ class GuidedTests(unittest.TestCase):
         ctx.normals[:]=[0,0,1]
         r=refine_instances(ctx,report,inventory([rod]))
         self.assertEqual(r['instanceCount'],0)
-        np.testing.assert_array_equal(ctx.complete_class,3)
+        np.testing.assert_array_equal(ctx.complete_class,4)
 
     def test_equal_cylinder_surface_competition_stays_pending(self):
         from algorithms.internal_rebar import assign_cylinders, InternalRebarParameters

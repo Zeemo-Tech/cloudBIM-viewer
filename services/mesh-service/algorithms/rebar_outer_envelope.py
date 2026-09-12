@@ -9,6 +9,22 @@ from scipy.spatial import Delaunay, ConvexHull
 from scipy import sparse
 
 
+def _short_bar_top_surface(inventory):
+    """Highest physical upper surface among design units classified as short."""
+    tops = []
+    for unit in inventory.get('units', []):
+        if not isinstance(unit, dict) or unit.get('kind') != 'short':
+            continue
+        try:
+            start, end = np.asarray(unit['startM'], float), np.asarray(unit['endM'], float)
+            radius = float(unit['diameterM'])/2
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (start.shape == (3,) and end.shape == (3,) and np.isfinite(np.r_[start, end, radius]).all() and radius > 0):
+            tops.append(max(float(start[2]), float(end[2]))+radius)
+    return max(tops) if tops else None
+
+
 def _truss_height_patches(inventory, nodes, origin, axes, lateral, registration):
     """Planar tension faces around a web assembly supported by its long chords.
 
@@ -76,12 +92,17 @@ def _design_surface_heights(inventory, nodes, origin, axes, lateral, registratio
     """
     upper = np.full(len(nodes), -np.inf)
     lower = np.full(len(nodes), np.inf)
+    web_upper = np.full(len(nodes), -np.inf)
+    web_lower = np.full(len(nodes), np.inf)
     nearest_distance = np.full(len(nodes), np.inf)
     nearest_upper = np.zeros(len(nodes)); nearest_lower = np.zeros(len(nodes))
+    web_bar_ids = {str(unit.get('designBarId', '')) for unit in inventory.get('units', [])
+                   if isinstance(unit, dict) and unit.get('kind') == 'web'}
     planes = {}
     for bar in inventory.get('bars', []):
         points = np.asarray(bar['points'], float)
         radius = float(bar['radiusM'])
+        is_web = str(bar.get('designBarId', bar.get('id', ''))) in web_bar_ids
         local = (points[:, :2]-origin) @ axes.T
         for index, (a, b) in enumerate(zip(points[:-1], points[1:])):
             delta = b-a; length = np.linalg.norm(delta)
@@ -108,6 +129,9 @@ def _design_surface_heights(inventory, nodes, origin, axes, lateral, registratio
             near = distance <= radius+lateral+1.e-9
             upper[near] = np.maximum(upper[near], high[near])
             lower[near] = np.minimum(lower[near], low[near])
+            if is_web:
+                web_upper[near] = np.maximum(web_upper[near], high[near])
+                web_lower[near] = np.minimum(web_lower[near], low[near])
             if abs(delta[2])/length < 1.e-6 and length_xy > 1.e-9:
                 along = int(np.argmax(np.abs(d))); across = 1-along
                 if abs(d[across])/length_xy > 1.e-5: continue
@@ -157,9 +181,11 @@ def _design_surface_heights(inventory, nodes, origin, axes, lateral, registratio
     for selected, high, low in trusses:
         upper[selected] = np.maximum(upper[selected], high[selected])
         lower[selected] = np.minimum(lower[selected], low[selected])
+        web_upper[selected] = np.maximum(web_upper[selected], high[selected])
+        web_lower[selected] = np.minimum(web_lower[selected], low[selected])
     missing = ~np.isfinite(upper)
     upper[missing], lower[missing] = nearest_upper[missing], nearest_lower[missing]
-    return upper, lower, patch_count
+    return upper, lower, patch_count, web_upper, web_lower, len(trusses)
 
 
 def _build_cloth_envelope(inventory, parameters):
@@ -189,8 +215,25 @@ def _build_cloth_envelope(inventory, parameters):
     # triangle or sidewall is ever permitted to bridge an excluded corner.
     triangles = np.vstack((np.c_[ll, lr, ur], np.c_[ll, ur, ul]))
     step = max(float(np.max(np.diff(xs))), float(np.max(np.diff(ys))))
-    upper, lower, patch_count = _design_surface_heights(inventory, nodes, origin, axes,
-        lateral, registration, web_margin, external)
+    upper, lower, patch_count, web_upper, web_lower, web_patch_count = _design_surface_heights(
+        inventory, nodes, origin, axes, lateral, registration, web_margin, external)
+    short_top = _short_bar_top_surface(inventory)
+    if short_top is not None:
+        # Short bars establish only one elevation datum. Their XY placement is
+        # unreliable in production, so it must never split the internal region
+        # into local raised patches. Apply their highest physical top plus the
+        # existing registration threshold uniformly over the whole footprint.
+        uniform_upper = short_top+registration
+        upper.fill(uniform_upper)
+        web_supported = np.isfinite(web_upper)
+        upper[web_supported] = np.maximum(upper[web_supported], web_upper[web_supported])
+        lower[web_supported] = np.minimum(lower[web_supported], web_lower[web_supported])
+        lower = np.minimum(lower, uniform_upper)
+        patch_count = 0
+    else:
+        uniform_upper = None
+    bottom_allowance = float(parameters.get('bottom_surface_allowance_m', 0.))
+    lower -= bottom_allowance
     support_radius = float(parameters['envelope_support_radius_m'])
     # One-sided relaxation rounds discontinuities only outward: smoothing must
     # never shave away a steel sample or its specified clearance.
@@ -230,10 +273,15 @@ def _build_cloth_envelope(inventory, parameters):
         'parameters': {'gridSpacingM': step, 'lateralAllowanceM': lateral,
             'registrationAllowanceM': registration, 'webAllowanceM': web_margin,
             'externalLengthAllowanceM': external,
+            'bottomSurfaceAllowanceM': bottom_allowance,
             'supportRadiusM': support_radius, 'relaxationPasses': relaxation_passes,
             'footprintRule': 'orthogonal-row-column-wrap', 'lateralReference': 'steel-surface',
-            'footprint': footprint.get('params', {}), 'heightRule': 'shared-planar-layers-analytic-webs',
-            'planarPatchCount': patch_count},
+            'footprint': footprint.get('params', {}),
+            'heightRule': 'uniform-short-bar-top-plus-webs' if uniform_upper is not None else 'shared-planar-layers-analytic-webs',
+            'shortBarTopSurfaceM': short_top, 'uniformUpperHeightM': uniform_upper,
+            'upperSurfaceAllowanceM': registration if uniform_upper is not None else None,
+            'planarPatchCount': patch_count, 'webPatchCount': web_patch_count,
+            'webEnvelopeRetained': bool(np.isfinite(web_upper).any())},
         'meaning': 'cloth follows orthogonal steel silhouette; concave corners stay excluded and internal gaps stay enclosed',
         'surfaceRule': 'two exact triangles per active orthogonal cell; vertical boundary walls without diagonal corner bridges'}
 
@@ -254,7 +302,13 @@ def build_outer_envelope(inventory, parameters):
                  'web_registration_allowance_m', 'external_length_tolerance_m',
                  'hook_surface_allowance_m'):
         parameters[name] += expansion
-    body_inventory, curves = split_curve_bars(inventory)
+    connected_run = float(parameters.get('hook_connected_run_m', 0.))
+    # A bent row owns its complete directrix.  Keeping the long straight in the
+    # body while emitting only the elbow as a curve made one physical section
+    # appear as two envelope partitions (and left a visible join).  The bend
+    # cloth can follow straight tails exactly, so keep straight + hook atomic.
+    body_inventory, curves = split_curve_bars(
+        inventory, connected_run_m=connected_run, whole_hooked_bar=True)
     body = _build_cloth_envelope(body_inventory, parameters) if body_inventory['bars'] else None
     shells = build_bend_cloths(curves, float(parameters['hook_surface_allowance_m']),
                                float(parameters['in_plane_half_width_m']))
@@ -268,12 +322,15 @@ def build_outer_envelope(inventory, parameters):
         'registrationAllowanceM': parameters['layer_registration_allowance_m'],
         'webAllowanceM': parameters['web_registration_allowance_m']}
     settings.update(hookSurfaceAllowanceM=parameters['hook_surface_allowance_m'],
+                    hookConnectedRunM=None,
+                    hookPartition='whole-straight-and-bend-cross-section',
+                    bottomSurfaceAllowanceM=float(parameters.get('bottom_surface_allowance_m', 0.)),
                     envelopeExpansionM=expansion,
                     hookProtection='shared-inner-outer-bend-cloth', curveShellCount=len(shells))
     return {'kind': 'composite-steel-envelope', 'closed': True,
             'body': body, 'curveShells': shells, 'verticesM': vertices, 'triangles': triangles,
             'xyAxes': body['xyAxes'] if body else [[1., 0.], [0., 1.]], 'parameters': settings,
-            'meaning': 'planar body cloth union with shared inner/outer bend sheets; return-bend interior gaps remain outside',
+            'meaning': 'planar body cloth union with atomic straight-plus-bend row sheets; return-bend interior gaps remain outside',
             'surfaceRule': 'body triangle interpolation and membership against the exact displayed bend meshes'}
 
 

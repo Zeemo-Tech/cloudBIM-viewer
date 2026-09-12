@@ -43,6 +43,19 @@ class DesignFloatingZonesTests(unittest.TestCase):
         np.testing.assert_array_equal(before, [True, True, True, True])
         np.testing.assert_array_equal(after, [False, False, False, True])
 
+    def test_bottom_surface_has_an_extra_two_mm_without_raising_the_roof(self):
+        inv = inventory([bar('rod', [[0, 0, 0], [2, 0, 0]])])
+        thin = build_floating_zones(inv, params={'bottom_surface_allowance_m': 0.})
+        thick = build_floating_zones(inv)
+        thin_body = thin['outerEnvelope']['body']
+        thick_body = thick['outerEnvelope']['body']
+        np.testing.assert_allclose(thick_body['upperHeightsM'], thin_body['upperHeightsM'], atol=1e-12)
+        np.testing.assert_allclose(np.asarray(thick_body['lowerHeightsM']),
+                                   np.asarray(thin_body['lowerHeightsM'])-.002, atol=1e-12)
+        _, rejected = classify_floating_zones(np.array([[1, 0, -.013], [1, 0, -.014002]]), thick,
+                                             eligible_mask=[True, True])
+        self.assertEqual(rejected.tolist(), [False, True])
+
     def test_candidates_require_eligibility_without_distance_exceptions(self):
         report = build_floating_zones(inventory([bar('a', [[0, 0, 0], [1, 0, 0]])]))
         points = np.array([[.5, 0, 0], [.5, .05, 0], [100, 100, 100]])
@@ -74,6 +87,44 @@ class DesignFloatingZonesTests(unittest.TestCase):
                                                  eligible_mask=[True, True])
             self.assertEqual(rejected.tolist(), [False, True])
 
+    def test_short_bar_top_is_one_uniform_internal_upper_surface(self):
+        bars = [bar('lower', [[0, -.2, 0], [2, -.2, 0]]),
+                bar('short-a', [[.3, -.2, .04], [.3, .2, .04]]),
+                bar('short-b', [[1.7, -.2, .04], [1.7, .2, .04]]),
+                bar('misplaced-high', [[0, .2, .10], [2, .2, .10]])]
+        units = [
+            {'designBarId': name, 'kind': 'short', 'startM': points[0], 'endM': points[1], 'diameterM': .012}
+            for name, points in ((bars[1]['designBarId'], bars[1]['points']),
+                                 (bars[2]['designBarId'], bars[2]['points']))
+        ]
+        body = build_floating_zones(inventory(bars, units))['outerEnvelope']['body']
+        expected = .04+.006+.006  # centreline + physical radius + expanded registration threshold
+        np.testing.assert_allclose(body['upperHeightsM'], expected, atol=1e-12)
+        self.assertEqual(body['parameters']['heightRule'], 'uniform-short-bar-top-plus-webs')
+        self.assertEqual(body['parameters']['planarPatchCount'], 0)
+        self.assertAlmostEqual(body['parameters']['shortBarTopSurfaceM'], .046)
+        self.assertAlmostEqual(body['parameters']['uniformUpperHeightM'], expected)
+
+    def test_uniform_internal_top_does_not_remove_the_web_envelope(self):
+        bars = [bar('lower', [[0, -.2, 0], [2, -.2, 0]]),
+                bar('short', [[.3, -.2, .04], [.3, .2, .04]]),
+                bar('web', [[1, 0, 0], [1, 0, .10]])]
+        units = [
+            {'designBarId': 'short', 'kind': 'short', 'startM': bars[1]['points'][0],
+             'endM': bars[1]['points'][1], 'diameterM': .012},
+            {'designBarId': 'web', 'kind': 'web', 'startM': bars[2]['points'][0],
+             'endM': bars[2]['points'][1], 'diameterM': .012},
+        ]
+        report = build_floating_zones(inventory(bars, units))
+        body = report['outerEnvelope']['body']
+        upper = np.asarray(body['upperHeightsM'])
+        self.assertAlmostEqual(upper.min(), .052)
+        self.assertAlmostEqual(upper.max(), .112)
+        self.assertTrue(body['parameters']['webEnvelopeRetained'])
+        _, rejected = classify_floating_zones(np.array([[1, 0, .105], [1.08, 0, .105]]), report,
+                                             eligible_mask=[True, True])
+        self.assertEqual(rejected.tolist(), [False, True])
+
     def test_bend_row_has_common_inner_and_outer_cloth_between_bars(self):
         source = np.array([[0, 0, 0], [1, 0, 0], [1, 0, .10], [.94, 0, .10], [.94, 0, .035]])
         bars = [bar(str(i), (source+[0, i*.1, 0]).tolist()) for i in range(3)]
@@ -85,6 +136,24 @@ class DesignFloatingZonesTests(unittest.TestCase):
         _, rejected = classify_floating_zones(np.array([[1, .05, .05], [.97, .05, .06], [.94, .05, .05]]),
                                              report, eligible_mask=[True]*3)
         self.assertEqual(rejected.tolist(), [False, True, False])
+
+    def test_hook_allowance_and_full_connected_horizontal_run_are_one_partition(self):
+        hooked = bar('return', [[0, 0, 0], [1, 0, 0], [1, 0, .10], [.94, 0, .10], [.94, 0, .035]])
+        hooked['excludedHookRunCount'] = 1
+        report = build_floating_zones(inventory([hooked]))
+        shell = report['outerEnvelope']
+        curve = shell['curveShells'][0]
+        self.assertEqual(shell['parameters']['hookSurfaceAllowanceM'], .006)
+        self.assertIsNone(shell['parameters']['hookConnectedRunM'])
+        self.assertEqual(shell['parameters']['hookPartition'], 'whole-straight-and-bend-cross-section')
+        np.testing.assert_allclose(curve['centerlineM'][0], [0, 0, 0], atol=1e-12)
+        np.testing.assert_allclose(curve['centerlineM'][-1], [.94, 0, .035], atol=1e-12)
+        self.assertIsNone(shell['body'])
+        # 11 mm off the vertical hook used to be outside the 10 mm shell.  It
+        # is now inside the widened 12 mm shell, while a detached point stays out.
+        _, rejected = classify_floating_zones(np.array([[1.011, 0, .05], [.90, 0, .03]]), report,
+                                             eligible_mask=[True, True])
+        self.assertEqual(rejected.tolist(), [False, True])
 
     def test_l_corner_has_orthogonal_sidewalls_and_does_not_bridge_the_notch(self):
         report = build_floating_zones(inventory([bar('L', [[0, 0, 0], [2, 0, 0], [2, 1, 0]])]))
@@ -111,7 +180,7 @@ class DesignFloatingZonesTests(unittest.TestCase):
         hooked['excludedHookRunCount'] = 1
         report = build_floating_zones(inventory([hooked]))
         shell = report['outerEnvelope']
-        self.assertIsNotNone(shell['body'])
+        self.assertIsNone(shell['body'])
         self.assertEqual(len(shell['curveShells']), 1)
         _, rejected = classify_floating_zones(np.array([[1, 0, .05], [.97, 0, .06], [.94, 0, .05]]),
                                              report, eligible_mask=[True, True, True])

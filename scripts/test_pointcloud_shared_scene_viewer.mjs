@@ -8,11 +8,11 @@ const html = await readFile(new URL('./pointcloud-debug/index.html', import.meta
 
 const nav = [...html.matchAll(/data-step="([^"]+)"/g)].map(match => match[1]);
 assert.deepEqual(nav.slice(0, 8), ['raw', 'normal', 'tableRemoval', 'partition', 'floatingZones', 'classification', 'projection', 'fusion']);
-assert.match(html, /data-step="tableRemoval"[^>]*disabled><span class="num">01B<\/span>台面移除/);
-assert.match(html, /data-step="partition"[^>]*disabled><span class="num">01C<\/span>钢筋分区/);
-assert.match(html, /data-step="floatingZones"[^>]*disabled><span class="num">01D<\/span>钢筋分层与禁飞区/);
-assert.match(html, /<span class="num">03<\/span>评分融合/);
-assert.match(html, /id="refinementStep" data-step="refinement" hidden disabled><span class="num">04<\/span>边带与类别整理/);
+assert.match(html, /data-step="tableRemoval"[^>]*disabled><span class="num">01B<\/span>台面结果/);
+assert.match(html, /data-step="partition"[^>]*disabled><span class="num">01C<\/span>分区结果/);
+assert.match(html, /data-step="floatingZones"[^>]*disabled><span class="num">01D<\/span>分层结果/);
+assert.match(html, /<span class="num">03<\/span>融合结果/);
+assert.match(html, /id="refinementStep" data-step="refinement" hidden disabled><span class="num">04<\/span>类别整理/);
 assert.deepEqual([...html.matchAll(/<option value="([1-7])"(?: selected)?>/g)].slice(0, 6).map(match => match[1]), ['1','2','3','4','6','7']);
 assert.match(html, /id="fusionScoreFilter"/);
 assert.match(html, /<option value="low">低分可疑钢筋<\/option>/);
@@ -36,14 +36,18 @@ const $ = id => { if (!elements.has(id)) elements.set(id, element()); return ele
 const context = vm.createContext({
   THREE, $, Uint8Array, Uint32Array, Float32Array, Number,
   current:null, requestRender(){}, fmt:String,
+  hexColor(value) { return new THREE.Color(value || '#94a3b8').toArray(); },
   document:{createElement:element},
   confidenceColor(value) { return [value, 1-value, 0]; },
 });
 const zoneCode = source.slice(source.indexOf('const defaultZoneNames'), source.indexOf('const internalTypeNames'));
 vm.runInContext(zoneCode, context);
+vm.runInContext(source.slice(source.indexOf('// One display vocabulary;'), source.indexOf('function internalFamilyNames(')), context);
 context.current = {
+  preview:{pointCount:4},
   _sharedTableMask:new Uint8Array([1,0,0,1]),
   _partitionZones:new Uint8Array([0,1,2,3]),
+  _sharedLayers:new Uint8Array([0,1,0,0]),
   preprocessing:{partition:{zoneNames:{0:'未定位',1:'内框内部',2:'夹具边带',3:'外框外部'}}},
 };
 context.tableRemovalGeometry = new THREE.BufferGeometry();
@@ -51,11 +55,11 @@ context.partitionGeometry = new THREE.BufferGeometry();
 context.tableRemovalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
 context.partitionGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
 context.applyTableRemovalAppearance();
-assert.deepEqual(Array.from(context.tableRemovalGeometry.index.array), [1,2]);
-$('showRemovedTable').checked = true;
-context.applyTableRemovalAppearance();
 assert.deepEqual(Array.from(context.tableRemovalGeometry.index.array), [0,1,2,3]);
-$('partitionZoneFilter').value = '2';
+vm.runInContext("preferredSemanticTag = 'table'", context);
+context.applyTableRemovalAppearance();
+assert.deepEqual(Array.from(context.tableRemovalGeometry.index.array), [0,3]);
+vm.runInContext("preferredSemanticTag = 'fixture'", context);
 context.applyPartitionAppearance();
 assert.deepEqual(Array.from(context.partitionGeometry.index.array), [2]);
 

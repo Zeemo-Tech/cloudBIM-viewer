@@ -20,7 +20,8 @@ class ClusterQualityTests(unittest.TestCase):
         r = refine_instances(ctx, report, design)
         self.assertEqual(r['designReview']['hookAttachedPointCount'], 0)
         self.assertFalse(np.any(ctx.complete_instance[sizes[0]:] == 1))
-        np.testing.assert_array_equal(ctx.complete_class[-10:], 4)
+        np.testing.assert_array_equal(ctx.complete_class[sizes[0]:], 4)
+        self.assertEqual(r['unassignedRebarPointCount'], 0)
 
     def test_small_rigid_tilt_does_not_look_like_a_wide_rod(self):
         ctx, report, _ = scene([([0, 0, 0], [2, .025, 0])])

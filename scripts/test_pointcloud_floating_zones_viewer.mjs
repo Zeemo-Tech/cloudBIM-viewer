@@ -9,7 +9,7 @@ assert.match(html, /id="floatingZonesStep" data-step="floatingZones"/);
 assert.match(html, /id="floatingLayerFilter"/);
 assert.match(html, /id="floatingForbiddenOnly"/);
 for (const id of ['floatingPlanes', 'floatingVolumes', 'steelCenterlines']) assert.match(html, new RegExp(`id="${id}"`));
-assert.match(html, /05<\/span>钢筋实例与悬浮去噪/);
+assert.match(html, /05<\/span>钢筋识别/);
 assert.match(source, /共享钢筋分层预览包含 Manifest 未声明的层编号/);
 assert.match(source, /sharedFloatingNoise\?\.some\(\(value\) => value > 1\)/);
 assert.match(source, /Class 4 is the stable cross-stage representation of removed noise/);
@@ -29,8 +29,11 @@ context.filterIndexedGeometry = (geometry, count, predicate) => {
 context.hexColor = value => new THREE.Color(value || '#94a3b8').toArray();
 const code = source.slice(source.indexOf('const floatingLayerNames'), source.indexOf('const internalTypeNames'));
 vm.runInContext(code, context);
+vm.runInContext(source.slice(source.indexOf('// One display vocabulary;'), source.indexOf('function internalFamilyNames(')), context);
 context.current = {
+  preview: {pointCount: 5},
   _sharedTableMask: new Uint8Array([1, 0, 0, 0, 0]),
+  _partitionZones: new Uint8Array([0, 1, 1, 3, 2]),
   _sharedLayers: new Uint8Array([1, 1, 2, 3, 0]),
   _sharedFloatingNoise: new Uint8Array([0, 0, 1, 0, 1]),
   preprocessing:{floatingZones:{enabled:true}},
@@ -38,31 +41,27 @@ context.current = {
 context.floatingZonesGeometry = new THREE.BufferGeometry();
 context.floatingZonesGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(15), 3));
 context.applyFloatingZonesAppearance();
-assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [1,3], 'default 01D hides hard-mask rows while source indices remain stable');
+assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [0,1,2,3,4], 'the unified result view keeps every non-noise category visible');
 context.current.preprocessing.floatingZones.forbiddenRule = {action:'review-only'};
 context.applyFloatingZonesAppearance();
-assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [1,2,3,4], 'review candidates stay visible until noise is confirmed');
+assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [0,1,2,3,4], 'review candidates stay visible until noise is confirmed');
 assert.equal(context.hardMaskVisible(2, 'classification'), true, 'a cloth candidate cannot hide an independent A result');
 assert.equal(context.hardMaskVisible(2, 'projection'), true, 'a cloth candidate cannot hide an independent B result');
-assert.match($('floatingHint').textContent, /仅表示布外待复核/);
 context.current.preprocessing.floatingZones.forbiddenRule = {action:'step05-residual-veto'};
 context.applyFloatingZonesAppearance();
-assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [1,2,3,4], 'step05 veto cannot hide source rows in 01D');
+assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [0,1,2,3,4], 'step05 veto cannot hide source rows in 01D');
 assert.equal(context.hardMaskVisible(2, 'classification'), true);
 assert.equal(context.hardMaskVisible(2, 'internalRebar'), true, '05 uses actual noise labels, not the raw cloth mask');
-assert.match($('floatingHint').textContent, /05 步直接剔除无可靠支撑/);
 context.current.preprocessing.floatingZones.forbiddenRule = {action:'step05-steel-boundary'};
 context.applyFloatingZonesAppearance();
 assert.equal(context.hardMaskVisible(2, 'classification'), true, 'strict 05 boundary cannot affect 02A display');
-assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [1,2,3,4]);
-assert.match($('floatingHint').textContent, /05 步剔除包络外的全部钢筋点/);
+assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [0,1,2,3,4]);
 delete context.current.preprocessing.floatingZones.forbiddenRule;
-$('floatingForbiddenOnly').checked = true;
-context.applyFloatingZonesAppearance();
-assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [2,4]);
-$('floatingLayerFilter').value = '2';
-context.applyFloatingZonesAppearance();
-assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), [2]);
+for (const [tag, expected] of [['table',[0]], ['lower',[1]], ['upper',[2]], ['external',[3]], ['fixture',[4]]]) {
+  vm.runInContext(`preferredSemanticTag = '${tag}'`, context);
+  context.applyFloatingZonesAppearance();
+  assert.deepEqual(Array.from(context.floatingZonesGeometry.index.array), expected);
+}
 vm.runInContext(source.slice(source.indexOf('function hardMaskVisible'), source.indexOf('const internalTypeNames')), context);
 context.current._sharedFloatingNoise = new Uint8Array([0, 1]);
 vm.runInContext("preferredSemanticTag = 'all'", context);

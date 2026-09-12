@@ -170,7 +170,7 @@ def merge_hook_clusters(context, out, groups, associations, units, segments, rep
 
 
 def polish_non_hook_terminals(context, out, groups, units, segments, fixture_tree, report, *,
-                              workers=1, fixture_distance=.012, surface_tolerance=.0025,
+                              workers=1, fixture_distance=.012, surface_tolerance=.001,
                               bend_clearance=.03, fit_start=.04, fit_end=.19,
                               center_adjustment=.015):
     """Cylinder-polish the straight end of each protected hook-region atom.
@@ -180,9 +180,9 @@ def polish_non_hook_terminals(context, out, groups, units, segments, fixture_tre
     non-bent end, however, a clamp edge can be connected to the steel component
     and was previously frozen with it.  Keep the bend core immutable, fit a fixed-
     radius cylinder to fixture-free collar evidence, and remove only fixture-
-    contact rows that fall outside that observed surface.
+    contact rows that fall outside the design-diameter surface.
     """
-    summary = dict(policy='bend locked; fixture-contact outside local straight-collar cylinder',
+    summary = dict(policy='bend locked; fixture-contact outside design-diameter straight-collar cylinder',
                    reviewedClusterCount=0, reviewedPointCount=0, fixtureContactPointCount=0,
                    fittedClusterCount=0, removedPointCount=0,
                    surfaceToleranceM=surface_tolerance, fixtureDistanceM=fixture_distance,
@@ -227,7 +227,7 @@ def polish_non_hook_terminals(context, out, groups, units, segments, fixture_tre
             continue
         _, a, b, fitted_radius = min(parts, key=lambda part: part[0])
         design_radius = float(group.get('radiusM', fitted_radius))
-        radius = fitted_radius if .5*design_radius <= fitted_radius <= 1.5*design_radius else design_radius
+        radius = design_radius if np.isfinite(design_radius) and design_radius > 0 else fitted_radius
         axis = (b-a)/np.linalg.norm(b-a)
         if axis @ toward_body < 0:
             axis = -axis

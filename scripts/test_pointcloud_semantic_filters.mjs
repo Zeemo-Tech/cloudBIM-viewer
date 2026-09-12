@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.meta.url), 'utf8');
 const elements = new Map();
-const element = () => ({value:'all', checked:false, replaceChildren(...children) {this.children=children;}, append(...children) {this.children=children;}, style:{}});
+const element = () => ({value:'all', checked:false, replaceChildren(...children) {this.children=children;}, append(...children) {this.children=children;}, style:{}, classList:{toggle() {}}, setAttribute() {}, addEventListener() {}});
 const $ = id => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
 const current = {
   preview:{pointCount:9},
@@ -30,6 +30,7 @@ const context = vm.createContext({THREE, $, current, rightScene:'internalRebar',
   Option:class {constructor(text, value) {this.text=text; this.value=value;}},
   document:{createElement:element},
   hexColor:color => new THREE.Color(color).toArray(), fmt:String,
+  instanceColor:id => new THREE.Color().setHSL(id * .17 % 1, .72, .58).toArray(),
   hardMaskVisible:()=>true,
   updateInternalLegend(){}, rebuildInternalAxes(){}, updateRefinementLegend(){}, updateFusionLegend(){}, requestRender(){},
   classGeometry:new THREE.BufferGeometry(), projectionGeometry:new THREE.BufferGeometry(),
@@ -43,12 +44,14 @@ extract('function applyRefinementAppearance()', 'const fusionEvidenceBits');
 extract('function applyInternalRebarAppearance()', 'function validCorners(');
 $('internalColorMode').value='types';
 
-const expectedNames = ['全部（不含噪音）','全部（含噪音）','全部钢筋','内部钢筋','外部钢筋','上层钢筋','腹杆','下层钢筋','夹具','台面','噪音','待定候选','未定位钢筋','未分类'];
+const expectedNames = ['全部（不含噪音）','全部钢筋','全部钢筋（去噪后）','台面','夹具','内部钢筋','外部钢筋','上层钢筋','腹杆','下层钢筋','噪音'];
 for (const step of ['raw','normal','classification','projection','fusion','refinement','internalRebar']) {
   context.rightScene=step;
   context.updateSemanticControls();
   assert.deepEqual($('semanticFilter').children.map(option => option.text), expectedNames);
   const disabled = id => $('semanticFilter').children.find(option => option.value===id).disabled;
+  assert.equal(disabled('allSteel'), ['raw','normal'].includes(step));
+  assert.equal(disabled('cleanSteel'), step!=='internalRebar');
   assert.equal(disabled('upper'), step!=='internalRebar');
   assert.equal(disabled('noise'), step!=='internalRebar');
   assert.equal(disabled('external'), !['fusion','refinement','internalRebar'].includes(step));
@@ -67,7 +70,9 @@ for (const step of ['classification','projection','fusion','refinement','interna
   assert.deepEqual(select(step,'table'),[0]);
 }
 assert.deepEqual(select('internalRebar','steel'),[2,3,4,5,6,8]);
-assert.deepEqual(select('internalRebar','internal'),[3,4,5,6]);
+assert.deepEqual(select('internalRebar','allSteel'),[2,3,4,5,6,8]);
+assert.deepEqual(select('internalRebar','cleanSteel'),[2,3,4,5,6,8]);
+assert.deepEqual(select('internalRebar','internal'),[3,4,5,6,8]);
 assert.deepEqual(select('internalRebar','external'),[2]);
 assert.deepEqual(select('internalRebar','upper'),[4]);
 assert.deepEqual(select('internalRebar','web'),[5]);
@@ -111,15 +116,15 @@ $('fusionScoreFilter').value='all';
 const pendingClassification = context.stepSemanticData({
   preview:{pointCount:2}, classification:{pendingClass:0}, _classes:new Uint8Array([0,3]),
 }, 'classification');
-assert.deepEqual(Array.from(pendingClassification.labels),[9,3]);
+assert.deepEqual(Array.from(pendingClassification.labels),[9,4]);
 const legacyClassification = context.stepSemanticData({
   preview:{pointCount:2}, classification:{}, _classes:new Uint8Array([0,3]),
 }, 'classification');
-assert.deepEqual(Array.from(legacyClassification.labels),[0,3]);
+assert.deepEqual(Array.from(legacyClassification.labels),[0,4]);
 const pendingProjection = context.stepSemanticData({
   preview:{pointCount:2}, projection:{pendingClass:0}, _projectionClasses:new Uint8Array([0,3]),
 }, 'projection');
-assert.deepEqual(Array.from(pendingProjection.labels),[9,3]);
+assert.deepEqual(Array.from(pendingProjection.labels),[9,4]);
 
 const completeData = context.stepSemanticData({
   _complete:{complete_class:new Uint8Array([1,2,3,3,3,3,4,3]),complete_instance:new Uint32Array([0,0,1,2,3,0,0,1])},
@@ -128,6 +133,29 @@ const completeData = context.stepSemanticData({
 },'completeRebar');
 assert.deepEqual(Array.from(completeData.labels),[1,2,6,7,8,9,10,5]);
 assert.equal(completeData.counts[10],1);
+
+const internalData = context.stepSemanticData(current, 'internalRebar');
+$('resultColorMode').value='categories';
+const categoryColored = context.resultDisplayColors(internalData, 'internalRebar');
+assert.deepEqual(Array.from(categoryColored.slice(9,12)), Array.from(categoryColored.slice(12,15)),
+  'category coloring keeps lower and upper steel in one internal-steel color');
+$('resultColorMode').value='layers';
+const layerColored = context.resultDisplayColors(internalData, 'internalRebar');
+assert.notDeepEqual(Array.from(layerColored.slice(9,12)), Array.from(layerColored.slice(12,15)),
+  'layer coloring distinguishes lower and upper steel');
+$('resultColorMode').value='instances';
+const instanceColored = context.resultDisplayColors(internalData, 'internalRebar');
+assert.notDeepEqual(Array.from(instanceColored.slice(9,12)), Array.from(instanceColored.slice(12,15)),
+  'instance coloring gives different steel IDs different colors');
+assert.equal(context.resultColorModeAvailable('instances', 'classification'), false);
+assert.equal(context.resultColorModeAvailable('instances', 'internalRebar'), true);
+$('resultColorMode').value='all';
+
+vm.runInContext("semanticVisibilityCustomized = true; visibleSemanticCodes.delete(2); visibleSemanticCodes.add(10); preferredSemanticTag = 'all'", context);
+context.applyInternalRebarAppearance();
+assert.deepEqual(Array.from(context.internalRebarGeometry.index.array), [0,2,3,4,5,6,7,8],
+  'independent switches can hide fixtures while showing noise together with other categories');
+vm.runInContext('semanticVisibilityCustomized = false; visibleSemanticCodes.delete(10); visibleSemanticCodes.add(2)', context);
 // Use the actual million-point artifact when provided, without recomputing it.
 if (process.argv[2]) {
   const root=process.argv[2];

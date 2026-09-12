@@ -23,6 +23,37 @@ class CurveEnvelopeTests(unittest.TestCase):
         inside = inside_curve_shells(points, [shell])
         self.assertEqual(inside.tolist(), [True, False, False])
 
+    def test_hook_path_includes_a_clipped_piece_of_the_connected_straight_run(self):
+        inv = {"bars": [{"designBarId": "connected", "points": [
+            [0, 0, 0], [1, 0, 0], [1, 0, .10], [.94, 0, .10], [.94, 0, .035]],
+            "radiusM": .006, "coverage": "complete", "excludedHookRunCount": 1}]}
+        body, paths = split_curve_bars(inv, connected_run_m=.06)
+        self.assertEqual(len(paths), 1)
+        np.testing.assert_allclose(paths[0]["points"][0], [.94, 0, 0], atol=1e-12)
+        np.testing.assert_allclose(paths[0]["points"][1], [1, 0, 0], atol=1e-12)
+        # The long straight body remains present; the clipped lead only adds an
+        # overlap so the hook cloth cannot end exactly at the elbow.
+        self.assertEqual(body["bars"][0]["points"], [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+
+    def test_whole_hook_partition_keeps_the_full_straight_plus_bend_profile_atomic(self):
+        points = [[0, 0, 0], [1, 0, 0], [1, 0, .10], [.94, 0, .10], [.94, 0, .035]]
+        inv = {"bars": [{"designBarId": "whole", "points": points,
+                          "radiusM": .006, "coverage": "complete", "excludedHookRunCount": 1}]}
+        body, paths = split_curve_bars(inv, connected_run_m=.06, whole_hooked_bar=True)
+        self.assertEqual(body["bars"], [])
+        self.assertEqual(len(paths), 1)
+        np.testing.assert_allclose(paths[0]["points"], points, atol=1e-12)
+
+    def test_arc_densification_does_not_curve_or_subdivide_the_long_straight_lead(self):
+        path = [{"designBarId": "actual-whole", "radiusM": .004, "points": [
+            [6.3375, 0, .0966], [6.3658, 0, .0683], [6.3712, 0, .0580],
+            [6.3701, 0, .0465], [6.3627, 0, .0375], [6.3516, 0, .0341],
+            [2.1856, 0, .0341]]}]
+        shell = build_curve_shells(path, .003)[0]
+        centerline = np.asarray(shell["centerlineM"])
+        np.testing.assert_allclose(centerline[-2:], path[0]["points"][-2:], atol=1e-12)
+        self.assertLess(len(centerline), 40, "the metres-long straight must remain one segment")
+
     def test_sharp_three_point_bend_is_not_arc_smoothed_and_mesh_decision_matches_surface(self):
         path = [{"designBarId": "v", "points": [[0,0,0], [1,0,0], [1,1,0]], "radiusM": .03}]
         shell = build_curve_shells(path)[0]

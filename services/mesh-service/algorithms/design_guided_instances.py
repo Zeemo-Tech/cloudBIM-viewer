@@ -13,14 +13,16 @@ from scipy.optimize import linear_sum_assignment
 from .internal_rebar import InternalRebarParameters, _fit_cylinder, _split_parallel_points, assign_cylinders
 from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters, _terminal_rays
 from .design_prior_refinement import PriorParameters, _candidates
+from .rebar_overlength_tails import CLUSTER_CARRY, DIRECT_EXTENSION, filter_overlength_tails
 
-VERSION = 'design-guided-instances-v11-hook-straight-collar-polish'
+VERSION = 'design-guided-instances-v15-overlength-tail-recovery'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
 
 @dataclass(frozen=True)
 class GuidedParameters:
+    overlength_tail_filter: bool = True
     sample_limit: int = 2048
     fit_span: float = .18
     maximum_gap: float = .65
@@ -334,7 +336,7 @@ def _separate_transverse_fixture(points, normals, labels, search, fixture_tree,
 
 
 def _early_exterior_support(context, jobs, original, out, segments, next_segment,
-                            fixture_tree, fixture_normals, params, workers):
+                            fixture_tree, fixture_normals, params, workers, extension_source=None):
     """Give original interior tracks first refusal, before any exterior deletion.
 
     Freeze the seed set: newly claimed points never seed this pass. An exterior
@@ -415,6 +417,9 @@ def _early_exterior_support(context, jobs, original, out, segments, next_segment
             code=int(np.bincount(labels)[1:].argmax())+1
             labels[labels==0]=code;owners[:]=winners[0]
         selected=rows[take];chosen=labels[take]
+        if extension_source is not None:
+            # Freeze per-point support before whole-cluster ownership propagation.
+            extension_source[selected] = np.where(positive[take], DIRECT_EXTENSION, CLUSTER_CARRY)
         out['complete_instance'][selected]=owners[take];out['complete_confidence'][selected]=.55
         protected[selected]=True
         for code in np.unique(chosen):
@@ -463,6 +468,8 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     original = {int(i['id']):i for i in internal_report['instances']}
     before = int(len(np.unique(out['complete_instance'][out['complete_instance']>0])))
     units = inventory['units']; operations = []; rejected = 0
+    # Compact provenance, independent of scores and later owner/segment remaps.
+    extension_source = np.zeros(count, np.uint8)
     next_id = max(original, default=0)+1
     next_segment = max([s['id'] for s in segments],default=0)+1
     from .rebar_hook_clusters import (freeze_hook_clusters, merge_hook_clusters,
@@ -508,7 +515,8 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     fixture_normals=context.normals[fixture_sample]
     progress('第 6 步：内部轴向优先接续外露点',0,len(loose))
     evidence_cache,early_protected,transverse_blocked,next_segment,early_operations=_early_exterior_support(
-        context,jobs,original,out,segments,next_segment,fixture_tree,fixture_normals,params,workers)
+        context,jobs,original,out,segments,next_segment,fixture_tree,fixture_normals,params,workers,
+        extension_source=extension_source)
     operations.extend(early_operations)
     early_rows=np.flatnonzero(early_protected & (out['complete_instance']>0))
     # The initial frozen cluster IDs remain intact. Claimed exterior rows are
@@ -748,6 +756,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             take=local if exclusive else local[claimed[local]>0]
             if not len(take):continue
             selected=pending[take]
+            extension_source[selected] = np.where(claimed[take] > 0, DIRECT_EXTENSION, CLUSTER_CARRY)
             chosen=claimed[take].copy();chosen[chosen==0]=winner
             out['complete_instance'][selected]=chosen
             for target in np.unique(chosen):
@@ -841,11 +850,47 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         operations.append({'action': 'filter', 'phase': 'final_statistics',
             'pointCount': final_denoising['removedPointCount'],
             'reason': 'tiny_low_score_components_without_retained_steel_support'})
+    # Polish after all merges: inner and exterior fragments share their final
+    # instance ID.  Local segment ends beside a fixture remain visible even when
+    # they are not extrema of that merged instance.
+    from .rebar_terminal_polish import polish_fixture_terminals
+    progress('第 6 步：最终夹具截断端圆柱打磨', 0, count)
+    terminal_operations, terminal_polish = polish_fixture_terminals(
+        context, out, segments, units, associations, fixture_tree, workers=workers,
+        protected=hook_protected, fixture_distance=params.fixture_distance)
+    operations.extend(terminal_operations)
+    rejected += terminal_polish['removedPointCount']
+    progress('第 6 步：异常超长实例的远端尾部回收', 0, count)
+    tail_operations, tail_filter, final_groups = filter_overlength_tails(
+        context, out, segments, units, associations, atoms, ranked, extension_source,
+        protected=hook_protected, enabled=params.overlength_tail_filter)
+    operations.extend(tail_operations)
+    rejected += tail_filter['removedPointCount']
+    # Hook atoms stay intact throughout connection and polishing. Their temporary
+    # protection does not turn an unassigned candidate into a final instance.
+    verify_hook_clusters(out, hook_groups)
+    progress('第 6 步：未形成实例的最终残点归为噪音', 0, count)
+    residual = (out['complete_class'] == 3) & (out['complete_instance'] == 0)
+    residual_count = int(np.count_nonzero(residual))
+    final_unassigned_noise = dict(
+        removedPointCount=residual_count,
+        highScoreRemovedPointCount=int(np.count_nonzero(residual & protected_high)),
+        protectedHookRemovedPointCount=int(np.count_nonzero(residual & hook_protected)),
+        policy='after all connections and filters, every remaining unassigned steel candidate becomes noise')
+    out['complete_class'][residual] = 4
+    for name in ('complete_instance', 'complete_segment', 'complete_confidence'):
+        out[name][residual] = 0
+    for group in hook_groups:
+        if np.any(residual[group['rows']]):
+            group['record']['status'] = 'rejected-final-unassigned'
+    if residual_count:
+        operations.append(dict(action='filter', phase='final_unassigned_noise',
+            pointCount=residual_count, reason='unassigned_after_all_instance_processing'))
+    rejected += residual_count
     # Rebuild all point counts from final ownership. Empty original fits/instances
     # are not counted as observed rods. IDs stay stable where possible.
     segment_counts=np.bincount(out['complete_segment'],minlength=next_segment)
     segments=[{**s,'pointCount':int(segment_counts[s['id']])} for s in segments if segment_counts[s['id']]>0]
-    verify_hook_clusters(out, hook_groups)
     instances=[]; associations={}
     for i,a in enumerate(atoms):
         if a['instanceId']:
@@ -867,7 +912,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         if i['designUnitId']:owners_by_unit[i['designUnitId']].append(i['id'])
     diagnostics=[{'designUnitId':u['designUnitId'],'kind':u['kind'],'observedInstanceIds':owners_by_unit[u['designUnitId']],
         'status':'unobserved' if not owners_by_unit[u['designUnitId']] else 'multiple_fragments_or_conflict' if len(owners_by_unit[u['designUnitId']])>1 else 'associated'} for u in units]
-    cluster_quality = design_cluster_quality(context, out, instances, inventory)
+    cluster_quality = design_cluster_quality(context, out, instances, inventory, groups=final_groups)
     for name,values in out.items():setattr(context,name,values)
     counts=np.bincount(out['complete_class'],minlength=5)
     surviving_ids={i['id'] for i in instances}
@@ -897,6 +942,9 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
             'exteriorDenoising':exterior_denoising,
             'finalDenoising':final_denoising,
             'finalClusterFilter':final_cluster_filter,
+            'finalUnassignedNoise':final_unassigned_noise,
+            'terminalPolish':terminal_polish,
+            'overlengthTailFilter':tail_filter,
             'hookClusters':hook_report,
             'clusterQuality':cluster_quality,
             'hookProtectedPointCount':int(np.count_nonzero(hook_protected)),

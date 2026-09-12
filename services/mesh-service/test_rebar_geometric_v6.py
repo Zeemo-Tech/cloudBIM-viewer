@@ -25,6 +25,16 @@ def points():
 
 
 class SharedProductionTests(unittest.TestCase):
+    def test_explicit_dimension_snapshot_is_forwarded_to_shared_stages(self):
+        marker = {"available": True, "families": [{"diameterM": .008}]}
+        source = np.array([[0., 0., 0.], [1., 0., 0.], [2., 0., 0.]])
+        context = RebarInputContext(source, lambda: iter([(np.arange(3, dtype=np.uint64), source)]),
+                                    source_path="/storage/assets/scan/source.las", dimension_priors=marker)
+        with patch("algorithms.rebar_geometric_v6.segment_points", side_effect=RuntimeError("probe")) as segment:
+            with self.assertRaisesRegex(RuntimeError, "probe"):
+                GeometricV6Adapter().analyze_source(context, {})
+        self.assertIs(segment.call_args.kwargs["dimension_priors"], marker)
+
     def test_floating_noise_maps_to_production_noise_and_exterior_steel_is_retained(self):
         context = SimpleNamespace(refined_class=np.array([1,2,3,3,3], np.uint8),
             internal_type=np.array([0,0,5,4,0], np.uint8),
@@ -75,13 +85,19 @@ class SharedProductionTests(unittest.TestCase):
             las.x,las.y,las.z=xyz.T;las.write(cloud)
             original=hashlib.sha256(cloud.read_bytes()).hexdigest()
             tiles=root/'source-tiles';tiles.mkdir();(tiles/'tileset.json').write_text('{}')
+            prior_ifc=root/'current.ifc';prior_ifc.write_text('server-selected BIM')
             shown=np.column_stack((las.x,las.y,las.z)).astype('<f4')
             _write(tiles/'cloud.pnts',{'POINTS_LENGTH':len(shown),'POSITION':{'byteOffset':0}},shown.tobytes())
             kwargs=dict(point_cloud_path=str(cloud),point_cloud_format='las',source_tileset_path=str(tiles),
                 output_directory=str(root/'artifact'),artifact_version='v6-test',algorithm='geometric-v6',
-                input_options={'maxInputPoints':3},parameters={},storage_root=str(root))
-            result=compute_rebar_artifact(**kwargs)
-            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'11'})
+                input_options={'maxInputPoints':3},parameters={},storage_root=str(root),
+                bim_prior={'ifc_path':str(prior_ifc),'scan_to_bim':[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]})
+            marker={'available':True,'families':[{'diameterM':.008}],'provenance':{'selection':'explicit'}}
+            with patch('algorithms.rebar_dimension_priors.load_dimension_priors',return_value=marker) as loader:
+                result=compute_rebar_artifact(**kwargs)
+            loader.assert_called_once_with(ifc_path=str(prior_ifc.resolve()))
+            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'12'})
+            self.assertEqual(result['summary']['diagnostics']['dimensionPriors'],marker)
             self.assertEqual(result['summary']['rawSource']['finitePointCount'],len(xyz))
             self.assertEqual(result['summary']['display']['totalPointCount'],len(xyz))
             self.assertEqual(hashlib.sha256(cloud.read_bytes()).hexdigest(),original)

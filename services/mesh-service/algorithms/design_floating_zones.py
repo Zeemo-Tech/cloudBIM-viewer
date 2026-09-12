@@ -26,11 +26,19 @@ class FloatingZoneParameters:
     end_halo_m: float = 0.040
     external_length_tolerance_m: float = 0.012
     web_registration_allowance_m: float = 0.004
-    hook_surface_allowance_m: float = 0.002
+    # Hooks are observed less completely than long planar runs.  Keep a wider
+    # radial shell around them. The production curve partition owns the full
+    # connected straight run so the elbow can never be detached from its lead.
+    hook_surface_allowance_m: float = 0.004
+    hook_connected_run_m: float = 0.060
     envelope_grid_spacing_m: float = 0.008
     envelope_support_radius_m: float = 0.004
     envelope_relaxation_passes: int = 0
     envelope_expansion_m: float = 0.002
+    # Extra one-sided clearance below the shared body cloth.  This thickens the
+    # envelope around the bottom reinforcement without adding unused headroom
+    # above the top layer.
+    bottom_surface_allowance_m: float = 0.002
     review_margin_m: float = 0.22
     layer_cluster_gap_m: float = 0.004
     min_horizontal_run_m: float = 0.20
@@ -154,9 +162,12 @@ def build_floating_zones(inventory: dict[str, Any] | None, *, params: dict[str, 
         options = FloatingZoneParameters(**(params or {}))
     except TypeError as exc:
         return {"version": "floating-zones-v1", "enabled": False, "reason": "invalid-params", "detail": str(exc), "params": params or {}}
+    non_negative = ('envelope_relaxation_passes', 'envelope_expansion_m',
+                    'bottom_surface_allowance_m', 'hook_connected_run_m')
     if (any(not np.isfinite(value) or value <= 0 for key, value in asdict(options).items()
-            if key not in ('envelope_relaxation_passes', 'envelope_expansion_m'))
-            or not np.isfinite(options.envelope_expansion_m) or options.envelope_expansion_m < 0
+            if key not in non_negative)
+            or any(not np.isfinite(getattr(options, key)) or getattr(options, key) < 0
+                   for key in non_negative if key != 'envelope_relaxation_passes')
             or type(options.envelope_relaxation_passes) is not int or options.envelope_relaxation_passes < 0):
         return {"version": "floating-zones-v1", "enabled": False, "reason": "invalid-params", "params": params or {}}
     base = {"version": "floating-zones-v1", "enabled": False, "params": asdict(options), "layers": [], "designSegments": [],
@@ -312,7 +323,7 @@ def build_floating_zones(inventory: dict[str, Any] | None, *, params: dict[str, 
                               "exact": True, "debugCellPolicy": "none-nonconvex-complement"}}
 
     from .rebar_outer_envelope import build_outer_envelope
-    report.update(version='floating-zones-v10-step05-steel-boundary',
+    report.update(version='floating-zones-v15-uniform-top-with-webs-no-uplift',
         outerEnvelope=build_outer_envelope(inventory, asdict(options)), allowedEnvelopes=[],
         forbiddenRule={'kind': 'outside-continuous-outer-envelope', 'scope': 'non-table-source-points',
                        'requiresEligibleMask': True, 'exact': True,

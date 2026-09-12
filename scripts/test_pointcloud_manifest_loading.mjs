@@ -6,11 +6,9 @@ import vm from 'node:vm';
 
 const manifestUrl = process.argv[2];
 assert.ok(manifestUrl, 'Usage: node scripts/test_pointcloud_manifest_loading.mjs <manifest URL>');
-const previewLimit = Number(process.argv[3] || 300_000);
-assert.ok(Number.isSafeInteger(previewLimit) && previewLimit > 0, 'Preview limit must be a positive integer');
 const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.meta.url), 'utf8');
 const context = vm.createContext({
-  loadToken: 0, current: null, PREVIEW_RENDER_LIMIT: previewLimit, setStatus() {}, fmt: value => String(value),
+  loadToken: 0, current: null, setStatus() {}, fmt: value => String(value),
   fetchBytes: async url => {
     const response = await fetch(new URL(url, manifestUrl));
     assert.ok(response.ok, `${response.status}: ${url}`);
@@ -30,5 +28,5 @@ const response = await fetch(manifestUrl);
 assert.ok(response.ok);
 const manifest = await response.json();
 const result = await context.loadManifest(manifest);
-assert.equal(result.pointCount, Math.min(manifest.preview.pointCount, context.PREVIEW_RENDER_LIMIT));
+assert.equal(result.pointCount, manifest.preview.pointCount);
 console.log(`Workbench manifest fetch and all pre-render validations passed: ${manifest.runId}, ${result.pointCount} preview points.`);

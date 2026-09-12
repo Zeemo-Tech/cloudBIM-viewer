@@ -30,7 +30,7 @@ const context = vm.createContext({
   window: {location: {href: 'http://127.0.0.1:8766/?run=20260911T120000-1234abcd'}},
 });
 vm.runInContext([
-  "const $ = id => controls[id]; let completeTiles = {}; let completeTileFailed = false; let preferredSemanticTag = 'all';",
+  "const $ = id => controls[id]; let completeTiles = {}; let completeTileFailed = false; let preferredSemanticTag = 'all'; let semanticVisibilityCustomized = false; const visibleSemanticCodes = new Set([0,1,2,3,4,5,6,7,8,9,11]);",
   extractFunction('completeTilesContract'),
   extractFunction('tileAttributeUrl'),
   extractFunction('parseCompleteTileAttributes'),
@@ -111,6 +111,9 @@ new DataView(invalid).setUint32(33, 9, true);
 assert.throws(() => context.parseCompleteTileAttributes(invalid), /无效类别或实例/);
 
 assert.equal(context.completeTilesSupported(), true);
+vm.runInContext('semanticVisibilityCustomized = true', context);
+assert.equal(context.completeTilesSupported(), false, 'multi-category visibility uses the complete preview for exact filtering');
+vm.runInContext('semanticVisibilityCustomized = false', context);
 vm.runInContext('completeTileFailed = true', context);
 assert.equal(context.completeTilesSupported(), false, 'any tile failure must restore the sample fallback');
 vm.runInContext("completeTileFailed = false; preferredSemanticTag = 'internal'", context);

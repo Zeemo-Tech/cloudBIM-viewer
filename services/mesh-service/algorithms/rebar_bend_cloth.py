@@ -165,7 +165,8 @@ def build_bend_cloths(paths: list[dict[str, Any]], clearance_m: float = .002,
     viewer can consume it unchanged.  ``surfaceRole`` distinguishes it from a
     per-bar tube, while ``designBarIds`` preserves the complete provenance.
     """
-    if not np.isfinite(clearance_m) or clearance_m < 0 or not np.isfinite(lateral_clearance_m) or lateral_clearance_m < 0:
+    if (not np.isfinite(clearance_m) or clearance_m < 0 or
+            not np.isfinite(lateral_clearance_m) or lateral_clearance_m < 0):
         raise ValueError("clearances must be finite and non-negative")
     cloths = []
     groups, fallback = _parallel_groups(paths)
@@ -195,7 +196,8 @@ def build_bend_cloths(paths: list[dict[str, Any]], clearance_m: float = .002,
                        "verticesM": vertices.tolist(), "triangles": triangles,
                        "centerlineM": dense.tolist(), "centerlinesM": [points.tolist() for _, points, _, _ in group],
                        "radiusM": bar_radius, "clearanceM": float(clearance_m),
-                       "lateralClearanceM": float(lateral_clearance_m), "aabbM": [low_box.tolist(), high_box.tolist()],
+                       "lateralClearanceM": float(lateral_clearance_m),
+                       "aabbM": [low_box.tolist(), high_box.tolist()],
                        "membership": "solid-angle-winding-on-displayed-triangles"})
     # A two-point tail, collinear run, or genuinely spatial bend cannot define
     # one safe common ribbon.  Preserve every such path with the established

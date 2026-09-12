@@ -21,6 +21,7 @@ const sandbox = vm.createContext({THREE, $, Uint8Array, Uint32Array, Float32Arra
   document:{createElement:()=>({})}, fmt:String, requestRender:()=>{},
   hexColor:hex=>new THREE.Color(hex).toArray(), internalTypeColors:{4:'#94a3b8'},
   hardMaskVisible:()=>true,
+  semanticVisibilityCustomized:false, visibleSemanticCodes:new Set([0,1,2,3,4,5,6,7,8,9,11]),
   current:null, completeGeometry:null, completeAxisLines:null, completeRebarScene:new THREE.Scene(),
   completePoints:new THREE.Points(),
 });

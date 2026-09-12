@@ -66,16 +66,14 @@ def final_fragment_filter(context, out, *, workers=1, protected=None):
     return report
 
 
-def design_cluster_quality(context, out, instances, inventory):
+def design_cluster_quality(context, out, instances, inventory, *, groups=None):
     """Count and shape diagnostics use final source XYZ, including carried hooks."""
     units = {u['designUnitId']: u for u in inventory['units']}
     bars = {b['designBarId']: b for b in inventory.get('bars', [])}
     records = []
-    owners = out['complete_instance']
-    rows = np.flatnonzero((out['complete_class'] == 3) & (owners > 0))
-    order = np.argsort(owners[rows], kind='stable')
-    ids, starts = np.unique(owners[rows[order]], return_index=True)
-    groups = dict(zip(map(int, ids), np.split(rows[order], starts[1:]))) if len(ids) else {}
+    if groups is None:
+        from .rebar_overlength_tails import retained_instance_groups
+        groups = retained_instance_groups(out)
     for item in instances:
         unit = units.get(item.get('designUnitId'))
         if unit is None:

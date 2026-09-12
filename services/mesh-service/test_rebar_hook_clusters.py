@@ -56,6 +56,8 @@ class HookTerminalPolishTests(unittest.TestCase):
 
     def test_fixture_contact_on_cylinder_surface_is_retained(self):
         context, out, group, units, segments = _case([-.24, .004, 0.])
+        # A clamp-biased local fit must not override the 8 mm design diameter.
+        segments[0]['radiusM'] = .006
         report = {'filteredPointCount': 0, 'splitClusterCount': 0}
 
         polish_non_hook_terminals(
@@ -65,6 +67,7 @@ class HookTerminalPolishTests(unittest.TestCase):
 
         np.testing.assert_array_equal(out['complete_class'], 3)
         self.assertEqual(report['nonHookTerminalPolish']['removedPointCount'], 0)
+        self.assertEqual(report['nonHookTerminalPolish']['surfaceToleranceM'], .001)
         verify_hook_clusters(out, [group])
 
     def test_unrecorded_bend_deletion_still_fails_verification(self):
