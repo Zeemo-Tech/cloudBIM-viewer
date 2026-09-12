@@ -1,0 +1,80 @@
+{
+  "runId": "20260912T065132-c62fdaaa",
+  "sourcePoints": 9216369,
+  "removedPoints": 708,
+  "changedInstances": 14,
+  "runtimeSeconds": 68.29547713701322,
+  "frozenBaselineSeconds": 40.88584,
+  "baselineRatio": 1.6703943746053211,
+  "before": {
+    "failedInstances": 51,
+    "topologyConflicts": 236,
+    "observedInstances": 210,
+    "criteria": {
+      "length": 12,
+      "diameter": 18,
+      "position": 33,
+      "unsupported_surface": 2
+    }
+  },
+  "after": {
+    "failedInstances": 51,
+    "topologyConflicts": 236,
+    "observedInstances": 210,
+    "criteria": {
+      "length": 12,
+      "diameter": 18,
+      "position": 33,
+      "unsupported_surface": 2
+    }
+  },
+  "originalThresholds": {
+    "failedInstances": 169,
+    "topologyConflicts": 236,
+    "observedInstances": 210,
+    "criteria": {
+      "length": 21,
+      "diameter": 18,
+      "position": 33,
+      "unsupported_surface": 2,
+      "direction": 130
+    }
+  },
+  "restoredToSteel": 0,
+  "removalMaskExact": true,
+  "ownershipUnchangedOutsideRemoval": true,
+  "previousIdsExact": true,
+  "hardBoundarySteel": 0,
+  "webPointsRemoved": 0,
+  "hookPointsRemoved": 0,
+  "earlyArraysUnchanged": {
+    "positions": true,
+    "geometry_class": true,
+    "projection_class": true,
+    "fused_class": true,
+    "refined_class": true,
+    "internal_type": true,
+    "internal_instance": true,
+    "internal_segment": true,
+    "review_state": true,
+    "review_reason": true,
+    "review_changed": true
+  },
+  "lasNpyEqual": {
+    "terminal_removed": true,
+    "terminal_reason": true,
+    "terminal_previous_instance": true,
+    "terminal_previous_segment": true,
+    "complete_class": true,
+    "complete_instance": true,
+    "complete_segment": true
+  },
+  "lasRecords": 9216369,
+  "terminalDetailPreviewPoints": 300000,
+  "terminalDetailIncludesAllRemoved": true,
+  "pythonTestsPassed": 51,
+  "javascriptSuitesPassed": 4,
+  "actualHttpPreviewValidations": 2,
+  "browserWebGLInspection": "unavailable: no browser surface",
+  "codeCommit": "450319c"
+}

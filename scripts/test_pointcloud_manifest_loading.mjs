@@ -34,3 +34,11 @@ if (local) context.PREVIEW_RENDER_LIMIT=manifest.preview.pointCount;
 const result = await context.loadManifest(manifest);
 assert.equal(result.pointCount, Math.min(manifest.preview.pointCount, context.PREVIEW_RENDER_LIMIT));
 console.log(`Workbench manifest fetch and all pre-render validations passed: ${manifest.runId}, ${result.pointCount} preview points.`);
+if (manifest.terminalPreview) {
+  const detail={...manifest,preview:manifest.terminalPreview,tiles:undefined};
+  const checked=await context.loadManifest(detail);
+  assert.equal(checked.pointCount,detail.preview.pointCount,'Terminal detail must fit without browser downsampling');
+  const removed=new Uint8Array(await readBytes(detail.preview.terminal_removedUrl));
+  assert.equal(removed.reduce((a,b)=>a+b,0),manifest.terminalCleanup.removedPointCount,'Detail must contain every peeled source point');
+  console.log(`Terminal detail validated: ${checked.pointCount} observed points, all ${manifest.terminalCleanup.removedPointCount} peeled points included.`);
+}
