@@ -69,11 +69,15 @@ $('completeCompare').value='result';sandbox.installCompletePreview();
 sandbox.current.completeRebar.designReview.clusterQuality={expectedClusterCount:2,observedClusterCount:2,
   countDelta:0,countMatches:false,shapeMismatchCount:1,tooShortCount:1,hookWidthMissingCount:0};
 sandbox.current.completeRebar.designReview.finalDenoising={removedComponentCount:3,removedPointCount:7};
+sandbox.current.completeRebar.designReview.hookClusters={expectedRegionCount:1,detectedClusterCount:1,
+  mergedClusterCount:1,splitClusterCount:0,filteredPointCount:0,
+  nonHookTerminalPolish:{removedPointCount:4,fixtureContactPointCount:12}};
 sandbox.installCompletePreview();
 const summary=$('completeSummary').children.map(node=>node.textContent);
 assert(summary.includes('目标簇数（腹杆逐段） / 实际簇数：2 / 2'));
 assert(summary.includes('数量与逐根对应：待核对（差 0）'));
 assert(summary.includes('末尾细小悬浮噪音：3 簇 / 7 点'));
+assert(summary.includes('非弯钩端圆柱打磨：4 点 / 复核 12 个夹具接触点'));
 assert.equal($('resolvedSteelLas').href,'/resolved.las');
 assert.equal($('pendingSteelLas').href,'/pending.las');
 for (const [filter,expected] of [['filtered',[5]],['merged',[2,3]],['bridged',[2,3]],['resolved',[2,3]]]) {

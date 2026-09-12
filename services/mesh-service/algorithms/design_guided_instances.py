@@ -14,7 +14,7 @@ from .internal_rebar import InternalRebarParameters, _fit_cylinder, _split_paral
 from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters, _terminal_rays
 from .design_prior_refinement import PriorParameters, _candidates
 
-VERSION = 'design-guided-instances-v9-locked-hooks-final-filter'
+VERSION = 'design-guided-instances-v10-non-hook-terminal-polish'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -465,7 +465,8 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     units = inventory['units']; operations = []; rejected = 0
     next_id = max(original, default=0)+1
     next_segment = max([s['id'] for s in segments],default=0)+1
-    from .rebar_hook_clusters import freeze_hook_clusters, merge_hook_clusters, verify_hook_clusters
+    from .rebar_hook_clusters import (freeze_hook_clusters, merge_hook_clusters,
+                                      polish_non_hook_terminals, verify_hook_clusters)
     from .rebar_cluster_quality import final_fragment_filter, design_cluster_quality
     from .rebar_final_filter import filter_final_clusters
     progress('第 6 步：识别并锁定弯曲外筋整簇（只能合并）', 0, count)
@@ -766,6 +767,11 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     hook_operations = merge_hook_clusters(context, out, hook_groups, associations, units, segments, hook_report, workers=workers)
     operations.extend(hook_operations)
     attached += sum(o['pointCount'] for o in hook_operations)
+    hook_polish_operations = polish_non_hook_terminals(
+        context, out, hook_groups, units, segments, fixture_tree, hook_report,
+        workers=workers, fixture_distance=params.fixture_distance)
+    operations.extend(hook_polish_operations)
+    rejected += sum(o['pointCount'] for o in hook_polish_operations)
     progress('第 6 步：内外筋合并完成，执行最终整簇过滤', 0, count)
     safe_owners = strong_owners-growth_blocked_owners
     candidate = deferred_noise & ~hook_protected & ~np.isin(out['complete_instance'], list(safe_owners))

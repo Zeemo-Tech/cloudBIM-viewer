@@ -1,4 +1,4 @@
-"""Freeze bent exterior bars once; subsequent Step 06 operations may only merge."""
+"""Protect observed bends while cleaning their opposite straight terminals."""
 import numpy as np
 from scipy.spatial import cKDTree
 from .rebar_extension import exterior_clusters, ExtensionParameters
@@ -106,7 +106,8 @@ def freeze_hook_clusters(context, out, inventory, segments):
             region['observedPointCount'] = len(selected)
             locked[selected] = True
             groups.append(dict(rows=selected, designUnitId=unit['designUnitId'],
-                designBarId=bar['designBarId'], region=region, originalOwners=np.unique(out['complete_instance'][selected]).tolist()))
+                designBarId=bar['designBarId'], radiusM=float(bar['radiusM']), region=region,
+                originalOwners=np.unique(out['complete_instance'][selected]).tolist()))
             # Remove the whole atom from ordinary pointwise ownership competition.
             for name in ('complete_instance', 'complete_segment', 'complete_confidence'):
                 out[name][selected] = 0
@@ -153,6 +154,112 @@ def merge_hook_clusters(context, out, groups, associations, units, segments, rep
         operations.append(dict(action='attach', phase='after_inner_outer_connection',
             clusterId=group['record']['id'], instanceIds=[int(owner)], pointCount=len(rows),
             reason='locked_curved_exterior_cluster_merged_whole'))
+    return operations
+
+
+def polish_non_hook_terminals(context, out, groups, units, segments, fixture_tree, report, *,
+                              workers=1, fixture_distance=.012, surface_tolerance=.0025,
+                              terminal_span=.30, endpoint_margin=.012, bridge_gap=.08):
+    """Remove clamp contact left outside the observed cylinder at a hook's other end.
+
+    The curved atom remains immutable.  Only the opposite, straight terminal is
+    reviewed, and only where an already classified fixture is nearby.  Using the
+    measured piecewise axes (plus short bridges across clamp occlusion) allows a
+    bowed bar to survive while a glued plate/edge cannot borrow the bar identity.
+    """
+    summary = dict(policy='fixture-contact outside measured cylinder surface',
+                   reviewedOwnerCount=0, reviewedPointCount=0, fixtureContactPointCount=0,
+                   removedPointCount=0, surfaceToleranceM=surface_tolerance,
+                   fixtureDistanceM=fixture_distance, terminalSpanM=terminal_span,
+                   maximumBridgeGapM=bridge_gap)
+    report['nonHookTerminalPolish'] = summary
+    if fixture_tree is None:
+        return []
+    unit_by_id = {u['designUnitId']: u for u in units}
+    operations = []
+    processed = set()
+    for group in groups:
+        owner = int(group.get('record', {}).get('finalInstanceId', 0))
+        if not owner or owner in processed:
+            continue
+        processed.add(owner)
+        unit = unit_by_id.get(group['designUnitId'])
+        if unit is None:
+            continue
+        axis = np.asarray(unit['direction'], float)
+        axis /= max(np.linalg.norm(axis), 1e-9)
+        parts = []
+        for segment in segments:
+            if segment['instanceId'] != owner:
+                continue
+            a, b = np.asarray(segment['startM'], float), np.asarray(segment['endM'], float)
+            delta = b-a; length = np.linalg.norm(delta)
+            if length < .008 or abs(delta @ axis)/length < .90:
+                continue
+            parts.append((a, b, float(segment['radiusM'])))
+        if not parts:
+            continue
+        endpoints = np.asarray([point for a, b, _ in parts for point in (a, b)])
+        low, high = np.min(endpoints @ axis), np.max(endpoints @ axis)
+        hook_projection = float(np.mean(context.positions[group['rows']] @ axis))
+        non_hook_projection = low if abs(hook_projection-high) <= abs(hook_projection-low) else high
+        inward_sign = 1. if non_hook_projection == low else -1.
+        local_parts = [part for part in parts if min(
+            inward_sign*(part[0] @ axis-non_hook_projection),
+            inward_sign*(part[1] @ axis-non_hook_projection),
+        ) <= terminal_span+.08]
+        if not local_parts:
+            continue
+        local_parts.sort(key=lambda part: inward_sign*((part[0]+part[1])*.5 @ axis-non_hook_projection))
+        # The regularized body sections provide a robust physical radius even if
+        # a short terminal fit itself swallowed a small attached fixture patch.
+        radii = np.asarray([radius for _, _, radius in parts])
+        design_radius = float(group.get('radiusM', np.median(radii)))
+        plausible = radii[(radii >= max(.0012, .5*design_radius)) &
+                          (radii <= min(.012, 1.5*design_radius))]
+        radius = float(np.median(plausible)) if len(plausible) else design_radius
+        primitives = [(a, b) for a, b, _ in local_parts]
+        for first, second in zip(local_parts[:-1], local_parts[1:]):
+            pairs = [(a, b) for a in first[:2] for b in second[:2]]
+            a, b = min(pairs, key=lambda pair: np.linalg.norm(pair[1]-pair[0]))
+            gap = np.linalg.norm(b-a)
+            if .001 < gap <= bridge_gap and abs((b-a) @ axis)/gap >= .85:
+                primitives.append((a, b))
+        rows = np.flatnonzero((out['complete_class'] == 3) & (out['complete_instance'] == owner))
+        if not len(rows):
+            continue
+        distance_from_terminal = inward_sign*(context.positions[rows] @ axis-non_hook_projection)
+        rows = rows[(distance_from_terminal >= -endpoint_margin) &
+                    (distance_from_terminal <= terminal_span)]
+        if not len(rows):
+            continue
+        points = context.positions[rows]
+        surface_error = np.full(len(rows), np.inf)
+        for a, b in primitives:
+            delta = b-a; length = np.linalg.norm(delta); direction = delta/length
+            along = (points-a) @ direction
+            radial = np.linalg.norm((points-a)-along[:, None]*direction, axis=1)
+            error = np.abs(radial-radius)
+            error[(along < -endpoint_margin) | (along > length+endpoint_margin)] = np.inf
+            surface_error = np.minimum(surface_error, error)
+        near_fixture = fixture_tree.query(points, workers=workers)[0] <= fixture_distance
+        selected = rows[near_fixture & (surface_error > surface_tolerance)]
+        summary['reviewedOwnerCount'] += 1
+        summary['reviewedPointCount'] += len(rows)
+        summary['fixtureContactPointCount'] += int(np.count_nonzero(near_fixture))
+        group['region']['nonHookReviewedPointCount'] = len(rows)
+        group['region']['nonHookPolishedPointCount'] = len(selected)
+        if not len(selected):
+            continue
+        out['complete_class'][selected] = 4
+        for name in ('complete_instance', 'complete_segment', 'complete_confidence'):
+            out[name][selected] = 0
+        summary['removedPointCount'] += len(selected)
+        operations.append(dict(action='filter', phase='after_hook_merge', instanceIds=[owner],
+            clusterId=group['record']['id'], pointCount=len(selected),
+            reason='non_hook_terminal_fixture_contact_outside_measured_cylinder',
+            surfaceToleranceM=surface_tolerance, fixtureDistanceM=fixture_distance,
+            terminalSpanM=terminal_span))
     return operations
 
 
