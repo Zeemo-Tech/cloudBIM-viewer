@@ -24,6 +24,7 @@ let completeTileLoadToken = 0;
 let completeTileFailed = false;
 let completeTileInteracting = false;
 let completeTileSettleTimer = 0;
+let completeTilesSuspendedForRun = false;
 const completeTileColorCache = new Map();
 
 let renderer;
@@ -471,6 +472,13 @@ function disposeCompleteTiles() {
   completeTileInteracting = false;
   completeTileColorCache.clear();
   completePoints.visible = true;
+}
+
+function suspendCompleteTilesForRun() {
+  if (completeTilesSuspendedForRun) return;
+  completeTilesSuspendedForRun = true;
+  disposeCompleteTiles();
+  requestRender();
 }
 
 function installCompleteTiles() {
@@ -1111,7 +1119,7 @@ function installCompletePreview() {
           ['弯曲外筋区域 / 保护簇 / 已整簇合并', `${fmt(d.hookClusters.expectedRegionCount)} / ${fmt(d.hookClusters.detectedClusterCount)} / ${fmt(d.hookClusters.mergedClusterCount)}`],
           ['弯曲外筋拆分 / 删除点', `${fmt(d.hookClusters.splitClusterCount)} / ${fmt(d.hookClusters.filteredPointCount)}`],
           ...(d.hookClusters.nonHookTerminalPolish ? [[
-            '非弯钩端圆柱打磨', `${fmt(d.hookClusters.nonHookTerminalPolish.removedPointCount)} 点 / 复核 ${fmt(d.hookClusters.nonHookTerminalPolish.fixtureContactPointCount)} 个夹具接触点`,
+            '弯钩实例直端圆柱打磨', `${fmt(d.hookClusters.nonHookTerminalPolish.removedPointCount)} 点 / 复核 ${fmt(d.hookClusters.nonHookTerminalPolish.fixtureContactPointCount)} 个夹具接触点`,
           ]] : []),
         ] : []),
         ...(d.finalClusterFilter ? [
@@ -1194,7 +1202,7 @@ function applyCompleteAppearance() {
     : `显示 ${fmt(size)} 个样本点。此历史结果使用较弱的设计复核约束；可重新运行第六步应用当前算法。遮挡处不补点；轴线表示实测拟合段。`;
   if (Number.isFinite(current.completeRebar.designReview?.earlyExtensionPoints)) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。先沿可靠内部钢筋的端部轴线接续外露点，再做设计关联和噪音清理。短外露段可继承内部编号；多个钢筋同时解释的点保留待定。可筛选跨夹具接续、本步过滤点。遮挡处不补点；外部轴线表示接续依据。`;
   if (Number.isFinite(current.completeRebar.designReview?.separatedExteriorClusters)) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。先分离同轴外露钢筋与横向夹具边缘，再接续内部实例并清理剩余分支。选择“粘连簇拆分对照”可比较处理前后，查看保留的钢筋和移除的边缘。原连通簇颜色用于追溯来源，不代表最终实例。遮挡处不补点。`;
-  if (current.completeRebar.designReview?.hookClusters) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。弯钩核心单独锁定、只能整簇合并；非弯钩端在夹具接触带按实测圆柱壳打磨。内外钢筋全部接续后，再按设计长度和同类钢筋参考点数过滤异常簇。可筛选“受保护弯曲外筋”和“最后整簇过滤”，对照第五步查看。`;
+  if (current.completeRebar.designReview?.hookClusters) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。弯钩核心单独锁定、只能整簇合并；弯钩实例的直段外端在夹具接触带按局部实测圆柱壳打磨。内外钢筋全部接续后，再按设计长度和同类钢筋参考点数过滤异常簇。可筛选“受保护弯曲外筋”和“最后整簇过滤”，对照第五步查看。`;
   if ($('completeColorMode').value === 'score' && current._fusedSteelScores) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点，颜色沿用 03 的融合支持分数。点击点云可核对 03 → 05 → 06 的类别及高分保护状态；噪音也显示删除前分数。`;
   if (typeof applyCompleteTileAppearance === 'function' && applyCompleteTileAppearance()) {
     $('completeHint').textContent = $('completeHint').textContent.replace(`显示 ${fmt(size)} 个样本点。`, '当前使用按视野加载的高密度 Tiles LOD。');
@@ -2682,9 +2690,11 @@ async function status() {
     const running = state.status === 'running';
     $('run').disabled = running;
     if (running) {
+      suspendCompleteTilesForRun();
       setStatus(`处理中：${state.progress?.stage || '准备中'} · ${fmt(state.progress?.completed)} / ${fmt(state.progress?.total)}`);
       if (!poller) poller = setInterval(status, 1000);
     } else {
+      completeTilesSuspendedForRun = false;
       if (poller) { clearInterval(poller); poller = null; }
       if (state.status === 'failed') setStatus(state.error || '处理失败', true);
       else if (state.status === 'complete' && !requestedRun && state.latest && current?.runId !== state.latest.runId) {
@@ -2705,6 +2715,7 @@ $('run').addEventListener('click', async () => {
     });
     if (response.status === 409) throw new Error('已有任务正在运行');
     if (!response.ok) throw new Error(await response.text());
+    suspendCompleteTilesForRun();
     requestedRun = null;
     const location = new URL(window.location.href); location.searchParams.delete('run');
     window.history.replaceState(null, '', location);

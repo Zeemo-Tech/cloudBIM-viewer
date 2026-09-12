@@ -38,8 +38,18 @@ def verify(baseline, enhanced):
     assert np.all(attrs['prior_status'][attrs['prior_class']==3]>0)
     clusters=np.load(baseline/'complete_cluster.npy',mmap_mode='r');ext=np.flatnonzero(clusters>0)
     if len(ext):
-        triples=np.unique(np.column_stack((clusters[ext],attrs['prior_class'][ext],attrs['prior_instance'][ext])),axis=0)
-        assert len(triples)==len(np.unique(clusters[ext])), 'exterior cluster was split'
+        polishable={c['id'] for c in a.get('completeRebar',{}).get('clusters',[])
+                    if 'straight-collar-cylinder-polish' in c.get('allowedOperations',[])}
+        ordinary=ext[~np.isin(clusters[ext],list(polishable))]
+        triples=np.unique(np.column_stack((clusters[ordinary],attrs['prior_class'][ordinary],
+                                           attrs['prior_instance'][ordinary])),axis=0)
+        assert len(triples)==len(np.unique(clusters[ordinary])), 'ordinary exterior cluster was split'
+        for cluster in polishable:
+            selected=ext[clusters[ext]==cluster]
+            filtered=selected[original[selected]==4];retained=selected[original[selected]==3]
+            np.testing.assert_array_equal(attrs['prior_class'][filtered],4)
+            assert np.all(attrs['prior_instance'][filtered]==0)
+            assert len(np.unique(attrs['prior_instance'][retained]))==1
     components=b['designPrior']['components'];mass=np.bincount(attrs['prior_component'])
     for c in components:assert mass[c['id']]==c['pointCount']
     for key,bit in [('filteredPoints',1),('recoveredPoints',2),('mergedPoints',4)]:
@@ -88,7 +98,8 @@ def verify(baseline, enhanced):
     return {'runId':b['runId'],'mode':b['designPrior']['mode'],'pointCount':n,'baselineColumns':len(a['attributes']['columns']),
             'exteriorClusters':len(np.unique(clusters[ext])),'components':len(components),'webInstances':len(web_ids),
             'checks':['old NPY columns identical','source LAS fields unchanged','source record indices',
-                      'full LAS / NPY / preview / subset prior attributes identical','whole exterior clusters','web identity separation',
+                      'full LAS / NPY / preview / subset prior attributes identical',
+                      'whole ordinary exterior clusters / audited hook collar polish','web identity separation',
                       *(['semantic classes frozen','same matching unit on every merge','short instance IDs unchanged'] if linking_only else [])],
             'passed':True}
 

@@ -26,6 +26,7 @@ from algorithms.design_prior_refinement import MODES as PRIOR_MODES
 
 
 DEFAULT_PREVIEW_LIMIT = 300_000
+RUN_SUMMARY_NAME = "summary.json"
 
 
 def parsed_host_header(value):
@@ -71,6 +72,28 @@ def manifest_summary(manifest):
     }
 
 
+def run_record(manifest):
+    """Build the private, compact record used for history and tile ownership."""
+    record = manifest_summary(manifest)
+    record["sourcePath"] = str((manifest.get("source") or {}).get("path") or "")
+    return record
+
+
+def public_run_summary(record):
+    """Remove server-only ownership data before returning a run summary."""
+    return {key: value for key, value in record.items() if key != "sourcePath"}
+
+
+def write_run_record(directory, manifest):
+    """Persist a small sidecar so tile requests never reparse a large manifest."""
+    record = run_record(manifest)
+    target = directory / RUN_SUMMARY_NAME
+    temporary = directory / f"{RUN_SUMMARY_NAME}.tmp"
+    temporary.write_text(json.dumps(record, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    temporary.replace(target)
+    return record
+
+
 class DebugState:
     def __init__(self, source, output, prior_config=None, preview_limit=DEFAULT_PREVIEW_LIMIT, source_tiles=None):
         self.source, self.output = source, output
@@ -81,6 +104,8 @@ class DebugState:
         self.prior_config = prior_config
         self.preview_limit = preview_limit
         self.lock = threading.Lock()
+        self.record_lock = threading.Lock()
+        self.run_records = {}
         self.run = None
         self.state = {"status": "idle", "progress": {"stage": "等待运行", "completed": 0, "total": 1},
                       "error": None, "latest": None, "sourceName": source.name, "maxWorkers": available_workers()}
@@ -95,11 +120,42 @@ class DebugState:
         latest = output / "latest.json"
         if latest.exists():
             run_id = json.loads(latest.read_text())["runId"]
-            path = output / run_id / "manifest.json"
-            if path.is_file() and path.resolve().is_relative_to(output.resolve()):
-                manifest = json.loads(path.read_text())
-                if manifest["source"]["path"] == str(source.resolve()):
-                    self.state.update(status="complete", latest=manifest)
+            record = self.record_for_run(run_id)
+            if record and record["sourcePath"] == str(source.resolve()):
+                self.state.update(status="complete", latest=public_run_summary(record))
+
+    def record_for_run(self, run_id):
+        """Load and cache one immutable run record, backfilling old runs once."""
+        with self.record_lock:
+            if run_id in self.run_records:
+                return self.run_records[run_id]
+            directory = (self.output / run_id).resolve()
+            if not directory.is_relative_to(self.output.resolve()) or directory.name != run_id:
+                return None
+            manifest_path = directory / "manifest.json"
+            summary_path = directory / RUN_SUMMARY_NAME
+            record = None
+            try:
+                if (summary_path.is_file() and manifest_path.is_file()
+                        and summary_path.stat().st_mtime_ns >= manifest_path.stat().st_mtime_ns):
+                    candidate = json.loads(summary_path.read_text(encoding="utf-8"))
+                    if candidate.get("runId") == run_id and isinstance(candidate.get("sourcePath"), str):
+                        record = candidate
+                if record is None and manifest_path.is_file():
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    if manifest.get("runId") == run_id:
+                        record = write_run_record(directory, manifest)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                return None
+            if record is not None:
+                self.run_records[run_id] = record
+            return record
+
+    def remember_run(self, directory, manifest):
+        with self.record_lock:
+            record = write_run_record(directory, manifest)
+            self.run_records[record["runId"]] = record
+            return record
 
     def progress(self, stage, completed, total):
         with self.lock:
@@ -107,10 +163,7 @@ class DebugState:
 
     def snapshot(self):
         with self.lock:
-            result = dict(self.state)
-            if result.get("latest"):
-                result["latest"] = manifest_summary(result["latest"])
-            return result
+            return dict(self.state)
 
     def start(self, k, workers, through_step=6, prior_mode='off'):
         with self.lock:
@@ -127,17 +180,23 @@ class DebugState:
                     through_step=through_step, prior_mode=prior_mode, design_prior=snapshot,
                     preview_limit=self.preview_limit)
                 self._install_tiles_mvp()
+                manifest = self.run.manifest
+                record = self.remember_run(self.run.directory, manifest)
+                timings = manifest["timings"]
+                self.run = None
                 with self.lock:
-                    self.state.update(status="complete", latest=self.run.manifest)
+                    self.state.update(status="complete", latest=public_run_summary(record))
                     if snapshot is not None:
                         coverage=snapshot['inventory']['coverage']
                         self.state.update(priorAvailable=bool(snapshot['inventory']['units']),
                             priorSummary=f"{snapshot.get('modelInfo',{}).get('name','设计模型')} · 匹配单元 {coverage['matchingUnitCount']} · 短筋 {coverage['shortUnitCount']} · 未解析构件 {coverage['unresolvedBars']}")
-                print(json.dumps({"runId": self.run.manifest["runId"], "timings": self.run.manifest["timings"]}), flush=True)
+                print(json.dumps({"runId": record["runId"], "timings": timings}), flush=True)
             except Exception as exc:
                 with self.lock:
                     self.state.update(status="failed", error=str(exc))
                 print(f"Debug run failed: {exc}", file=sys.stderr, flush=True)
+            finally:
+                self.run = None
         threading.Thread(target=work, name="pointcloud-step-run", daemon=True).start()
         return True
 
@@ -168,7 +227,7 @@ class DebugState:
                 "completeRebar": complete,
             }
         temporary = self.run.directory / "manifest.json.tmp"
-        temporary.write_text(json.dumps(self.run.manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.write_text(json.dumps(self.run.manifest, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         temporary.replace(self.run.directory / "manifest.json")
 
 
@@ -212,9 +271,9 @@ def handler_for(state, allowed_hosts=()):
                 manifests = []
                 for file in sorted(state.output.glob("*/manifest.json"), reverse=True):
                     if not file.parent.name.startswith("."):
-                        item = json.loads(file.read_text())
-                        if item["source"]["path"] == str(state.source.resolve()):
-                            manifests.append(manifest_summary(item))
+                        record = state.record_for_run(file.parent.name)
+                        if record and record["sourcePath"] == str(state.source.resolve()):
+                            manifests.append(public_run_summary(record))
                 return self.json_response(200, manifests)
             if path in ("/", "/index.html", "/viewer.js"):
                 file = ROOT / "scripts/pointcloud-debug" / ("viewer.js" if path == "/viewer.js" else "index.html")
@@ -235,13 +294,11 @@ def handler_for(state, allowed_hosts=()):
                 if not re.match(r"^\d{8}T\d{6}-[0-9a-f]{8}/", relative):
                     return self.json_response(404, {"error": "Not found"})
                 run_id, item = relative.split("/", 1)
+                if item == RUN_SUMMARY_NAME or item.startswith("."):
+                    return self.json_response(404, {"error": "Not found"})
                 if item.startswith("tiles/") and state.source_tiles is not None:
-                    manifest_file = state.output / run_id / "manifest.json"
-                    try:
-                        owner = json.loads(manifest_file.read_text(encoding="utf-8")).get("source", {}).get("path")
-                    except (OSError, json.JSONDecodeError):
-                        return self.json_response(404, {"error": "Not found"})
-                    if owner != str(state.source.resolve()):
+                    record = state.record_for_run(run_id)
+                    if not record or record["sourcePath"] != str(state.source.resolve()):
                         return self.json_response(404, {"error": "Not found"})
                     file = (state.source_tiles / item.removeprefix("tiles/")).resolve()
                     allowed = state.source_tiles.resolve()
@@ -378,6 +435,7 @@ def main():
         tile_state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
         tile_state.run = result
         tile_state._install_tiles_mvp()
+        tile_state.remember_run(result.directory, result.manifest)
         print(json.dumps(result.manifest, ensure_ascii=False, indent=2))
         return
     allowed_hosts = {args.host, *args.allow_host}

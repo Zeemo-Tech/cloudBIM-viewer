@@ -44,12 +44,19 @@ def validate(run, baseline=None):
     if 'clusters' in report:
         cluster_ids = arrays['complete_cluster']
         cluster_sizes = np.bincount(cluster_ids, minlength=len(report['clusters'])+1)
+        polished = {op['clusterId']: op['pointCount'] for op in report.get('designReview', {}).get('operations', [])
+                    if op.get('reason') == 'hook_straight_collar_fixture_contact_outside_local_cylinder'}
         for cluster in report['clusters']:
             mask = cluster_ids == cluster['id']
             assert cluster_sizes[cluster['id']] == cluster['pointCount']
-            assert len(np.unique(classes[mask])) == len(np.unique(instances[mask])) == 1
-            assert np.all(instances[mask] == cluster['instanceId'])
-            assert np.all(classes[mask] == (4 if cluster['status'] == 'noise' else 3))
+            if cluster['id'] in polished:
+                filtered = mask & (classes == 4); retained = mask & (classes == 3)
+                assert filtered.sum() == polished[cluster['id']] and np.all(instances[filtered] == 0)
+                assert np.all(instances[retained] == cluster['finalInstanceId'])
+            else:
+                assert len(np.unique(classes[mask])) == len(np.unique(instances[mask])) == 1
+                assert np.all(instances[mask] == cluster['instanceId'])
+                assert np.all(classes[mask] == (4 if cluster['status'] == 'noise' else 3))
     assert json.loads((run/'complete-instances.json').read_text()) == report
     if final:
         fc, fi, groups, support = [arrays['final_'+name] for name in ('class','instance','component','line_support')]
@@ -75,11 +82,15 @@ def validate(run, baseline=None):
             assert sizes[i] == component['pointCount']
             assert votes[i] == component['lineSupportedPointCount']
             assert retained[i] == (sizes[i] if component['status'] == 'retained' else 0)
-        # Original exterior clusters must remain indivisible even at bent ends.
+        # Ordinary exterior clusters remain indivisible. Protected hook atoms may
+        # lose only the explicitly audited straight-collar fixture contact rows.
         original = arrays['complete_cluster']
         old_sizes = np.bincount(original)
         old_retained = np.bincount(original, weights=fc == 3)
-        assert np.all((old_retained[1:] == 0) | (old_retained[1:] == old_sizes[1:]))
+        ordinary = np.ones(len(old_sizes), bool)
+        ordinary[0] = False
+        ordinary[list(polished)] = False
+        assert np.all((old_retained[ordinary] == 0) | (old_retained[ordinary] == old_sizes[ordinary]))
         counts = np.bincount(fi)
         for instance in final['instances']:
             assert counts[instance['id']] == instance['pointCount']

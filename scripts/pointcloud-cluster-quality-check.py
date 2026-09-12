@@ -51,17 +51,22 @@ def main():
     hook_report = review.get('hookClusters')
     final_filter = review.get('finalClusterFilter')
     if hook_report:
+        operations = review['operations']
+        polished = {op['clusterId']: op['pointCount'] for op in operations
+                    if op.get('reason') == 'hook_straight_collar_fixture_contact_outside_local_cylinder'}
         hooks = [c for c in report['clusters'] if c.get('category') == 'curved-exterior']
         assert len(hooks) == hook_report['detectedClusterCount']
         for hook in hooks:
             selected = cluster_ids == hook['id']
             assert selected.sum() == hook['pointCount']
-            assert np.all(after[selected] == 3)
-            assert len(np.unique(ids[selected])) == 1
+            filtered = selected & (after == 4)
+            retained = selected & (after == 3)
+            assert filtered.sum() == polished.get(hook['id'], 0)
+            assert np.all(ids[filtered] == 0)
+            assert len(np.unique(ids[retained])) == 1
             if hook['status'] == 'merged':
-                assert np.all(ids[selected] == hook['finalInstanceId'])
+                assert np.all(ids[retained] == hook['finalInstanceId'])
         assert sum(h['pointCount'] for h in hooks) == hook_report['protectedPointCount']
-        operations = review['operations']
         connections = [i for i, op in enumerate(operations) if op['action'] in ('attach', 'merge')]
         filters = [i for i, op in enumerate(operations) if op['action'] == 'filter']
         if connections and filters:

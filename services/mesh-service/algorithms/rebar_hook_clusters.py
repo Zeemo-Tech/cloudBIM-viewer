@@ -1,7 +1,15 @@
-"""Protect observed bends while cleaning their opposite straight terminals."""
+"""Protect observed bends while cylindrically cleaning their straight collars."""
 import numpy as np
+from scipy import optimize
 from scipy.spatial import cKDTree
 from .rebar_extension import exterior_clusters, ExtensionParameters
+
+
+def _basis(axis):
+    auxiliary = np.eye(3)[np.argmin(np.abs(axis))]
+    first = np.cross(axis, auxiliary)
+    first /= max(np.linalg.norm(first), 1e-9)
+    return np.array([first, np.cross(axis, first)])
 
 
 def freeze_hook_clusters(context, out, inventory, segments):
@@ -11,7 +19,8 @@ def freeze_hook_clusters(context, out, inventory, segments):
     units = {u['designUnitId']: u for u in inventory['units']}
     bars = [b for b in inventory.get('bars', []) if b.get('excludedHookRunCount')
             and len(b.get('unitIds', [])) == 1]
-    report = dict(classification='curved-exterior', policy='merge-only',
+    report = dict(classification='curved-exterior',
+                  policy='bend-core-locked; straight-collar-cylinder-polish',
                   expectedRegionCount=0, detectedClusterCount=0, protectedPointCount=0,
                   mergedClusterCount=0, splitClusterCount=0, filteredPointCount=0, regions=[])
     if not len(rows):
@@ -105,7 +114,10 @@ def freeze_hook_clusters(context, out, inventory, segments):
                 continue
             region['observedPointCount'] = len(selected)
             locked[selected] = True
-            groups.append(dict(rows=selected, designUnitId=unit['designUnitId'],
+            stem_along = (context.positions[selected]-body_end) @ toward_body
+            groups.append(dict(rows=selected, bendRows=selected[stem_along < .03],
+                bodyEndM=body_end.tolist(), towardBody=toward_body.tolist(), stemCollarLengthM=.25,
+                designUnitId=unit['designUnitId'],
                 designBarId=bar['designBarId'], radiusM=float(bar['radiusM']), region=region,
                 originalOwners=np.unique(out['complete_instance'][selected]).tolist()))
             # Remove the whole atom from ordinary pointwise ownership competition.
@@ -159,112 +171,119 @@ def merge_hook_clusters(context, out, groups, associations, units, segments, rep
 
 def polish_non_hook_terminals(context, out, groups, units, segments, fixture_tree, report, *,
                               workers=1, fixture_distance=.012, surface_tolerance=.0025,
-                              terminal_span=.30, endpoint_margin=.012, bridge_gap=.08):
-    """Remove clamp contact left outside the observed cylinder at a hook's other end.
+                              bend_clearance=.03, fit_start=.04, fit_end=.19,
+                              center_adjustment=.015):
+    """Cylinder-polish the straight end of each protected hook-region atom.
 
-    The curved atom remains immutable.  Only the opposite, straight terminal is
-    reviewed, and only where an already classified fixture is nearby.  Using the
-    measured piecewise axes (plus short bridges across clamp occlusion) allows a
-    bowed bar to survive while a glued plate/edge cannot borrow the bar identity.
+    ``freeze_hook_clusters`` deliberately captures a 25 cm straight collar so an
+    occluded bend can still be joined to its measured parent.  At the collar's
+    non-bent end, however, a clamp edge can be connected to the steel component
+    and was previously frozen with it.  Keep the bend core immutable, fit a fixed-
+    radius cylinder to fixture-free collar evidence, and remove only fixture-
+    contact rows that fall outside that observed surface.
     """
-    summary = dict(policy='fixture-contact outside measured cylinder surface',
-                   reviewedOwnerCount=0, reviewedPointCount=0, fixtureContactPointCount=0,
-                   removedPointCount=0, surfaceToleranceM=surface_tolerance,
-                   fixtureDistanceM=fixture_distance, terminalSpanM=terminal_span,
-                   maximumBridgeGapM=bridge_gap)
+    summary = dict(policy='bend locked; fixture-contact outside local straight-collar cylinder',
+                   reviewedClusterCount=0, reviewedPointCount=0, fixtureContactPointCount=0,
+                   fittedClusterCount=0, removedPointCount=0,
+                   surfaceToleranceM=surface_tolerance, fixtureDistanceM=fixture_distance,
+                   bendClearanceM=bend_clearance, fitRangeM=[fit_start, fit_end],
+                   maximumCenterAdjustmentM=center_adjustment)
     report['nonHookTerminalPolish'] = summary
     if fixture_tree is None:
         return []
-    unit_by_id = {u['designUnitId']: u for u in units}
     operations = []
-    processed = set()
     for group in groups:
         owner = int(group.get('record', {}).get('finalInstanceId', 0))
-        if not owner or owner in processed:
+        if not owner:
             continue
-        processed.add(owner)
-        unit = unit_by_id.get(group['designUnitId'])
-        if unit is None:
+        rows = np.asarray(group['rows'], dtype=np.int64)
+        body_end = np.asarray(group.get('bodyEndM'), float)
+        toward_body = np.asarray(group.get('towardBody'), float)
+        if body_end.shape != (3,) or toward_body.shape != (3,):
             continue
-        axis = np.asarray(unit['direction'], float)
-        axis /= max(np.linalg.norm(axis), 1e-9)
+        toward_body /= max(np.linalg.norm(toward_body), 1e-9)
+        points = context.positions[rows]
+        stem_along = (points-body_end) @ toward_body
+        in_collar = (stem_along >= bend_clearance) & (
+            stem_along <= float(group.get('stemCollarLengthM', .25))+.02)
+        if np.count_nonzero(in_collar) < 12:
+            continue
+        near_fixture = fixture_tree.query(points, workers=workers)[0] <= fixture_distance
+        seed = (stem_along >= fit_start) & (stem_along <= fit_end) & ~near_fixture
+        if np.count_nonzero(seed) < 24:
+            continue
         parts = []
         for segment in segments:
             if segment['instanceId'] != owner:
                 continue
             a, b = np.asarray(segment['startM'], float), np.asarray(segment['endM'], float)
             delta = b-a; length = np.linalg.norm(delta)
-            if length < .008 or abs(delta @ axis)/length < .90:
+            if length < .008 or abs(delta @ toward_body)/length < .90:
                 continue
-            parts.append((a, b, float(segment['radiusM'])))
+            line_distance = np.linalg.norm(np.cross(body_end-a, delta/length))
+            axial_distance = abs(((a+b)*.5-body_end) @ toward_body)
+            parts.append((axial_distance+.25*line_distance, a, b, float(segment['radiusM'])))
         if not parts:
             continue
-        endpoints = np.asarray([point for a, b, _ in parts for point in (a, b)])
-        low, high = np.min(endpoints @ axis), np.max(endpoints @ axis)
-        hook_projection = float(np.mean(context.positions[group['rows']] @ axis))
-        non_hook_projection = low if abs(hook_projection-high) <= abs(hook_projection-low) else high
-        inward_sign = 1. if non_hook_projection == low else -1.
-        local_parts = [part for part in parts if min(
-            inward_sign*(part[0] @ axis-non_hook_projection),
-            inward_sign*(part[1] @ axis-non_hook_projection),
-        ) <= terminal_span+.08]
-        if not local_parts:
+        _, a, b, fitted_radius = min(parts, key=lambda part: part[0])
+        design_radius = float(group.get('radiusM', fitted_radius))
+        radius = fitted_radius if .5*design_radius <= fitted_radius <= 1.5*design_radius else design_radius
+        axis = (b-a)/np.linalg.norm(b-a)
+        if axis @ toward_body < 0:
+            axis = -axis
+        seed_points = points[seed]
+        seed_center = seed_points.mean(axis=0)
+        line_center = a+axis*((seed_center-a) @ axis)
+        cross = _basis(axis)
+        projected = (seed_points-seed_center) @ cross.T
+        initial = (line_center-seed_center) @ cross.T
+        fit = optimize.least_squares(
+            lambda center: np.linalg.norm(projected-center, axis=1)-radius,
+            initial, bounds=(initial-center_adjustment, initial+center_adjustment),
+            loss='soft_l1', f_scale=.0006, max_nfev=50)
+        cylinder_center = seed_center+fit.x @ cross
+        seed_error = np.abs(np.linalg.norm(projected-fit.x, axis=1)-radius)
+        if np.median(seed_error) > .002:
             continue
-        local_parts.sort(key=lambda part: inward_sign*((part[0]+part[1])*.5 @ axis-non_hook_projection))
-        # The regularized body sections provide a robust physical radius even if
-        # a short terminal fit itself swallowed a small attached fixture patch.
-        radii = np.asarray([radius for _, _, radius in parts])
-        design_radius = float(group.get('radiusM', np.median(radii)))
-        plausible = radii[(radii >= max(.0012, .5*design_radius)) &
-                          (radii <= min(.012, 1.5*design_radius))]
-        radius = float(np.median(plausible)) if len(plausible) else design_radius
-        primitives = [(a, b) for a, b, _ in local_parts]
-        for first, second in zip(local_parts[:-1], local_parts[1:]):
-            pairs = [(a, b) for a in first[:2] for b in second[:2]]
-            a, b = min(pairs, key=lambda pair: np.linalg.norm(pair[1]-pair[0]))
-            gap = np.linalg.norm(b-a)
-            if .001 < gap <= bridge_gap and abs((b-a) @ axis)/gap >= .85:
-                primitives.append((a, b))
-        rows = np.flatnonzero((out['complete_class'] == 3) & (out['complete_instance'] == owner))
-        if not len(rows):
-            continue
-        distance_from_terminal = inward_sign*(context.positions[rows] @ axis-non_hook_projection)
-        rows = rows[(distance_from_terminal >= -endpoint_margin) &
-                    (distance_from_terminal <= terminal_span)]
-        if not len(rows):
-            continue
-        points = context.positions[rows]
-        surface_error = np.full(len(rows), np.inf)
-        for a, b in primitives:
-            delta = b-a; length = np.linalg.norm(delta); direction = delta/length
-            along = (points-a) @ direction
-            radial = np.linalg.norm((points-a)-along[:, None]*direction, axis=1)
-            error = np.abs(radial-radius)
-            error[(along < -endpoint_margin) | (along > length+endpoint_margin)] = np.inf
-            surface_error = np.minimum(surface_error, error)
-        near_fixture = fixture_tree.query(points, workers=workers)[0] <= fixture_distance
-        selected = rows[near_fixture & (surface_error > surface_tolerance)]
-        summary['reviewedOwnerCount'] += 1
-        summary['reviewedPointCount'] += len(rows)
-        summary['fixtureContactPointCount'] += int(np.count_nonzero(near_fixture))
-        group['region']['nonHookReviewedPointCount'] = len(rows)
+        delta = points-cylinder_center
+        along = delta @ axis
+        surface_error = np.abs(np.linalg.norm(delta-along[:, None]*axis, axis=1)-radius)
+        selected = rows[in_collar & near_fixture & (surface_error > surface_tolerance)]
+        summary['reviewedClusterCount'] += 1
+        summary['reviewedPointCount'] += int(np.count_nonzero(in_collar))
+        summary['fixtureContactPointCount'] += int(np.count_nonzero(in_collar & near_fixture))
+        summary['fittedClusterCount'] += 1
+        group['region']['nonHookReviewedPointCount'] = int(np.count_nonzero(in_collar))
         group['region']['nonHookPolishedPointCount'] = len(selected)
+        group['region']['nonHookCylinderFitMedianErrorM'] = float(np.median(seed_error))
         if not len(selected):
             continue
         out['complete_class'][selected] = 4
         for name in ('complete_instance', 'complete_segment', 'complete_confidence'):
             out[name][selected] = 0
         summary['removedPointCount'] += len(selected)
-        operations.append(dict(action='filter', phase='after_hook_merge', instanceIds=[owner],
+        report['filteredPointCount'] += len(selected)
+        report['splitClusterCount'] += 1
+        group['polishedRows'] = selected
+        operations.append(dict(action='filter', phase='after_hook_merge', sourceInstanceId=0,
+            instanceIds=[owner],
             clusterId=group['record']['id'], pointCount=len(selected),
-            reason='non_hook_terminal_fixture_contact_outside_measured_cylinder',
+            reason='hook_straight_collar_fixture_contact_outside_local_cylinder',
             surfaceToleranceM=surface_tolerance, fixtureDistanceM=fixture_distance,
-            terminalSpanM=terminal_span))
+            bendClearanceM=bend_clearance, fitMedianErrorM=float(np.median(seed_error))))
     return operations
 
 
 def verify_hook_clusters(out, groups):
     for group in groups:
-        rows = group['rows']
-        if np.any(out['complete_class'][rows] != 3) or len(np.unique(out['complete_instance'][rows])) != 1:
-            raise RuntimeError('第六步违反弯曲外筋整簇保护：不允许拆分或删除')
+        rows = np.asarray(group['rows'], dtype=np.int64)
+        polished = np.asarray(group.get('polishedRows', []), dtype=np.int64)
+        retained = rows[~np.isin(rows, polished)]
+        bend_rows = np.asarray(group.get('bendRows', rows), dtype=np.int64)
+        if (np.any(out['complete_class'][retained] != 3)
+                or len(np.unique(out['complete_instance'][retained])) != 1
+                or np.any(out['complete_class'][bend_rows] != 3)):
+            raise RuntimeError('第六步违反弯曲外筋保护：弯曲核心不允许拆分或删除')
+        if len(polished) and (np.any(out['complete_class'][polished] != 4)
+                              or np.any(out['complete_instance'][polished] != 0)):
+            raise RuntimeError('第六步弯钩直段圆柱打磨状态不一致')

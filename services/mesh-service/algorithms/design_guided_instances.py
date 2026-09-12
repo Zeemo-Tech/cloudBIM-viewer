@@ -14,7 +14,7 @@ from .internal_rebar import InternalRebarParameters, _fit_cylinder, _split_paral
 from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters, _terminal_rays
 from .design_prior_refinement import PriorParameters, _candidates
 
-VERSION = 'design-guided-instances-v10-non-hook-terminal-polish'
+VERSION = 'design-guided-instances-v11-hook-straight-collar-polish'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -485,7 +485,8 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
     cluster_records = [{'id':i,'pointCount':int(counts[i])} for i in range(1,total_clusters+1)]
     for group in hook_groups:
         record = dict(id=len(cluster_records)+1, pointCount=len(group['rows']),
-            category='curved-exterior', locked=True, allowedOperations=['merge'],
+            category='curved-exterior', locked=True,
+            allowedOperations=['merge', 'straight-collar-cylinder-polish'],
             designUnitId=group['designUnitId'], designBarId=group['designBarId'],
             boundsM=group['region']['boundsM'], status='protected-pending')
         cluster_records.append(record); group['record'] = record
