@@ -99,6 +99,7 @@ ensure_env_files() {
 }
 
 load_ports() {
+  WORKBENCH_CODE_ROOT="$(read_env_value "$ROOT_DIR/.env" POINTCLOUD_WORKBENCH_CODE_ROOT "$ROOT_DIR")"
   DB_PORT="$(read_env_value "$ROOT_DIR/.env" DB_PORT "$DB_PORT")"
   MESH_SERVICE_PORT="$(read_env_value "$ROOT_DIR/.env" MESH_SERVICE_PORT "$MESH_SERVICE_PORT")"
   BACKEND_PORT="$(read_env_value "$ROOT_DIR/.env" BACKEND_PORT "$BACKEND_PORT")"
@@ -177,7 +178,9 @@ start_workbench() {
   workbench_is_enabled || return
 
   local python="$RUNTIME_DIR/mesh-venv/bin/python"
-  local source output prior_config
+  local source output prior_config code_root
+  code_root="$(resolve_repo_path "$WORKBENCH_CODE_ROOT")"
+  [[ -f "$code_root/scripts/pointcloud-debug.py" ]] || fail "Invalid workbench code root: $code_root"
   source="$(resolve_repo_path "$WORKBENCH_SOURCE")"
   output="$(resolve_repo_path "$WORKBENCH_OUTPUT")"
   prior_config="$(resolve_repo_path "$WORKBENCH_PRIOR_CONFIG")"
@@ -193,7 +196,7 @@ start_workbench() {
   if ! pid_is_running "$WORKBENCH_PID_FILE"; then
     log "Starting supervised point-cloud workbench"
     setsid "$ROOT_DIR/scripts/cloudbim-supervise.sh" \
-      "$python" "$ROOT_DIR/scripts/pointcloud-debug.py" \
+      "$python" "$code_root/scripts/pointcloud-debug.py" \
       --source "$source" --output "$output" \
       --host "$WORKBENCH_HOST" --port "$WORKBENCH_PORT" --allow-host "$WORKBENCH_ALLOW_HOST" \
       --workers "$WORKBENCH_WORKERS" --through-step "$WORKBENCH_THROUGH_STEP" \
@@ -297,7 +300,10 @@ logs() {
 
 usage() {
   cat <<'EOF'
-Usage: scripts/cloudbim-dev.sh <command>
+Usage: scripts/cloudbim-dev.sh <command> [--workbench-only]
+
+start/stop --workbench-only manages only the point-cloud workbench.
+POINTCLOUD_WORKBENCH_CODE_ROOT in .env selects its checkout; data stays in this stack.
 
 Commands:
   start    Start dependency containers, backend, frontend, and enabled workbench.
@@ -309,8 +315,15 @@ EOF
 }
 
 case "${1:-}" in
-  start) start ;;
-  stop) stop ;;
+  start)
+    if [[ "${2:-}" == "--workbench-only" ]]; then
+      mkdir -p "$RUNTIME_DIR"; ensure_env_files; load_ports; start_workbench
+    elif [[ -z "${2:-}" ]]; then start
+    else fail "Unknown start option: $2"; fi ;;
+  stop)
+    if [[ "${2:-}" == "--workbench-only" ]]; then stop_process point-cloud-workbench "$WORKBENCH_PID_FILE"
+    elif [[ -z "${2:-}" ]]; then stop
+    else fail "Unknown stop option: $2"; fi ;;
   restart) stop; start ;;
   status) status ;;
   logs) logs ;;
