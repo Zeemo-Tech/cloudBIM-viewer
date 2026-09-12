@@ -47,6 +47,7 @@ const emit = defineEmits<{
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
   (event: 'pointcloud-source-fallback'): void
+  (event: 'edl-fallback'): void
   (event: 'pointcloud-color-stats', payload: {
     histogram: number[]
     hasIntensity: boolean
@@ -114,6 +115,7 @@ defineExpose({
     @analysis-delete="emit('analysis-delete', $event)"
     @analysis-mode-exit="emit('analysis-mode-exit', $event)"
     @pointcloud-source-fallback="emit('pointcloud-source-fallback')"
+    @edl-fallback="emit('edl-fallback')"
     @pointcloud-color-stats="emit('pointcloud-color-stats', $event)"
   />
 </template>

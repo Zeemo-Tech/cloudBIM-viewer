@@ -3578,7 +3578,8 @@ function requestRender() {
     syncMeasurementBadges()
     syncPointcloudCameraPose()
     if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
-      edlPipeline.render(scene, activeCamera)
+      const renderedWithEdl = edlPipeline.render(scene, activeCamera)
+      if (!renderedWithEdl && !edlPipeline.enabled) edlEnabled.value = false
     } else {
       renderer.render(scene, activeCamera)
     }

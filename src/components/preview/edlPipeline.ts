@@ -107,6 +107,10 @@ export class PointCloudEdlPipeline {
   private readonly quad: THREE.Mesh;
   private width = 1;
   private height = 1;
+  private verificationPending = true;
+  private verificationDelay = 0;
+  private verificationAttempts = 0;
+  private verificationPixels = new Uint8Array();
 
   constructor(renderer: THREE.WebGLRenderer, options: EdlPipelineOptions = {}) {
     this.renderer = renderer;
@@ -139,6 +143,14 @@ export class PointCloudEdlPipeline {
   }
 
   setEnabled(enabled: boolean) {
+    if (enabled && !this.enabled) {
+      this.verificationPending = true;
+      this.verificationDelay = 0;
+      this.verificationAttempts = 0;
+    } else if (!enabled) {
+      this.verificationPending = false;
+      this.verificationPixels = new Uint8Array();
+    }
     this.enabled = enabled;
   }
 
@@ -169,11 +181,11 @@ export class PointCloudEdlPipeline {
     this.setSize(size.x, size.y);
   }
 
-  render(scene: THREE.Scene, camera: THREE.Camera) {
+  render(scene: THREE.Scene, camera: THREE.Camera): boolean {
     if (!this.enabled) {
       this.renderer.setRenderTarget(null);
       this.renderer.render(scene, camera);
-      return;
+      return false;
     }
 
     try {
@@ -214,14 +226,47 @@ export class PointCloudEdlPipeline {
       this.renderer.autoClear = true;
       this.renderer.render(this.fsScene, this.fsCamera);
 
+      if (this.verificationPending) {
+        if (this.verificationDelay > 0) {
+          this.verificationDelay -= 1;
+        } else {
+          const edlContrast = this.readFramebufferContrast();
+
+          // Compare the composited frame with one direct frame. Some WebGL
+          // implementations accept the EDL render target but return only the
+          // clear color in the fullscreen pass. In that case keeping EDL on
+          // makes a successfully loaded point cloud look completely empty.
+          this.renderer.render(scene, camera);
+          const directContrast = this.readFramebufferContrast();
+          if (
+            directContrast >= 32 &&
+            edlContrast < Math.max(4, directContrast * 0.1)
+          ) {
+            this.enabled = false;
+            this.verificationPending = false;
+            console.warn('EDL composite produced an empty frame; using direct rendering.');
+          } else if (directContrast >= 32) {
+            this.verificationAttempts += 1;
+            this.verificationPending = this.verificationAttempts < 20;
+            this.verificationDelay = 30;
+            this.renderer.render(this.fsScene, this.fsCamera);
+          } else {
+            this.verificationDelay = 30;
+          }
+          if (!this.verificationPending) this.verificationPixels = new Uint8Array();
+        }
+      }
+
       this.renderer.autoClear = previousAutoClear;
       this.renderer.setRenderTarget(previousTarget);
+      return this.enabled;
     } catch (error) {
       // RT / 深度纹理异常时回退直渲，避免整页卡在加载态
       console.error("EDL render failed, fallback to direct render", error);
       this.enabled = false;
       this.renderer.setRenderTarget(null);
       this.renderer.render(scene, camera);
+      return false;
     }
   }
 
@@ -230,6 +275,39 @@ export class PointCloudEdlPipeline {
     this.renderTarget.depthTexture?.dispose();
     this.material.dispose();
     this.quad.geometry.dispose();
+  }
+
+  private readFramebufferContrast() {
+    const requiredLength = this.width * this.height * 4;
+    if (this.verificationPixels.length !== requiredLength) {
+      this.verificationPixels = new Uint8Array(requiredLength);
+    }
+
+    const gl = this.renderer.getContext();
+    gl.readPixels(
+      0,
+      0,
+      this.width,
+      this.height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      this.verificationPixels,
+    );
+
+    const pixels = this.verificationPixels;
+    const backgroundR = pixels[0];
+    const backgroundG = pixels[1];
+    const backgroundB = pixels[2];
+    let contrast = 0;
+    // Sampling every fourth pixel keeps the bounded compatibility checks cheap
+    // while still detecting sparse point clouds at the supported point sizes.
+    for (let index = 0; index < pixels.length; index += 16) {
+      const difference = Math.abs(pixels[index] - backgroundR)
+        + Math.abs(pixels[index + 1] - backgroundG)
+        + Math.abs(pixels[index + 2] - backgroundB);
+      if (difference > 12) contrast += 1;
+    }
+    return contrast;
   }
 
   private createTarget(width: number, height: number) {

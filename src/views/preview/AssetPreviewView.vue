@@ -533,6 +533,7 @@ watch(
         @analysis-delete="removeAnalysisById($event.kind, $event.id)"
         @analysis-mode-exit="handleAnalysisModeExit"
         @pointcloud-source-fallback="handleRebarMode('rgb')"
+        @edl-fallback="pointcloudEdlEnabled = false"
         @rebar-intersection-select="handleRebarIntersectionSelect"
       />
 
@@ -765,6 +766,7 @@ watch(
           @analysis-area="handleAnalysisArea"
           @analysis-delete="removeAnalysisById($event.kind, $event.id)"
           @analysis-mode-exit="handleAnalysisModeExit"
+          @edl-fallback="pointcloudEdlEnabled = false"
           minimal
         />
         <ViewerAnalysisOverlay

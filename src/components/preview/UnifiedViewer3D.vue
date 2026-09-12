@@ -148,6 +148,7 @@ const emit = defineEmits<{
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
   (event: 'pointcloud-source-fallback'): void
+  (event: 'edl-fallback'): void
   (event: 'rebar-intersection-select', id: number | null): void
   (event: 'pointcloud-color-stats', payload: {
     histogram: number[]
@@ -377,7 +378,11 @@ function requestRender() {
       (props.type === 'pointcloud' || props.type === 'hybrid')
 
     if (shouldRunEdl) {
-      edlPipeline!.render(scene, camera)
+      const renderedWithEdl = edlPipeline!.render(scene, camera)
+      if (!renderedWithEdl && localEdlEnabled.value && !edlPipeline!.enabled) {
+        setEdlEnabled(false)
+        emit('edl-fallback')
+      }
     } else {
       renderer.render(scene, camera)
     }
