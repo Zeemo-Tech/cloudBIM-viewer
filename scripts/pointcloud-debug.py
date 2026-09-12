@@ -66,6 +66,7 @@ def manifest_summary(manifest):
         "createdAt": manifest.get("createdAt"),
         "completed": manifest.get("completed") is True,
         "priorMode": manifest.get("priorMode", "off"),
+        "terminalMode": manifest.get("terminalMode", "off"),
         "robustnessMode": manifest.get("robustnessMode", "off"),
         "acceptanceStatus": (manifest.get("acceptance") or {}).get("status","not-evaluated"),
         "throughStep": parameters.get("throughStep"),
@@ -167,7 +168,7 @@ class DebugState:
         with self.lock:
             return dict(self.state)
 
-    def start(self, k, workers, through_step=6, prior_mode='off', robustness_mode='off'):
+    def start(self, k, workers, through_step=6, prior_mode='off', robustness_mode='off', terminal_mode='off', acceptance_policy=None):
         with self.lock:
             if self.state["status"] == "running":
                 return False
@@ -179,7 +180,7 @@ class DebugState:
                 self.run = None
                 snapshot = prepare_snapshot(self.prior_config) if self.prior_config and through_step >= 2 else None
                 self.run = run_from_source(self.source, self.output, k=k, workers=workers, progress=self.progress,
-                    through_step=through_step, prior_mode=prior_mode, design_prior=snapshot, robustness_mode=robustness_mode,
+                    through_step=through_step, prior_mode=prior_mode, design_prior=snapshot, robustness_mode=robustness_mode, terminal_mode=terminal_mode, acceptance_policy=acceptance_policy,
                     preview_limit=self.preview_limit)
                 self._install_tiles_mvp()
                 manifest = self.run.manifest
@@ -373,11 +374,16 @@ def handler_for(state, allowed_hosts=()):
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("Expected application/json")
                 params = json.loads(self.rfile.read(length))
-                if not isinstance(params, dict) or set(params) - {"k", "workers", "throughStep", "priorMode", "robustnessMode"}:
-                    raise ValueError("Only k, workers, throughStep, priorMode and robustnessMode may be specified")
+                if not isinstance(params, dict) or set(params) - {"k", "workers", "throughStep", "priorMode", "robustnessMode", "terminalMode", "acceptancePolicy"}:
+                    raise ValueError("Only k, workers, throughStep, priorMode, robustnessMode and terminalMode may be specified")
                 k, workers = params.get("k", 32), params.get("workers", available_workers())
                 through_step = params.get("throughStep", 6)
                 prior_mode = params.get('priorMode', 'off')
+                from algorithms.design_evidence_contract import workbench_acceptance_policy
+                acceptance_policy = workbench_acceptance_policy(params.get('acceptancePolicy',{}))
+                terminal_mode=params.get('terminalMode','off')
+                if terminal_mode not in ('off','fixture-peel') or (terminal_mode != 'off' and through_step != 7):
+                    raise ValueError('末端清理需要第 06 步，terminalMode 为 off / fixture-peel')
                 robustness_mode=params.get('robustnessMode','off')
                 if robustness_mode not in ('off','design-evidence'):
                     raise ValueError('robustnessMode 必须为 off / design-evidence')
@@ -397,7 +403,7 @@ def handler_for(state, allowed_hosts=()):
                     raise ValueError(f"workers 必须是 1–{available_workers()} 的整数")
             except (ValueError, TypeError) as exc:
                 return self.json_response(400, {"error": str(exc)})
-            if not state.start(k, workers, through_step, prior_mode, robustness_mode):
+            if not state.start(k, workers, through_step, prior_mode, robustness_mode, terminal_mode, acceptance_policy):
                 return self.json_response(409, {"error": "已有计算正在运行"})
             self.json_response(202, {"status": "running"})
     return Handler
@@ -418,11 +424,20 @@ def main():
     parser.add_argument("--preview-limit", type=int, default=DEFAULT_PREVIEW_LIMIT,
                         help=f"maximum browser preview points (default: {DEFAULT_PREVIEW_LIMIT})")
     parser.add_argument('--prior-config', type=Path, help='server-owned source/model/alignment JSON; never accepted from browser')
+    parser.add_argument('--acceptance-angle',type=float,default=15.)
+    parser.add_argument('--acceptance-length-mm',type=float,default=30.)
+    parser.add_argument('--acceptance-length-percent',type=float,default=10.)
+    parser.add_argument('--terminal-mode',choices=('off','fixture-peel'),default='off')
     parser.add_argument('--robustness-mode',choices=('off','design-evidence'),default='off')
     parser.add_argument('--prior-mode', choices=PRIOR_MODES, default='off')
     parser.add_argument("--run", action="store_true", help="run from source immediately after startup")
     parser.add_argument("--compute-only", action="store_true", help="one isolated computation, no HTTP server")
     args = parser.parse_args()
+    from algorithms.design_evidence_contract import workbench_acceptance_policy
+    try:
+        policy = workbench_acceptance_policy(dict(angle_degrees=args.acceptance_angle,length_absolute_m=args.acceptance_length_mm/1000,length_relative=args.acceptance_length_percent/100))
+    except ValueError as exc:
+        parser.error(str(exc))
     source = args.source.absolute()
     if not source.is_file():
         parser.error("source must be an existing LAS/LAZ file")
@@ -441,7 +456,7 @@ def main():
     if args.compute_only:
         snapshot = prepare_snapshot(args.prior_config) if args.prior_config and args.through_step >= 2 else None
         result = run_from_source(source, output, k=args.k, workers=args.workers, through_step=args.through_step,
-            prior_mode=args.prior_mode, design_prior=snapshot, robustness_mode=args.robustness_mode, preview_limit=args.preview_limit)
+            prior_mode=args.prior_mode, design_prior=snapshot, robustness_mode=args.robustness_mode, terminal_mode=args.terminal_mode, acceptance_policy=policy, preview_limit=args.preview_limit)
         tile_state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
         tile_state.run = result
         tile_state._install_tiles_mvp()
@@ -454,7 +469,7 @@ def main():
     state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
     server = ThreadingHTTPServer((args.host, args.port), handler_for(state, allowed_hosts))
     if args.run:
-        state.start(args.k, args.workers, args.through_step, args.prior_mode, args.robustness_mode)
+        state.start(args.k, args.workers, args.through_step, args.prior_mode, args.robustness_mode, args.terminal_mode, policy)
     print(f"Point cloud step debugger listening on {args.host}:{args.port}", flush=True)
     print(f"Durable point attributes: {output}", flush=True)
     try:

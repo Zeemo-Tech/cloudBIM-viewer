@@ -22,6 +22,7 @@ from algorithms.internal_rebar import ATTRIBUTES as INTERNAL_ATTRIBUTES
 from algorithms.rebar_extension import ATTRIBUTES as COMPLETE_ATTRIBUTES
 from algorithms.design_prior_refinement import ATTRIBUTES as PRIOR_ATTRIBUTES, MODES as PRIOR_MODES, refine_design_prior
 from rebar_design_inputs import resolve_design_inputs, VERSION as DESIGN_INPUT_VERSION
+from algorithms.rebar_terminal_cleanup import ATTRIBUTES as TERMINAL_ATTRIBUTES, VERSION as TERMINAL_VERSION, clean_terminals
 from algorithms.design_evidence_contract import MODES as ROBUSTNESS_MODES, VERSION as ROBUSTNESS_VERSION, ATTRIBUTES as REVIEW_ATTRIBUTES
 from algorithms.design_guided_instances import refine_instances
 
@@ -97,6 +98,8 @@ def write_las(source, output, context, subsets=None):
             attributes.update(INTERNAL_ATTRIBUTES)
         if context.complete_class is not None:
             attributes.update(COMPLETE_ATTRIBUTES)
+        if getattr(context, "terminal_removed", None) is not None:
+            attributes.update(TERMINAL_ATTRIBUTES)
         if context.review_state is not None:
             attributes.update(REVIEW_ATTRIBUTES)
         if getattr(context, 'prior_class', None) is not None:
@@ -151,6 +154,8 @@ def write_las(source, output, context, subsets=None):
                         result[name] = getattr(context, name)[offset:stop]
                 if context.review_state is not None:
                     for name in REVIEW_ATTRIBUTES:result[name]=getattr(context,name)[offset:stop]
+                if getattr(context, "terminal_removed", None) is not None:
+                    for name in TERMINAL_ATTRIBUTES: result[name] = getattr(context, name)[offset:stop]
                 writer.write_points(result)
                 for kind, subset_writer in subset_writers.items():
                     final_classes = (context.refined_class if context.refined_class is not None else context.fused_class)
@@ -177,14 +182,15 @@ def write_las(source, output, context, subsets=None):
             raise ValueError("导出期间源 LAS 点数发生变化")
 
 
-def write_preview(directory, context, colors, run_id, limit):
+def write_preview(directory, context, colors, run_id, limit, *, indices=None, folder="preview"):
     count = len(context.positions)
     size = min(count, limit)
     # Deterministic, without allocating an N-sized index array for sampling.
-    ids = np.linspace(0, count - 1, size, dtype=np.int64)
+    ids = np.linspace(0, count - 1, size, dtype=np.int64) if indices is None else np.asarray(indices,dtype=np.int64)
+    size = len(ids)
     lo, hi = context.positions.min(axis=0), context.positions.max(axis=0)
     origin = (lo + hi) / 2
-    preview_dir = directory / "preview"
+    preview_dir = directory / folder
     preview_dir.mkdir()
     arrays = {"positions": (context.positions[ids] - origin).astype("<f4"),
               "normals": np.asarray(context.normals[ids], dtype="<f4"),
@@ -216,13 +222,16 @@ def write_preview(directory, context, colors, run_id, limit):
         arrays.update({name: getattr(context, name)[ids] for name in PRIOR_ATTRIBUTES})
     if context.review_state is not None:
         arrays.update({name:getattr(context,name)[ids] for name in REVIEW_ATTRIBUTES})
+    if getattr(context, "terminal_removed", None) is not None:
+        arrays.update({name: getattr(context, name)[ids] for name in TERMINAL_ATTRIBUTES})
     for name, array in arrays.items():
         array.tofile(preview_dir / f"{name}.bin")
-    base = f"/runs/{run_id}/preview"
+    base = f"/runs/{run_id}/{folder}"
     return {"pointCount": size, "totalPointCount": count, "origin": origin.tolist(),
             "bounds": {"min": (lo - origin).tolist(), "max": (hi - origin).tolist()},
             "sampling": "deterministic evenly spaced source record indices; visualization only",
             **{name + "Url": f"{base}/{name}.bin" for name in ("positions", "normals", "colors", "valid")},
+            **({name+"Url":f"{base}/{name}.bin" for name in TERMINAL_ATTRIBUTES} if getattr(context,"terminal_removed",None) is not None else {}),
             "sourceIndicesUrl": f"{base}/source_indices.bin",
             **({name+'Url':f'{base}/{name}.bin' for name in REVIEW_ATTRIBUTES} if context.review_state is not None else {}),
             **({"sharedTableMaskUrl": f"{base}/shared_table_mask.bin", "partitionZonesUrl": f"{base}/partition_zones.bin",
@@ -256,7 +265,7 @@ class StepRun:
 
 
 def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, preview_limit=1000000, progress=None, through_step=1,
-                    prior_mode='off', design_prior=None, robustness_mode='off', robustness_policy=None, acceptance_policy=None, baseline_seconds=None):
+                    prior_mode='off', design_prior=None, robustness_mode='off', robustness_policy=None, acceptance_policy=None, baseline_seconds=None, terminal_mode="off"):
     """Always starts at raw source, never resumes a previous algorithm result.
 
     A successful run publishes a self-contained LAS and NPY attribute columns.
@@ -283,6 +292,10 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         raise ValueError('robustnessMode 必须为 off / design-evidence')
     if robustness_mode != 'off' and (through_step < 6 or not isinstance(design_prior,dict)):
         raise ValueError('设计证据复核需要有效设计快照并至少计算到第 05 步')
+    if terminal_mode not in ("off", "fixture-peel") or (terminal_mode != "off" and through_step != 7):
+        raise ValueError("terminalMode 需要 off / fixture-peel，清理须计算到第 06 步")
+    from algorithms.design_evidence_contract import AcceptancePolicy, workbench_acceptance_policy
+    acceptance_policy = acceptance_policy or workbench_acceptance_policy()
     progress = progress or (lambda *args: None)
     started, cpu_started = time.perf_counter(), time.process_time()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
@@ -330,8 +343,37 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             from algorithms.design_review import finalize_review
             began=time.perf_counter()
             with threadpool_limits(limits=1):
-                acceptance=finalize_review(context,complete_rebar,inventory,acceptance_policy=acceptance_policy)
+                acceptance=finalize_review(context,complete_rebar,inventory,acceptance_policy=AcceptancePolicy())
+                from algorithms.design_acceptance import evaluate_acceptance
+                acceptance=evaluate_acceptance(context.positions,context.complete_instance,context.complete_class,complete_rebar["instances"],inventory,policy=acceptance_policy)
             timing['designAssignmentAcceptanceS']=time.perf_counter()-began
+        terminal_report = None
+        if terminal_mode != 'off':
+            from algorithms.design_acceptance import evaluate_acceptance
+            began = time.perf_counter()
+            with threadpool_limits(limits=1):
+                before = acceptance or evaluate_acceptance(context.positions, context.complete_instance, context.complete_class, complete_rebar['instances'], inventory, policy=acceptance_policy)
+            for name, dtype in TERMINAL_ATTRIBUTES.items():
+                shapes[name] = ((count,), dtype)
+                arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
+                arrays[name][:] = 0
+                setattr(context, name, arrays[name])
+            with threadpool_limits(limits=1):
+                complete_rebar = clean_terminals(context, complete_rebar, inventory, workers=workers,
+                    output={name: arrays[name] for name in TERMINAL_ATTRIBUTES}, progress=progress)
+                acceptance = evaluate_acceptance(context.positions, context.complete_instance, context.complete_class, complete_rebar['instances'], inventory, policy=acceptance_policy)
+            terminal_report = complete_rebar['terminalCleanup']
+            terminal_report['acceptanceBefore'] = before
+            terminal_report['acceptanceAfter'] = acceptance
+            timing['terminalCleanupAcceptanceS'] = time.perf_counter()-began
+            if context.design_review_report is not None:
+                context.design_review_report['acceptance'] = acceptance
+        strict_acceptance = None
+        if acceptance is not None:
+            from algorithms.design_acceptance import evaluate_acceptance
+            with threadpool_limits(limits=1):
+                strict_acceptance = evaluate_acceptance(context.positions, context.complete_instance, context.complete_class,
+                    complete_rebar['instances'], inventory, policy=AcceptancePolicy())
         t0 = time.perf_counter()
         progress("持久化点云及法向量属性", 0, 1)
         las_name = "pointcloud-with-classes.las" if classification else "pointcloud-with-normals.las"
@@ -371,6 +413,19 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         t0 = time.perf_counter()
         progress("生成效果预览", 0, 1)
         preview = write_preview(directory, context, colors, run_id, preview_limit)
+        terminal_preview = None
+        if terminal_report is not None and terminal_report['removedPointCount']:
+            removed_ids = np.flatnonzero(context.terminal_removed)
+            cells = np.floor(context.positions[removed_ids]/.030).astype(np.int64)
+            _, representatives = np.unique(cells,axis=0,return_index=True)
+            groups = context.tree.query_ball_point(context.positions[removed_ids[representatives]], .070, workers=workers)
+            nearby = np.unique(np.concatenate(groups))
+            nearby = np.setdiff1d(nearby,removed_ids,assume_unique=True)
+            room = max(0,300000-len(removed_ids))
+            if len(nearby)>room: nearby = nearby[np.linspace(0,len(nearby)-1,room,dtype=np.int64)]
+            ids = np.sort(np.concatenate((removed_ids,nearby)))
+            terminal_preview = write_preview(directory,context,colors,run_id,len(ids),indices=ids,folder='terminal-preview')
+            terminal_preview['sampling'] = 'all terminal removals plus bounded observed 70 mm neighborhoods; source identity retained'
         if projection is not None and context.projection_cache is not None:
             write_projection_artifacts(directory, run_id, projection, context.projection_cache)
         timing["previewS"] = time.perf_counter() - t0
@@ -392,13 +447,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         if context.design_review_report is not None:
             atomic_json(directory/'design-evidence.json',context.design_review_report)
         manifest = {
-            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ('+'+ROBUSTNESS_VERSION if robustness_mode != 'off' else '') + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
+            "schema": "pointcloud-steps-v1", "algorithmVersion": (TERMINAL_VERSION+"+" if terminal_mode != "off" else "") + VERSION + '+' + DESIGN_INPUT_VERSION + ('+'+ROBUSTNESS_VERSION if robustness_mode != 'off' else '') + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
             "createdAt": datetime.now(timezone.utc).isoformat(), "completed": True,
             "runMode": "fresh-source-all-steps", "orientation": "unoriented",
             "source": {"name": source.name, "path": str(source), "sha256": digest, "pointCount": count,
                        "sizeBytes": stamp[2], "unchangedDuringRun": True},
-            "priorMode": prior_mode, "robustnessMode": robustness_mode,
-            "acceptance": acceptance, "designEvidence": context.design_review_report,
+            "priorMode": prior_mode, "robustnessMode": robustness_mode, "terminalMode": terminal_mode, "terminalCleanup": terminal_report,
+            "strictAcceptance": strict_acceptance, "acceptance": acceptance, "designEvidence": context.design_review_report,
             "designInputs": design_inputs.report,
             "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step},
             "validNormalCount": valid, "invalidNormalCount": count - valid,
@@ -466,9 +521,9 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                            "lasExtraBytes": {**ATTRIBUTES, **(SCENE_ATTRIBUTES if preprocessing else {}), **(CLASS_ATTRIBUTES if classification else {}),
                                              **(PROJECTION_ATTRIBUTES if projection else {}), **(FUSION_LAS_ATTRIBUTES if fusion else {}),
                                              **(REFINEMENT_ATTRIBUTES if refinement else {}), **(INTERNAL_ATTRIBUTES if internal_rebar is not None else {}), **(COMPLETE_ATTRIBUTES if complete_rebar is not None else {}),
-                                             **(PRIOR_ATTRIBUTES if prior_report is not None else {})},
+                                             **(TERMINAL_ATTRIBUTES if terminal_report is not None else {}), **(PRIOR_ATTRIBUTES if prior_report is not None else {})},
                            "columns": {name: name + ".npy" for name in ("positions", "colors", *shapes)}},
-            "preview": preview,
+            "preview": preview, "terminalPreview": terminal_preview,
             "files": {**({'designEvidenceUrl':f'/runs/{run_id}/design-evidence.json','designAcceptanceUrl':f'/runs/{run_id}/design-acceptance.json' if acceptance is not None else None} if context.design_review_report is not None else {}), **({'completeSteelLasUrl': f'/runs/{run_id}/complete-steel.las',
                                 'noiseLasUrl': f'/runs/{run_id}/noise-only.las',
                                 'resolvedSteelLasUrl': f'/runs/{run_id}/resolved-steel.las',

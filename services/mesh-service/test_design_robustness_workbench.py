@@ -30,7 +30,10 @@ class WorkbenchRobustnessTests(unittest.TestCase):
                     las=laspy.LasData(laspy.LasHeader(point_format=fmt,version='1.4' if fmt==6 else '1.2'));las.header.scales=[.00001]*3;las.x,las.y,las.z=points[order].T;las.write(source)
                     digest=digest_file(source)
                     snapshot=dict(schema=SCHEMA,sourcePath=str(source),sourceSha256=digest,inventory=inventory,fingerprint='half-four',modelInfo={})
-                    run=run_from_source(source,root/'runs',workers=workers,k=32,through_step=7,prior_mode='topology',robustness_mode='design-evidence',design_prior=snapshot,preview_limit=100)
+                    run=run_from_source(source,root/'runs',workers=workers,k=32,through_step=7,prior_mode='topology',robustness_mode='design-evidence',terminal_mode='fixture-peel',design_prior=snapshot,preview_limit=100)
+                    self.assertEqual(run.manifest['terminalCleanup']['removedPointCount'],0)
+                    self.assertEqual(run.manifest['acceptance']['policy']['angle_degrees'],15.)
+                    self.assertEqual(run.manifest['strictAcceptance']['policy']['angle_degrees'],5.)
                     self.assertTrue(run.manifest['acceptance']['geometryPassed'],run.manifest['acceptance'])
                     self.assertEqual(run.manifest['completeRebar']['instanceCount'],4)
                     ids=[]
@@ -42,7 +45,7 @@ class WorkbenchRobustnessTests(unittest.TestCase):
                     self.assertFalse(np.any(run.context.review_changed[hard]))
                     self.assertEqual(digest_file(source),digest)
                     output=laspy.read(run.directory/'pointcloud-with-classes.las')
-                    for name in ('review_state','review_reason','review_changed','complete_instance'):
+                    for name in ('review_state','review_reason','review_changed','complete_instance','terminal_removed','terminal_reason','terminal_previous_instance','terminal_previous_segment'):
                         np.testing.assert_array_equal(output[name],np.load(run.directory/(name+'.npy')))
                     np.testing.assert_array_equal(output.source_record_index,np.arange(len(points)))
     def test_mode_validation(self):

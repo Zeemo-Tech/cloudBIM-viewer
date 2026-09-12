@@ -9,7 +9,7 @@ import time
 import urllib.request
 import urllib.error
 import struct
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, ANY
 from types import SimpleNamespace
 from scipy.spatial import cKDTree
 
@@ -54,7 +54,7 @@ class PriorApiTests(unittest.TestCase):
                 except urllib.error.HTTPError as exc:return exc.code
             try:
                 self.assertEqual(post({}),202)
-                state.start.assert_called_with(32,MODULE.available_workers(),6,'off','off')
+                state.start.assert_called_with(32,MODULE.available_workers(),6,'off','off','off',ANY)
                 self.assertEqual(post({'throughStep':6,'robustnessMode':'design-evidence'}),400)
                 self.assertEqual(post({'robustnessMode':'invalid'}),400)
                 self.assertEqual(post({'priorMode':'geometry'}),400)
@@ -64,9 +64,15 @@ class PriorApiTests(unittest.TestCase):
                 self.assertEqual(post({'priorMode':'topology'}),400)
                 self.assertEqual(post({'throughStep':7}),400)
                 self.assertEqual(post({'throughStep':7,'priorMode':'topology'}),202)
-                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology','off')
+                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology','off','off',ANY)
                 self.assertEqual(post({'throughStep':7,'priorMode':'topology','robustnessMode':'design-evidence'}),202)
-                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology','design-evidence')
+                state.start.assert_called_with(32,MODULE.available_workers(),7,'topology','design-evidence','off',ANY)
+                self.assertEqual(post({'throughStep':7,'priorMode':'topology','terminalMode':'fixture-peel','acceptancePolicy':{'angle_degrees':12,'length_absolute_m':.03,'length_relative':.1}}),202)
+                self.assertEqual(state.start.call_args.args[-1].angle_degrees,12)
+                for bad in ({'angle_degrees':True},{'angle_degrees':float('nan')},{'length_relative':9},{'position_m':.1}):
+                    self.assertEqual(post({'acceptancePolicy':bad}),400)
+                self.assertEqual(post({'terminalMode':'fixture-peel'}),400)
+                self.assertEqual(post({'terminalMode':'unknown'}),400)
                 self.assertEqual(post({'throughStep':8,'priorMode':'off'}),400)
                 self.assertEqual(post({'priorMode':'geometry','throughStep':6}),400)
                 self.assertEqual(post({'priorMode':{'path':'/tmp/anything'}}),400)

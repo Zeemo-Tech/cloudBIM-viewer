@@ -112,6 +112,22 @@ $('completeClassFilter').value='separated';
 sandbox.current._complete.complete_cluster[5]=7;
 $('completeCompare').value='baseline';sandbox.applyCompleteAppearance();
 assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[3,5]);
+// Terminal cleanup is reversible only in the display, never in final ownership.
+const terminalManifest=structuredClone(manifest);
+terminalManifest.terminalCleanup={removedPointCount:1};
+Object.assign(data,{terminal_removed:new Uint8Array([0,0,0,0,0,1]),terminal_reason:new Uint8Array([0,0,0,0,0,1]),
+  terminal_previous_instance:new Uint32Array([0,0,0,0,0,1]),terminal_previous_segment:new Uint32Array([0,0,0,0,0,1])});
+for (const name of ['terminal_removed','terminal_reason','terminal_previous_instance','terminal_previous_segment']) terminalManifest.preview[name+'Url']=name;
+sandbox.current={...sandbox.current,...terminalManifest,_complete:await sandbox.loadCompletePreview(terminalManifest)};
+$('completeCompare').value='result';$('completeClassFilter').value='terminal-removed';$('completeInstanceFilter').value='1';
+sandbox.applyCompleteAppearance();assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[5]);
+$('completeCompare').value='pre-terminal';$('completeClassFilter').value='resolved';
+sandbox.applyCompleteAppearance();assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[2,3,5]);
+assert.equal(sandbox.current._complete.complete_class[5],4);assert.equal(sandbox.current._complete.complete_instance[5],0);
+$('completeCompare').value='result';sandbox.applyCompleteAppearance();assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[2,3]);
+data.terminal_previous_instance[5]=0;await assert.rejects(sandbox.loadCompletePreview(terminalManifest),/末端清理/);data.terminal_previous_instance[5]=1;
+console.log('Terminal preview: removed source rows, prior-owner filter, before/after display and immutable final ownership passed.');
+
 console.log('Extension preview: loading, legacy absence, filters, instance selection, axes and malformed data passed.');
 
 if (process.argv[2]) {
