@@ -126,6 +126,13 @@ sandbox.applyCompleteAppearance();assert.deepEqual(Array.from(sandbox.completeGe
 assert.equal(sandbox.current._complete.complete_class[5],4);assert.equal(sandbox.current._complete.complete_instance[5],0);
 $('completeCompare').value='result';sandbox.applyCompleteAppearance();assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[2,3]);
 data.terminal_previous_instance[5]=0;await assert.rejects(sandbox.loadCompletePreview(terminalManifest),/末端清理/);data.terminal_previous_instance[5]=1;
+data.terminal_reason[5]=2;data.terminal_previous_instance[5]=0;data.terminal_previous_segment[5]=0;
+data.terminal_fragment=new Uint32Array([0,0,0,0,0,7]);data.terminal_origin=new Uint8Array([0,0,0,0,0,2]);
+terminalManifest.preview.terminal_fragmentUrl='terminal_fragment';terminalManifest.preview.terminal_originUrl='terminal_origin';
+sandbox.current={...sandbox.current,_complete:await sandbox.loadCompletePreview(terminalManifest)};
+$('completeCompare').value='pre-terminal';$('completeInstanceFilter').value='all';$('completeClassFilter').value='terminal-exterior';
+sandbox.applyCompleteAppearance();assert.deepEqual(Array.from(sandbox.completeGeometry.index.array),[5]);
+$('completeClassFilter').value='terminal-internal';sandbox.applyCompleteAppearance();assert.equal(sandbox.completeGeometry.index.count,0);
 console.log('Terminal preview: removed source rows, prior-owner filter, before/after display and immutable final ownership passed.');
 
 console.log('Extension preview: loading, legacy absence, filters, instance selection, axes and malformed data passed.');

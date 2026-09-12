@@ -12,9 +12,10 @@ from scipy.spatial import cKDTree
 
 from .rebar_tracks import _fixed_radius
 
-VERSION = "rebar-terminal-cleanup-v2-local-tip"
+VERSION = "rebar-terminal-cleanup-v3-fragment-contacts"
 ATTRIBUTES = {"terminal_removed": "u1", "terminal_reason": "u1",
-              "terminal_previous_instance": "<u4", "terminal_previous_segment": "<u4"}
+              "terminal_previous_instance": "<u4", "terminal_previous_segment": "<u4",
+              "terminal_fragment": "<u4", "terminal_origin": "u1"}
 
 
 @dataclass(frozen=True)

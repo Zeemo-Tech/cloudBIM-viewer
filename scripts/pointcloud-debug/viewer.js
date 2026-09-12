@@ -1056,7 +1056,7 @@ async function loadCompletePreview(manifest, fetcher = fetchBytes) {
   if (!manifest.completeRebar) return null;
   const specs = {complete_class: Uint8Array, complete_instance: Uint32Array, complete_segment: Uint32Array, complete_confidence: Float32Array};
   if (manifest.completeRebar.clusters) specs.complete_cluster = Uint32Array;
-  for (const [name, Type] of [['terminal_removed', Uint8Array], ['terminal_reason', Uint8Array], ['terminal_previous_instance', Uint32Array], ['terminal_previous_segment', Uint32Array], ['review_state', Uint8Array], ['review_reason', Uint16Array], ['review_changed', Uint8Array]]) {
+  for (const [name, Type] of [['terminal_fragment', Uint32Array], ['terminal_origin', Uint8Array], ['terminal_removed', Uint8Array], ['terminal_reason', Uint8Array], ['terminal_previous_instance', Uint32Array], ['terminal_previous_segment', Uint32Array], ['review_state', Uint8Array], ['review_reason', Uint16Array], ['review_changed', Uint8Array]]) {
     if (manifest.preview[name + 'Url']) specs[name] = Type;
   }
   const arrays = Object.fromEntries(await Promise.all(Object.entries(specs).map(async ([name, Type]) => {
@@ -1072,7 +1072,7 @@ async function loadCompletePreview(manifest, fetcher = fetchBytes) {
   const segments = new Map(manifest.completeRebar.segments.map(s => [s.id, s]));
   for (let i = 0; i < arrays.complete_class.length; i++) {
     const cls = arrays.complete_class[i], id = arrays.complete_instance[i], seg = arrays.complete_segment[i], score = arrays.complete_confidence[i];
-    if (arrays.terminal_removed && (arrays.terminal_removed[i] > 1 || arrays.terminal_reason[i] !== arrays.terminal_removed[i] || (arrays.terminal_removed[i] && (cls !== 4 || !arrays.terminal_previous_instance[i] || !arrays.terminal_previous_segment[i])))) throw new Error('末端清理来源属性无效');
+    if (arrays.terminal_removed && (arrays.terminal_removed[i] > 1 || (!arrays.terminal_removed[i] && arrays.terminal_reason[i] !== 0) || (arrays.terminal_removed[i] && (cls !== 4 || ![1,2,3].includes(arrays.terminal_reason[i]) || (arrays.terminal_reason[i]===1 && (!arrays.terminal_previous_instance[i] || !arrays.terminal_previous_segment[i])) || (arrays.terminal_reason[i]>1 && !arrays.terminal_fragment?.[i]))))) throw new Error('末端清理来源属性无效');
     if (arrays.complete_cluster?.[i] && !clusterIds.has(arrays.complete_cluster[i])) throw new Error('外部簇编号无效');
     if (cls < 1 || cls > 4 || (id && (cls !== 3 || !instances.has(id) || segments.get(seg)?.instanceId !== id)) || (!id && seg) || !Number.isFinite(score) || score < 0 || score > 1) throw new Error('整根钢筋类别或实例属性无效');
   }
@@ -1105,6 +1105,7 @@ function installCompletePreview() {
   $('terminalDetail').hidden = !current.terminalPreview;
   $('terminalDetail').textContent = current._terminalDetail ? '返回整幅点云' : '末端局部细节（包含全部剥离点）';
   const beforeOption = $('preTerminalOption');
+  if (beforeOption) beforeOption.textContent = current.terminalCleanup?.premerge ? '片段修剪前（点集对照）' : '末端清理前（本轮）';
   if (beforeOption) beforeOption.disabled = !current.terminalCleanup;
   if (!current.terminalCleanup && $('completeCompare').value === 'pre-terminal') $('completeCompare').value = 'result';
   if (!report) return;
@@ -1186,6 +1187,8 @@ function applyCompleteAppearance() {
     colors.set($('completeColorMode').value === 'clusters' && current._complete.complete_cluster?.[i] ? instanceColor(current._complete.complete_cluster[i]) : classes[i] === 3 && !instances[i] ? instanceColor(0) : classes[i] === 3 && $('completeColorMode').value === 'instances' ? instanceColor(instances[i]) : hexColor(palette[classes[i]]), i * 3);
     const finalId = current._complete.complete_instance[i];
     const matches = filter === 'terminal-removed' ? Boolean(removed?.[i])
+      : filter === 'terminal-internal' ? Boolean(removed?.[i]) && current._complete.terminal_origin?.[i]===1
+      : filter === 'terminal-exterior' ? Boolean(removed?.[i]) && current._complete.terminal_origin?.[i]===2
       : filter === 'review-changed' ? Boolean(current._complete.review_changed?.[i])
       : filter === 'acceptance-failed' ? failedIds.has(finalId)
       : filter === 'resolved' ? classes[i] === 3 && instances[i] > 0
@@ -1198,7 +1201,7 @@ function applyCompleteAppearance() {
       : filter === 'final-rejected' ? finalRejectedClusters.has(current._complete.complete_cluster?.[i])
       : filter === 'all' || (filter === 'extended' ? instances[i] > 0 && !current._internalInstances[i] : filter === 'pending' ? classes[i] === 3 && !instances[i] : classes[i] === Number(filter));
     const explicitHardMask = filter === '4' || filter === 'filtered' || desiredTag === 'before' || desiredTag === 'noise';
-    if (matches && hardMaskVisible(i, 'completeRebar', explicitHardMask) && (!useSemantic || semanticTagMatches(semantic.labels[i], semanticId)) && (instance === 'all' || (filter === 'terminal-removed' ? current._complete.terminal_previous_instance?.[i] : instances[i]) === Number(instance))) selected[size++] = i;
+    if (matches && hardMaskVisible(i, 'completeRebar', explicitHardMask) && (!useSemantic || semanticTagMatches(semantic.labels[i], semanticId)) && (instance === 'all' || (filter.startsWith('terminal-') ? current._complete.terminal_previous_instance?.[i] : instances[i]) === Number(instance))) selected[size++] = i;
   }
   if ($('completeColorMode').value === 'score' && current._fusedSteelScores) colors.set(fusionScoreColors(current._fusedSteelScores));
   completeGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -1222,7 +1225,7 @@ function applyCompleteAppearance() {
   if (Number.isFinite(current.completeRebar.designReview?.separatedExteriorClusters)) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。先分离同轴外露钢筋与横向夹具边缘，再接续内部实例并清理剩余分支。选择“粘连簇拆分对照”可比较处理前后，查看保留的钢筋和移除的边缘。原连通簇颜色用于追溯来源，不代表最终实例。遮挡处不补点。`;
   if (current.completeRebar.designReview?.hookClusters) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点。弯钩核心单独锁定、只能整簇合并；弯钩实例的直段外端在夹具接触带按局部实测圆柱壳打磨。内外钢筋全部接续后，再按设计长度和同类钢筋参考点数过滤异常簇。可筛选“受保护弯曲外筋”和“最后整簇过滤”，对照第五步查看。`;
   if ($('completeColorMode').value === 'score' && current._fusedSteelScores) $('completeHint').textContent = `显示 ${fmt(size)} 个样本点，颜色沿用 03 的融合支持分数。点击点云可核对 03 → 05 → 06 的类别及高分保护状态；噪音也显示删除前分数。`;
-  if (current.terminalCleanup) $('completeHint').textContent += ` 本轮末端剥离 ${fmt(current.terminalCleanup.removedPointCount)} 点；可切换清理前或仅剥离点。验收仍使用原阈值。`;
+  if (current.terminalCleanup) $('completeHint').textContent += ` 本轮末端剥离 ${fmt(current.terminalCleanup.removedPointCount)} 点${current.terminalCleanup.premerge ? `（合并前 ${fmt(current.terminalCleanup.premergeRemovedPointCount)} 点，保留 ${fmt(current.terminalCleanup.fragmentCount)} 个观测片段身份）` : ''}；可切换清理前或仅剥离点。验收仍使用原阈值。`;
   if (typeof applyCompleteTileAppearance === 'function' && applyCompleteTileAppearance()) {
     $('completeHint').textContent = $('completeHint').textContent.replace(`显示 ${fmt(size)} 个样本点。`, '当前使用按视野加载的高密度 Tiles LOD。');
   } else if (typeof completeTiles !== 'undefined' && completeTiles

@@ -430,7 +430,7 @@ def _early_exterior_support(context, jobs, original, out, segments, next_segment
     return evidence_cache,protected,blocked,next_segment,operations
 
 
-def refine_instances(context, internal_report, inventory, *, mode='topology', params=None, workers=1, output=None, progress=None):
+def refine_instances(context, internal_report, inventory, *, mode='topology', params=None, workers=1, output=None, progress=None, terminal_mode='off'):
     if mode not in ('geometry', 'topology'):
         raise ValueError('第六步需要 geometry 或 topology 设计辅助模式')
     if not inventory.get('units'):
@@ -500,6 +500,37 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         ids=ordered[starts[idx]:starts[idx+1] if idx+1<len(starts) else len(ordered)]
         jobs.append((int(i), ids, 0))
     for i in range(total_clusters): jobs.append((0,grouped[offsets[i]:offsets[i+1]],i+1))
+    terminal_blocked = np.zeros(count, bool)
+    if terminal_mode != 'off':
+        from .rebar_fragment_terminals import review_fragment_terminals
+        groups = []
+        for old_id, ids, cluster in jobs:
+            rows = ids[~hook_protected[ids]]
+            if not len(rows): continue
+            original_record = original.get(old_id,{})
+            group = dict(rows=rows,origin='internal' if old_id else 'exterior',sourceId=old_id or cluster)
+            if old_id:
+                group['kind'] = 'web' if original_record.get('type') == 3 else 'short' if original_record.get('family') == 3 else 'straight'
+                if original_record.get('diameterM'): group['diameterM'] = original_record['diameterM']
+            groups.append(group)
+        progress('第 6 步：合并前分别复核内外片段接触端',0,len(groups))
+        terminal_blocked, fragment_labels, fragment_report = review_fragment_terminals(context,groups,inventory,workers=workers)
+        context.terminal_fragment_groups = groups
+        context.terminal_premerge_report = fragment_report
+        context.terminal_fragment[:] = fragment_labels
+        for group in groups: context.terminal_origin[group['rows']] = 1 if group['origin']=='internal' else 2
+        context.terminal_removed[terminal_blocked] = 1
+        context.terminal_reason[terminal_blocked] = 2
+        # Prior stage IDs remain in internal_*; final display ownership is linked
+        # to surviving fragment evidence after reconciliation, never guessed here.
+        for name in ('complete_instance','complete_segment','complete_confidence'): out[name][terminal_blocked] = 0
+        out['complete_class'][terminal_blocked] = 4
+        steel[terminal_blocked] = False
+        protected_high[terminal_blocked] = False
+        jobs = [(oid,ids[~terminal_blocked[ids]],cluster) for oid,ids,cluster in jobs]
+        rejected += int(np.count_nonzero(terminal_blocked))
+        operations.append(dict(action='filter',phase='before_internal_exterior_merge',
+            pointCount=int(np.count_nonzero(terminal_blocked)),reason='observed_fragment_contact_terminal'))
     progress('第 6 步：内外钢筋实测几何与近邻分离',0,len(jobs))
     atoms=[]
     fixture_rows = np.flatnonzero(context.refined_class==2)
@@ -841,6 +872,8 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         operations.append({'action': 'filter', 'phase': 'final_statistics',
             'pointCount': final_denoising['removedPointCount'],
             'reason': 'tiny_low_score_components_without_retained_steel_support'})
+    if np.any(terminal_blocked & ((out['complete_class']==3)|(out['complete_instance']>0))):
+        raise ValueError('合并流程恢复了已剔除的片段接触端点，本轮结果不发布')
     # Rebuild all point counts from final ownership. Empty original fits/instances
     # are not counted as observed rods. IDs stay stable where possible.
     segment_counts=np.bincount(out['complete_segment'],minlength=next_segment)

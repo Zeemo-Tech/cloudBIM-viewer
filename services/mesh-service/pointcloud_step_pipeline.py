@@ -328,13 +328,19 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         regions, refinement = stages.regions, stages.refinement
         internal_rebar, complete_rebar, execution = stages.internal_rebar, stages.complete_rebar, stages.execution
         prior_report = None
+        if terminal_mode != 'off':
+            for name, dtype in TERMINAL_ATTRIBUTES.items():
+                shapes[name] = ((count,), dtype)
+                arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy',mode='w+',dtype=dtype,shape=(count,))
+                arrays[name][:] = 0
+                setattr(context,name,arrays[name])
         if through_step == 7:
             for name, dtype in COMPLETE_ATTRIBUTES.items():
                 shapes[name] = ((count,), dtype)
                 arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
             with threadpool_limits(limits=1):
                 complete_rebar = refine_instances(context, internal_rebar, inventory, mode=prior_mode, workers=workers,
-                    output={name: arrays[name] for name in COMPLETE_ATTRIBUTES}, progress=progress)
+                    output={name: arrays[name] for name in COMPLETE_ATTRIBUTES}, progress=progress, terminal_mode=terminal_mode)
             complete_rebar['designReview'].update(snapshotFingerprint=design_prior['fingerprint'],
                 modelInfo=design_prior.get('modelInfo', {}), preparation=design_prior.get('preparation', {}))
             timing['guidedInstancesS'] = complete_rebar['elapsedS']
@@ -353,16 +359,21 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             began = time.perf_counter()
             with threadpool_limits(limits=1):
                 before = acceptance or evaluate_acceptance(context.positions, context.complete_instance, context.complete_class, complete_rebar['instances'], inventory, policy=acceptance_policy)
-            for name, dtype in TERMINAL_ATTRIBUTES.items():
-                shapes[name] = ((count,), dtype)
-                arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
-                arrays[name][:] = 0
-                setattr(context, name, arrays[name])
             with threadpool_limits(limits=1):
+                from algorithms.rebar_fragment_review import finalize_fragment_terminals
+                fragment_review = finalize_fragment_terminals(context,inventory,workers=workers)
                 complete_rebar = clean_terminals(context, complete_rebar, inventory, workers=workers,
                     output={name: arrays[name] for name in TERMINAL_ATTRIBUTES}, progress=progress)
                 acceptance = evaluate_acceptance(context.positions, context.complete_instance, context.complete_class, complete_rebar['instances'], inventory, policy=acceptance_policy)
             terminal_report = complete_rebar['terminalCleanup']
+            terminal_report.update(fragment_review)
+            terminal_report['globalEndRemovedPointCount'] = terminal_report['removedPointCount']
+            terminal_report['removedPointCount'] = int(np.count_nonzero(context.terminal_removed))
+            removed_ids = np.flatnonzero(context.terminal_removed)
+            owners, numbers = np.unique(context.terminal_previous_instance[removed_ids],return_counts=True)
+            terminal_report['decisions'] = [dict(instanceId=int(owner),pointCount=int(number),reason='fragment_and_instance_contact_review') for owner,number in zip(owners,numbers) if owner]
+            terminal_report['unassignedRemovedPointCount'] = int(np.count_nonzero(context.terminal_previous_instance[removed_ids]==0))
+            terminal_report['acceptanceBeforeScope'] = 'after premerge clipping; before postmerge fragment and global-end review'
             terminal_report['acceptanceBefore'] = before
             terminal_report['acceptanceAfter'] = acceptance
             timing['terminalCleanupAcceptanceS'] = time.perf_counter()-began
