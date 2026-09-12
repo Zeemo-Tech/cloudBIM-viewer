@@ -21,7 +21,7 @@ from algorithms.projection_artifacts import write_projection_artifacts
 from algorithms.internal_rebar import ATTRIBUTES as INTERNAL_ATTRIBUTES
 from algorithms.rebar_extension import ATTRIBUTES as COMPLETE_ATTRIBUTES
 from algorithms.design_prior_refinement import ATTRIBUTES as PRIOR_ATTRIBUTES, MODES as PRIOR_MODES, refine_design_prior
-from rebar_design_prior import validate_snapshot
+from rebar_design_inputs import resolve_design_inputs, VERSION as DESIGN_INPUT_VERSION
 from algorithms.design_guided_instances import refine_instances
 
 
@@ -283,11 +283,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         t0 = time.perf_counter()
         progress("校验源点云", 0, 1)
         digest = source_hash(source)
-        inventory = validate_snapshot(design_prior, source, digest) if design_prior is not None else None
+        design_inputs = resolve_design_inputs(design_prior, source, digest)
+        inventory = design_inputs.inventory
         positions, colors = load_positions(source, directory, progress)
         timing["readS"] = time.perf_counter() - t0
         stages = segment_points(positions, directory, k=k, workers=workers, through_step=min(through_step, 6),
-                                source=source, progress=progress, design_inventory=inventory)
+                                source=source, progress=progress, design_inventory=inventory,
+                                dimension_priors=design_inputs.dimensions)
         context, arrays, shapes, computation = stages.context, stages.arrays, stages.shapes, stages.computation
         timing.update(stages.timing)
         preprocessing = stages.preprocessing
@@ -363,12 +365,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         valid = int(np.count_nonzero(context.normal_valid))
         timing["totalS"] = time.perf_counter() - started
         manifest = {
-            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
+            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ("+design-guided-instances-v1" if through_step == 7 else ""), "runId": run_id,
             "createdAt": datetime.now(timezone.utc).isoformat(), "completed": True,
             "runMode": "fresh-source-all-steps", "orientation": "unoriented",
             "source": {"name": source.name, "path": str(source), "sha256": digest, "pointCount": count,
                        "sizeBytes": stamp[2], "unchangedDuringRun": True},
             "priorMode": prior_mode,
+            "designInputs": design_inputs.report,
             "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step},
             "validNormalCount": valid, "invalidNormalCount": count - valid,
             "steps": [{"id": "00-source", "pointCount": count}, {"id": "01-normals", "pointCount": count}]

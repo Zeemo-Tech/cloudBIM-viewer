@@ -27,7 +27,7 @@ FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered
 REFINEMENT_ATTRIBUTES = {"refined_class": "u1", "refined_region": "u1", "refined_zone": "u1", "refined_changed": "u1", "refined_reason": "u1"}
 
 
-def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None):
+def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None):
     if type(through_step) is not int or through_step not in range(1,7):
         raise ValueError("through_step must be 1–6 (ending at UI Step 05)")
     progress = progress or (lambda *args: None)
@@ -168,7 +168,11 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
             shapes[name] = ((count,), dtype)
             arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
         t0 = time.perf_counter()
-        context.dimension_priors = load_dimension_priors(source_path=source)
+        # The workbench resolves all design data from one validated snapshot.
+        # None preserves legacy callers; an explicit unavailable report must
+        # not trigger a lookup of an older source-associated model.
+        context.dimension_priors = (load_dimension_priors(source_path=source)
+                                    if dimension_priors is None else dimension_priors)
         with threadpool_limits(limits=1):
             internal_rebar = segment_internal_rebar(context, workers=workers,
                 output={name: arrays[name] for name in INTERNAL_ATTRIBUTES}, progress=progress)
