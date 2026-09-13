@@ -300,23 +300,23 @@
 }
 
 .mesh-remesh-status--succeeded {
-  color: #95d475;
-  background: rgba(103, 194, 58, 0.12);
+  color: var(--color-success);
+  background: var(--color-success-soft);
 }
 
 .mesh-remesh-status--queued {
-  color: #eebe77;
-  background: rgba(230, 162, 60, 0.12);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 .mesh-remesh-status--processing {
-  color: #79bbff;
-  background: rgba(64, 158, 255, 0.12);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .mesh-remesh-status--failed {
-  color: #f89898;
-  background: rgba(245, 108, 108, 0.12);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
 }
 
 .calibration-page .mesh-remesh-summary {
@@ -365,7 +365,7 @@
 }
 
 .calibration-page .mesh-remesh-summary--succeeded {
-  border-color: rgb(33 132 98 / 20%);
+  border-color: var(--color-success);
   background: var(--color-success-soft);
 }
 
@@ -376,7 +376,7 @@
 
 .calibration-page .mesh-remesh-summary--queued,
 .calibration-page .mesh-remesh-summary--processing {
-  border-color: rgb(54 120 201 / 20%);
+  border-color: var(--color-primary);
   background: var(--color-primary-soft);
 }
 
@@ -387,7 +387,7 @@
 }
 
 .calibration-page .mesh-remesh-summary--failed {
-  border-color: rgb(194 77 88 / 20%);
+  border-color: var(--color-danger);
   background: var(--color-danger-soft);
 }
 
@@ -673,13 +673,13 @@
 }
 
 .calibration-page .mesh-stat-item em {
-  color: #26975f;
+  color: var(--color-success);
   font-style: normal;
 }
 
 .mesh-remesh-error {
   margin-top: 8px;
-  color: #f89898;
+  color: var(--color-danger);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -758,17 +758,17 @@
 .c2m-result-warning {
   margin-top: 8px;
   padding: 7px 9px;
-  border: 1px solid rgba(230, 162, 60, 0.42);
-  color: #f3d19e;
-  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
   font-size: 11px;
   line-height: 1.5;
 }
 
 .c2m-result-warning--stale {
-  border-color: rgba(245, 108, 108, 0.5);
-  color: #fab6b6;
-  background: rgba(245, 108, 108, 0.13);
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 @media (max-width: 720px) {
@@ -844,11 +844,11 @@
   height: 7px;
   flex: 0 0 7px;
   border-radius: 50%;
-  background: #2f9a69;
+  background: var(--color-primary);
 }
 
 .calibration-page .c2m-panel :deep(.el-switch) {
-  --el-switch-on-color: #2f9a69;
+  --el-switch-on-color: var(--color-primary);
   --el-switch-off-color: #b7c2d1;
 }
 
@@ -1756,11 +1756,15 @@
 }
 
 .el-button--success {
-  --el-button-bg-color: rgba(103, 194, 58, 0.2);
-  --el-button-border-color: rgba(103, 194, 58, 0.5);
-  --el-button-hover-bg-color: rgba(103, 194, 58, 0.3);
-  --el-button-hover-border-color: rgba(103, 194, 58, 0.7);
-  --el-button-text-color: rgba(255, 255, 255, 0.92);
+  --el-button-bg-color: var(--color-primary-soft);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-text-color: #fff;
+  --el-button-hover-bg-color: var(--color-primary-hover);
+  --el-button-hover-border-color: var(--color-primary-hover);
+  --el-button-active-text-color: #fff;
+  --el-button-active-bg-color: var(--color-primary-active);
+  --el-button-active-border-color: var(--color-primary-active);
+  --el-button-text-color: var(--color-primary);
 }
 
 .el-input__wrapper,
@@ -2195,14 +2199,14 @@
 .fine-result {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(103, 194, 58, 0.32);
+  border: 1px solid var(--color-success);
   border-radius: 8px;
-  background: rgba(103, 194, 58, 0.08);
+  background: var(--color-success-soft);
 }
 
 .fine-result--warning {
-  border-color: rgba(230, 162, 60, 0.45);
-  background: rgba(230, 162, 60, 0.1);
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 .fine-result__title {
@@ -3208,8 +3212,8 @@
 .calibration-page .stage-state {
   padding: 3px 7px;
   border-radius: 4px;
-  color: #2f7c60;
-  background: #e8f6ef;
+  color: var(--text-secondary);
+  background: var(--color-info-soft);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -3660,9 +3664,9 @@
 }
 
 .calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-action.is-active) {
-  border-color: rgb(220 38 38 / 42%);
-  color: #b91c1c;
-  background: #fef2f2;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .calibration-page .viewport.viewport-shell.three-view-pane {
@@ -4329,14 +4333,14 @@
 }
 
 .calibration-page .control-panel .fine-result {
-  border-color: rgb(33 132 98 / 24%);
+  border-color: var(--color-success);
   border-radius: var(--radius-xs);
   background: var(--color-success-soft);
 }
 
 .calibration-page .control-panel .fine-result--warning,
 .calibration-page .control-panel .c2m-result-warning {
-  border-color: rgb(170 118 37 / 28%);
+  border-color: var(--color-warning);
   background: var(--color-warning-soft);
 }
 
@@ -4397,9 +4401,9 @@
 }
 
 .calibration-page .control-panel :deep(.el-button--success:not(.is-text):not(.is-link)) {
-  border-color: var(--color-success);
+  border-color: var(--color-primary);
   color: #fff;
-  background: var(--color-success);
+  background: var(--color-primary);
 }
 
 .calibration-page .right-panel.control-panel.is-workflow-panel
@@ -4553,7 +4557,7 @@
 }
 
 .calibration-page .control-panel :deep(.el-switch) {
-  --el-switch-on-color: var(--color-success);
+  --el-switch-on-color: var(--color-primary);
   --el-switch-off-color: var(--border-color-hover);
 }
 

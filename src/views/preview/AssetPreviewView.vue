@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getViewerReturnLocation, navigateViewerBack, readNavigationRouteState } from '@/router/navigation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   Aim,
@@ -9,7 +10,7 @@ import {
   FullScreen,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useBimRemeshDisplay } from './bimRemeshDisplay'
 import { getAssetDetail } from '@/api/backend-file'
 import {
@@ -61,6 +62,12 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
+const returnLabel = computed(() => {
+  const target = getViewerReturnLocation(readNavigationRouteState(route.path, route.query))
+  const path = typeof target === 'string' ? target.split('?')[0] : ('path' in target ? target.path : '')
+  return path === '/design/overview' ? '返回项目概述' : path === '/design/bim' ? '返回模型列表' : path === '/survey' ? '返回扫描点云' : '返回项目列表'
+})
 const bimPanelRef = ref<any>(null)
 const bimLoaded = ref(false)
 const bimRemeshStatus = ref<RemeshStatus | null>(null)
@@ -246,8 +253,8 @@ const pageTitle = computed(() => {
 
 const emptyText = computed(() => {
   return props.previewType === 'bim'
-    ? '请从上传页重新点击“预览”打开 BIM 全屏页。'
-    : '请从上传页重新点击“预览”打开点云全屏页。'
+    ? '请返回项目的 IFC 模型列表，选择已就绪的模型进行预览。'
+    : '请返回项目的扫描点云列表，选择已就绪的点云进行预览。'
 })
 
 const currentPanelRef = computed(() => {
@@ -255,23 +262,7 @@ const currentPanelRef = computed(() => {
 })
 
 function closePage() {
-  if (window.opener) {
-    window.close()
-    return
-  }
-
-  if (props.projectId) {
-    void router.push({
-      path: props.previewType === 'bim' ? '/design/bim' : '/survey',
-      query: {
-        projectId: props.projectId,
-        projectName: props.projectName,
-      },
-    })
-    return
-  }
-
-  void router.push('/projects')
+  navigateViewerBack(router, readNavigationRouteState(route.path, route.query))
 }
 
 function resetView() {
@@ -925,7 +916,7 @@ watch(
     <header class="bim-preview-header">
       <button class="preview-button" type="button" @click="closePage">
         <el-icon><ArrowLeft /></el-icon>
-        <span>返回模型列表</span>
+        <span>{{ returnLabel }}</span>
       </button>
       <div class="bim-file-context">
         <strong :title="displayName">{{ displayName || 'BIM 模型预览' }}</strong>
@@ -1404,13 +1395,11 @@ watch(
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #4aa896;
-  box-shadow: 0 0 8px rgb(74 168 150 / 60%);
+  background: var(--brand-nano-cyan);
 }
 
 .pointcloud-viewer-status > i.loading {
-  background: #e0b85f;
-  box-shadow: 0 0 8px rgb(224 184 95 / 55%);
+  background: var(--brand-opto-trace);
 }
 
 .pointcloud-viewer-status span {

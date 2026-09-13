@@ -208,9 +208,9 @@ function toggleToolbar() {
 }
 
 .measurement-action.is-active {
-  border-color: rgba(248, 113, 113, 0.62);
-  color: #fecaca;
-  background: rgba(220, 38, 38, 0.2);
+  border-color: var(--brand-opto-trace);
+  color: #fff;
+  background: var(--color-primary);
 }
 
 .measurement-action--clear {

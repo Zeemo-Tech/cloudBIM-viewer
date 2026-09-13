@@ -1,6 +1,6 @@
 :root {
   /* Typography */
-  --font-family-base: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  --font-family-base: 'HarmonyOS Sans', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', 'Hiragino Sans GB', system-ui, sans-serif;
   --font-family-display: var(--font-family-base);
   --font-family-number: 'SF Mono', 'Consolas', 'Noto Sans Mono CJK SC', var(--font-family-base);
   --font-size-xs: 12px;
@@ -15,23 +15,29 @@
   --line-height-relaxed: 1.7;
 
   /* Brand and status colors */
-  --color-primary: #3678c9;
-  --color-primary-hover: #2b66b2;
-  --color-primary-active: #225596;
-  --color-primary-soft: #eef5ff;
-  --color-accent: #0f9f80;
-  --color-accent-soft: #eaf9f4;
-  --color-success: #218462;
-  --color-success-soft: #e9f8f1;
-  --color-warning: #aa7625;
-  --color-warning-soft: #fff6df;
-  --color-danger: #c24d58;
-  --color-danger-hover: #b13e4a;
-  --color-danger-soft: #fff0f1;
-  --color-info: #52749e;
-  --color-info-soft: #f0f5fb;
-  --color-auth-accent-start: #22d3ee;
-  --color-auth-accent-end: #fb7185;
+  /* ZEEMO VI p.17: literal RGB/HEX; see docs/design/vi/tokens.json. */
+  --brand-sapphire: #102375;
+  --brand-aether: #4e66cc;
+  --brand-opto-trace: #73a2f3;
+  --brand-nano-cyan: #6fbcce;
+  --brand-icevein: #b7dff7;
+  --color-primary: var(--brand-aether);
+  --color-primary-hover: #3e52ad;
+  --color-primary-active: var(--brand-sapphire);
+  --color-primary-soft: #eef1fb;
+  --color-accent: #466d87;
+  --color-accent-soft: #edf3f7;
+  --color-success: #426f73;
+  --color-success-soft: #edf4f4;
+  --color-warning: #896432;
+  --color-warning-soft: #f8f3e9;
+  --color-danger: #a34f59;
+  --color-danger-hover: #8a3f4a;
+  --color-danger-soft: #f8eef0;
+  --color-info: #506585;
+  --color-info-soft: #eef2f7;
+  --color-auth-accent-start: var(--brand-opto-trace);
+  --color-auth-accent-end: var(--brand-aether);
 
   /* Text hierarchy */
   --text-primary: #1b2f4a;
@@ -39,7 +45,7 @@
   --text-tertiary: #657894;
   --text-disabled: #9aa8ba;
   --text-placeholder: #63748b;
-  --text-link: #2f70c4;
+  --text-link: #3e52ad;
   --text-primary-color: var(--color-primary);
   --text-success: var(--color-success);
   --text-warning: var(--color-warning);
@@ -62,7 +68,7 @@
   --border-color: #d6dfec;
   --border-color-light: #e3ebf6;
   --border-color-hover: #c5d4ea;
-  --border-color-focus: #8bb5ed;
+  --border-color-focus: #4e66cc;
 
   /* Spacing */
   --spacing-0: 0;
@@ -90,6 +96,10 @@
   --transition-fast: 160ms ease;
   --transition-base: 240ms ease;
   --transition-slow: 360ms ease;
+
+  /* Fluid space only; desktop typography and controls stay fixed. */
+  --workspace-gutter: clamp(12px, 1.25vw, 24px);
+  --workspace-gap: clamp(12px, 2vh, 24px);
 
   /* Application layout */
   --header-height: 82px;

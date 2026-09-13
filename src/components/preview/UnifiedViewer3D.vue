@@ -168,6 +168,7 @@ const emit = defineEmits<{
 const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('')
 const loadError = ref('')
+const loadNotice = ref('')
 const loaded = ref(false)
 const c2mPick = ref<{ x: number; y: number; deviation: number; withinTolerance: boolean } | null>(null)
 
@@ -1549,7 +1550,7 @@ async function loadBimModel(assetId: number) {
 
     loaded.value = true
     statusText.value = ''
-    loadError.value = ''
+    loadError.value = ''; loadNotice.value = ''
     emit('loaded-change', true)
   } catch (err: any) {
     loadError.value = `BIM 加载失败: ${err.message || err}`
@@ -2220,7 +2221,7 @@ async function loadAnalysisC2MModel(result: C2MResult, expectedToken: number) {
     statusText.value = manifest.global.unknownCount > 0
       ? `未覆盖区域以灰色显示（${manifest.global.unknownCount.toLocaleString()} 个顶点）`
       : ''
-    loadError.value = ''
+    loadError.value = ''; loadNotice.value = ''
     emit('loaded-change', true)
   }
 
@@ -2302,12 +2303,12 @@ async function loadC2MModel(expectedToken: number) {
     return
   }
   if (!isC2MResultFresh(result)) {
-    loadError.value = 'C2M 结果已过期，请重新计算'
+    loadNotice.value = 'C2M 结果已过期，请返回分析工作区重新计算'
     return
   }
   if (result.coloredPlyAvailable === false) {
     if (result.analysis?.status !== 'ready') {
-      loadError.value = 'C2M 着色结果尚不可用'
+      loadNotice.value = 'C2M 着色结果尚不可用，请在分析完成后查看'
       return
     }
   }
@@ -2418,7 +2419,7 @@ async function loadC2MModel(expectedToken: number) {
 
     loaded.value = true
     statusText.value = ''
-    loadError.value = ''
+    loadError.value = ''; loadNotice.value = ''
     emit('loaded-change', true)
   } catch (err: any) {
     if (expectedToken !== loadToken) return
@@ -2501,7 +2502,7 @@ function fitCameraToRadius(radius: number, center = new THREE.Vector3()) {
 // ---------------------------
 async function reload() {
   cleanCurrentSceneModels()
-  loadError.value = ''
+  loadError.value = ''; loadNotice.value = ''
   const currentToken = ++loadToken
 
   try {
@@ -3135,6 +3136,7 @@ onBeforeUnmount(() => {
     <div v-if="loadError" class="unified-viewer-placeholder unified-viewer-error">
       <div class="placeholder-text error-text">{{ loadError }}</div>
     </div>
+    <div v-else-if="loadNotice" class="unified-viewer-placeholder" role="status"><div class="placeholder-text notice-text">{{ loadNotice }}</div></div>
     <div v-else-if="statusText" class="unified-viewer-status" role="status">
       {{ statusText }}
     </div>
@@ -3357,4 +3359,11 @@ onBeforeUnmount(() => {
   min-width: 30px;
   font-family: monospace;
 }
+</style>
+
+<style scoped>
+.placeholder-text.error-text { color: var(--color-danger); background: var(--color-danger-soft); }
+.placeholder-text.notice-text { color: var(--color-info); background: var(--color-info-soft); }
+.placeholder-text.error-text, .placeholder-text.notice-text { max-width: min(80%, 420px); padding: var(--spacing-compact) var(--spacing-md); border-radius: var(--radius-sm); letter-spacing: normal; }
+.unified-viewer-status { color: var(--color-info); background: var(--color-info-soft); border-color: var(--border-color); border-radius: var(--radius-sm); box-shadow: none; }
 </style>

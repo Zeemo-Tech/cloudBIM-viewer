@@ -115,9 +115,9 @@ function showAll(includeNoise: boolean) {
 .denoise-card { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: var(--bg-card, #fff); border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 10px; }
 .denoise-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .denoise-heading h2, .denoise-heading h3 { margin: 0; font-size: 14px; line-height: 1.5; font-weight: 650; color: var(--text-primary); }
-.denoise-status { padding: 3px 8px; border-radius: 6px; color: var(--text-secondary); background: var(--bg-page, #f1f5f9); font-size: 11px; }
-.denoise-status.is-ready { color: #047857; background: #ecfdf5; }
-.denoise-status.is-stale { color: #92400e; background: #fffbeb; }
+.denoise-status { padding: 3px 8px; border-radius: 6px; color: var(--text-secondary); background: var(--color-info-soft); font-size: 11px; }
+.denoise-status.is-ready { color: var(--color-success); background: var(--color-success-soft); }
+.denoise-status.is-stale { color: var(--color-warning); background: var(--color-warning-soft); }
 .denoise-copy { margin: 0; color: var(--text-secondary, #64748b); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .denoise-primary-action { width: 100%; min-height: 36px; }
 .denoise-caption { color: var(--text-secondary); font-size: 11px; }
@@ -125,8 +125,8 @@ function showAll(includeNoise: boolean) {
 .denoise-metrics > div { padding: 12px 10px; background: var(--bg-page, #f8fafc); border-radius: 8px; }
 .denoise-metrics span { display: block; color: var(--text-secondary); font-size: 11px; }
 .denoise-metrics strong { display: block; margin-top: 6px; font-size: clamp(15px, 1.2vw, 20px); font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.denoise-metrics .denoise-metric-kept { background: #ecfdf5; }
-.denoise-metric-kept strong { color: #047857; }
+.denoise-metrics .denoise-metric-kept { background: var(--color-success-soft); }
+.denoise-metric-kept strong { color: var(--color-success); }
 .denoise-result-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 11px; }
 .denoise-result-meta b { color: var(--text-primary); font-weight: 600; }
 .denoise-segments { display: flex; min-width: 0; padding: 3px; gap: 3px; background: var(--bg-page, #f1f5f9); border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 8px; }
@@ -157,6 +157,6 @@ function showAll(includeNoise: boolean) {
 .denoise-export-hint, .denoise-empty-hint { padding: 0 4px; font-size: 11px; }
 .denoise-workspace button:disabled { opacity: .45; cursor: not-allowed; }
 .denoise-workspace button:focus-visible { outline: 2px solid var(--color-primary, #2563eb); outline-offset: -2px; }
-.denoise-filter-toolbar button:hover:not(:disabled), .denoise-only-button:hover:not(:disabled) { background: var(--bg-page, #eff6ff); }
+.denoise-filter-toolbar button:hover:not(:disabled), .denoise-only-button:hover:not(:disabled) { background: var(--color-primary-soft); }
 @media (prefers-reduced-motion: reduce) { .denoise-switch i { transition: none; } }
 </style>

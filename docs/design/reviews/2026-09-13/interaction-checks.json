@@ -1,0 +1,19 @@
+{
+  "environment": "Managed CloudBIM local stack; isolated Chrome; actual project 2",
+  "checks": [
+    {"name":"navigation order", "passed":true, "labels":["IFC 模型","CAD 图纸","项目概览","实测点云"]},
+    {"name":"generic upload navigation removed", "passed":true},
+    {"name":"survey and IFC search no-results/reset", "passed":true},
+    {"name":"keyboard upload focus/Enter/Escape", "passed":true, "outline":"2px"},
+    {"name":"pointcloud upload input restriction", "passed":true, "accept":".las", "emptySubmitDisabled":true},
+    {"name":"1440px internal table horizontal scrolling", "passed":true},
+    {"name":"BIM preview return", "passed":true, "returnPath":"/design/bim"},
+    {"name":"pointcloud intensity and distance/Escape", "passed":true, "distancePressedBeforeEscape":"true", "distancePressedAfterEscape":"false"},
+    {"name":"pointcloud close return", "passed":true, "returnPath":"/survey"},
+    {"name":"project default entry", "passed":true, "entryPath":"/design/bim"},
+    {"name":"project date filter final computed style", "passed":true, "height":36, "radius":"8px", "shadow":"1px inset border"},
+    {"name":"registration panel navigation", "passed":true, "submitted":false}
+  ],
+  "pageErrors":[],
+  "limitations":["No uploads, asset deletions, calibration saves, registration submits or expensive analyses were run.","Safari and physical Mac hardware were not tested."]
+}

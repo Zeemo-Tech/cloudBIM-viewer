@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { navigateViewerBack, readNavigationRouteState } from '@/router/navigation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
@@ -9,7 +10,7 @@ import {
   RefreshRight,
   View,
 } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import BimPreviewPanel from '@/components/preview/BimPreviewPanel.vue'
 import PointcloudPreviewPanel from '@/components/preview/PointcloudPreviewPanel.vue'
 import C2MResultPreviewPanel from '@/components/preview/C2MResultPreviewPanel.vue'
@@ -42,6 +43,7 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
 const isReady = computed(() => {
   return !!props.bimAssetId && !!props.pointcloudAssetId
 })
@@ -300,12 +302,7 @@ const visibleViewCount = computed(
 )
 
 function closePage() {
-  if (window.opener) {
-    window.close()
-    return
-  }
-
-  void router.push('/projects')
+  navigateViewerBack(router, readNavigationRouteState(route.path, route.query))
 }
 
 function syncRotation(source: SyncSource, rotation: Rotation | null) {
@@ -711,7 +708,7 @@ watch(
 
 <template>
   <section class="split-preview-page" :class="`theme-${interfaceStyle}`">
-    <button class="page-back-btn" type="button" title="返回上传页" @click="closePage">
+    <button class="page-back-btn" type="button" title="返回来源列表" aria-label="返回来源列表" @click="closePage">
       <el-icon><ArrowLeft /></el-icon>
       <span>返回</span>
     </button>
@@ -855,7 +852,7 @@ watch(
 
     <div v-if="!isReady" class="empty-state">
       <h2>缺少预览参数</h2>
-      <p>请从上传页重新点击“实模对比”打开当前页面。</p>
+      <p>请返回扫描点云列表，点击“查看实模结果”打开对比。</p>
     </div>
 
     <div v-else-if="!calibrationReady" class="empty-state">
@@ -1079,9 +1076,9 @@ watch(
 }
 
 .split-preview-page.theme-light :deep(.measurement-action.is-active) {
-  border-color: rgba(220, 38, 38, 0.42);
-  color: #b91c1c;
-  background: rgba(254, 226, 226, 0.9);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .tools-divider {
@@ -1243,11 +1240,11 @@ watch(
 
 .tool-clear-row button {
   flex: 1;
-  border: 1px solid rgba(248, 113, 113, 0.38);
+  border: 1px solid var(--color-danger);
   border-radius: 6px;
   padding: 5px 6px;
-  background: rgba(127, 29, 29, 0.3);
-  color: #fecaca;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
   cursor: pointer;
   font-size: 11px;
 }
@@ -1411,4 +1408,22 @@ watch(
     right: 102px;
   }
 }
+</style>
+
+<style scoped lang="scss">
+@use '@/styles/workspace-controls' as controls;
+.split-preview-page { --comparison-control-bg: #172337; --comparison-control-border: #52647c; --comparison-control-text: #e2e8f0; }
+.split-preview-page.theme-light { --comparison-control-bg: var(--bg-card); --comparison-control-border: var(--border-color); --comparison-control-text: var(--text-secondary); }
+.split-preview-page .floating-btn, .split-preview-page.theme-light .floating-btn,
+.split-preview-page .page-back-btn, .split-preview-page.theme-light .page-back-btn,
+.split-preview-page .tools-toggle, .split-preview-page.theme-light .tools-toggle {
+  @include controls.action;
+  color: var(--comparison-control-text); background: var(--comparison-control-bg); border-color: var(--comparison-control-border); backdrop-filter: none; letter-spacing: normal; opacity: 1;
+  &:hover:not(:disabled) { color: var(--comparison-control-text); background: var(--comparison-control-bg); border-color: var(--brand-opto-trace); box-shadow: none; }
+}
+.split-preview-page .floating-btn.is-active, .split-preview-page.theme-light .floating-btn.is-active { @include controls.primary; box-shadow: none; }
+.split-preview-page .tools-panel, .split-preview-page.theme-light .tools-panel { border: 1px solid var(--comparison-control-border); border-radius: var(--radius-md); background: var(--comparison-control-bg); box-shadow: none; backdrop-filter: none; }
+.split-preview-page .tool-range-row input[type='range'] { accent-color: var(--brand-opto-trace); }
+.split-preview-page .viewer-label__dot { background: var(--brand-opto-trace); box-shadow: none; }
+.split-preview-page .viewer-label--pointcloud .viewer-label__dot { background: var(--brand-nano-cyan); }
 </style>

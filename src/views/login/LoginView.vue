@@ -862,3 +862,11 @@ line-height: 30px;
 .password-toggle { color: rgb(242 242 242 / 72%); }
 .form :deep(.el-button), .form :deep(.el-button:hover), .form :deep(.el-button:focus-visible), .form :deep(.el-button:active) { color: var(--text-on-dark-muted); background-color: var(--bg-auth-panel); }
 </style>
+
+<style scoped lang="scss">
+@use '@/styles/workspace-controls' as controls;
+.submit-wrap, .submit-wrap.is-ready, .submit-wrap.is-active, .submit-wrap:focus-within, .submit-wrap.is-ready:hover { padding: 0; border-radius: var(--radius-sm); background: transparent; box-shadow: none; transform: none; animation: none; }
+.submit-wrap::before { display: none; }
+.form .submit-wrap :deep(.el-button) { @include controls.action; @include controls.primary; width: 100%; }
+.form .submit-wrap :deep(.el-button:disabled) { color: var(--text-on-dark-muted); border-color: var(--text-tertiary); background: var(--bg-auth-panel); opacity: 1; }
+</style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { readListState, writeListState } from '@/features/workspace/listState'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -12,17 +13,19 @@ const emit = defineEmits<{ logout: [] }>()
 const router = useRouter()
 const projects = ref<ProjectSummary[]>([])
 const loading = ref(false)
-const currentPage = ref(1)
-const pageSize = ref(8)
+const listStateKey = `cloudbim.list.v1:${props.session.username}:projects:projects`
+const restoredList = readListState(listStateKey, { keyword: '', fileType: 'all', fileState: 'all', dateRange: null as [Date, Date] | null }, [8, 12, 16, 24])
+const currentPage = ref(restoredList.page)
+const pageSize = ref(restoredList.pageSize)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 const form = reactive({ name: '', description: '' })
-const filters = reactive({ keyword: '', fileType: 'all', fileState: 'all', dateRange: null as [Date, Date] | null })
+const filters = reactive(restoredList.filters)
 const filteredProjects = computed(() => projects.value.filter((project) => {
   const keyword = filters.keyword.trim().toLowerCase()
   const scanDate = project.scanDate ? project.scanDate * 1000 : 0
-  const matchesDate = !filters.dateRange || (scanDate >= filters.dateRange[0].setHours(0, 0, 0, 0) && scanDate <= filters.dateRange[1].setHours(23, 59, 59, 999))
+  const matchesDate = !filters.dateRange || (scanDate >= new Date(filters.dateRange[0]).setHours(0, 0, 0, 0) && scanDate <= new Date(filters.dateRange[1]).setHours(23, 59, 59, 999))
   const matchesType = filters.fileType === 'all'
     || (filters.fileType === 'bim' && project.bimCount > 0)
     || (filters.fileType === 'pointcloud' && project.pointcloudCount > 0)
@@ -54,7 +57,7 @@ async function loadProjects() {
 
 function enterProject(project: ProjectSummary) {
   void router.push({
-    path: '/upload',
+    path: '/design/overview',
     query: { projectId: project.id, projectName: project.name },
   })
 }
@@ -127,6 +130,9 @@ onMounted(() => { void loadProjects() })
 watch([pageSize, () => filters.keyword, () => filters.fileType, () => filters.fileState, () => filters.dateRange], () => {
   currentPage.value = 1
 })
+watch([filters, currentPage, pageSize], () => {
+  writeListState(listStateKey, { filters: filters, page: currentPage.value, pageSize: pageSize.value })
+}, { deep: true, flush: 'sync' })
 </script>
 
 <template>
@@ -472,4 +478,11 @@ watch([pageSize, () => filters.keyword, () => filters.fileType, () => filters.fi
 .enter-link { min-height: 36px; padding: 0 2px; border: 0; background: transparent; cursor: pointer; }
 .enter-link:focus-visible, .empty-action:focus-visible { outline: 2px solid var(--border-color-focus); outline-offset: 2px; }
 .empty-action { min-height: var(--control-height); padding: 0 var(--spacing-md); border: 0; border-radius: var(--radius-sm); color: var(--bg-card); background: var(--color-primary); cursor: pointer; }
+</style>
+
+<style scoped lang="scss">
+@use '@/styles/workspace-controls' as controls;
+.toolbar-button { @include controls.action; } .toolbar-button.is-primary { @include controls.primary; } .project-toolbar { @include controls.filters; }
+.entry-brand .brand-mark { background: var(--brand-sapphire); box-shadow: none; }
+.project-entry-page { background: var(--bg-page); }
 </style>

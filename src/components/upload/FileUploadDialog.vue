@@ -31,8 +31,8 @@ function handleUploaded(kind: UploadKind) {
     class="file-upload-dialog"
     :model-value="modelValue"
     :title="title"
-    width="min(820px, 94vw)"
-    top="5vh"
+    width="min(760px, calc(100vw - 32px))"
+    top="max(16px, 5dvh)"
     append-to-body
     destroy-on-close
     :close-on-click-modal="false"
@@ -50,14 +50,9 @@ function handleUploaded(kind: UploadKind) {
 </template>
 
 <style>
-.file-upload-dialog{overflow:hidden;border:1px solid #dfe7f1;border-radius:22px;background:#f5f8fc;box-shadow:none}
-.file-upload-dialog .el-dialog__header{box-sizing:border-box;height:58px;display:flex;align-items:center;margin:0;padding:0 22px;}
-.file-upload-dialog .el-dialog__title{color:#2d486d;font-size:15px;font-weight:650}
-.file-upload-dialog .el-dialog__headerbtn{top:8px;right:10px}
-.file-upload-dialog .el-dialog__body{max-height:calc(90vh - 58px);padding:0;overflow:auto}
-</style>
-
-<style>
-.file-upload-dialog { border-color: var(--border-color-light); border-radius: var(--radius-2xl); background: var(--bg-page); }
-.file-upload-dialog .el-dialog__title { color: var(--text-primary); font-size: var(--font-size-md); }
+.file-upload-dialog { padding: var(--workspace-gutter); border: 1px solid var(--border-color-light); border-radius: var(--radius-md); background: var(--bg-card); box-shadow: var(--shadow-lg); }
+.file-upload-dialog .el-dialog__header { margin: 0 0 var(--workspace-gap); padding: 0 var(--spacing-xl) 0 0; }
+.file-upload-dialog .el-dialog__title { font-size: var(--font-size-lg); font-weight: 600; color: var(--text-primary); }
+.file-upload-dialog .el-dialog__headerbtn { top: var(--spacing-sm); right: var(--spacing-sm); }
+.file-upload-dialog .el-dialog__body { max-height: calc(90vh - 96px); max-height: calc(90dvh - 96px); padding: 0; overflow-y: auto; overscroll-behavior: contain; }
 </style>

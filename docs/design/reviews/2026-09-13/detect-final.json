@@ -1,0 +1,42 @@
+[
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/home/hong/hong_project/cloudBIM-viewer/src/views/upload/SimpleUploadView.vue",
+    "line": 215,
+    "snippet": "border-left:2px solid}.corner-tr{top:2rem"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/home/hong/hong_project/cloudBIM-viewer/src/views/upload/SimpleUploadView.vue",
+    "line": 215,
+    "snippet": "border-right:2px solid}.corner-bl{bottom:2rem"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/home/hong/hong_project/cloudBIM-viewer/src/views/upload/SimpleUploadView.vue",
+    "line": 215,
+    "snippet": "border-left:2px solid}.corner-br{right:2rem"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/home/hong/hong_project/cloudBIM-viewer/src/views/upload/SimpleUploadView.vue",
+    "line": 215,
+    "snippet": "border-right:2px solid"
+  }
+]

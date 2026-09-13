@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { navigateViewerBack, readNavigationRouteState } from '@/router/navigation'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -183,6 +184,7 @@ const workflowSteps = [
   { id: 4 as const, title: '出报告', subtitle: '生成分析成果报告' },
 ]
 const activeWorkflowStep = ref<WorkflowStepId>(1)
+const workflowRouteReady = ref(false)
 const reportEditing = ref(false)
 const reportToolbarCollapsed = ref(false)
 const reportZoom = ref(70)
@@ -1837,40 +1839,7 @@ function isOrthographicCamera(
 }
 
 function closePage() {
-  console.info('[BimPointcloudAlign] closePage start', {
-    hasOpener: !!window.opener,
-    historyLength: window.history.length,
-    href: window.location.href,
-  })
-
-  if (window.opener) {
-    window.close()
-    window.setTimeout(() => {
-      console.warn('[BimPointcloudAlign] window.close attempted', {
-        hasOpener: !!window.opener,
-        closed: window.closed,
-        href: window.location.href,
-      })
-    }, 150)
-    return
-  }
-
-  const projectId = typeof route.query.projectId === 'string' ? route.query.projectId : ''
-  const projectName = typeof route.query.projectName === 'string' ? route.query.projectName : ''
-  if (projectId) {
-    void router.replace({
-      path: '/survey',
-      query: { projectId, ...(projectName ? { projectName } : {}) },
-    })
-    return
-  }
-
-  if (window.history.length > 1) {
-    void router.back()
-    return
-  }
-
-  void router.replace('/projects')
+  navigateViewerBack(router, readNavigationRouteState(route.path, route.query))
 }
 
 function parseColor(value: string) {
@@ -6727,6 +6696,22 @@ watch([c2mColorRangeMm, c2mToleranceMm, c2mColorMode, c2mBandCount], ([colorRang
   recolorAnalysisC2MScene()
 })
 
+watch([() => route.query.step, workflowRouteReady, bimLoaded, pointcloudLoaded], () => {
+  if (!workflowRouteReady.value || !bimLoaded.value || !pointcloudLoaded.value) return
+  const requested = Number(route.query.step || 1)
+  const step: WorkflowStepId = requested === 2 || requested === 3 || requested === 4 ? requested : 1
+  const available: WorkflowStepId = workflowStepDisabled(step) ? (canOpenDenoiseStep.value ? 2 : 1) : step
+  if (activeWorkflowStep.value !== available) openWorkflowStep(available)
+  if (step !== available || (route.query.step && Number(route.query.step) !== step)) {
+    void router.replace({ query: { ...route.query, step: String(available) } })
+  }
+})
+watch(activeWorkflowStep, (step) => {
+  if (workflowRouteReady.value && String(route.query.step || 1) !== String(step)) {
+    void router.replace({ query: { ...route.query, step: String(step) } })
+  }
+})
+
 onMounted(async () => {
   window.addEventListener('keydown', onAnalysisKeydown)
   syncPositionStepPreset()
@@ -6734,11 +6719,11 @@ onMounted(async () => {
   await refreshMeshStatus()
   await initScene()
   await preloadFromRoute()
-  void loadLatestC2M()
-  void loadLatestDenoise()
+  await Promise.all([loadLatestC2M(), loadLatestDenoise()])
   // Tile loading and GLTF loading finish independently. Make one final
   // restore attempt after both route preload tasks have settled.
-  void fetchAndLogSavedAlignmentIfExists()
+  await fetchAndLogSavedAlignmentIfExists()
+  workflowRouteReady.value = true
 })
 
 onBeforeUnmount(() => {
@@ -6817,7 +6802,7 @@ onBeforeUnmount(() => {
     />
     <header class="topbar calibration-header">
       <div class="topbar-left title-block">
-        <el-button text :icon="ArrowLeft" aria-label="返回实测列表" title="返回实测列表" @click="closePage" />
+        <el-button text :icon="ArrowLeft" aria-label="返回扫描点云" title="返回扫描点云" @click="closePage" />
         <div class="alignment-title-context">
           <h1 class="brand-title">BIM 与点云校准</h1>
           <span class="alignment-file-context" :title="pointcloudDisplayName">{{ pointcloudDisplayName || '未选择点云' }}</span>
@@ -7174,7 +7159,7 @@ onBeforeUnmount(() => {
               <div class="cover-report-number"><small>报告编号</small><strong>REPORT / 001</strong></div>
             </header>
             <div class="cover-main"><span class="cover-kicker">BIM 与点云校准成果</span><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><p>Scan vs BIM Deviation Report</p><i aria-hidden="true"></i></div>
-            <dl class="cover-details"><div><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></div><div><dt>实测点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></div><div><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></div><div><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></div><div><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></div><div><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></div></dl>
+            <dl class="cover-details"><div><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></div><div><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></div><div><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></div><div><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></div><div><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></div><div><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></div></dl>
             <div class="cover-status"><span></span><div><small>当前检测状态</small><strong>{{ canUseC2MResult ? '逐钢筋偏差结果已生成' : '待生成有效偏差结果' }}</strong></div></div>
             <div class="cover-footer"><span>BIM 与点云校准</span><span>第 01 页</span></div>
           </div>
