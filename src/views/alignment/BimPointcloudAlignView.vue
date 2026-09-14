@@ -545,7 +545,16 @@ const comparisonInventory = ref<{ inventory: { bars: { ifcGlobalId: string }[] }
 const comparison = computed(() => canUseC2MResult.value ? c2mResult.value?.diagnostics?.rebarComparison : undefined)
 const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value?.bars ?? [], c2mDistances.value, c2mToleranceMm.value / 1000))
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
-const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / 14) }, (_, page) => comparisonBars.value.slice(page * 14, (page + 1) * 14)))
+const REPORT_ROWS_PER_PAGE = 8
+const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
+const comparisonReportPageIndex = ref(0)
+const comparisonReportPageCount = computed(() => comparisonReportPages.value.length)
+function changeComparisonReportPage(delta: number) {
+  comparisonReportPageIndex.value = Math.min(
+    Math.max(comparisonReportPageIndex.value + delta, 0),
+    Math.max(comparisonReportPageCount.value - 1, 0),
+  )
+}
 const selectedComparisonBar = computed(() => comparisonBars.value.find(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const rebarInspectionActive = ref(false)
 const rebarInspectionManualSelect = ref(false)
@@ -1034,6 +1043,12 @@ const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && 
 const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && canOpenDeviationStep.value && meshReady.value && !c2mRunning.value))
 const c2mResultIsFresh = computed(() => isC2MResultFresh(c2mResult.value))
 const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFresh.value))
+watch(comparisonReportPages, (pages) => {
+  comparisonReportPageIndex.value = Math.min(
+    comparisonReportPageIndex.value,
+    Math.max(pages.length - 1, 0),
+  )
+})
 const c2mSceneArtifactAvailable = computed(() => Boolean(
   c2mResult.value?.coloredPlyAvailable ||
   (
@@ -1298,6 +1313,12 @@ function formatC2MDistance(value: number | undefined) {
 
 function formatC2MPercentage(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '--'
+}
+
+function formatReportInstanceIds(instanceIds: readonly number[]) {
+  if (!instanceIds.length) return '无可靠对应'
+  const visible = instanceIds.slice(0, 8).join('、')
+  return instanceIds.length > 8 ? `${visible} 等，共 ${instanceIds.length} 个` : visible
 }
 
 async function runC2M() {
@@ -7563,25 +7584,46 @@ onBeforeUnmount(() => {
             <div class="cover-footer"><span>BIM 与点云校准</span><span>第 01 页</span></div>
           </div>
         </div>
-        <div v-for="(bars, page) in comparisonReportPages" :key="page" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-for="(bars, page) in comparisonReportPages" :key="page" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <nav v-if="comparisonReportPageCount > 1 && page === comparisonReportPageIndex" class="rebar-report-page-nav" aria-label="表格翻页">
+            <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonReportPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
+            <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonReportPageCount }} 页</strong><small>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }}</small></span>
+            <button type="button" aria-label="下一页" title="下一页" :disabled="page >= comparisonReportPageCount - 1" @click="changeComparisonReportPage(1)"><el-icon><ArrowRight /></el-icon></button>
+          </nav>
           <article class="report-preview-page rebar-report-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <h2>逐钢筋偏差明细</h2>
-            <p>{{ reportProjectName }} · 容差 ±{{ comparisonReportToleranceMm }} mm · 已排除设计夹具</p>
-            <p>测量方向：设计钢筋顶点到对应扫描实例最近点。覆盖率与容差内比例分列；缺测、待复核项不出具偏差结论。</p>
+            <header class="report-preview-page__header">
+              <div class="report-preview-mark"><img src="/favicon.ico" alt="系统标识" /></div>
+              <div>
+                <strong>{{ reportTitle }}</strong>
+                <span>{{ reportProjectName }} · Scan vs BIM</span>
+              </div>
+              <small>REPORT / 001 · {{ page + 2 }} / {{ comparisonReportPages.length + 1 }}</small>
+            </header>
+            <div class="rebar-report-heading">
+              <div>
+                <h2>逐钢筋偏差明细</h2>
+              </div>
+              <div class="rebar-report-count"><strong>{{ bars.length }}</strong><span>本页钢筋</span></div>
+            </div>
+            <div class="rebar-report-meta">
+              <span>容差 <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
+              <span>测量方向 <strong>设计顶点 → 对应扫描实例最近点</strong></span>
+              <span>已排除设计夹具</span>
+            </div>
             <table class="rebar-report-table">
-              <thead><tr><th>钢筋 / IFC ID / 点云实例</th><th>状态 / 点数</th><th>覆盖率</th><th>均绝偏差<br />(mm)</th><th>RMSE<br />(mm)</th><th>P95绝偏差<br />(mm)</th><th>容差内<br />(已覆盖)</th></tr></thead>
+              <colgroup><col class="rebar-report-table__member" /><col class="rebar-report-table__status" /><col class="rebar-report-table__coverage" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__tolerance" /></colgroup>
+              <thead><tr><th scope="col">钢筋信息</th><th scope="col">状态 / 点数</th><th scope="col">覆盖率</th><th scope="col">平均绝对偏差<br /><small>mm</small></th><th scope="col">RMSE<br /><small>mm</small></th><th scope="col">P95 绝对偏差<br /><small>mm</small></th><th scope="col">容差内<br /><small>已覆盖</small></th></tr></thead>
               <tbody><tr v-for="bar in bars" :key="bar.ifcGlobalId">
-                <td>{{ bar.name || bar.designBarId }}<small>{{ bar.ifcGlobalId }}</small><small>实例 {{ bar.instanceIds.join('、') || '无' }}</small></td>
-                <td>{{ rebarStatusLabel(bar.status) }}<small>{{ bar.pointCount.toLocaleString() }} 点</small></td>
-                <td>{{ formatC2MPercentage(bar.vertexCount ? bar.knownCount / bar.vertexCount : undefined) }}</td>
-                <td>{{ bar.stats?.meanAbs === undefined ? '--' : (bar.stats.meanAbs * 1000).toFixed(2) }}</td>
-                <td>{{ bar.stats?.rmse === undefined ? '--' : (bar.stats.rmse * 1000).toFixed(2) }}</td>
-                <td>{{ bar.stats?.p95Abs === undefined ? '--' : (bar.stats.p95Abs * 1000).toFixed(2) }}</td>
-                <td>{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
+                <td><strong>{{ bar.name || bar.designBarId }}</strong><small>{{ bar.ifcGlobalId }}</small><small>实例 {{ formatReportInstanceIds(bar.instanceIds) }}</small></td>
+                <td><span class="rebar-report-status" :class="`is-${bar.status}`">{{ rebarStatusLabel(bar.status) }}</span><small>{{ bar.pointCount.toLocaleString() }} 点</small></td>
+                <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.vertexCount ? bar.knownCount / bar.vertexCount : undefined) }}</td>
+                <td class="rebar-report-table__number">{{ bar.stats?.meanAbs === undefined ? '--' : (bar.stats.meanAbs * 1000).toFixed(2) }}</td>
+                <td class="rebar-report-table__number">{{ bar.stats?.rmse === undefined ? '--' : (bar.stats.rmse * 1000).toFixed(2) }}</td>
+                <td class="rebar-report-table__number">{{ bar.stats?.p95Abs === undefined ? '--' : (bar.stats.p95Abs * 1000).toFixed(2) }}</td>
+                <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
               </tr></tbody>
             </table>
-            <p class="rebar-report-provenance">结果版本：{{ c2mResult?.resultVersion }}<br />实例映射：{{ comparison?.instanceMapHash }}</p>
-            <footer>第 {{ page + 2 }} 页 · 钢筋 {{ page * 14 + 1 }}–{{ page * 14 + bars.length }} / {{ comparisonBars.length }}</footer>
+            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差报告</span><span>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} 页</span></footer>
           </article>
         </div>
       </section>

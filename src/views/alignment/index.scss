@@ -2747,6 +2747,66 @@
   margin: 70px auto 0;
 }
 
+.calibration-page .rebar-report-page-stage.is-report-page-hidden {
+  display: none;
+}
+
+.calibration-page .rebar-report-page-nav {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid #cbd8da;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 8px 22px rgb(48 74 93 / 16%);
+  transform: translateX(-50%);
+}
+
+.calibration-page .rebar-report-page-nav button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #42616e;
+  background: rgb(255 255 255 / 70%);
+  cursor: pointer;
+}
+
+.calibration-page .rebar-report-page-nav button:hover:not(:disabled) {
+  color: #176b43;
+  background: #e8f4ee;
+}
+
+.calibration-page .rebar-report-page-nav button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.calibration-page .rebar-report-page-nav-label {
+  min-width: 150px;
+  display: grid;
+  gap: 1px;
+  color: #30464d;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.calibration-page .rebar-report-page-nav-label small {
+  color: #6a7f86;
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .calibration-page .report-preview-toolbar {
   display: flex;
   align-items: flex-end;
@@ -2961,16 +3021,16 @@
 
 .calibration-page .cover-footer {
   position: absolute;
-  right: 62px;
-  bottom: 20px;
-  left: 62px;
+  right: 52px;
+  bottom: 28px;
+  left: 52px;
   display: flex;
   justify-content: space-between;
-  color: #575f68;
+  padding-top: 14px;
+  border-top: 1px solid #e4ebf3;
+  color: #647b90;
   font-family: var(--font-family-number);
-  font-size: 14px;
-  border-top: 1px solid #d3e1e4;
-  padding-top: 10px;
+  font-size: 10px;
 }
 
 .calibration-page .report-preview-page__header {
@@ -3120,6 +3180,7 @@
 
   :global(body.is-printing-alignment-report .report-reader-toolbar),
   :global(body.is-printing-alignment-report .report-reader-toolbar-reopen),
+  :global(body.is-printing-alignment-report .rebar-report-page-nav),
   :global(body.is-printing-alignment-report .right-panel),
   :global(body.is-printing-alignment-report .status-bar) {
     display: none !important;
@@ -4771,20 +4832,34 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.calibration-page .rebar-report-page { gap: 14px; }
-.calibration-page .rebar-report-page h2 { margin: 0; font-size: 22px; }
+.calibration-page .rebar-report-page { gap: 0; padding: 58px 62px 42px; color: #1f2b30; background: #fff; }
+.calibration-page .rebar-report-page h2 { margin: 5px 0 4px; color: #182328; font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .calibration-page .rebar-report-page p { margin: 0; font-size: 12px; line-height: 1.6; }
-.calibration-page .rebar-report-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 10px;
-  th, td { padding: 7px 4px; border: 1px solid #d7e1ed; text-align: left; }
-  th { background: #eef4fa; }
-  small { display: block; font-size: 9px; overflow-wrap: anywhere; }
-  td:first-child { max-width: 160px; overflow-wrap: anywhere; }
-}
-.calibration-page .rebar-report-provenance { overflow-wrap: anywhere; color: #64748b; }
-.calibration-page .rebar-report-page footer { margin-top: auto; font-size: 11px; color: #64748b; }
+.calibration-page .rebar-report-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 26px 0 16px; }
+.calibration-page .rebar-report-kicker { color: #3983a1; font-family: var(--font-family-number); font-size: 10px; font-weight: 700; letter-spacing: 0.15em; }
+.calibration-page .rebar-report-heading p { color: #71849a; font-size: 11px; }
+.calibration-page .rebar-report-count { min-width: 84px; display: grid; justify-items: end; gap: 2px; padding: 8px 11px; border: 1px solid #b9c5c9; border-radius: 4px; background: #f3f5f5; }
+.calibration-page .rebar-report-count strong { color: #176b43; font-family: var(--font-family-number); font-size: 22px; line-height: 1; }
+.calibration-page .rebar-report-count span { color: #6a7f86; font-size: 10px; }
+.calibration-page .rebar-report-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 12px; padding: 9px 11px; border: 1px solid #b9c5c9; border-radius: 4px; color: #596a72; background: #f8fbfb; font-size: 11px; line-height: 1.5; }
+.calibration-page .rebar-report-meta strong { color: #345b63; font-weight: 700; }
+.calibration-page .rebar-report-table { width: 100%; margin: 0; border: 1px solid #b9c5c9; border-collapse: collapse; table-layout: fixed; color: #30464d; font-size: 13px; }
+.calibration-page .rebar-report-table col.rebar-report-table__member { width: 26%; }
+.calibration-page .rebar-report-table col.rebar-report-table__status { width: 14%; }
+.calibration-page .rebar-report-table col.rebar-report-table__coverage { width: 10%; }
+.calibration-page .rebar-report-table col.rebar-report-table__metric { width: 13%; }
+.calibration-page .rebar-report-table col.rebar-report-table__tolerance { width: 11%; }
+.calibration-page .rebar-report-table th, .calibration-page .rebar-report-table td { padding: 7px 8px; border: 1px solid #cbd8da; text-align: center; vertical-align: middle; overflow-wrap: anywhere; word-break: break-word; line-height: 1.35; }
+.calibration-page .rebar-report-table th { color: #345b63; background: #eef6f7; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.calibration-page .rebar-report-table th small { color: #527078; font-size: 10px; font-weight: 650; }
+.calibration-page .rebar-report-table tbody tr:nth-child(even) td { background: #f8fbfb; }
+.calibration-page .rebar-report-table td > strong { display: block; color: #1b6171; font-size: 13px; line-height: 1.35; }
+.calibration-page .rebar-report-table small { display: block; margin-top: 3px; color: #596a72; font-size: 10px; line-height: 1.35; }
+.calibration-page .rebar-report-table__number { text-align: center !important; font-family: var(--font-family-number); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.calibration-page .rebar-report-status { display: inline-flex; padding: 3px 5px; border-radius: 3px; color: #176b43; background: #e8f4ee; font-size: 10px; font-weight: 700; line-height: 1.35; white-space: nowrap; }
+.calibration-page .rebar-report-status.is-missing { color: #9a5c40; background: #fcefe8; }
+.calibration-page .rebar-report-status.is-review { color: #876827; background: #fbf4dc; }
+.calibration-page .rebar-report-page footer { margin-top: auto; font-size: 10px; color: #647b90; }
 
 .calibration-page .c2m-display-help {
   margin: 8px 0; color: #64748b; font-size: 11px; line-height: 1.7;
