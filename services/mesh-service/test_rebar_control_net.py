@@ -49,6 +49,81 @@ class ControlNetTests(unittest.TestCase):
         table = np.zeros(len(points), bool) if table is None else table
         return fit_control_net(points, table, inv, mode=mode, normals=normals, **kwargs)
 
+    def test_post_table_fit_is_layer_independent_and_bounded_by_geometry(self):
+        rng = np.random.default_rng(81)
+        top, top_normals = tube([.5, -.45, .08], [.5, .45, .08], along=72)
+        bottom, bottom_normals = tube([0, 0, .02], [1, 0, .02], along=72)
+        noise = rng.uniform([-.15, -.55, -.04], [1.15, .55, .14], (900, 3))
+        table = np.c_[rng.uniform(-.15, 1.15, 300),
+                      rng.uniform(-.55, .55, 300), np.full(300, -.08)]
+        points = np.vstack((top, bottom, noise, table))
+        normals = np.vstack((top_normals, bottom_normals,
+                             np.zeros_like(noise), np.tile([0., 0., 1.], (len(table), 1))))
+        table_mask = np.zeros(len(points), bool)
+        table_mask[-len(table):] = True
+        # Provenance IDs and inventory order deliberately disagree with the
+        # lower/top semantic order. Neither is fitting input at this stage.
+        inv = inventory([([.5, -.45, .08], [.5, .45, .08]),
+                         ([0, 0, .02], [1, 0, .02])])
+        inv['units'][0]['layerId'] = 2
+        inv['units'][1]['layerId'] = 1
+
+        report, attrs = self.fit(points, inv, normals, table=table_mask)
+
+        self.assertEqual(report['version'], 'design-control-net-v14')
+        self.assertEqual(report['inputStage'], 'post-table')
+        self.assertNotIn('layers', report)
+        self.assertEqual([row['layerId'] for row in report['instances']], [2, 1])
+        self.assertEqual([row['fitLayerId'] for row in report['instances']], [0, 0])
+        self.assertTrue(all(row['fitCandidateScope'] == 'bounded-geometry'
+                            for row in report['instances']))
+        self.assertEqual(report['counts']['fittedUnits'], 2)
+        self.assertGreater(np.mean(attrs['control_instance'][:len(top)] == 1), .90)
+        self.assertGreater(np.mean(attrs['control_instance'][len(top):len(top)+len(bottom)] == 2), .90)
+        noise_ids = slice(len(top)+len(bottom), len(top)+len(bottom)+len(noise))
+        self.assertLess(np.mean(attrs['control_instance'][noise_ids] != 0), .03)
+        self.assertTrue(np.all(attrs['control_status'][-len(table):] == 0))
+        self.assertEqual(report['policy']['semanticLayerPolicy'],
+                         'not available at post-table stage; no layer partition or layer ordering applied')
+        self.assertNotIn('layerRetryPolicy', report['policy'])
+        json.dumps(report, allow_nan=False)
+
+    def test_dense_offset_partial_arc_gets_more_evidence_before_ambiguity_rejection(self):
+        # A gently bowed 1.15 m bar lies 16 mm from its nominal axis. The
+        # nearest 192 points per station see only its near side; richer samples
+        # reveal the same continuous half-cylinder, not a second physical bar.
+        from threadpoolctl import threadpool_limits
+        station, angle = np.meshgrid(np.linspace(0, 1.15, 500),
+                                    np.linspace(.7, .7+3.14, 60), indexing='ij')
+        station, angle = station.ravel(), angle.ravel()
+        points = np.column_stack((station, .016+.004*np.sin(angle),
+                                  .002*(station/1.15)**2+.004*np.cos(angle)))
+        normals = np.column_stack((np.zeros(len(station)), np.sin(angle), np.cos(angle)))
+        original = points.copy()
+        with threadpool_limits(limits=1):
+            report, attrs = self.fit(points, inventory([([0,0,0], [1.15,0,0])]), normals)
+        row = report['instances'][0]
+        self.assertEqual(row['status'], 'fitted', row['reason'])
+        self.assertGreater(row['observedLengthM'], 1.)
+        curve = np.asarray(row['centerlineM'])
+        expected = np.column_stack((curve[:,0], np.full(len(curve), .016), .002*(curve[:,0]/1.15)**2))
+        self.assertLess(np.linalg.norm(curve-expected, axis=1).max(), .0006)
+        self.assertGreater(np.count_nonzero(attrs['control_instance']), 20000)
+        np.testing.assert_array_equal(points, original)
+
+    def test_richer_sampling_keeps_two_real_parallel_candidates_pending(self):
+        from threadpoolctl import threadpool_limits
+        with threadpool_limits(limits=1):
+            for offset in (.012, .02, .035):
+                a, an = tube([0,offset,0], [1.15,offset,0], along=500, around=32)
+                b, bn = tube([0,-offset,0], [1.15,-offset,0], along=500, around=32)
+                points = np.vstack((a,b))
+                report, attrs = self.fit(points, inventory([([0,0,0], [1.15,0,0])]), np.vstack((an,bn)))
+                self.assertEqual(report['instances'][0]['status'], 'pending')
+                self.assertEqual(report['instances'][0]['reason'], 'ambiguous-parallel-support')
+                self.assertFalse(attrs['control_instance'].any())
+                self.assertTrue(np.all(attrs['control_status'] == 2))
+
     def test_vote_groups_preserve_negative_cells_and_tied_seed_order(self):
         from algorithms.rebar_control_net import _circle_vote_groups
         rng = np.random.default_rng(37)
@@ -287,12 +362,71 @@ class ControlNetTests(unittest.TestCase):
         self.assertTrue(all(row['status'] == 'pending' for row in report['instances']))
         self.assertFalse(np.any(attrs['control_instance']))
 
-    def test_short_bar_at_wrong_axial_interval_stays_pending(self):
+    def test_short_bar_at_wrong_axial_interval_is_recovered(self):
         steel, normals = tube([.10, 0, 0], [.30, 0, 0], along=55)
         inv = inventory([([0, 0, 0], [.20, 0, 0])], kinds=["short"])
         report, attrs = self.fit(steel, inv, normals)
-        self.assertEqual(report["instances"][0]["status"], "pending")
-        self.assertFalse(np.any(attrs["control_instance"]))
+        row = report['instances'][0]
+        self.assertEqual(row['status'], 'fitted')
+        self.assertEqual(row['fitCandidateScope'], 'unclaimed-short-pose-search')
+        np.testing.assert_allclose(np.asarray(row['centerlineM'])[:, 0], [.10, .30], atol=.002)
+        self.assertGreater(np.mean(attrs['control_instance'] == 1), .95)
+
+    def test_short_recovery_does_not_borrow_known_neighbour(self):
+        known, kn = tube([0, .20, 0], [.28, .20, 0], along=60)
+        moved, mn = tube([.03, .40, 0], [.31, .40, 0], along=60)
+        inv = inventory([([0, 0, 0], [.28, 0, 0]),
+                         ([0, .20, 0], [.28, .20, 0])], kinds=['short', 'short'])
+        report, attrs = self.fit(np.vstack((known, moved)), inv, np.vstack((kn, mn)))
+        self.assertEqual(report['counts']['fittedUnits'], 2)
+        self.assertGreater(np.mean(attrs['control_instance'][:len(known)] == 2), .95)
+        self.assertGreater(np.mean(attrs['control_instance'][len(known):] == 1), .95)
+
+    def test_relocated_overlength_keeps_design_length_and_requires_review(self):
+        steel, normals = tube([0, .4, 0], [.37, .4, 0], along=90)
+        report, _ = self.fit(steel, inventory([([0, 0, 0], [.28, 0, 0])], kinds=['short']), normals)
+        row = report['instances'][0]
+        self.assertEqual(row['status'], 'fitted')
+        self.assertEqual(row['designLengthM'], .28)
+        self.assertEqual(row['fittedLengthM'], .28)
+        self.assertEqual(row['lengthCheck'], 'review-observed-span')
+        self.assertEqual(report['counts']['lengthReviewUnits'], 1)
+        self.assertAlmostEqual(row['observedLengthM'], .37, delta=.01)
+        self.assertAlmostEqual(np.linalg.norm(np.diff(row['centerlineM'], axis=0)), row['fittedLengthM'])
+
+    def test_sparse_axial_speckles_do_not_extend_recovered_short_span(self):
+        steel, normals = tube([0, .4, 0], [.28, .4, 0], along=90)
+        speckles, sn = tube([.295, .4, 0], [.39, .4, 0], along=14, around=1)
+        report, _ = self.fit(np.vstack((steel, speckles)),
+            inventory([([0, 0, 0], [.28, 0, 0])], kinds=['short']), np.vstack((normals, sn)))
+        row = report['instances'][0]
+        self.assertEqual(row['status'], 'fitted')
+        self.assertEqual(row['lengthCheck'], 'consistent-visible-span')
+        self.assertAlmostEqual(row['observedLengthM'], .28, delta=.01)
+
+    def test_recovery_rejects_long_tube_and_equivalent_short_candidates(self):
+        inv = inventory([([0, 0, 0], [.28, 0, 0])], kinds=['short'])
+        steel, normals = tube([-.5, .4, 0], [.8, .4, 0], along=160)
+        report, attrs = self.fit(steel, inv, normals)
+        self.assertEqual(report['counts']['fittedUnits'], 0)
+        self.assertFalse(np.any(attrs['control_instance']))
+        a, an = tube([0, .3, 0], [.28, .3, 0], along=60)
+        b, bn = tube([0, -.3, 0], [.28, -.3, 0], along=60)
+        report, attrs = self.fit(np.vstack((a, b)), inv, np.vstack((an, bn)))
+        self.assertEqual(report['instances'][0]['reason'], 'ambiguous-short-recovery')
+        self.assertFalse(np.any(attrs['control_instance']))
+
+    def test_web_straight_body_is_not_bowed_by_curved_ends(self):
+        steel, normals = tube([0, 0, 0], [.12, 0, 0], along=100,
+            bend=lambda s: .008*(np.maximum(0, .12-s)/.12)**2 + .008*(np.maximum(0, s-.88)/.12)**2)
+        report, attrs = self.fit(steel, inventory([([0, 0, 0], [.12, 0, 0])], kinds=['web']), normals)
+        row = report['instances'][0]
+        self.assertEqual(row['status'], 'fitted')
+        self.assertEqual(row['axisModel'], 'fixed-length-straight-cylinder')
+        curve = np.asarray(row['centerlineM'])
+        self.assertEqual(len(curve), 2)
+        self.assertLess(np.abs(curve[:, 1:]).max(), .001)
+        self.assertFalse(np.any(attrs['control_status'] == 3))
 
     def test_rotated_short_hook_run_can_fit_without_changing_length(self):
         angle = np.deg2rad(34)

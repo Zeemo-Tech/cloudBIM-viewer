@@ -17,9 +17,11 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from rebar_bim import (_matrix, _walk_items, _scaled_transform, _extruded_points,
-                       _swept_disk_points, _basis_for_glb)
+                       _swept_disk_points, _basis_for_glb,
+                       _extruded_curve_primitives, _swept_disk_primitives)
+from algorithms.rebar_design_curves import transform_primitives
 
-VERSION = "design-inventory-v3"
+VERSION = "design-inventory-v4"
 SCHEMA = "rebar-design-snapshot-v1"
 MAX_BARS = 20_000
 MAX_UNITS = 20_000
@@ -151,6 +153,10 @@ def extract_model(ifc_path, model_path=None):
                 if extracted is None and xyz is None:
                     continue
                 points, radius = extracted if extracted is not None else (None, None)
+                primitives = (_extruded_curve_primitives(item, transform, unit)
+                              if item.is_a('IfcExtrudedAreaSolid') else
+                              _swept_disk_primitives(item, transform, unit, angle_scale)
+                              if item.is_a('IfcSweptDiskSolid') else [])
                 identity = f'{product.GlobalId}:{occurrence}'
                 entry = {'designBarId': identity, 'ifcGlobalId': str(product.GlobalId),
                          'name': str(product.Name or ''), 'productType': product.is_a(),
@@ -158,6 +164,8 @@ def extract_model(ifc_path, model_path=None):
                          'coverage': coverage, 'radiusM': radius,
                          'points': points.tolist() if points is not None else [],
                          'boundsM': [xyz.min(axis=0).tolist(), xyz.max(axis=0).tolist()] if xyz is not None else None}
+                if primitives:
+                    entry['curvePrimitives'] = primitives
                 raw.append(entry)
                 if points is not None:
                     anchors.append((str(product.GlobalId), points, radius))
@@ -169,6 +177,9 @@ def extract_model(ifc_path, model_path=None):
             if bar.get(field):
                 p = np.asarray(bar[field])
                 bar[field] = ((basis @ np.c_[p, np.ones(len(p))].T).T[:, :3]).tolist()
+        if bar.get('curvePrimitives'):
+            bar['curvePrimitives'] = transform_primitives(
+                bar['curvePrimitives'], basis[:3, :3], basis[:3, 3])
     return {'version': VERSION, 'bars': raw, 'diagnostics': diagnostics, 'ifcUnitScale': unit}
 
 
@@ -204,6 +215,14 @@ def inventory_from_bars(bars, scan_to_bim, *, provenance=None):
         bar = deepcopy(source)
         points = np.asarray(bar.get('points', []), float)
         bar['unitIds'] = []
+        if bar.get('curvePrimitives'):
+            try:
+                bar['curvePrimitives'] = transform_primitives(
+                    bar['curvePrimitives'], inverse[:3, :3], inverse[:3, 3])
+            except ValueError:
+                # Invalid or historical metadata must not poison the sampled
+                # centerline fallback or be mistaken for exact geometry.
+                bar.pop('curvePrimitives', None)
         if points.size:
             if points.ndim != 2 or points.shape[1] != 3 or not np.isfinite(points).all():
                 raise ValueError('Invalid design centerline')

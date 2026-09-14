@@ -13,7 +13,23 @@ METHOD = "design-prior-continuous-axis-v1"
 INDEPENDENT_METHOD = "scan-cluster-independent-axis-v1"
 
 
-def fit_prior_axis(points, start, tangent, length, radius, *, independent=False, initial_centerline=None):
+class _SupportedSpline:
+    """Continue endpoint tangents outside evidence, never cubic curvature."""
+    def __init__(self, spline, low, high):
+        self.spline, self.low, self.high = spline, low, high
+
+    def __call__(self, station, nu=0):
+        station = np.asarray(station)
+        bounded = np.clip(station, self.low, self.high)
+        result = self.spline(bounded, nu=nu)
+        if nu == 0:
+            result = result + (station-bounded)[..., None]*self.spline(bounded, nu=1)
+        elif nu > 1:
+            result = np.where((station == bounded)[..., None], result, 0.)
+        return result
+
+
+def fit_prior_axis(points, start, tangent, length, radius, *, independent=False, initial_centerline=None, straight=False, guard_bending=False):
     if radius is None or not np.isfinite(radius) or radius <= 0:
         return None, "missing-design-radius"
     helper = np.eye(3)[np.argmin(np.abs(tangent))]
@@ -35,7 +51,26 @@ def fit_prior_axis(points, start, tangent, length, radius, *, independent=False,
     # must not outweigh the rest of the already classified instance.
     bins = np.clip((s * 32).astype(int), 0, 31)
     counts = np.bincount(bins, minlength=32)
-    weights = np.sqrt(len(s) / (np.count_nonzero(counts) * counts[bins]))
+    fit_mask = np.ones(len(s), dtype=bool)
+    support_low, support_high = 0., 1.
+    if guard_bending and not straight:
+        # Equal station weighting must not promote a handful of terminal noise
+        # points to the same authority as hundreds of body surface samples.
+        minimum = max(24, .20*np.median(counts[counts > 0]))
+        reliable = counts >= minimum
+        runs = np.flatnonzero(np.convolve(reliable.astype(int), np.ones(3, int), mode='valid') == 3)
+        if not len(runs):
+            return None, 'insufficient-continuous-axis-evidence'
+        first, last = int(runs[0]), int(runs[-1]+2)
+        fit_mask = (bins >= first) & (bins <= last)
+        support_low, support_high = np.quantile(s[fit_mask], [.01, .99])
+        if support_high-support_low < .25:
+            return None, 'insufficient-continuous-axis-evidence'
+        floor = max(minimum, 1.)
+    else:
+        floor = 1.
+    weights = np.sqrt(len(s) / (np.count_nonzero(counts) * np.maximum(counts[bins], floor)))
+    weights *= fit_mask
     normalized = xy / radius
     scale = max(.00015 / radius, .06)
 
@@ -56,7 +91,8 @@ def fit_prior_axis(points, start, tangent, length, radius, *, independent=False,
 
     # A few whole-instance starts avoid the mirror solution on a visible arc.
     # Only this initialization is sampled; the final solve uses every eligible point.
-    ids = np.linspace(0, len(s) - 1, min(len(s), 2048), dtype=int)
+    eligible_ids = np.flatnonzero(fit_mask)
+    ids = eligible_ids[np.linspace(0, len(eligible_ids) - 1, min(len(eligible_ids), 2048), dtype=int)]
     linear = np.column_stack((np.ones(len(s)), s - .5))
     seed, *_ = np.linalg.lstsq(linear[ids], normalized[ids], rcond=None)
     candidates = []
@@ -67,10 +103,14 @@ def fit_prior_axis(points, start, tangent, length, radius, *, independent=False,
     # Six cubic B-spline coefficients describe smooth bow and tilt over the full
     # design length. No per-window gates or gap filling are involved.
     knots = np.r_[np.zeros(4), 1/3, 2/3, np.ones(4)]
-    spline = BSpline(knots, np.eye(6), 3, extrapolate=True)
+    spline = (BSpline([0., 0., 1., 1.], np.eye(2), 1, extrapolate=True)
+              if straight else BSpline(knots, np.eye(6), 3, extrapolate=True))
+    if guard_bending and not straight:
+        spline = _SupportedSpline(spline, support_low, support_high)
     basis = spline(s)
     seed, *_ = np.linalg.lstsq(basis, linear @ best.x.reshape(2, 2), rcond=None)
-    smooth = spline(np.linspace(0, 1, 24), nu=2) * np.sqrt(len(s) / 24) * .003
+    smooth = (np.empty((0, 2)) if straight else
+              spline(np.linspace(0, 1, 24), nu=2) * np.sqrt(len(s) / 24) * .003)
     fitted = solve(basis, normalized, weights, seed, smooth)
     if initial_centerline is not None:
         observed = np.asarray(initial_centerline, dtype=float)
@@ -83,10 +123,47 @@ def fit_prior_axis(points, start, tangent, length, radius, *, independent=False,
         observed_fit = solve(basis, normalized, weights, observed_seed, smooth)
         if observed_fit.success and (not fitted.success or observed_fit.cost < fitted.cost):
             fitted = observed_fit
-    coeff = fitted.x.reshape(6, 2) * radius
+    shape_model = 'straight' if straight else 'smooth-spline'
+    if guard_bending and not straight:
+        linear_spline = BSpline([0., 0., 1., 1.], np.eye(2), 1, extrapolate=True)
+        linear_basis = linear_spline(s)
+        linear_seed, *_ = np.linalg.lstsq(linear_basis[ids], linear[ids]@best.x.reshape(2, 2), rcond=None)
+        linear_fit = solve(linear_basis, normalized, weights, linear_seed, np.empty((0, 2)))
+        curved_error = np.abs(np.linalg.norm(normalized-basis@fitted.x.reshape(-1, 2), axis=1)-1)*radius
+        linear_error = np.abs(np.linalg.norm(normalized-linear_basis@linear_fit.x.reshape(2, 2), axis=1)-1)*radius
+        def band_error(errors):
+            return np.median([np.median(errors[(bins == b) & fit_mask])
+                              for b in np.unique(bins[fit_mask])])
+        def band_support(errors):
+            return np.median([np.mean(errors[(bins == b) & fit_mask] <= max(.0005, .35*radius))
+                              for b in np.unique(bins[fit_mask])])
+        straight_score, curved_score = band_error(linear_error), band_error(curved_error)
+        straight_support = band_support(linear_error)
+        if linear_fit.success and straight_support >= .80 and (
+                straight_score-curved_score < max(.00012, .04*radius)
+                or curved_score >= .8*straight_score):
+            spline, basis, fitted = linear_spline, linear_basis, linear_fit
+            shape_model = 'evidence-selected-straight'
+        else:
+            bow_spline = _SupportedSpline(BSpline([0., 0., 0., 1., 1., 1.], np.eye(3), 2),
+                                           support_low, support_high)
+            bow_basis = bow_spline(s)
+            bow_seed, *_ = np.linalg.lstsq(bow_basis[ids], (basis@fitted.x.reshape(-1, 2))[ids], rcond=None)
+            bow_penalty = bow_spline(np.linspace(0, 1, 24), nu=2)*np.sqrt(len(s)/24)*.003
+            bow_fit = solve(bow_basis, normalized, weights, bow_seed, bow_penalty)
+            bow_error = np.abs(np.linalg.norm(normalized-bow_basis@bow_fit.x.reshape(3, 2), axis=1)-1)*radius
+            bow_score = band_error(bow_error)
+            if bow_fit.success and band_support(bow_error) >= .80 and (
+                    bow_score-curved_score < max(.00012, .04*radius) or curved_score >= .8*bow_score):
+                spline, basis, fitted = bow_spline, bow_basis, bow_fit
+                shape_model = 'evidence-selected-bow'
+            else:
+                shape_model = 'supported-spline'
+    coeff = fitted.x.reshape(basis.shape[1], 2) * radius
     residual = np.abs(np.linalg.norm(xy - basis @ coeff, axis=1) - radius)
-    inliers = residual <= max(.0005, .35 * radius)
-    if not fitted.success or inliers.mean() < .55:
+    inliers = (residual <= max(.0005, .35 * radius)) & fit_mask
+    fit_support = (band_support(residual) if guard_bending and not straight else inliers.mean())
+    if not fitted.success or fit_support < .55:
         return None, "inconsistent-design-radius"
     radial = xy[inliers] - (basis @ coeff)[inliers]
     radial /= np.maximum(np.linalg.norm(radial, axis=1)[:, None], 1e-12)
@@ -100,7 +177,8 @@ def fit_prior_axis(points, start, tangent, length, radius, *, independent=False,
     return {"spline": spline, "coeff": coeff, "u": u, "v": v,
             "start": start, "tangent": tangent, "length": length, "radius": radius,
             "along": along, "xy": xy, "residual": residual, "inliers": inliers,
-            "fitRmseM": rmse, "pointCount": len(xy)}, "prior-axis-supported"
+            "fitRmseM": rmse, "pointCount": len(xy), 'shapeModel': shape_model,
+            'supportedRange': [float(support_low*length), float(support_high*length)]}, "prior-axis-supported"
 
 
 def fit_independent_axis(points, radius):

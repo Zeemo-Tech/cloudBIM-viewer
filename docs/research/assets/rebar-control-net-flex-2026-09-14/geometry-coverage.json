@@ -1,0 +1,380 @@
+{
+  "runId": "20260914T084630-1abadfc7",
+  "version": "design-control-net-v11",
+  "physicalParents": 70,
+  "matchingUnits": 210,
+  "kindCounts": {
+    "straight": 54,
+    "short": 12,
+    "web": 144
+  },
+  "axisModels": {
+    "supported-spline": 19,
+    "evidence-selected-bow": 21,
+    "evidence-selected-straight": 14,
+    "fixed-length-straight-cylinder": 156
+  },
+  "curvedParents": [
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pvys:representation0/item0:154",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830974,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573585,
+      "instanceIds": [
+        2
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv4t:representation0/item0:181",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830974,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573585,
+      "instanceIds": [
+        3
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv4_:representation0/item0:208",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830973,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573497,
+      "instanceIds": [
+        4
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv53:representation0/item0:235",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830973,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573497,
+      "instanceIds": [
+        5
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv58:representation0/item0:262",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830973,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573497,
+      "instanceIds": [
+        6
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv5V:representation0/item0:289",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830974,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573585,
+      "instanceIds": [
+        7
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv5a:representation0/item0:316",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830973,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573497,
+      "instanceIds": [
+        8
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv5f:representation0/item0:343",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830973,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573497,
+      "instanceIds": [
+        9
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pv5_:representation0/item0:370",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830973,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573497,
+      "instanceIds": [
+        10
+      ]
+    },
+    {
+      "barId": "1b9YNqdvPA1AzGxyF9pvAT:representation0/item0:397",
+      "pointCount": 9,
+      "unitCount": 1,
+      "excludedHookRunCount": 1,
+      "parentPolylineLengthM": 4.252442172830975,
+      "matchingUnitLengthM": 4.165997874555238,
+      "unrepresentedLengthM": 0.08644429827573674,
+      "instanceIds": [
+        11
+      ]
+    },
+    {
+      "barId": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665",
+      "pointCount": 177,
+      "unitCount": 36,
+      "excludedHookRunCount": 0,
+      "parentPolylineLengthM": 4.414102783800553,
+      "matchingUnitLengthM": 3.736584092718711,
+      "unrepresentedLengthM": 0.677518691081842,
+      "instanceIds": [
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99
+      ]
+    },
+    {
+      "barId": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110",
+      "pointCount": 177,
+      "unitCount": 36,
+      "excludedHookRunCount": 0,
+      "parentPolylineLengthM": 4.414102783800553,
+      "matchingUnitLengthM": 3.736584092718717,
+      "unrepresentedLengthM": 0.6775186910818363,
+      "instanceIds": [
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        119,
+        120,
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        134,
+        135
+      ]
+    },
+    {
+      "barId": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594",
+      "pointCount": 177,
+      "unitCount": 36,
+      "excludedHookRunCount": 0,
+      "parentPolylineLengthM": 4.414102783800553,
+      "matchingUnitLengthM": 3.7365840927187146,
+      "unrepresentedLengthM": 0.6775186910818385,
+      "instanceIds": [
+        139,
+        140,
+        141,
+        142,
+        143,
+        144,
+        145,
+        146,
+        147,
+        148,
+        149,
+        150,
+        151,
+        152,
+        153,
+        154,
+        155,
+        156,
+        157,
+        158,
+        159,
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        166,
+        167,
+        168,
+        169,
+        170,
+        171,
+        172,
+        173,
+        174
+      ]
+    },
+    {
+      "barId": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030",
+      "pointCount": 177,
+      "unitCount": 36,
+      "excludedHookRunCount": 0,
+      "parentPolylineLengthM": 4.414102783800553,
+      "matchingUnitLengthM": 3.7365840927187186,
+      "unrepresentedLengthM": 0.6775186910818345,
+      "instanceIds": [
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        185,
+        186,
+        187,
+        188,
+        189,
+        190,
+        191,
+        192,
+        193,
+        194,
+        195,
+        196,
+        197,
+        198,
+        199,
+        200,
+        201,
+        202,
+        203,
+        204,
+        205,
+        206,
+        207,
+        208,
+        209,
+        210
+      ]
+    }
+  ],
+  "caveats": [
+    "Lengths use stored sampled parent polylines, not exact analytic arcs.",
+    "Parent length minus unit lengths is representation coverage, not scan error or missing-point count.",
+    "Design and fitted geometry differ in pose; plotted design is initialization, not measured truth."
+  ],
+  "arcSamplingDiagnostics": [
+    {
+      "kind": "hook",
+      "inferredRadiusM": 0.01999999999999997,
+      "maxChordSagM": 0.0008611932853559434,
+      "maxChordForPointOneMmSagM": 0.003994996871087632,
+      "method": "Circle inferred from stored design samples; not IFC analytic metadata or scan fit."
+    },
+    {
+      "kind": "web",
+      "inferredRadiusM": 0.01500000000000122,
+      "maxChordSagM": 0.0008021120727900715,
+      "maxChordForPointOneMmSagM": 0.0034583232931582578,
+      "method": "Circle inferred from stored design samples; not IFC analytic metadata or scan fit."
+    }
+  ],
+  "plotWindows": [
+    {
+      "title": "长筋 #2：弯钩未进入直段模型",
+      "centerM": [
+        6.3168945978010145,
+        -1.4149999672755105,
+        0.06659607710012178
+      ],
+      "halfExtentM": [
+        0.12,
+        0.022,
+        0.085
+      ],
+      "pointCount": 3720,
+      "currentParentOwnedPointCount": 68
+    },
+    {
+      "title": "连续腹杆：中间接头缺少曲线连接",
+      "centerM": [
+        4.205037974925797,
+        -1.5524852482173623,
+        0.10064610174459407
+      ],
+      "halfExtentM": [
+        0.14,
+        0.025,
+        0.085
+      ],
+      "pointCount": 15570,
+      "currentParentOwnedPointCount": 2960
+    }
+  ]
+}

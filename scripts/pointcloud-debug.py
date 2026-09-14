@@ -68,6 +68,7 @@ def manifest_summary(manifest):
         "priorMode": manifest.get("priorMode", "off"),
         "controlNetMode": manifest.get("controlNetMode", "off"),
         "throughStep": parameters.get("throughStep"),
+        "controlNetInputStage": (manifest.get("controlNet") or {}).get("inputStage"),
         "source": {"name": source.get("name"), "pointCount": source.get("pointCount")},
         "manifestUrl": f"/runs/{run_id}/manifest.json",
     }
@@ -383,8 +384,8 @@ def handler_for(state, allowed_hosts=()):
                 control_net_mode = params.get('controlNetMode', 'off')
                 if control_net_mode not in ('off', 'aligned', 'auto'):
                     raise ValueError('controlNetMode 必须为 off / aligned / auto')
-                if control_net_mode != 'off' and (through_step != 4 or prior_mode != 'off' or state.prior_config is None):
-                    raise ValueError('融合后分层控制网需要 throughStep=4、priorMode=off 和服务端设计快照')
+                if control_net_mode != 'off' and (through_step not in (2, 4) or prior_mode != 'off' or state.prior_config is None):
+                    raise ValueError('控制网需要 throughStep=2（台面移除后）或 4（融合后）、priorMode=off 和服务端设计快照')
                 if prior_mode not in PRIOR_MODES:
                     raise ValueError('priorMode 必须为 off / geometry / topology')
                 if through_step >= 7 and (prior_mode == 'off' or state.prior_config is None):
@@ -438,8 +439,8 @@ def main():
         parser.error('Step 06 requires --prior-config and --prior-mode geometry/topology')
     if args.through_step < 7 and args.prior_mode != 'off':
         parser.error('Design assistance requires --through-step 7 or 8')
-    if args.control_net_mode != 'off' and (args.through_step != 4 or args.prior_mode != 'off' or args.prior_config is None):
-        parser.error('Post-fusion layered control net requires --through-step 4, --prior-mode off and --prior-config')
+    if args.control_net_mode != 'off' and (args.through_step not in (2, 4) or args.prior_mode != 'off' or args.prior_config is None):
+        parser.error('Control net requires --through-step 2 (post-table) or 4 (post-fusion), --prior-mode off and --prior-config')
     if args.preview_limit < 1:
         parser.error('--preview-limit must be positive')
     if args.compute_only:

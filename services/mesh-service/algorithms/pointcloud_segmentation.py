@@ -29,9 +29,11 @@ FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered
 REFINEMENT_ATTRIBUTES = {"refined_class": "u1", "refined_region": "u1", "refined_zone": "u1", "refined_changed": "u1", "refined_reason": "u1"}
 
 
-def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None, stop_after_table=False):
+def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None, stop_after_table=False, stop_after_layering=False):
     if type(through_step) is not int or through_step not in range(1,7):
         raise ValueError("through_step must be 1–6 (ending at UI Step 05)")
+    if stop_after_layering and (through_step != 2 or stop_after_table):
+        raise ValueError("stop_after_layering requires through_step=2 and no table-only stop")
     progress = progress or (lambda *args: None)
     timing = {}
     t0 = time.perf_counter()
@@ -79,7 +81,7 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
         with threadpool_limits(limits=1):
             prepared = prepare_projection(context.positions, context.normals, context.normal_valid,
                 progress=progress, fixed_table=persisted.get('plane') if persisted else None,
-                fixed_table_mask=arrays['shared_table_mask'] if persisted else None)
+                fixed_table_mask=arrays['shared_table_mask'] if persisted else None, table_only=True)
         for name in SCENE_ATTRIBUTES:
             if name == 'shared_table_mask':
                 arrays[name][:] = prepared['table_mask']
@@ -102,9 +104,16 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
                 fixed_table=persisted.get("plane") if persisted else None,
                 fixed_table_mask=arrays["shared_table_mask"] if persisted else None)
             layering, floating_zones = prepare_floating_scene(context, design_inventory,
-                output={name: arrays[name] for name in FLOATING_ATTRIBUTES}, progress=progress)
-            preprocessing.update(layering=layering, floatingZones=floating_zones)
+                output={name: arrays[name] for name in FLOATING_ATTRIBUTES}, progress=progress,
+                **({'stop_after_layering': True} if stop_after_layering else {}))
+            preprocessing.update(layering=layering)
+            if floating_zones is not None:
+                preprocessing['floatingZones'] = floating_zones
         timing['preprocessingS'] = time.perf_counter()-t0
+        if stop_after_layering:
+            return SimpleNamespace(context=context, arrays=arrays, shapes=shapes, computation=computation,
+                timing=timing, preprocessing=preprocessing, classification=None, projection=None,
+                fusion=None, regions=None, refinement=None, internal_rebar=None, complete_rebar=None, execution=None)
         t0 = time.perf_counter()
         attributes = {**CLASS_ATTRIBUTES, **(PROJECTION_ATTRIBUTES if through_step >= 3 else {})}
         for name, dtype in attributes.items():

@@ -5,6 +5,52 @@ from rebar_metrics import measure_bar
 from rebar_scan_surface import ObservedRebarSurface
 
 class PriorAxisTests(unittest.TestCase):
+    def test_guarded_fit_does_not_bend_toward_sparse_terminal_noise(self):
+        from rebar_prior_axis import fit_prior_axis
+        from test_rebar_control_net import tube
+        body, _ = tube([.18, 0, 0], [1., 0, 0], along=140, around=24)
+        noise, _ = tube([0, .025, 0], [.035, .025, 0], along=4, around=8)
+        axis, reason = fit_prior_axis(np.vstack((body, noise)), np.zeros(3), np.array([1., 0, 0]),
+                                      1., .004, guard_bending=True)
+        self.assertIsNotNone(axis, reason)
+        offset = axis['spline'](np.linspace(0, 1, 65))@axis['coeff']
+        self.assertLess(np.abs(offset).max(), .0005)
+        self.assertEqual(axis['shapeModel'], 'evidence-selected-straight')
+        self.assertGreater(axis['supportedRange'][0], .1)
+
+    def test_guarded_fit_preserves_a_distributed_observed_bow(self):
+        from rebar_prior_axis import fit_prior_axis
+        from test_rebar_control_net import tube
+        body, _ = tube([0, 0, 0], [1., 0, 0], along=160, around=24,
+                       bend=lambda s: .014*np.sin(np.pi*s))
+        axis, reason = fit_prior_axis(body, np.zeros(3), np.array([1., 0, 0]),
+                                      1., .004, guard_bending=True)
+        self.assertIsNotNone(axis, reason)
+        stations=np.linspace(.05, .95, 25)
+        offset=axis['spline'](stations)@axis['coeff']
+        self.assertIn(axis['shapeModel'], ('evidence-selected-bow', 'supported-spline'))
+        np.testing.assert_allclose(offset[:, 0], .014*np.sin(np.pi*stations), atol=.0004)
+
+    def test_dense_local_contamination_cannot_outvote_the_remaining_body(self):
+        from rebar_prior_axis import fit_prior_axis
+        from test_rebar_control_net import tube
+        body, _ = tube([0, 0, 0], [1., 0, 0], along=160, around=24)
+        contamination, _ = tube([.46, .012, 0], [.54, .012, 0], along=200, around=48)
+        axis, reason = fit_prior_axis(np.vstack((body, contamination)), np.zeros(3), np.array([1., 0, 0]),
+                                      1., .004, guard_bending=True)
+        self.assertIsNotNone(axis, reason)
+        offset=axis['spline'](np.linspace(0, 1, 65))@axis['coeff']
+        self.assertLess(np.abs(offset).max(), .0005)
+        self.assertEqual(axis['shapeModel'], 'evidence-selected-straight')
+
+    def test_supported_spline_extrapolates_a_tangent_not_curvature(self):
+        from scipy.interpolate import BSpline
+        from rebar_prior_axis import _SupportedSpline
+        spline=_SupportedSpline(BSpline([0,0,0,0,1,1,1,1],np.eye(4),3),.2,.8)
+        np.testing.assert_allclose(spline(0), spline(.2)-.2*spline(.2,nu=1))
+        np.testing.assert_allclose(spline(1), spline(.8)+.2*spline(.8,nu=1))
+        np.testing.assert_allclose(spline([0,1],nu=2), 0)
+
     def partial_tube(self, gap=False):
         stations=np.linspace(0,1,181)
         if gap:stations=stations[(stations<.4)|(stations>.6)]

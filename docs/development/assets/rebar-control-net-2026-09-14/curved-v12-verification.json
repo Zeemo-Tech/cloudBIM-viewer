@@ -1,0 +1,99 @@
+{
+  "algorithm": {
+    "runId": "20260914T100125-752684c6",
+    "sourcePoints": 9216369,
+    "counts": {
+      "input": 9216369,
+      "table": 5315996,
+      "matched": 1743115,
+      "pending": 2157228,
+      "removed": 30,
+      "excluded": 0,
+      "designUnits": 210,
+      "fittedUnits": 210,
+      "designBars": 70,
+      "candidateFittedUnits": 0,
+      "lengthReviewUnits": 4
+    },
+    "curveSummary": {
+      "designPieces": 150,
+      "fittedPieces": 120,
+      "pendingPieces": 30,
+      "matchedPoints": 33610,
+      "elapsedS": 152.4253787159687
+    },
+    "byKind": {
+      "join": {
+        "fitted": 114,
+        "pending": 26
+      },
+      "terminal": {
+        "pending": 4,
+        "fitted": 6
+      }
+    },
+    "pendingReasons": {
+      "unstable-held-out-curve": 4,
+      "insufficient-continuous-curved-surface": 21,
+      "unobserved-terminal-leg": 1,
+      "ambiguous-curve-support": 3,
+      "unsupported-or-inconsistent-attachment": 1
+    },
+    "rmseMm": {
+      "min": 0.30962166190052126,
+      "median": 0.5552423826660848,
+      "max": 0.700311892956442
+    },
+    "maxAttachmentGapM": 0.0,
+    "minDisplayBodyLengthM": 0.08490905777525419,
+    "timings": {
+      "readS": 0.22814341500634328,
+      "treeS": 1.8068037159973755,
+      "normalsS": 6.103112808952574,
+      "preprocessingS": 0.3892694849637337,
+      "controlNetS": 180.6415088129579,
+      "persistS": 0.8758666770299897,
+      "previewS": 0.3615872410009615,
+      "totalS": 190.46199612604687
+    },
+    "oldBodyGeometryAndOwnersUnchanged": true,
+    "tableAndSourceUnchanged": true
+  },
+  "preview": {
+    "pointCount": 1000000,
+    "positionsAndStatusAndOwnerAndTableMatchFullSource": true
+  },
+  "loader": {
+    "runId": "20260914T100125-752684c6",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 120,
+      "pendingPieces": 30,
+      "matchedPoints": 33610,
+      "elapsedS": 152.4253787159687
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design-pending": 30,
+      "curve-design": 120,
+      "fit": 210,
+      "curve-fit": 120
+    },
+    "webglInteraction": "unverified: no CUA browser available"
+  },
+  "las": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1743115,
+    "control-pending.las": 2157228,
+    "control-removed.las": 30,
+    "control-excluded.las": 0
+  },
+  "checks": {
+    "algorithmTests": 75,
+    "httpTests": 13,
+    "viewerTests": 24,
+    "allPassed": true
+  }
+}

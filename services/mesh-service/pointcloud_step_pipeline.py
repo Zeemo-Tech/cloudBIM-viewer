@@ -299,8 +299,8 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         raise ValueError("through_step 必须是 1–8，8 对应页面第 07 步")
     if control_net_mode not in CONTROL_MODES:
         raise ValueError('controlNetMode 必须为 off / aligned / auto')
-    if control_net_mode != 'off' and (through_step != 4 or prior_mode != 'off' or not isinstance(design_prior, dict)):
-        raise ValueError('融合后分层控制网需要 throughStep=4、priorMode=off 和服务端设计快照')
+    if control_net_mode != 'off' and (through_step not in (2, 4) or prior_mode != 'off' or not isinstance(design_prior, dict)):
+        raise ValueError('控制网需要 throughStep=2（台面移除后）或 4（融合后）、priorMode=off 和服务端设计快照')
     if prior_mode not in PRIOR_MODES:
         raise ValueError('priorMode 必须为 off / geometry / topology')
     if through_step >= 7 and (prior_mode == 'off' or not isinstance(design_prior, dict)):
@@ -325,7 +325,8 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         timing["readS"] = time.perf_counter() - t0
         stages = segment_points(positions, directory, k=k, workers=workers, through_step=min(through_step, 6),
                                 source=source, progress=progress, design_inventory=inventory,
-                                dimension_priors=design_inputs.dimensions)
+                                dimension_priors=design_inputs.dimensions,
+                                stop_after_table=control_net_mode != 'off' and through_step == 2)
         context, arrays, shapes, computation = stages.context, stages.arrays, stages.shapes, stages.computation
         timing.update(stages.timing)
         preprocessing = stages.preprocessing
@@ -339,23 +340,25 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         control_report = None
         if control_net_mode != 'off':
             from algorithms.rebar_control_net import fit_control_net
-            progress('03 融合后：分层拟合设计控制网', 0, 1)
+            progress('01B 台面移除后：无分层拟合设计控制网' if through_step == 2 else '03 融合后：分层拟合设计控制网', 0, 1)
             t0 = time.perf_counter()
-            # Per-unit residuals contain Python work: parallel fit threads regressed
-            # on the reference scan. Keep normal/classifier workers independent.
+            # Independent bounded fits use processes; each process limits native
+            # math to one thread. Keep the caller's worker budget for both stages.
             with threadpool_limits(limits=1):
                 control_report, control_arrays = fit_control_net(positions, context.shared_table_mask, inventory,
                     mode=control_net_mode, normals=context.normals, progress=progress,
-                    fused_classes=context.fused_class, layer_ids=context.shared_layer,
-                    layering=preprocessing.get('layering'), workers=1)
+                    fused_classes=context.fused_class if through_step == 4 else None,
+                    layer_ids=context.shared_layer if through_step == 4 else None,
+                    layering=preprocessing.get('layering') if through_step == 4 else None,
+                    workers=min(8, workers), curve_workers=min(8, workers))
             timing['controlNetS'] = time.perf_counter() - t0
             control_report['elapsedS'] = timing['controlNetS']
             control_report['modelInfo'] = design_prior.get('modelInfo', {})
             control_report['snapshotFingerprint'] = design_prior.get('fingerprint')
             design_inputs.report['consumers'] = {
-                'diameters': '03 control-net fixed-radius layered fit',
-                'centerlines': '03 control-net topology; upstream classification/layering uses saved pose; initializer in registration',
-                'counts': '03 physical-parent and straight-unit diagnostics; no forced observations',
+                'diameters': 'control-net fixed-radius geometric fit',
+                'centerlines': 'control-net topology and registration initializer; no upstream layering' if through_step == 2 else 'control-net topology; upstream layering uses saved pose; initializer in registration',
+                'counts': 'physical-parent and straight-unit diagnostics; no forced observations',
             }
             design_inputs.report['design']['geometrySource'] = 'validated design inventory; controlNet.registration records initialization'
             for name, dtype in CONTROL_ATTRIBUTES.items():
@@ -469,13 +472,13 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step, "controlNetMode": control_net_mode},
             "validNormalCount": valid, "invalidNormalCount": count - valid,
             "steps": [{"id": "00-source", "pointCount": count}, {"id": "01-normals", "pointCount": count}]
-                     + ([{"id": "01-table-removal", "pointCount": count, "dependsOn": ["01-normals"]},
-                         {"id": "01-partition", "pointCount": count, "dependsOn": ["01-table-removal"]},
-                         {"id": "01-layering", "pointCount": count, "dependsOn": ["01-partition"]}] if preprocessing else [])
+                     + ([{"id": "01-table-removal", "pointCount": count, "dependsOn": ["01-normals"]}] if preprocessing else [])
+                     + ([{"id": "01-partition", "pointCount": count, "dependsOn": ["01-table-removal"]},
+                         {"id": "01-layering", "pointCount": count, "dependsOn": ["01-partition"]}] if preprocessing and "layering" in preprocessing else [])
                      + ([{"id": "02-classification", "pointCount": count, "dependsOn": ["01-layering"]}] if classification else [])
                      + ([{"id": "02-projection", "pointCount": count, "dependsOn": ["01-layering"]}] if projection else [])
                      + ([{"id": "03-fusion", "pointCount": count, "dependsOn": ["02-classification", "02-projection"]}] if fusion else [])
-                     + ([{"id": "03-control-net", "pointCount": count, "dependsOn": ["03-fusion", "01-layering"]}] if control_report is not None else [])
+                     + ([{"id": "01-control-net" if through_step == 2 else "03-control-net", "pointCount": count, "dependsOn": ["01-table-removal"] if through_step == 2 else ["03-fusion", "01-layering"]}] if control_report is not None else [])
                      + ([{"id": "05-internal-rebar", "pointCount": internal_rebar['pointCount'], "dependsOn": ["03-fusion"]}] if internal_rebar is not None else [])
                      + ([{'id': '06-design-guided-instances', 'pointCount': count, 'dependsOn': ['05-internal-rebar']}] if complete_rebar is not None else [])
                      + ([{'id': '07-design-prior', 'pointCount': count, 'dependsOn': ['06-complete-rebar']}] if prior_report is not None else [])
@@ -494,7 +497,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                             "peakRssMB": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
                             "peakRssScope": "process lifetime high-water mark", 'normalComputation': computation},
             "timingScope": "server pipeline wall time; excludes HTTP queue/download/browser render; OS page cache not flushed",
-            "cache": {"scope": "full-source normals, classifiers, fusion and layered control net" if control_report else "same full-source context for independent classifiers, fusion and instance review", "treeBuildCount": 1,
+            "cache": {"scope": "full-source normals and stage-specific control net" if control_report else "same full-source context for independent classifiers, fusion and instance review", "treeBuildCount": 1,
                       "computationalSourceIndexFile": None,
                       "sourceSha256": digest, "positionMutationAllowed": False,
                       "restart": "NPY attributes persist; KD tree is rebuilt, never unpickled"},
@@ -506,7 +509,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                                "partition_zone": "0 unlocated, 1 strict inner, 2 frame band, 3 exterior; source XY ownership",
                                "shared_layer": "0 unassigned, 1 bottom steel, 2 top steel, 3 web layer; geometric candidates before classification",
                                "shared_floating_noise": "1 outside expanded design cloth; step 05 rejects all steel outside, regardless of instance or score; never clips classifier input"} if preprocessing else {}),
-                           **({"control_status": "0 table; 1 supported steel; 2 unresolved fusion steel; 3 local fitted-cylinder outlier; 4 excluded by fusion (retained)",
+                           **({"control_status": "0 table; 1 supported steel; 2 unresolved input candidate; 3 local fitted-cylinder outlier; 4 excluded by fusion (retained)",
                                "control_instance": "Design-unit index + 1 for supported steel, 0 otherwise; physical parent in controlNet.instances",
                                "source_record_index": "Original source record index; existing source provenance is preserved"} if control_report is not None else {}),
                            **({"geometry_class": "4 removed floating noise; Geometry retention: 1 table, 2 fixture, 3 steel including recovery and shared-region retention; independent evidence stored separately",

@@ -7,11 +7,11 @@ const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.met
 const html = await readFile(new URL('./pointcloud-debug/index.html', import.meta.url), 'utf8');
 
 const nav = [...html.matchAll(/data-step="([^"]+)"/g)].map(match => match[1]);
-assert.deepEqual(nav.slice(0, 9), ['raw', 'normal', 'tableRemoval', 'partition', 'floatingZones', 'classification', 'projection', 'fusion', 'controlNet']);
+assert.deepEqual(nav.slice(0, 9), ['raw', 'normal', 'tableRemoval', 'controlNet', 'partition', 'floatingZones', 'classification', 'projection', 'fusion']);
 assert.match(html, /data-step="tableRemoval"[^>]*disabled><span class="num">01B<\/span>台面结果/);
 assert.match(html, /data-step="partition"[^>]*disabled><span class="num">01C<\/span>分区结果/);
 assert.match(html, /data-step="floatingZones"[^>]*disabled><span class="num">01D<\/span>分层结果/);
-assert.match(html, /data-step="controlNet"[^>]*disabled><span class="num">03X<\/span>分层控制网/);
+assert.match(html, /data-step="controlNet"[^>]*disabled><span class="num">01B-X<\/span>台面后控制网/);
 assert.match(html, /<span class="num">03<\/span>融合结果/);
 assert.match(html, /id="refinementStep" data-step="refinement" hidden disabled><span class="num">04<\/span>类别整理/);
 const throughStepOptions = html.match(/<select id="throughStep">([\s\S]*?)<\/select>/)?.[1] || '';

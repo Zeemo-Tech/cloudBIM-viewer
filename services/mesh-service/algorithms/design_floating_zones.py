@@ -151,7 +151,29 @@ def _inside_boxes(points: np.ndarray, envelopes: list[dict[str, Any]], chunk: in
     return allowed, layers
 
 
-def build_floating_zones(inventory: dict[str, Any] | None, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def _horizontal_layers(horizontal, options, envelopes=None):
+    groups: list[list[tuple[np.ndarray, np.ndarray, float]]] = []
+    for item in sorted(horizontal, key=lambda entry: entry[2]):
+        if not groups or item[2] - groups[-1][-1][2] > options.layer_cluster_gap_m:
+            groups.append([item])
+        else:
+            groups[-1].append(item)
+    layers = []
+    for layer_id, group in enumerate(groups, 1):
+        height = float(np.mean([item[2] for item in group]))
+        physical_radius = max(item[3] for item in group)
+        half_height = max(options.layer_half_height_m, physical_radius + options.layer_registration_allowance_m)
+        plane_points = np.vstack([np.vstack((item[0], item[1])) for item in group])
+        if envelopes is not None:
+            envelopes.append(_layer_box(plane_points, layer_id=layer_id, height=height, half_height=half_height, params=options))
+        layers.append({"id": layer_id, "kind": "horizontal-band", "heightM": height, "centerHeightM": height,
+                       "normal": [0.0, 0.0, 1.0], "physicalRadiusM": physical_radius,
+                       "registrationAllowanceM": options.layer_registration_allowance_m, "halfHeightM": half_height,
+                       "lowM": height-half_height, "highM": height+half_height})
+    return layers
+
+
+def build_floating_zones(inventory: dict[str, Any] | None, *, params: dict[str, Any] | None = None, layers_only: bool = False) -> dict[str, Any]:
     """Build a fail-open, JSON-serializable finite protection report.
 
     Only resolved, positively circular centerlines are used.  Unresolved BRep
@@ -197,6 +219,19 @@ def build_floating_zones(inventory: dict[str, Any] | None, *, params: dict[str, 
                 "usableBarCount": 0, "protectivePartialBarCount": len(candidates)}
     if not candidates:
         return {**base, "reason": "unresolved-or-noncircular-steel"}
+
+    if layers_only:
+        horizontal = []
+        for bar, points, complete in candidates:
+            if not complete:
+                continue
+            for start, end in zip(points[:-1], points[1:]):
+                direction = end - start
+                length = float(np.linalg.norm(direction))
+                if length >= options.min_horizontal_run_m and abs(direction[2] / length) <= .12:
+                    horizontal.append((start, end, float((start[2]+end[2])*.5),
+                                       float(bar.get("radiusM", bar.get("radius", 0.)))))
+        return {"enabled": True, "layers": _horizontal_layers(horizontal, options)}
 
     envelopes: list[dict[str, Any]] = []
     all_points: list[np.ndarray] = []
@@ -283,23 +318,7 @@ def build_floating_zones(inventory: dict[str, Any] | None, *, params: dict[str, 
                 envelopes.append(envelope)
     # Cluster actual long horizontal geometry by height.  This deliberately
     # does not join raw polyline ordinal to parsed matching-unit ordinal.
-    groups: list[list[tuple[np.ndarray, np.ndarray, float]]] = []
-    for item in sorted(horizontal, key=lambda entry: entry[2]):
-        if not groups or item[2] - groups[-1][-1][2] > options.layer_cluster_gap_m:
-            groups.append([item])
-        else:
-            groups[-1].append(item)
-    layers = []
-    for layer_id, group in enumerate(groups, 1):
-        height = float(np.mean([item[2] for item in group]))
-        physical_radius = max(item[3] for item in group)
-        half_height = max(options.layer_half_height_m, physical_radius + options.layer_registration_allowance_m)
-        plane_points = np.vstack([np.vstack((item[0], item[1])) for item in group])
-        envelopes.append(_layer_box(plane_points, layer_id=layer_id, height=height, half_height=half_height, params=options))
-        layers.append({"id": layer_id, "kind": "horizontal-band", "heightM": height, "centerHeightM": height,
-                       "normal": [0.0, 0.0, 1.0], "physicalRadiusM": physical_radius,
-                       "registrationAllowanceM": options.layer_registration_allowance_m, "halfHeightM": half_height,
-                       "lowM": height-half_height, "highM": height+half_height})
+    layers = _horizontal_layers(horizontal, options, envelopes)
     # Give web and hook protection the nearest actual horizontal layer label
     # for downstream display without using it to infer geometry.
     if layers:

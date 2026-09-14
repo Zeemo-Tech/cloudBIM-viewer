@@ -16,6 +16,32 @@ def bar(identifier, points, coverage="complete"):
 
 
 class DesignFloatingZonesTests(unittest.TestCase):
+    def test_layering_only_preserves_bands_without_building_or_classifying_zones(self):
+        from unittest.mock import patch
+        from algorithms.shared_floating_noise import prepare_floating_scene
+        from types import SimpleNamespace
+        inv = inventory([bar('bottom', [[0, 0, 0], [2, 0, 0]]),
+                         bar('top', [[0, 0, .2], [2, 0, .2]])])
+        points = np.array([[.5, 0, 0], [.5, 0, .2], [.5, 0, .1], [100, 100, 100.]])
+        def context():
+            return SimpleNamespace(positions=points, shared_table_mask=np.zeros(4, np.uint8),
+                partition_zone=np.ones(4, np.uint8), normals=np.tile([0., 1., 0.], (4, 1)),
+                normal_valid=np.ones(4), scene_cache={})
+        def output():
+            return {key: np.zeros(4, np.uint8) for key in ['shared_layer', 'shared_floating_noise']}
+        full = context()
+        old_layers, _ = prepare_floating_scene(full, inv, output=output())
+        early = context()
+        with patch('algorithms.rebar_outer_envelope.build_outer_envelope', side_effect=AssertionError('envelope ran')), \
+             patch('algorithms.shared_floating_noise.classify_floating_zones', side_effect=AssertionError('zones ran')):
+            new_layers, zones = prepare_floating_scene(early, inv, output=output(), stop_after_layering=True)
+        self.assertIsNone(zones)
+        self.assertNotIn('floatingZones', early.scene_cache)
+        self.assertEqual(new_layers['layers'], old_layers['layers'])
+        np.testing.assert_array_equal(early.shared_layer, full.shared_layer)
+        np.testing.assert_array_equal(early.shared_layer, [1, 2, 3, 0])
+        self.assertFalse(early.shared_floating_noise.any())
+
     def test_step05_candidates_include_frame_band_and_far_steel(self):
         from algorithms.shared_floating_noise import prepare_floating_scene
         from types import SimpleNamespace

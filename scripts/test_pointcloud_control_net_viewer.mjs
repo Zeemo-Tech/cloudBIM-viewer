@@ -22,6 +22,9 @@ const loadControlNet = new Function([
   functionSource('controlPreviewUrl'),
   functionSource('controlNetVec3'),
   functionSource('controlNetPolylineLength'),
+  functionSource('controlNetCurvedPiecesForUnit'),
+  functionSource('controlNetCurveStats'),
+  functionSource('validateControlNetCurvedPieces'),
   functionSource('controlNetInputStage'),
   functionSource('loadControlNetPreview'),
   'return loadControlNetPreview',
@@ -57,6 +60,57 @@ const buffers = {
   instance: Uint32Array.from([0, 1, 0, 0, 0]).buffer,
 }
 
+test('relocated short cylinders preserve nominal length and validate separate fitted extent', async () => {
+  const manifest = fixture(), row = manifest.controlNet.instances[0], unit = manifest.controlNet.inventory.units[0]
+  row.kind = unit.kind = 'short'
+  row.fittedLengthM = .65
+  row.centerlineM[1][0] = 10.65
+  await loadControlNet(manifest, async url => buffers[url])
+  assert.equal(unit.lengthM, .5)
+  row.fittedLengthM = .8
+  await assert.rejects(loadControlNet(manifest, async url => buffers[url]))
+  row.fittedLengthM = .6
+  await assert.rejects(loadControlNet(manifest, async url => buffers[url]))
+})
+
+test('short review navigation includes recovered and unresolved short bars only', () => {
+  const select = new Function(`${functionSource('controlNetShortReviewUnits')}\nreturn controlNetShortReviewUnits`)()
+  const rows = [
+    {id: 1, kind: 'short', status: 'pending'},
+    {id: 2, kind: 'short', status: 'fitted', fitCandidateScope: 'unclaimed-short-pose-search'},
+    {id: 3, kind: 'short', status: 'fitted'},
+    {id: 4, kind: 'web', status: 'missing'},
+  ]
+  assert.deepEqual(select({instances: rows}).map(x => x.id), [1, 2])
+  assert.deepEqual(select(null), [])
+})
+
+test('v8 refuses resized short templates while retaining explicit length review', async () => {
+  const manifest = fixture(), row = manifest.controlNet.instances[0], unit = manifest.controlNet.inventory.units[0]
+  manifest.controlNet.version = 'design-control-net-v8'
+  row.kind = unit.kind = 'short'
+  row.fittedLengthM = .5
+  row.observedLengthM = .65
+  row.lengthCheck = 'review-observed-span'
+  await loadControlNet(manifest, async url => buffers[url])
+  row.fittedLengthM = .65
+  row.centerlineM[1][0] = 10.65
+  await assert.rejects(loadControlNet(manifest, async url => buffers[url]))
+})
+
+test('v9 refuses resized short templates while retaining explicit length review', async () => {
+  const manifest = fixture(), row = manifest.controlNet.instances[0], unit = manifest.controlNet.inventory.units[0]
+  manifest.controlNet.version = 'design-control-net-v9'
+  row.kind = unit.kind = 'short'
+  row.fittedLengthM = .5
+  row.observedLengthM = .65
+  row.lengthCheck = 'review-observed-span'
+  await loadControlNet(manifest, async url => buffers[url])
+  row.fittedLengthM = .65
+  row.centerlineM[1][0] = 10.65
+  await assert.rejects(loadControlNet(manifest, async url => buffers[url]))
+})
+
 test('single-unit source inspection includes nearby pending points without assigning their identity', () => {
   const near = new Function(`${functionSource('controlNetLocalPredicate')}\nreturn controlNetLocalPredicate`)()
   const predicate = near(fixture().controlNet.instances[0], fixture().controlNet.inventory.units[0], [10,20,30])
@@ -79,18 +133,18 @@ test('ambiguous pose candidates render as dashed axes without confirmed cylinder
   group.traverse(object=>{object.geometry?.dispose();object.material?.dispose()})
 })
 
-test('run form keeps baseline default and moves aligned/auto experiments after fusion', () => {
+test('run form keeps baseline default and moves aligned/auto experiments before forbidden zones', () => {
   assert.match(page, /id="controlNetMode"[\s\S]*value="off" selected[\s\S]*value="aligned"[\s\S]*value="auto"/)
-  assert.match(page, /id="controlNetStep"[^>]*><span class="num">03X<\/span>分层控制网/)
-  assert.ok(page.indexOf('id="controlNetStep"') > page.indexOf('id="fusionStep"'))
-  assert.ok(page.indexOf('id="controlNetStep"') < page.indexOf('id="refinementStep"'))
+  assert.match(page, /id="controlNetStep"[^>]*><span class="num">01B-X<\/span>台面后控制网/)
+  assert.ok(page.indexOf('id="controlNetStep"') > page.indexOf('id="tableRemovalStep"'))
+  assert.ok(page.indexOf('id="controlNetStep"') < page.indexOf('id="partitionStep"'))
   const elements = {controlNetMode: {value: 'off'}, k: {value: '32'}, workers: {value: '8'}, throughStep: {value: '8'}, priorMode: {value: 'topology'}}
   const payload = new Function('$', `${functionSource('runRequestPayload')}\nreturn runRequestPayload`) ((id) => elements[id])
   assert.deepEqual(payload(), {k: 32, workers: 8, throughStep: 8, priorMode: 'topology', controlNetMode: 'off'})
   elements.controlNetMode.value = 'aligned'
-  assert.deepEqual(payload(), {k: 32, workers: 8, throughStep: 4, priorMode: 'off', controlNetMode: 'aligned'})
+  assert.deepEqual(payload(), {k: 32, workers: 8, throughStep: 2, priorMode: 'off', controlNetMode: 'aligned'})
   elements.controlNetMode.value = 'auto'
-  assert.deepEqual(payload(), {k: 32, workers: 8, throughStep: 4, priorMode: 'off', controlNetMode: 'auto'})
+  assert.deepEqual(payload(), {k: 32, workers: 8, throughStep: 2, priorMode: 'off', controlNetMode: 'auto'})
 })
 
 test('control-net loader accepts exact typed attributes and validates unit/status identity', async () => {
@@ -129,11 +183,13 @@ test('post-fusion conservation includes excluded points and history labels retai
   bad.controlNet.counts.excluded = 0
   await assert.rejects(loadControlNet(bad, async (url) => buffers[url]), /计数无效或不守恒/)
   const historyLabel = new Function(`${functionSource('controlNetHistoryModeLabel')}\nreturn controlNetHistoryModeLabel`)()
-  assert.equal(historyLabel({controlNetMode: 'aligned', throughStep: 2}), '控制网·早期·粗对齐')
+  assert.equal(historyLabel({controlNetMode: 'aligned', throughStep: 2}), '控制网·台面后·粗对齐')
   assert.equal(historyLabel({controlNetMode: 'auto', throughStep: 4}), '控制网·03X分层·自动')
   assert.equal(historyLabel({controlNetMode: 'off', throughStep: 8}), '现有流程')
   const stageLabel = new Function(`${functionSource('controlNetInputStage')}\n${functionSource('controlNetStageLabel')}\nreturn controlNetStageLabel`)()
-  assert.equal(stageLabel({}), '01C-X · 控制网早期拟合')
+  assert.equal(stageLabel({inputStage: 'post-layering'}), '01E · 分层后控制网')
+  assert.equal(historyLabel({controlNetMode: 'aligned', throughStep: 2, controlNetInputStage: 'post-layering'}), '控制网·禁飞区前·粗对齐')
+  assert.equal(stageLabel({}), '01B-X · 台面后控制网')
   assert.equal(stageLabel({inputStage: 'post-fusion'}), '03X · 分层控制网')
 })
 
@@ -171,7 +227,7 @@ test('the layered view exposes fusion exclusions, layer controls, downloads and 
   assert.ok(page.indexOf('id="controlNetControls"') < page.indexOf('class="advancedControls"'))
   assert.match(viewer, /controlNetInputStage\(current\?\.controlNet\) === 'post-fusion' \? fusionScene : tableRemovalScene/)
   assert.match(viewer, /view === 'source' \? code > 0 && code < 4/)
-  assert.match(viewer, /inputStage === 'post-fusion' \? \$\('fusionStep'\) : \$\('tableRemovalStep'\)/)
+  assert.match(viewer, /inputStage === 'post-layering' \? \$\('floatingZonesStep'\) : \$\('tableRemovalStep'\)/)
   const fallback = new Function(`${functionSource('isFusionPassThrough')}\n${functionSource('defaultPreviewStep')}\nreturn defaultPreviewStep`)()
   assert.equal(fallback({}, {controlNet: null, sharedTableMask: true}), 'tableRemoval')
   assert.equal(fallback({}, {controlNet: {}, sharedTableMask: true}), 'controlNet')
@@ -191,4 +247,11 @@ test('stage validation respects 1=table and keeps all fusion exclusions outside 
   assert.equal(valid(4, 0, 3, true), false)
   assert.equal(valid(1, 0, 2, true), false)
   assert.equal(valid(4, 0, 2, false), false)
+})
+
+
+test('web ambiguity-resolution evidence is visible without claiming a semantic layer', () => {
+  const label = new Function(`${functionSource('controlNetAxisLabel')}\nreturn controlNetAxisLabel`)()
+  assert.equal(label({axisModel: 'fixed-length-straight-cylinder'}), '')
+  assert.match(label({axisModel: 'fixed-length-straight-cylinder', webEvidence: {method: 'radial-normal-ambiguity-resolution'}}), /表面法向补充判别/)
 })

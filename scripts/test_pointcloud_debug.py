@@ -70,9 +70,11 @@ class PriorApiTests(unittest.TestCase):
                 self.assertEqual(post({'priorMode':'geometry','throughStep':6}),400)
                 self.assertEqual(post({'priorMode':{'path':'/tmp/anything'}}),400)
                 for mode in ('aligned', 'auto'):
+                    self.assertEqual(post({'throughStep':2, 'controlNetMode':mode}),202)
+                    state.start.assert_called_with(32, MODULE.available_workers(), 2, 'off', control_net_mode=mode)
                     self.assertEqual(post({'throughStep':4, 'controlNetMode':mode}),202)
                     state.start.assert_called_with(32, MODULE.available_workers(), 4, 'off', control_net_mode=mode)
-                for body in ({'throughStep':2, 'controlNetMode':'aligned'},
+                for body in ({'throughStep':3, 'controlNetMode':'aligned'},
                              {'throughStep':8, 'controlNetMode':'aligned'},
                              {'throughStep':2, 'controlNetMode':'aligned', 'priorMode':'topology'},
                              {'throughStep':2, 'controlNetMode':True},

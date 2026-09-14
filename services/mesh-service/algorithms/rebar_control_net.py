@@ -9,8 +9,9 @@ quadratic operation have explicit sample caps for multi-million-point LAS input.
 from __future__ import annotations
 
 from copy import deepcopy
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 import math
+import multiprocessing
 import time
 
 import numpy as np
@@ -20,7 +21,7 @@ from scipy.optimize import linear_sum_assignment
 from rebar_prior_axis import fit_prior_axis
 
 
-VERSION = "design-control-net-v6"
+VERSION = "design-control-net-v14"
 _MAX_TREE_QUERIES = 256
 _NEIGHBOURS_PER_QUERY = 192
 _MAX_UNIT_CANDIDATES = 30_000
@@ -396,27 +397,37 @@ def _circle_hypotheses(xy, along, radius, gate, normals_xy=None, *, ranked=False
     keys = np.round(centers/cell).astype(np.int64)
     inverse, counts = _circle_vote_groups(keys)
     top = np.argsort(counts, kind="stable")[-24:]
-    seeds = [np.median(centers[inverse == i], axis=0) for i in top]
+    seeds=[]
+    for i in top:
+        group=centers[inverse==i]
+        middle=(len(group)-1)//2,len(group)//2
+        ordered=np.partition(group,middle,axis=0)
+        seeds.append((ordered[middle[0]]+ordered[middle[1]])*.5)
+    seeds=np.asarray(seeds)
     tolerance = max(.0008, .32*radius)
     evaluated = []
     low, high = np.quantile(along, [.01, .99])
     span = max(high-low, 1e-9)
     bins = np.clip(((along-low)/span*23).astype(int), 0, 23)
-    for center in seeds:
-        residual = np.abs(np.linalg.norm(xy-center, axis=1)-radius)
-        inliers = residual <= tolerance
-        if normal_alignment and normals_xy is not None:
-            radial = xy-center
-            norm_product = np.linalg.norm(radial, axis=1)*np.linalg.norm(normals_xy, axis=1)
-            agreement = np.abs(np.einsum('ij,ij->i', radial, normals_xy))
-            inliers &= (norm_product < 1e-10) | (agreement >= .8*norm_product)
-        if inliers.sum() < 24:
-            continue
-        occupied = np.bincount(bins[inliers], minlength=24)
-        balanced = float(np.minimum(occupied, 24).sum())
-        fit_span = float(np.ptp(along[inliers]))
-        proximity = max(.72, 1.-.18*np.linalg.norm(center)/max(gate, 1e-9))
-        score = balanced * proximity * min(1., fit_span/max(.03, .25*span))
+    radial=xy[None,:,:]-seeds[:,None,:]
+    distance=np.linalg.norm(radial,axis=2)
+    residuals=np.abs(distance-radius)
+    support=residuals<=tolerance
+    if normal_alignment and normals_xy is not None:
+        norm_product=distance*np.linalg.norm(normals_xy,axis=1)[None,:]
+        agreement=np.abs(np.einsum('snj,nj->sn',radial,normals_xy))
+        support&=(norm_product<1e-10)|(agreement>=.8*norm_product)
+    occupied_bins=np.broadcast_to(np.arange(len(seeds))[:,None]*24+bins,support.shape)
+    occupied=np.bincount(occupied_bins[support],minlength=len(seeds)*24).reshape(-1,24)
+    balanced=np.minimum(occupied,24).sum(axis=1)
+    fit_spans=np.max(np.where(support,along,-np.inf),axis=1)-np.min(np.where(support,along,np.inf),axis=1)
+    enough=support.sum(axis=1)>=24
+    fit_spans=np.where(enough,fit_spans,0.)
+    proximity=np.maximum(.72,1.-.18*np.linalg.norm(seeds,axis=1)/max(gate,1e-9))
+    scores=balanced*proximity*np.minimum(1.,fit_spans/max(.03,.25*span))
+    for seed_id in np.flatnonzero(enough):
+        center,residual,inliers=seeds[seed_id],residuals[seed_id],support[seed_id]
+        fit_span,score=float(fit_spans[seed_id]),float(scores[seed_id])
         if ranked:
             cross_section = xy[inliers]-center
             cross_section -= np.mean(cross_section, axis=0)
@@ -435,7 +446,7 @@ def _circle_hypotheses(xy, along, radius, gate, normals_xy=None, *, ranked=False
     return evaluated[0], evaluated[1] if len(evaluated) > 1 else None
 
 
-def _piecewise_shell(xy, along, radius, gate, normals_xy, fallback, centers_out=None):
+def _piecewise_shell(xy, along, radius, gate, normals_xy, fallback, centers_out=None, *, normal_alignment=False):
     """Select one continuous observed cylinder across the station bands."""
     low, high = np.quantile(along, [.01, .99])
     if high-low <= 0:
@@ -448,7 +459,7 @@ def _piecewise_shell(xy, along, radius, gate, normals_xy, fallback, centers_out=
             continue
         hypotheses = _circle_hypotheses(xy[local], along[local], radius, gate,
             normals_xy[local] if normals_xy is not None else None, ranked=True,
-            normal_alignment=high-low > 2.)
+            normal_alignment=normal_alignment or high-low > 2.)
         if hypotheses:
             bands.append((i, np.flatnonzero(local), hypotheses))
     if not bands:
@@ -498,7 +509,7 @@ def _exact_length(curve, length):
     return curve[0] + (curve-curve[0]) * (length/distance)
 
 
-def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False):
+def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False, *, web_normal_evidence=False):
     length, radius = unit["length"], unit["radius"]
     midpoint = start + .5*length*direction
     u, v = _frame(direction)
@@ -510,7 +521,7 @@ def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False
     candidate_ids, candidate, along = candidate_ids[axial], candidate[axial], along[axial]
     if len(candidate) < 32:
         return None, "insufficient-local-evidence", candidate_ids
-    if normals is not None and unit["kind"] == "straight":
+    if normals is not None and unit["kind"] in ("straight", "web"):
         n = normals[candidate_ids]
         nlength = np.linalg.norm(n, axis=1)
         keep = (nlength < .5) | (np.abs(n@direction) <= .5*nlength)
@@ -523,14 +534,30 @@ def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False
         normals_xy = np.column_stack((normals[candidate_ids]@u, normals[candidate_ids]@v))
     gate = max(.045, min(.18, .32*length), 7*radius)
     best, second = _circle_hypotheses(xy, along, radius, gate, normals_xy,
-                                          normal_alignment=unit["kind"] == "straight" and length > 2.)
+                                          normal_alignment=web_normal_evidence or (unit["kind"] == "straight" and length > 2.))
     if best is None:
         return None, "no-fixed-radius-support", candidate_ids
     score, center, shell, _, initial_span = best
     if second is not None and np.linalg.norm(second[1]-center) > 1.5*radius and second[0] >= .93*score:
+        # Junctions and partial arcs can vote for competing projected circles.
+        # Only unresolved webs ask for this extra evidence: noisy normals must
+        # not become a blanket veto on an otherwise supported cylinder. The
+        # bounded retry keeps every geometric/identity guard and runs once.
+        normal_count = (int(np.count_nonzero(np.linalg.norm(normals_xy, axis=1) > .5))
+                        if normals_xy is not None else 0)
+        if unit["kind"] == "web" and not web_normal_evidence and normal_count >= 24:
+            model, reason, considered = _fit_unit(points, normals, candidate_ids, unit,
+                start, direction, auto, web_normal_evidence=True)
+            if model is not None:
+                model['webEvidence'] = {'method': 'radial-normal-ambiguity-resolution',
+                    'trigger': 'ambiguous-parallel-support', 'normalAbsCosMin': .8,
+                    'validNormalPoints': normal_count,
+                    'scope': 'same candidates; global hypotheses and continuous station bands'}
+                return model, reason, considered
         return None, "ambiguous-parallel-support", candidate_ids
     centers = []
-    shell = _piecewise_shell(xy, along, radius, gate, normals_xy, shell, centers)
+    shell = _piecewise_shell(xy, along, radius, gate, normals_xy, shell, centers,
+                             normal_alignment=web_normal_evidence)
     shell_points = candidate[shell]
     # Permit a bounded local direction change (especially at rotated short/web
     # runs), but accept it only when the shell itself has a clear long axis.
@@ -550,18 +577,25 @@ def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False
         xy = np.column_stack((delta@u, delta@v))
         normals_xy = None if normals is None else np.column_stack((normals[candidate_ids]@u, normals[candidate_ids]@v))
         best, second = _circle_hypotheses(xy, along, radius, gate, normals_xy,
-                                          normal_alignment=unit["kind"] == "straight" and length > 2.)
+                                          normal_alignment=web_normal_evidence or (unit["kind"] == "straight" and length > 2.))
         if best is None:
             return None, "no-fixed-radius-support", candidate_ids
         score, center, shell, _, initial_span = best
         centers = []
-        shell = _piecewise_shell(xy, along, radius, gate, normals_xy, shell, centers)
+        shell = _piecewise_shell(xy, along, radius, gate, normals_xy, shell, centers,
+                             normal_alignment=web_normal_evidence)
     axis_start = start + center[0]*u + center[1]*v
+    if unit['kind'] == 'web':
+        # IFC units describe the tangent-to-tangent straight span. Rounded
+        # junctions and crossed bars at its ends must not tilt/bow this body.
+        shell &= (along >= .12*length) & (along <= .88*length)
     selected = candidate[shell]
     initial_centerline = np.array([start + station*direction + offset[0]*u + offset[1]*v
                                    for station, offset in centers]) if len(centers) >= 4 and unit["kind"] == "straight" else None
     axis, reason = fit_prior_axis(selected, axis_start, direction, length, radius,
-                                  initial_centerline=initial_centerline)
+                                  initial_centerline=initial_centerline,
+                                  straight=unit["kind"] in ("short", "web"),
+                                  guard_bending=unit['kind'] == 'straight')
     if axis is None:
         return None, reason, candidate_ids
     # A narrow flat fixture tangent to the design cylinder can have tiny radial
@@ -591,7 +625,7 @@ def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False
         return None, "insufficient-axial-coverage", candidate_ids
     if unit["kind"] == "short" and abs(.5*(low+high)-.5*length) > max(.12*length, 3*radius):
         return None, "short-interval-ambiguous", candidate_ids
-    stations = np.linspace(0, 1, 17)
+    stations = np.linspace(0, 1, 2 if unit["kind"] in ("short", "web") else 17)
     offset = axis["spline"](stations)@axis["coeff"]
     curve = (axis["start"] + stations[:, None]*length*axis["tangent"]
              + offset[:, :1]*axis["u"] + offset[:, 1:]*axis["v"])
@@ -603,7 +637,9 @@ def _fit_unit(points, normals, candidate_ids, unit, start, direction, auto=False
     return {"curve": curve, "candidateIds": candidate_ids, "radial": radial, "residual": residual,
             "support": support, "tolerance": tolerance, "rmse": axis["fitRmseM"],
             "observedLength": observed_length, "directionDifferenceDeg": angle,
-            "initialScore": score, "initialSpan": initial_span}, reason, candidate_ids
+            "initialScore": score, "initialSpan": initial_span,
+            "axisModel": "fixed-length-straight-cylinder" if unit["kind"] in ("short", "web") else axis['shapeModel'],
+            'axisEvidenceRangeM': axis['supportedRange']}, reason, candidate_ids
 
 
 def _transformed_inventory(inventory, rotation, translation):
@@ -615,6 +651,9 @@ def _transformed_inventory(inventory, rotation, translation):
         if "direction" in unit:
             unit["direction"] = (rotation@np.asarray(unit["direction"], float)).tolist()
     for bar in result.get("bars", []):
+        if bar.get("curvePrimitives"):
+            from algorithms.rebar_design_curves import transform_primitives
+            bar["curvePrimitives"] = transform_primitives(bar["curvePrimitives"], rotation, translation)
         if bar.get("points"):
             xyz = np.asarray(bar["points"], float)
             bar["points"] = (xyz@rotation.T+translation).tolist()
@@ -624,6 +663,95 @@ def _transformed_inventory(inventory, rotation, translation):
             corners = corners@rotation.T+translation
             bar["boundsM"] = [corners.min(axis=0).tolist(), corners.max(axis=0).tolist()]
     return result
+
+
+def _recover_short(points, normals, ids, unit):
+    """Search unclaimed scan lines; design position is a bounded search prior.
+
+    A finite observed interval must agree with the design length before it can
+    move the template. A slice cut from a longer tube is not short-bar evidence.
+    """
+    length, radius = unit['length'], unit['radius']
+    midpoint = .5*(unit['start']+unit['end'])
+    cloud = points[ids]
+    features = _auto_line_features(cloud, normals[ids] if normals is not None else None, radius)
+    hypotheses = []
+    for feature in features:
+        direction = feature['direction'].copy()
+        if direction@unit['direction'] < 0:
+            direction *= -1
+        angle = math.degrees(math.acos(np.clip(direction@unit['direction'], -1., 1.)))
+        if angle > 65 or not .65*length <= feature['length'] <= 1.5*length:
+            continue
+        start = feature['center']-.5*length*direction
+        delta = cloud-start
+        along = delta@direction
+        near = np.linalg.norm(delta-along[:, None]*direction, axis=1) < max(.012, 3*radius)
+        model, _, _ = _fit_unit(points, normals, ids[near], unit, start, direction)
+        if model is None:
+            continue
+        curve = model['curve']
+        tangent = (curve[-1]-curve[0])/length
+        delta = cloud-curve[0]
+        station = delta@tangent
+        radial = np.linalg.norm(delta-station[:, None]*tangent, axis=1)
+        shell = np.abs(radial-radius) <= model['tolerance']
+        if normals is not None:
+            normal = normals[ids]
+            transverse = delta-station[:, None]*tangent
+            product = np.linalg.norm(normal, axis=1)*radial
+            shell &= (product < 1e-10) | (np.abs(np.einsum('ij,ij->i', normal, transverse)) >= .8*product)
+        if shell.sum() < 32:
+            continue
+        # Sparse radial-coincident speckles cannot extend an otherwise dense
+        # observed interval. Crossings must also agree with cylinder normals.
+        shell_station = station[shell]
+        cells = np.floor((shell_station-shell_station.min())/.01).astype(int)
+        density = np.bincount(cells)
+        supported_cells = density >= max(6, .15*np.median(density[density > 0]))
+        sorted_stations = np.sort(shell_station[supported_cells[cells]])
+        if len(sorted_stations) < 32:
+            continue
+        groups = np.split(sorted_stations, np.flatnonzero(np.diff(sorted_stations) > max(.018, 4*radius))+1)
+        groups = [g for g in groups if len(g) >= 32 and g[0] < .6*length and g[-1] > .4*length]
+        if len(groups) != 1:
+            continue
+        low, high = np.quantile(groups[0], [.01, .99])
+        span = float(high-low)
+        if not .70*length <= span <= 1.50*length:
+            continue
+        # An interval touching the search boundary may be a clipped long bar.
+        ends = curve[0]+np.asarray([low, high])[:, None]*tangent
+        if np.max(np.abs((ends-midpoint)@unit['direction'])) >= .5*length+.16:
+            continue
+        # Solve again around the observed endpoints, never the old axial slot.
+        # A pose search is not a length measurement. Keep the design template
+        # rigid and report a discrepant visible span for review separately.
+        fitted_length = length
+        shifted_start = curve[0]+(.5*(low+high)-.5*fitted_length)*tangent
+        observed_unit = dict(unit, length=fitted_length)
+        model, _, _ = _fit_unit(points, normals, ids[near], observed_unit, shifted_start, tangent)
+        if model is None:
+            continue
+        displacement = .5*(model['curve'][0]+model['curve'][-1])-midpoint
+        if np.linalg.norm(displacement) > .50:
+            continue
+        score = min(span/length, 1.) * math.exp(-model['rmse']/model['tolerance'])
+        model.update(recoveryScore=score, displacementM=displacement.tolist(),
+                     fittedLengthM=fitted_length, observedLength=span,
+                     lengthCheck='review-observed-span' if abs(span-length) > max(.01, .10*length) else 'consistent-visible-span',
+                     directionDifferenceDeg=float(math.degrees(math.acos(np.clip(
+                         np.dot((model['curve'][-1]-model['curve'][0])/fitted_length, unit['direction']), -1., 1.)))))
+        if any(np.linalg.norm(.5*(other['curve'][0]+other['curve'][-1])-
+                              .5*(model['curve'][0]+model['curve'][-1])) < 2*radius for other in hypotheses):
+            continue
+        hypotheses.append(model)
+    hypotheses.sort(key=lambda m: -m['recoveryScore'])
+    if not hypotheses:
+        return None, 'no-unclaimed-short-support'
+    if len(hypotheses) > 1 and hypotheses[1]['recoveryScore'] >= .9*hypotheses[0]['recoveryScore']:
+        return hypotheses[0], 'ambiguous-short-recovery'
+    return hypotheses[0], 'relocated-short-supported'
 
 
 def _semantic_layer(unit, layering):
@@ -683,9 +811,21 @@ def _endpoint_candidates(tree, source_ids, curve, radius):
     return source_ids[_merge_ids(*local)] if len(local) else np.empty(0, dtype=np.int64)
 
 
+def _fit_unit_worker(points, normals, unit, auto):
+    """Fit a bounded local sample; source ids and final ownership stay in parent."""
+    return _fit_unit(points, normals, np.arange(len(points)), unit,
+                     unit["start"], unit["direction"], auto)
+
+
+def _fit_worker_init():
+    # Each process owns independent fits; nested BLAS pools oversubscribe CPUs.
+    from threadpoolctl import threadpool_limits
+    threadpool_limits(limits=1)
+
+
 def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=None,
                     progress=None, fused_classes=None, layer_ids=None, layering=None,
-                    workers=1):
+                    workers=1, curve_workers=1):
     """Fit physical design-unit control lines on post-table or fused steel input.
 
     Returns ``(JSON report, typed full-source attributes)``. Source coordinates
@@ -707,6 +847,10 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
     if isinstance(workers, bool) or not isinstance(workers, (int, np.integer)) or workers < 1:
         raise ValueError("workers must be a positive integer")
     post_fusion = fused_classes is not None
+    # The early post-table pass has no measured semantic layers. Keep that
+    # absence explicit: design provenance must not invent a fitting partition
+    # or an execution order before the layer classifier has run.
+    layer_independent = not post_fusion and layer_ids is None and layering is None
     if post_fusion:
         fused_classes = np.asarray(fused_classes)
         if fused_classes.shape != (len(points),):
@@ -740,7 +884,7 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
         item["start"] = rotation@unit["start"]+translation
         item["end"] = rotation@unit["end"]+translation
         item["direction"] = rotation@unit["direction"]
-        item["fitLayerId"] = _semantic_layer(item, layering)
+        item["fitLayerId"] = 0 if layer_independent else _semantic_layer(item, layering)
         transformed.append(item)
 
     # Pending is the conservative candidate-steel default. Post-fusion rows
@@ -756,7 +900,9 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
     # Layer 0 is deliberately included in every semantic scope: it is the
     # geometric fallback for steel points that layering could not label.
     scoped = {}
-    if layer_ids is not None:
+    if layer_independent:
+        scoped[0] = (tree, source_ids)
+    elif layer_ids is not None:
         for layer_id in (1, 2, 3):
             ids = np.flatnonzero(usable & ((layer_ids == layer_id) | (layer_ids == 0)))
             scoped[layer_id] = (cKDTree(points[ids]) if len(ids) else None, ids)
@@ -773,16 +919,17 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
             "rmseM": None, "centerlineM": [],
             "layerId": source.get("layerId"), "fitLayerId": unit["fitLayerId"]})
 
-    layer_elapsed = {1: 0., 2: 0., 3: 0.}
+    scope_elapsed = {0: 0., 1: 0., 2: 0., 3: 0.}
 
-    def fit_one(task):
+    def initial_candidates(task):
         number, unit = task
         layer_tree, layer_source_ids = scoped[unit["fitLayerId"]]
         gate = (max(.075, min(.15, .75*unit["length"]), 9*unit["radius"])
                 if unit["kind"] in ("short", "web")
                 else max(.05, min(.10, .22*unit["length"]), 9*unit["radius"]))
+        neighbours = 768 if unit["kind"] == "straight" and unit["length"] > 2 else _NEIGHBOURS_PER_QUERY
         ids = (_candidate_indices(layer_tree, layer_source_ids, unit["start"], unit["end"], gate,
-                    neighbours=768 if unit["kind"] == "straight" and unit["length"] > 2 else None)
+                    neighbours=neighbours)
                if layer_tree is not None else np.empty(0, int))
         if unit["kind"] == "web":
             # Web cylinders touch both horizontal layers. Admit a bounded halo
@@ -791,9 +938,39 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
                                         np.asarray([unit["start"], unit["end"]]),
                                         max(.025, 6*unit["radius"]))
             ids = _merge_ids(ids, halo, limit=_MAX_UNIT_CANDIDATES)
-        model, reason, considered = _fit_unit(points, normals, ids, unit,
-                                               unit["start"], unit["direction"], mode == "auto")
-        fit_scope = "semantic-layer"
+        return gate, neighbours, ids
+
+    def fit_one(task, prepared=None):
+        number, unit = task
+        layer_tree, layer_source_ids = scoped[unit["fitLayerId"]]
+        if prepared is None:
+            gate, neighbours, ids = initial_candidates(task)
+            model, reason, considered = _fit_unit(points, normals, ids, unit,
+                                                   unit["start"], unit["direction"], mode == "auto")
+        else:
+            gate, neighbours, ids, result = prepared
+            model, reason, local_considered = result
+            considered = ids[local_considered]
+        # A dense, offset partial arc can fill every nearest-neighbour slot on
+        # its near side. Two projected circle votes then look like parallel bars
+        # before the continuous-axis solver ever sees the full cross-section.
+        # Retry that rejection once with richer evidence in the same candidate
+        # scope and gate. Keep all geometric/ambiguity checks and the 30k cap.
+        if (model is None and reason == "ambiguous-parallel-support"
+                and unit["kind"] == "straight" and neighbours < 768 and layer_tree is not None):
+            expanded = _candidate_indices(layer_tree, layer_source_ids, unit["start"], unit["end"], gate,
+                                          neighbours=768)
+            if not np.array_equal(expanded, ids):
+                retry_model, retry_reason, retry_considered = _fit_unit(
+                    points, normals, expanded, unit, unit["start"], unit["direction"], mode == "auto")
+                if retry_model is not None:
+                    sampling = {
+                        'reason': reason, 'initialNeighbours': neighbours, 'retryNeighbours': 768,
+                        'initialPoints': len(ids), 'retryPoints': len(expanded)}
+                    sampling['sameCandidateScopeAndGate' if layer_independent else 'sameLayerAndGate'] = True
+                    retry_model['candidateSampling'] = sampling
+                    model, reason, considered = retry_model, retry_reason, retry_considered
+        fit_scope = "bounded-geometry" if layer_independent else "semantic-layer"
         assignment_tree, assignment_ids = layer_tree, layer_source_ids
         # A shared-layer label is geometric guidance, not proof that every arc
         # of one tube received that label. Retry only unresolved units, within
@@ -826,38 +1003,84 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
         return number, model, reason, considered, fit_scope
 
     done = 0
-    for layer_id in (1, 2, 3):
-        tasks = [(number, unit) for number, unit in enumerate(transformed, 1)
-                 if unit["fitLayerId"] == layer_id]
-        layer_started = time.perf_counter()
-        if workers > 1 and len(tasks) > 1:
-            with ThreadPoolExecutor(max_workers=min(int(workers), len(tasks))) as executor:
-                results = executor.map(fit_one, tasks)
-                for number, model, reason, considered, fit_scope in results:
-                    unresolved = reason is not None and "ambiguous" in reason
-                    instance_rows[number-1].update(
-                        status="pending" if unresolved else "missing", reason=reason,
-                        fitCandidateScope=fit_scope)
-                    if model is not None:
-                        models.append(model)
-                    elif len(considered) and unresolved:
-                        pending[considered] = True
-                    done += 1
-                    _progress(progress, "控制网：逐层固定直径拟合", done, max(1, len(units)))
-        else:
-            for task in tasks:
-                number, model, reason, considered, fit_scope = fit_one(task)
-                unresolved = reason is not None and "ambiguous" in reason
-                instance_rows[number-1].update(
-                    status="pending" if unresolved else "missing", reason=reason,
-                    fitCandidateScope=fit_scope)
-                if model is not None:
-                    models.append(model)
-                elif len(considered) and unresolved:
-                    pending[considered] = True
-                done += 1
-                _progress(progress, "控制网：逐层固定直径拟合", done, max(1, len(units)))
-        layer_elapsed[layer_id] = float(time.perf_counter() - layer_started)
+    fitting_scopes = ((0, list(enumerate(transformed, 1))),) if layer_independent else tuple(
+        (layer_id, [(number, unit) for number, unit in enumerate(transformed, 1)
+                    if unit["fitLayerId"] == layer_id])
+        for layer_id in (1, 2, 3))
+    progress_label = ("控制网：逐单位固定直径拟合" if layer_independent
+                      else "控制网：逐层固定直径拟合")
+    for scope_id, tasks in fitting_scopes:
+        scope_started = time.perf_counter()
+        def results_in_order():
+            if workers <= 1 or len(tasks) <= 1:
+                yield from map(fit_one, tasks)
+                return
+            # Send at most 30k candidate points per fit, never the full scan or
+            # its trees. Bounded batches prevent queued copies scaling with N.
+            count = min(8, int(workers), len(tasks))
+            with ProcessPoolExecutor(max_workers=count,
+                    mp_context=multiprocessing.get_context("spawn"),
+                    initializer=_fit_worker_init) as executor:
+                for offset in range(0, len(tasks), 4*count):
+                    batch = []
+                    for task in tasks[offset:offset+4*count]:
+                        gate, neighbours, ids = initial_candidates(task)
+                        future = executor.submit(_fit_unit_worker, points[ids],
+                            normals[ids] if normals is not None else None, task[1], mode == "auto")
+                        batch.append((task, gate, neighbours, ids, future))
+                    for task, gate, neighbours, ids, future in batch:
+                        yield fit_one(task, (gate, neighbours, ids, future.result()))
+
+        for number, model, reason, considered, fit_scope in results_in_order():
+            unresolved = reason is not None and "ambiguous" in reason
+            instance_rows[number-1].update(
+                status="pending" if unresolved else "missing", reason=reason,
+                fitCandidateScope=fit_scope)
+            if model is not None:
+                models.append(model)
+            elif len(considered) and unresolved:
+                pending[considered] = True
+            done += 1
+            _progress(progress, progress_label, done, max(1, len(units)))
+        scope_elapsed[scope_id] = float(time.perf_counter() - scope_started)
+
+    # Recover only unresolved short bars, after known surfaces have been found.
+    # All candidates use eligible source geometry, but none can borrow a
+    # confirmed tube.
+    claimed = np.zeros(len(points), dtype=bool)
+    for model in models:
+        claimed[model['candidateIds'][model['support']]] = True
+    modeled = {model['number'] for model in models}
+    for number, unit in enumerate(transformed, 1):
+        if unit['kind'] != 'short' or number in modeled or tree is None:
+            continue
+        recovery_started = time.perf_counter()
+        midpoint = .5*(unit['start']+unit['end'])
+        axial_gate = .5*unit['length']+.18
+        ids = source_ids[tree.query_ball_point(midpoint, r=math.hypot(.5, axial_gate))]
+        delta = points[ids]-midpoint
+        along = delta@unit['direction']
+        keep = (~claimed[ids] & (np.abs(along) < axial_gate)
+                & (np.linalg.norm(delta-along[:, None]*unit['direction'], axis=1) < .5))
+        ids = ids[keep]
+        # Stable source-order sampling is only for solving, never assignment.
+        ids = _merge_ids(ids, limit=_MAX_UNIT_CANDIDATES)
+        model, reason = _recover_short(points, normals, ids, unit)
+        row = instance_rows[number-1]
+        row.update(recoveryReason=reason, recoverySearchRadiusM=.5)
+        if model is not None and reason == 'ambiguous-short-recovery':
+            row.update(status='pending', reason=reason, candidateCenterlineM=model['curve'].tolist(),
+                       candidateRmseM=model['rmse'], fittedLengthM=model['fittedLengthM'])
+        elif model is not None:
+            row.update(fittedLengthM=model['fittedLengthM'], fitCandidateScope='unclaimed-short-pose-search')
+            full_ids = _full_model_candidates(tree, source_ids, model['curve'], max(.02, 4*unit['radius']))
+            radial = _polyline_distances(points[full_ids], model['curve'])
+            residual = np.abs(radial-unit['radius'])
+            model.update(number=number, unit=unit, reason=reason, candidateIds=full_ids,
+                         radial=radial, residual=residual, support=residual <= model['tolerance'],
+                         fitScope='unclaimed-short-pose-search')
+            models.append(model)
+        scope_elapsed[unit['fitLayerId']] += time.perf_counter()-recovery_started
 
     # A shorter parallel member supplies an independent observed surface in
     # the shared span. Refit the longer member without borrowing that surface.
@@ -905,13 +1128,23 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
             longer.update(candidateIds=full_ids, radial=radial, residual=residual,
                           support=residual <= fitted["tolerance"], reason=reason,
                           fitScope="parallel-surface-refit")
-        layer_elapsed[unit["fitLayerId"]] += time.perf_counter()-refit_started
+        scope_elapsed[unit["fitLayerId"]] += time.perf_counter()-refit_started
 
     # Identical supported tubes from competing design units are globally
     # ambiguous. Suppress both rather than manufacturing duplicate steel.
     ambiguous_models = set()
+    bounds_low=np.array([model['curve'].min(axis=0) for model in models]).reshape(-1,3)
+    bounds_high=np.array([model['curve'].max(axis=0) for model in models]).reshape(-1,3)
+    radii=np.array([model['unit']['radius'] for model in models])
     for i, left in enumerate(models):
-        for right in models[i+1:]:
+        # Box separation is a lower bound on every curve-to-curve distance,
+        # in either direction. Distant pairs cannot be duplicates; avoid the
+        # expensive polyline calculation while preserving the exact close test.
+        gap=np.maximum(0.,np.maximum(bounds_low[i]-bounds_high[i+1:],bounds_low[i+1:]-bounds_high[i]))
+        limit=1.4*np.maximum(radii[i],radii[i+1:])+1e-12
+        near=np.flatnonzero(np.einsum('ij,ij->i',gap,gap)<limit*limit)+i+1
+        for j in near:
+            right=models[j]
             distance = float(np.mean(_polyline_distances(left["curve"], right["curve"])))
             if abs(np.dot(left["unit"]["direction"], right["unit"]["direction"])) > .98:
                 # A long member's overhang must not hide duplication throughout
@@ -1001,7 +1234,22 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
                    observedLengthM=model["observedLength"], rmseM=model["rmse"],
                    centerlineM=model["curve"].tolist(),
                    fitCandidateScope=model["fitScope"],
-                   directionDifferenceDeg=model["directionDifferenceDeg"])
+                   directionDifferenceDeg=model["directionDifferenceDeg"],
+                   axisModel=model['axisModel'], axisEvidenceRangeM=model['axisEvidenceRangeM'])
+        if model.get('webEvidence') is not None:
+            row['webEvidence'] = model['webEvidence']
+        if model.get('candidateSampling') is not None:
+            row['candidateSampling'] = model['candidateSampling']
+        if model.get('displacementM') is not None:
+            row.update(displacementM=model['displacementM'], reason='relocated-short-supported',
+                       fittedLengthM=model['fittedLengthM'], lengthCheck=model['lengthCheck'])
+    # Curves attach only after body identity and unique support are established.
+    # Their ownership is additive; accepted body points and nominal axes remain.
+    from algorithms.rebar_control_curves import fit_curved_pieces
+    registered_inventory = _transformed_inventory(inventory, rotation, translation)
+    curved_pieces, curve_summary = fit_curved_pieces(
+        points, normals, registered_inventory, instance_rows, status, owner,
+        tree=tree, source_ids=source_ids, progress=progress, workers=curve_workers)
     fitted = sum(row["status"] == "fitted" for row in instance_rows)
     physical_bars = (len((inventory or {}).get("bars", []))
                      if "bars" in (inventory or {})
@@ -1017,6 +1265,7 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
     if layer_ids is not None:
         counts["fallbackLayerPoints"] = int(np.count_nonzero(usable & (layer_ids == 0)))
     counts['candidateFittedUnits'] = sum(bool(row.get('candidateCenterlineM')) for row in instance_rows)
+    counts['lengthReviewUnits'] = sum(row.get('lengthCheck') == 'review-observed-span' for row in instance_rows)
     warnings = []
     if not units:
         warnings.append("design inventory contains no valid fitting units")
@@ -1026,42 +1275,73 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
         warnings.append('competing or insufficient global pose evidence; candidate axes are not confirmed identities')
     if fitted < len(units):
         warnings.append(f"{len(units)-fitted} design units remain pending or missing")
-    names = _layer_names(layering)
+    if counts['lengthReviewUnits']:
+        warnings.append(f"{counts['lengthReviewUnits']} short bars have discrepant visible spans; design length retained, endpoints require review")
     layer_rows = []
-    for layer_id in (1, 2, 3):
-        exact = usable if layer_ids is None else (usable & (layer_ids == layer_id))
-        unit_rows = [row for row in instance_rows if row["fitLayerId"] == layer_id]
-        layer_rows.append({"id": layer_id, "name": names[layer_id],
-            "inputPoints": int(np.count_nonzero(exact)),
-            "matched": int(np.count_nonzero(exact & (status == 1))),
-            "pending": int(np.count_nonzero(exact & (status == 2))),
-            "designUnits": len(unit_rows),
-            "fittedUnits": sum(row["status"] == "fitted" for row in unit_rows),
-            "elapsedS": layer_elapsed[layer_id]})
+    if not layer_independent:
+        names = _layer_names(layering)
+        for layer_id in (1, 2, 3):
+            exact = usable if layer_ids is None else (usable & (layer_ids == layer_id))
+            unit_rows = [row for row in instance_rows if row["fitLayerId"] == layer_id]
+            layer_rows.append({"id": layer_id, "name": names[layer_id],
+                "inputPoints": int(np.count_nonzero(exact)),
+                "matched": int(np.count_nonzero(exact & (status == 1))),
+                "pending": int(np.count_nonzero(exact & (status == 2))),
+                "designUnits": len(unit_rows),
+                "fittedUnits": sum(row["status"] == "fitted" for row in unit_rows),
+                "elapsedS": scope_elapsed[layer_id]})
+    policy = {"fitSampleOnly": True, "assignmentUsesFullSource": True,
+              "unmatchedPolicy": "pending; never removed by design mismatch alone",
+              "webEndpointHaloM": "max(0.025, 6 * design radius)",
+              "webAxisModel": "straight cylinder at body stations 0.12..0.88; shared parametric curved junctions attach after body identity",
+              "shortRecoveryPolicy": (
+                  "unresolved only; unclaimed eligible geometry within 0.50 m transverse and "
+                  "0.18 m axial margin; finite interval, radius, planar and duplicate guards; "
+                  "competing scores within 90 percent stay pending"),
+              "shortLengthPolicy": (
+                  "design length fixed during pose recovery; visible span is evidence only; "
+                  "difference above max(0.01 m, 10 percent) requires endpoint review, not auto-resizing"),
+              "bendPolicy": (
+                  "station-density guard; straight preferred unless distributed evidence improves "
+                  "the fit; unsupported endpoints continue tangents instead of cubic extrapolation"),
+              "workers": int(workers),
+              "localOutlierPolicy": "supported cylinder residual plus fewer than 3 raw non-table neighbours",
+              "identityAlternativeScoreRatio": .90,
+              "webHypothesisEvidence": {"radialNormalAbsCosMin": .8,
+                  "scope": "one bounded retry on ambiguous web hypotheses; global and continuous station evidence",
+                  "normalOrientation": "unoriented; absolute dot product",
+                  "missingNormals": "distance-only geometric fallback; ambiguity guards retained"},
+              "curvedPiecePolicy": "fixed rebar radius; bounded parametric shape; continuous cross-section support and held-out stability; no body reassignment or automatic terminal-length extension",
+              "localOutlierNeighbourRadiusM": max(.0015, .6*min((u['radius'] for u in transformed), default=.004))}
+    if layer_independent:
+        policy.update(
+            candidateScope="single bounded geometric search over every finite non-table source record",
+            semanticLayerPolicy="not available at post-table stage; no layer partition or layer ordering applied")
+    else:
+        policy.update(
+            fusionExclusionStatus=4,
+            layerZeroPolicy="geometric fallback candidate in every semantic layer",
+            layerSummaryAttribution=(
+                "matched/pending/inputPoints use each source row's exact shared layer; "
+                "candidate-scope endpoint halos and layer 0 fallback are not double counted"),
+            layerRetryPolicy=(
+                "unresolved units only; original bounded design-line gate over fusion class 3; "
+                "unchanged radius, planar and ambiguity acceptance guards"))
     report = {"version": VERSION, "mode": mode,
-              "inputStage": "post-fusion" if post_fusion else "post-table",
-              "inputPolicy": ("fusion class 3 non-table source records, partitioned by shared semantic layer"
-                              if post_fusion else
-                              "raw source XYZ after shared table exclusion; no class or instance input"),
+              "inputStage": "post-fusion" if post_fusion else ("post-layering" if layer_ids is not None and layering is not None else "post-table"),
+              "inputPolicy": (
+                  "fusion class 3 non-table source records, partitioned by shared semantic layer"
+                  if post_fusion else
+                  "finite raw source XYZ after shared table exclusion; no class, layer or instance input"
+                  if layer_independent else
+                  "finite raw source XYZ after shared table exclusion, partitioned by shared semantic layer"),
               "registration": registration, "counts": counts, "instances": instance_rows,
-              "layers": layer_rows,
-              "inventory": _transformed_inventory(inventory, rotation, translation),
-              "policy": {"fitSampleOnly": True, "assignmentUsesFullSource": True,
-                         "unmatchedPolicy": "pending; never removed by design mismatch alone",
-                         "fusionExclusionStatus": 4,
-                         "layerZeroPolicy": "geometric fallback candidate in every semantic layer",
-                         "layerSummaryAttribution": (
-                             "matched/pending/inputPoints use each source row's exact shared layer; "
-                             "candidate-scope endpoint halos and layer 0 fallback are not double counted"),
-                         "webEndpointHaloM": "max(0.025, 6 * design radius)",
-                         "layerRetryPolicy": (
-                             "unresolved units only; original bounded design-line gate over fusion class 3; "
-                             "unchanged radius, planar and ambiguity acceptance guards"),
-                         "workers": int(workers),
-                         "localOutlierPolicy": "supported cylinder residual plus fewer than 3 raw non-table neighbours",
-                         "identityAlternativeScoreRatio": .90,
-                         "localOutlierNeighbourRadiusM": max(.0015, .6*min((u['radius'] for u in transformed), default=.004))},
+              "inventory": registered_inventory,
+              "curvedPieces": curved_pieces, "curveSummary": curve_summary,
+              "policy": policy,
               "warnings": warnings, "elapsedS": float(time.perf_counter()-started)}
+    if not layer_independent:
+        report["layers"] = layer_rows
     if post_fusion and mode == "auto":
         report["registration"]["upstreamEvidenceFrame"] = (
             "fusion and shared layers were computed from the saved alignment before geometry-only auto registration")

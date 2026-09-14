@@ -25,14 +25,14 @@ def _structural_bands(design_layers):
             for group in groups]
 
 
-def prepare_floating_scene(context, inventory=None, *, output, progress=None):
+def prepare_floating_scene(context, inventory=None, *, output, progress=None, stop_after_layering=False):
     started = time.perf_counter()
     progress = progress or (lambda *args: None)
-    progress('01D：钢筋分层与设计禁飞区', 0, len(context.positions))
-    report = build_floating_zones(inventory)
+    progress('01D：钢筋分层', 0, len(context.positions))
+    report = build_floating_zones(inventory, layers_only=True) if stop_after_layering else build_floating_zones(inventory)
     eligible = ~np.asarray(context.shared_table_mask, bool) & np.isin(context.partition_zone, [1, 3])
     cloth_eligible = ~np.asarray(context.shared_table_mask, bool)
-    _, forbidden = classify_floating_zones(context.positions, report, eligible_mask=cloth_eligible)
+    forbidden = np.zeros(len(context.positions), bool)
     layers = np.zeros(len(context.positions), np.uint8)
     # Without a usable design, measured horizontal bands still move before A/B.
     # Occupied voxels prevent repeated scanner echoes manufacturing layer peaks.
@@ -61,6 +61,8 @@ def prepare_floating_scene(context, inventory=None, *, output, progress=None):
         selected = eligible & (z >= band['low']) & (z <= band['high'])
         layers[selected] = i
     layers[~eligible] = 0
+    if not stop_after_layering:
+        _, forbidden = classify_floating_zones(context.positions, report, eligible_mask=cloth_eligible)
     output['shared_layer'][:] = layers
     output['shared_floating_noise'][:] = forbidden
     for name, values in output.items():
@@ -80,7 +82,10 @@ def prepare_floating_scene(context, inventory=None, *, output, progress=None):
                 'counts': {str(i): int(n) for i, n in enumerate(np.bincount(layers, minlength=4))},
                 'elapsedS': time.perf_counter()-started,
                 'policy': 'bottom steel, top steel and intervening web candidates; no clipping or classifier votes'}
-    context.scene_cache.update(layering=layering, floatingZones=report)
+    context.scene_cache['layering'] = layering
+    if stop_after_layering:
+        return layering, None
+    context.scene_cache['floatingZones'] = report
     return layering, report
 
 
