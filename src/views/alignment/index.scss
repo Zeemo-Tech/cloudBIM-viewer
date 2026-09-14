@@ -2416,7 +2416,6 @@
 .calibration-page .workflow-guidance {
   margin: 0;
   padding: var(--spacing-compact) var(--spacing-md);
-  border-bottom: 1px solid var(--border-color-light);
   color: var(--text-secondary);
   background: var(--bg-card);
   font-size: var(--font-size-xs);
@@ -4702,6 +4701,69 @@
   border: 1px solid #d7e4ef;
   border-radius: 8px;
   background: #f7fafc;
+}
+.calibration-page .rebar-inspection {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid #d7e4ef;
+  border-bottom: 1px solid #d7e4ef;
+}
+.calibration-page .rebar-inspection__header,
+.calibration-page .rebar-inspection__header > div {
+  display: flex;
+  align-items: center;
+}
+.calibration-page .rebar-inspection__header {
+  justify-content: space-between;
+  gap: 12px;
+}
+.calibration-page .rebar-inspection__header > div {
+  min-width: 0;
+  gap: 8px;
+}
+.calibration-page .rebar-inspection__header strong {
+  color: #1e3759;
+  font-size: 13px;
+}
+.calibration-page .rebar-inspection__header span {
+  color: #64748b;
+  font-family: var(--font-family-number);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.calibration-page .rebar-inspection__header :deep(.el-switch__label) {
+  color: #516b8f;
+  font-size: 12px;
+}
+.calibration-page .rebar-inspection :deep(.el-progress-bar__outer) {
+  background: #dce5f1;
+}
+.calibration-page .rebar-inspection :deep(.el-progress-bar__inner) {
+  background: #326fe0;
+}
+.calibration-page .rebar-inspection__controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.calibration-page .rebar-inspection__controls > .el-button {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+}
+.calibration-page .rebar-inspection__controls > .rebar-inspection__manual-select {
+  width: auto;
+  min-width: 78px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.calibration-page .rebar-inspection__empty {
+  margin: 0;
+  color: #b45309 !important;
 }
 .calibration-page .rebar-comparison-details {
   display: grid;

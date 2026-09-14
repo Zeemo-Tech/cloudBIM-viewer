@@ -4,9 +4,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Aim,
   ArrowDown,
   ArrowLeft,
+  ArrowRight,
   ArrowUp,
   Brush,
   Check,
@@ -94,6 +94,7 @@ import {
   recolorC2M,
   type C2MResult,
   type C2MVisualization,
+  type RebarComparisonBar,
 } from '@/api/backend-c2m'
 import { applyC2MVertexColors, histogramFromC2MDistances, parseC2MDistances } from '@/utils/c2mColormap'
 import { resolveC2MRangeMm, summarizeC2MRange, type C2MRangeMode } from '@/utils/c2mRange'
@@ -141,7 +142,7 @@ import { PointCloudEdlPipeline } from '@/components/preview/edlPipeline'
 import { bindTransformChangeEvents } from './transformChangeEvents'
 import { parseDenoisePreview, applyDenoisePreviewAppearance, type DenoiseColorMode } from './denoisePreview'
 import DenoisePanel from './DenoisePanel.vue'
-import { filterComparisonGeometry, comparisonBarsAtTolerance, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
+import { filterComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
@@ -321,6 +322,7 @@ function openWorkflowStep(step: WorkflowStepId) {
 }
 
 function clearDenoisePreview() {
+  resetRebarInspection()
   denoisePreviewRequestId++
   denoisePreview?.removeFromParent()
   denoisePreview?.geometry.dispose()
@@ -435,7 +437,23 @@ async function downloadDenoise() {
   const result = denoiseResult.value
   if (!result?.fresh) return
   try {
-    const blob = await backendRequest<Blob>(denoiseArtifactUrl(props.pointcloudAssetId!, props.bimAssetId!, result.version, 'cleaned.las'), { responseType: 'blob' })
+    const download = (version: string) => backendRequest<Blob>(
+      denoiseArtifactUrl(props.pointcloudAssetId!, props.bimAssetId!, version, 'cleaned.las'),
+      { responseType: 'blob' },
+    )
+    let blob: Blob
+    try {
+      blob = await download(result.version)
+    } catch (error) {
+      // A background recompute can replace the immutable artifact between
+      // rendering the panel and clicking download. Refresh once and retry
+      // with the version the backend now considers current.
+      if ((error as any)?.response?.status !== 409) throw error
+      const latest = (await getLatestDenoise(props.pointcloudAssetId!, props.bimAssetId!)).data
+      if (!latest?.fresh) throw error
+      denoiseResult.value = latest
+      blob = await download(latest.version)
+    }
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -529,7 +547,17 @@ const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
 const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / 14) }, (_, page) => comparisonBars.value.slice(page * 14, (page + 1) * 14)))
 const selectedComparisonBar = computed(() => comparisonBars.value.find(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
+const rebarInspectionActive = ref(false)
+const rebarInspectionManualSelect = ref(false)
+const rebarInspectionAbnormalOnly = ref(false)
+const rebarInspectionBars = computed(() => rebarInspectionAbnormalOnly.value
+  ? comparisonBars.value.filter(bar => isRebarInspectionAbnormal(bar, c2mToleranceMm.value / 1000))
+  : comparisonBars.value)
+const rebarInspectionIndex = computed(() => rebarInspectionBars.value.findIndex(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const comparisonBimVisibility = new WeakMap<THREE.Object3D, boolean>()
+let rebarCameraAnimationFrame: number | null = null
+const rebarInspectionMaterialState = new WeakMap<THREE.Material, { color?: THREE.Color; opacity: number; transparent: boolean; depthWrite: boolean }>()
+const c2mOriginalVertexColors = new WeakMap<THREE.BufferGeometry, Float32Array>()
 
 async function prepareRebarComparisonScene() {
   const result = denoiseResult.value
@@ -549,12 +577,88 @@ async function prepareRebarComparisonScene() {
 
 function applyComparisonSelection() {
   const bar = selectedComparisonBar.value
+  const visibleInstanceIds = bar?.instanceIds
   if (denoisePreview && activeWorkflowStep.value >= 3) {
-    denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(denoisePreview.geometry, 'cleaned', [3], bar?.instanceIds)
+    denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(
+      denoisePreview.geometry,
+      'cleaned',
+      [3],
+      undefined,
+      {
+        highlightInstanceIds: rebarInspectionActive.value ? visibleInstanceIds : undefined,
+        highlightColor: '#ffffff',
+      },
+    )
   }
   if (c2mSceneGroup && comparison.value) c2mSceneGroup.traverse(object => {
-    if (object instanceof THREE.Mesh) filterComparisonGeometry(object.geometry, bar)
+    if (object instanceof THREE.Mesh && c2mAnalysisSession) {
+      const colors = object.geometry.getAttribute('color')
+      if (colors) {
+        if (!c2mOriginalVertexColors.has(object.geometry)) c2mOriginalVertexColors.set(object.geometry, new Float32Array(colors.array as ArrayLike<number>))
+        const original = c2mOriginalVertexColors.get(object.geometry)!
+        const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
+        const next = new Float32Array(original)
+        if (rebarInspectionActive.value && matched) {
+          const white = new THREE.Color('#ffffff')
+          for (let index = 0; index < colors.count; index += 1) white.toArray(next, index * 3)
+        }
+        colors.array.set(next)
+        colors.needsUpdate = true
+      }
+    } else if (object instanceof THREE.Mesh && !c2mAnalysisSession) {
+      filterComparisonGeometry(object.geometry, undefined)
+      const material = object.material as THREE.Material | THREE.Material[]
+      const materials = Array.isArray(material) ? material : [material]
+      materials.forEach(item => {
+        const current = item as THREE.MeshBasicMaterial
+        if ('color' in current && current.color?.isColor) {
+          current.color.set('#ffffff')
+          current.opacity = 1
+          current.transparent = false
+          current.needsUpdate = true
+        }
+      })
+    }
   })
+  if (c2mAnalysisSession && comparison.value) {
+    comparison.value.bars.forEach(item => {
+      c2mAnalysisSession?.setComponentVisible(item.ifcGlobalId, true)
+    })
+  }
+  if (bimPivot && comparison.value && activeWorkflowStep.value >= 3) {
+    bimPivot.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return
+      const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
+      // Clone per-mesh materials before changing their color. GLTF loaders
+      // commonly share one material across many rebar meshes.
+      if (!object.userData.__rebarInspectionMaterialsCloned) {
+        const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material]
+        const clonedMaterials = sourceMaterials.map(material => material.clone())
+        object.material = Array.isArray(object.material) ? clonedMaterials : clonedMaterials[0]
+        object.userData.__rebarInspectionMaterialsCloned = true
+      }
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      materials.forEach(item => {
+        const material = item as THREE.MeshStandardMaterial
+        if (!('color' in material) || !material.color?.isColor) return
+        if (!rebarInspectionMaterialState.has(material)) {
+          rebarInspectionMaterialState.set(material, {
+            color: material.color.clone(),
+            opacity: material.opacity,
+            transparent: material.transparent,
+            depthWrite: material.depthWrite,
+          })
+        }
+        const original = rebarInspectionMaterialState.get(material)
+        if (rebarInspectionActive.value && matched) material.color.set('#ffffff')
+        else if (original?.color) material.color.copy(original.color)
+        material.opacity = original?.opacity ?? 1
+        material.transparent = original?.transparent ?? false
+        material.depthWrite = original?.depthWrite ?? true
+        material.needsUpdate = true
+      })
+    })
+  }
   requestRender()
 }
 
@@ -572,6 +676,298 @@ function downloadRebarReport(selectedOnly = false) {
 }
 
 watch(selectedComparisonBarId, applyComparisonSelection)
+
+function stopRebarCameraAnimation() {
+  if (rebarCameraAnimationFrame !== null) {
+    window.cancelAnimationFrame(rebarCameraAnimationFrame)
+    rebarCameraAnimationFrame = null
+  }
+}
+
+function objectMatchesComparisonBar(object: THREE.Object3D, ifcGlobalId: string) {
+  let current: THREE.Object3D | null = object
+  while (current && current !== bimPivot) {
+    const ids = [current.name, String(current.userData.ifcGlobalId ?? ''), guessIfcId(current.userData)]
+    if (ids.some(id => id && (id === ifcGlobalId || findMetadataElementById(id)?.id === ifcGlobalId))) return true
+    current = current.parent
+  }
+  return false
+}
+
+function comparisonBarBounds(bar: RebarComparisonBar) {
+  const analysisBounds = c2mAnalysisSession?.queryBounds(bar.ifcGlobalId)
+  if (analysisBounds && !analysisBounds.isEmpty()) return analysisBounds
+
+  if (!c2mAnalysisSession && c2mSceneGroup) {
+    const bounds = new THREE.Box3()
+    const point = new THREE.Vector3()
+    let found = false
+    c2mSceneGroup.updateMatrixWorld(true)
+    c2mSceneGroup.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return
+      const positions = object.geometry.getAttribute('position')
+      const start = Math.max(0, bar.vertexStart)
+      const end = Math.min(positions.count, start + bar.vertexCount)
+      for (let index = start; index < end; index += 1) {
+        point.fromBufferAttribute(positions, index).applyMatrix4(object.matrixWorld)
+        bounds.expandByPoint(point)
+        found = true
+      }
+    })
+    if (found && !bounds.isEmpty()) return bounds
+  }
+
+  if (bimPivot) {
+    const bounds = new THREE.Box3()
+    let found = false
+    bimPivot.updateMatrixWorld(true)
+    bimPivot.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || !objectMatchesComparisonBar(object, bar.ifcGlobalId)) return
+      bounds.expandByObject(object)
+      found = true
+    })
+    if (found && !bounds.isEmpty()) return bounds
+  }
+  return null
+}
+
+function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean } = {}) {
+  if (!activeCamera || !controls) return
+  const bounds = comparisonBarBounds(bar)
+  if (!bounds) return
+  stopRebarCameraAnimation()
+
+  const startPosition = activeCamera.position.clone()
+  const startTarget = controls.target.clone()
+  const endTarget = bounds.getCenter(new THREE.Vector3())
+  const size = bounds.getSize(new THREE.Vector3())
+  const maxDim = Math.max(size.x, size.y, size.z, 0.1)
+  const isManualFocus = options.manual === true
+  // Sequence navigation should show the whole member with breathing room;
+  // a direct mouse pick can remain a tighter close-up for detail inspection.
+  const framingMargin = isManualFocus ? 1.1 : 1.3
+  const focusDim = Math.max(maxDim * framingMargin, 0.08)
+  const currentViewDirection = startPosition.clone().sub(startTarget)
+  if (currentViewDirection.lengthSq() < 1e-8) currentViewDirection.set(1, 0.6, 1)
+  currentViewDirection.normalize()
+
+  // A long rebar can look like a short dot when the camera travels along its
+  // length. Derive the dominant world axis from the bounds and force the
+  // inspection view to stay mostly perpendicular to that axis. This keeps
+  // both horizontal and vertical bars visually legible while preserving a
+  // smooth transition from the current camera pose.
+  const longAxis = new THREE.Vector3()
+  if (size.x >= size.y && size.x >= size.z) longAxis.set(1, 0, 0)
+  else if (size.y >= size.z) longAxis.set(0, 1, 0)
+  else longAxis.set(0, 0, 1)
+  const referenceUp = activeCamera.up.clone().normalize()
+  const viewDirection = currentViewDirection
+    .clone()
+    .addScaledVector(longAxis, -currentViewDirection.dot(longAxis))
+  if (viewDirection.lengthSq() < 1e-6 || Math.abs(viewDirection.dot(referenceUp)) > 0.9) {
+    const candidates = [
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(1, 0, 0),
+    ]
+    let found = false
+    for (const candidate of candidates) {
+      const projected = candidate.addScaledVector(longAxis, -candidate.dot(longAxis))
+      if (projected.lengthSq() < 1e-6) continue
+      projected.normalize()
+      if (Math.abs(projected.dot(referenceUp)) <= 0.9) {
+        viewDirection.copy(projected)
+        found = true
+        break
+      }
+    }
+    if (!found) viewDirection.copy(longAxis).cross(referenceUp)
+  }
+  if (viewDirection.lengthSq() < 1e-6) viewDirection.set(0, 0, 1)
+  viewDirection.normalize()
+  const cameraDirection = viewDirection.clone().multiplyScalar(-1)
+  const cameraUp = referenceUp
+    .clone()
+    .addScaledVector(cameraDirection, -referenceUp.dot(cameraDirection))
+  if (cameraUp.lengthSq() < 1e-6) cameraUp.set(0, 1, 0)
+  cameraUp.normalize()
+  const cameraRight = cameraDirection.clone().cross(cameraUp).normalize()
+  const projectedWidth = Math.max(
+    Math.abs(cameraRight.x) * size.x + Math.abs(cameraRight.y) * size.y + Math.abs(cameraRight.z) * size.z,
+    0.08,
+  )
+  const projectedHeight = Math.max(
+    Math.abs(cameraUp.x) * size.x + Math.abs(cameraUp.y) * size.y + Math.abs(cameraUp.z) * size.z,
+    0.08,
+  )
+  let distance = Math.max(focusDim * 0.42, 0.08)
+  if (isPerspectiveCamera(activeCamera)) {
+    const verticalFov = THREE.MathUtils.degToRad(activeCamera.fov)
+    const aspect = Math.max(activeCamera.aspect || 1, 0.1)
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect)
+    const horizontalDistance = projectedWidth / 2 / Math.tan(horizontalFov / 2)
+    const verticalDistance = projectedHeight / 2 / Math.tan(verticalFov / 2)
+    distance = Math.max(
+      horizontalDistance * framingMargin,
+      verticalDistance * framingMargin,
+      focusDim * 0.42,
+    )
+  }
+  const endPosition = endTarget.clone().addScaledVector(viewDirection, distance)
+  const startOrthoSize = orthoViewSize
+  const aspect = isPerspectiveCamera(activeCamera) ? Math.max(activeCamera.aspect || 1, 0.1) : Math.max(viewportEl.value?.clientWidth || 1, 1) / Math.max(viewportEl.value?.clientHeight || 1, 1)
+  const endOrthoSize = Math.max(projectedHeight * framingMargin, projectedWidth / aspect * framingMargin, 0.2)
+  const startedAt = performance.now()
+  const duration = 520
+
+  const animate = (now: number) => {
+    if (!activeCamera || !controls) return
+    const progress = Math.min(1, (now - startedAt) / duration)
+    const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - ((-2 * progress + 2) ** 3) / 2
+    activeCamera.position.lerpVectors(startPosition, endPosition, eased)
+    controls.target.lerpVectors(startTarget, endTarget, eased)
+    if (isOrthographicCamera(activeCamera)) {
+      orthoViewSize = THREE.MathUtils.lerp(startOrthoSize, endOrthoSize, eased)
+      updateOrthographicFrustum()
+    }
+    activeCamera.lookAt(controls.target)
+    controls.update()
+    requestRender()
+    if (progress < 1) rebarCameraAnimationFrame = window.requestAnimationFrame(animate)
+    else rebarCameraAnimationFrame = null
+  }
+  rebarCameraAnimationFrame = window.requestAnimationFrame(animate)
+}
+
+function pauseRebarInspection() {
+  rebarInspectionActive.value = false
+  applyComparisonSelection()
+}
+
+function selectInspectionBar(index: number) {
+  const bars = rebarInspectionBars.value
+  if (!bars.length) return false
+  const normalized = Math.min(bars.length - 1, Math.max(0, index))
+  rebarInspectionActive.value = true
+  selectedComparisonBarId.value = bars[normalized].ifcGlobalId
+  applyComparisonSelection()
+  void nextTick(() => focusComparisonBar(bars[normalized], { manual: false }))
+  return true
+}
+
+function stepRebarInspection(direction: -1 | 1) {
+  if (!rebarInspectionBars.value.length) {
+    ElMessage.warning(rebarInspectionAbnormalOnly.value ? '当前没有异常钢筋' : '暂无可巡检钢筋')
+    return
+  }
+  rebarInspectionActive.value = true
+  const current = rebarInspectionIndex.value
+  const next = current < 0 ? 0 : Math.min(rebarInspectionBars.value.length - 1, Math.max(0, current + direction))
+  selectInspectionBar(next)
+}
+
+function resetRebarInspection() {
+  stopRebarCameraAnimation()
+  rebarInspectionActive.value = false
+  rebarInspectionManualSelect.value = false
+  selectedComparisonBarId.value = ''
+  applyComparisonSelection()
+}
+
+function toggleRebarManualSelection() {
+  rebarInspectionManualSelect.value = !rebarInspectionManualSelect.value
+  if (!rebarInspectionManualSelect.value) stopRebarCameraAnimation()
+}
+
+function onInspectionFilterChange() {
+  if (rebarInspectionActive.value) {
+    if (rebarInspectionBars.value.length) selectInspectionBar(0)
+    else {
+      selectedComparisonBarId.value = ''
+      applyComparisonSelection()
+    }
+  }
+}
+
+function selectInspectionBarById(ifcGlobalId: string) {
+  const bar = comparisonBars.value.find(item => item.ifcGlobalId === ifcGlobalId)
+  if (!bar) return false
+  rebarInspectionActive.value = true
+  selectedComparisonBarId.value = bar.ifcGlobalId
+  applyComparisonSelection()
+  void nextTick(() => focusComparisonBar(bar, { manual: true }))
+  return true
+}
+
+function getComparisonBarIdFromHit(hit: THREE.Intersection) {
+  let current: THREE.Object3D | null = hit.object
+  while (current) {
+    const candidate = [
+      String(current.userData?.ifcGlobalId ?? '').trim(),
+      String(current.name || '').trim(),
+      guessIfcId(current.userData),
+    ].find(Boolean)
+    if (candidate) {
+      const direct = comparisonBars.value.find(bar => bar.ifcGlobalId === candidate)
+      if (direct) return direct.ifcGlobalId
+      const metadataId = findMetadataElementById(candidate)?.id
+      if (metadataId && comparisonBars.value.some(bar => bar.ifcGlobalId === metadataId)) return metadataId
+    }
+    if (current === bimPivot || current === c2mSceneGroup) break
+    current = current.parent
+  }
+
+  // The colored/denoised PLY stores ownership per vertex rather than on the
+  // mesh. Resolve either a point hit or an intersected triangle's instance
+  // and map it to a comparison bar.
+  const geometry = (hit.object as THREE.Mesh).geometry
+  const instances = geometry?.getAttribute('instance')
+  if (instances && typeof hit.index === 'number') {
+    const instanceId = instances.getX(hit.index)
+    if (Number.isInteger(instanceId)) {
+      const bar = comparisonBars.value.find(item => item.instanceIds.includes(instanceId))
+      if (bar) return bar.ifcGlobalId
+    }
+  }
+  if (instances && typeof hit.faceIndex === 'number') {
+    const index = geometry.getIndex()
+    const first = hit.faceIndex * 3
+    const ids = [0, 1, 2].map(offset => index ? index.getX(first + offset) : first + offset)
+    for (const vertex of ids) {
+      const instanceId = instances.getX(vertex)
+      if (!Number.isInteger(instanceId)) continue
+      const bar = comparisonBars.value.find(item => item.instanceIds.includes(instanceId))
+      if (bar) return bar.ifcGlobalId
+    }
+  }
+  return ''
+}
+
+function handleRebarInspectionPointerDown(event: PointerEvent) {
+  if (
+    event.button !== 0 || event.shiftKey || analysisMode.value !== 'none' ||
+    activeWorkflowStep.value !== 3 || !comparison.value || !rebarInspectionManualSelect.value ||
+    !raycaster || !activeCamera
+  ) return false
+  const pointer = getPointerNdc(event)
+  if (!pointer) return false
+  raycaster.setFromCamera(pointer, activeCamera)
+  const targets: THREE.Object3D[] = []
+  if (c2mSceneGroup?.visible) targets.push(c2mSceneGroup)
+  if (denoisePreview?.visible) targets.push(denoisePreview)
+  if (pointcloudGroup?.visible) targets.push(pointcloudGroup)
+  if (bimPivot?.visible) targets.push(bimPivot)
+  if (!targets.length) return false
+  const hit = raycaster.intersectObjects(targets, true).find(intersection => {
+    const object = intersection.object as THREE.Object3D
+    return !(object.userData as any)?.__viewerPickIgnore
+  })
+  if (!hit) return false
+  const ifcGlobalId = getComparisonBarIdFromHit(hit)
+  if (!ifcGlobalId) return false
+  selectInspectionBarById(ifcGlobalId)
+  return true
+}
 
 const c2mSceneLoaded = ref(false)
 const c2mSceneLoading = ref(false)
@@ -5100,6 +5496,7 @@ function getTopLevelSceneObjectFromIntersection(object: THREE.Object3D | null) {
 
 function handleViewportPointerDown(event: PointerEvent) {
   if (!viewportEl.value || !activeCamera || !raycaster || !contentGroup) return
+  if (handleRebarInspectionPointerDown(event)) return
   if (event.shiftKey && event.button === 0 && c2mSceneGroup) {
     const pointer = getPointerNdc(event)
     if (pointer) {
@@ -6707,6 +7104,7 @@ watch([() => route.query.step, workflowRouteReady, bimLoaded, pointcloudLoaded],
   }
 })
 watch(activeWorkflowStep, (step) => {
+  if (step !== 3) resetRebarInspection()
   if (workflowRouteReady.value && String(route.query.step || 1) !== String(step)) {
     void router.replace({ query: { ...route.query, step: String(step) } })
   }
@@ -6727,6 +7125,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  resetRebarInspection()
   denoiseRequestId++
   clearDenoisePreview()
   window.removeEventListener('keydown', onAnalysisKeydown)
@@ -7211,7 +7610,7 @@ onBeforeUnmount(() => {
           </p>
           <div v-if="pointcloudPreprocessRequired" class="panel-section denoise-panel">
             <div class="section-heading">
-              <h2>分析点云未就绪</h2>
+              <h4>分析点云未就绪</h4>
               <span class="stage-state">需预处理</span>
             </div>
             <p class="denoise-note">分析仅使用上传阶段生成的无台面点云。历史资产可在此补算法向量并识别、移除台面。</p>
@@ -7674,10 +8073,51 @@ onBeforeUnmount(() => {
           <section v-if="comparison" class="rebar-comparison-card" aria-label="逐钢筋比对">
             <strong>逐钢筋比对 · {{ comparisonBars.length }} 根</strong>
             <p>已排除 {{ comparison.excludedComponentCount }} 个非钢筋构件；{{ comparison.unassignedPointCount.toLocaleString() }} 个点未建立可靠对应。</p>
-            <el-select v-model="selectedComparisonBarId" filterable aria-label="选择比对钢筋" placeholder="全部钢筋">
-              <el-option label="全部钢筋" value="" />
-              <el-option v-for="(bar, index) in comparisonBars" :key="bar.ifcGlobalId" :value="bar.ifcGlobalId" :label="`${index + 1}. ${bar.name || bar.designBarId} · ${rebarStatusLabel(bar.status)}`" />
-            </el-select>
+            <div class="rebar-inspection" aria-label="逐钢筋手动巡视">
+              <div class="rebar-inspection__header">
+                <div>
+                  <strong>巡检模式</strong>
+                  <span>{{ rebarInspectionIndex >= 0 ? rebarInspectionIndex + 1 : 0 }} / {{ rebarInspectionBars.length }}</span>
+                </div>
+                <el-switch
+                  v-model="rebarInspectionAbnormalOnly"
+                  size="small"
+                  active-text="仅异常"
+                  aria-label="仅巡检异常钢筋"
+                  @change="onInspectionFilterChange"
+                />
+              </div>
+              <el-progress
+                :percentage="rebarInspectionBars.length && rebarInspectionIndex >= 0 ? ((rebarInspectionIndex + 1) / rebarInspectionBars.length) * 100 : 0"
+                :show-text="false"
+                :stroke-width="4"
+              />
+              <div class="rebar-inspection__controls">
+                <el-button
+                  aria-label="上一根钢筋"
+                  title="上一根钢筋"
+                  :icon="ArrowLeft"
+                  :disabled="!rebarInspectionBars.length || rebarInspectionIndex <= 0"
+                  @click="stepRebarInspection(-1)"
+                />
+                <el-button
+                  class="rebar-inspection__manual-select"
+                  :type="rebarInspectionManualSelect ? 'primary' : 'default'"
+                  :plain="!rebarInspectionManualSelect"
+                  @click="toggleRebarManualSelection"
+                >
+                  手动选择
+                </el-button>
+                <el-button
+                  aria-label="下一根钢筋"
+                  title="下一根钢筋"
+                  :icon="ArrowRight"
+                  :disabled="!rebarInspectionBars.length || rebarInspectionIndex >= rebarInspectionBars.length - 1"
+                  @click="stepRebarInspection(1)"
+                />
+              </div>
+              <p v-if="rebarInspectionAbnormalOnly && !rebarInspectionBars.length" class="rebar-inspection__empty">当前容差下没有异常钢筋。</p>
+            </div>
             <div v-if="selectedComparisonBar" class="rebar-comparison-details">
               <span>IFC：{{ selectedComparisonBar.ifcGlobalId }}</span>
               <span>实例：{{ selectedComparisonBar.instanceIds.join('、') || '无可靠对应' }}</span>

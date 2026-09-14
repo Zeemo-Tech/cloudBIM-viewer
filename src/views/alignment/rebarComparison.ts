@@ -1,21 +1,47 @@
-import type { BufferGeometry, BufferAttribute } from 'three'
+import { BufferAttribute, Color, type BufferGeometry } from 'three'
 import type { C2MResult, RebarComparisonBar } from '../../api/backend-c2m'
 
 const originalIndices = new WeakMap<BufferGeometry, BufferAttribute | null>()
+const originalColors = new WeakMap<BufferGeometry, BufferAttribute | null>()
 
 /** Keep the original vertex stream so distances and report ranges remain bound. */
-export function filterComparisonGeometry(geometry: BufferGeometry, bar?: RebarComparisonBar) {
+export function filterComparisonGeometry(geometry: BufferGeometry, selection?: RebarComparisonBar | readonly RebarComparisonBar[]) {
   if (!originalIndices.has(geometry)) originalIndices.set(geometry, geometry.index)
   const original = originalIndices.get(geometry) ?? null
-  if (!bar) { geometry.setIndex(original); return }
-  const start = bar.vertexStart, end = start + bar.vertexCount
+  if (!selection) { geometry.setIndex(original); return }
+  const bars = Array.isArray(selection) ? selection : [selection]
+  const ranges = bars.map(bar => [bar.vertexStart, bar.vertexStart + bar.vertexCount] as const)
   const indices: number[] = []
   const count = original?.count ?? geometry.getAttribute('position').count
   for (let i = 0; i + 2 < count; i += 3) {
     const triangle = [0, 1, 2].map(offset => original ? original.getX(i + offset) : i + offset)
-    if (triangle.every(index => index >= start && index < end)) indices.push(...triangle)
+    if (ranges.some(([start, end]) => triangle.every(index => index >= start && index < end))) indices.push(...triangle)
   }
   geometry.setIndex(indices)
+}
+
+/** Keep every comparison mesh visible while dimming vertices outside the inspected bar. */
+export function dimComparisonGeometry(geometry: BufferGeometry, bar?: RebarComparisonBar, dimColor = '#8b97a8') {
+  if (!originalColors.has(geometry)) {
+    originalColors.set(geometry, (geometry.getAttribute('color') as BufferAttribute | undefined)?.clone() ?? null)
+  }
+  const original = originalColors.get(geometry)
+  if (!bar) {
+    if (original) geometry.setAttribute('color', original.clone())
+    else geometry.deleteAttribute('color')
+    return
+  }
+  const positions = geometry.getAttribute('position')
+  if (!positions) return
+  const colors = original ? new Float32Array(original.array) : new Float32Array(positions.count * 3).fill(1)
+  const color = new Color(dimColor)
+  const start = bar.vertexStart
+  const end = start + bar.vertexCount
+  for (let index = 0; index < positions.count; index += 1) {
+    if (index >= start && index < end) continue
+    color.toArray(colors, index * 3)
+  }
+  geometry.setAttribute('color', new BufferAttribute(colors, 3))
 }
 
 export function comparisonBarsAtTolerance(bars: RebarComparisonBar[], distances: Float32Array | null, tolerance: number) {
@@ -35,6 +61,12 @@ export function comparisonBarsAtTolerance(bars: RebarComparisonBar[], distances:
 
 export function rebarStatusLabel(status: RebarComparisonBar['status']) {
   return { matched: '已对应', missing: '缺测', review: '待复核' }[status]
+}
+
+export function isRebarInspectionAbnormal(bar: RebarComparisonBar, tolerance: number) {
+  if (bar.status !== 'matched' || !bar.stats) return true
+  if (typeof bar.stats.p95Abs !== 'number' || !Number.isFinite(bar.stats.p95Abs)) return true
+  return bar.stats.p95Abs > tolerance
 }
 
 export function rebarReportCSV(result: C2MResult, bars: RebarComparisonBar[], toleranceMm: number) {

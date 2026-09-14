@@ -3,7 +3,7 @@ import test from 'node:test'
 import { BufferGeometry, Float32BufferAttribute } from 'three'
 import type { C2MResult, RebarComparisonBar } from '../../api/backend-c2m'
 // @ts-ignore Node's source runner needs explicit extensions.
-import { comparisonBarsAtTolerance, filterComparisonGeometry, rebarReportCSV } from './rebarComparison.ts'
+import { comparisonBarsAtTolerance, filterComparisonGeometry, isRebarInspectionAbnormal, rebarReportCSV } from './rebarComparison.ts'
 // @ts-ignore Node's source runner needs explicit extensions.
 import { parseC2MDistances, histogramFromC2MDistances } from '../../utils/c2mColormap.ts'
 
@@ -27,6 +27,14 @@ test('selecting one steel bar isolates triangles without altering vertex/distanc
   geometry.dispose()
 })
 
+test('inspection keeps all previously visited bar ranges visible', () => {
+  const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute(new Float32Array(27), 3))
+  geometry.setIndex([0, 1, 2, 3, 4, 5, 6, 7, 8])
+  filterComparisonGeometry(geometry, [bar, { ...bar, vertexStart: 6, vertexCount: 3 }])
+  assert.deepEqual(Array.from(geometry.index!.array), [3, 4, 5, 6, 7, 8])
+  geometry.dispose()
+})
+
 test('unknown distances remain unknown and do not count as failures or histogram overflow', () => {
   const distances = new Float32Array([0, 0, 0, .001, .02, NaN])
   assert.equal(parseC2MDistances(distances.buffer, 6), null)
@@ -46,4 +54,11 @@ test('report retains IFC/instance identities, blank missing metrics, and safe sp
   assert.ok(csv.includes('"version-1"'))
   assert.ok(csv.includes('"缺测"'))
   assert.ok(!csv.includes('NaN'))
+})
+
+test('inspection abnormal filter includes missing, review, and bars over the P95 tolerance', () => {
+  assert.equal(isRebarInspectionAbnormal(bar, .01), true)
+  assert.equal(isRebarInspectionAbnormal({ ...bar, stats: { ...bar.stats!, p95Abs: .005 } }, .01), false)
+  assert.equal(isRebarInspectionAbnormal({ ...bar, status: 'missing', stats: null }, .01), true)
+  assert.equal(isRebarInspectionAbnormal({ ...bar, status: 'review' }, .01), true)
 })

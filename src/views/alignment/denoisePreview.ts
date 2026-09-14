@@ -141,7 +141,13 @@ function buildPreviewColors(geometry: BufferGeometry, mode: DenoiseColorMode) {
 }
 
 /** Filter only the preview; preserve the full geometry and stable instance colors. */
-export function applyDenoisePreviewAppearance(geometry: BufferGeometry, mode: DenoiseColorMode, visibleClasses: readonly number[], instanceIds?: readonly number[]) {
+export function applyDenoisePreviewAppearance(
+  geometry: BufferGeometry,
+  mode: DenoiseColorMode,
+  visibleClasses: readonly number[],
+  instanceIds?: readonly number[],
+  options: { dimUnselected?: boolean; highlightInstanceIds?: readonly number[]; highlightColor?: string } = {},
+) {
   const cached = previewColors.get(geometry) ?? {}
   const colors = cached[mode] ?? buildPreviewColors(geometry, mode)
   cached[mode] = colors
@@ -150,15 +156,19 @@ export function applyDenoisePreviewAppearance(geometry: BufferGeometry, mode: De
   const visible = new Set(visibleClasses)
   const instances = geometry.getAttribute('instance')
   const selected = instanceIds ? new Set(instanceIds) : null
+  const highlighted = options.highlightInstanceIds ? new Set(options.highlightInstanceIds) : null
+  const dimUnselected = Boolean(options.dimUnselected && selected)
   // Keep GPU buffers stable while the user flips switches repeatedly.
   let index = geometry.getIndex()
-  if (!index && (selected || mode === 'cleaned' || DENOISE_CLASSES.some(item => !visible.has(item.id)))) {
+  if (!index && (selected && !dimUnselected || mode === 'cleaned' || DENOISE_CLASSES.some(item => !visible.has(item.id)))) {
     index = new BufferAttribute(new Uint32Array(labels.count), 1)
     geometry.setIndex(index)
   }
   let count = 0
   for (let i = 0; i < labels.count; i++) {
-    if (visible.has(labels.getX(i)) && (!selected || (instances && selected.has(instances.getX(i))))) {
+    const label = labels.getX(i)
+    const isSelected = !selected || Boolean(instances && selected.has(instances.getX(i)))
+    if (visible.has(label) && (isSelected || dimUnselected || highlighted)) {
       index?.setX(count, i)
       count++
     }
@@ -166,9 +176,36 @@ export function applyDenoisePreviewAppearance(geometry: BufferGeometry, mode: De
   const attribute = geometry.getAttribute('color')
   if (attribute) {
     attribute.array.set(colors)
+    if (dimUnselected && instances) {
+      const dim = new Color('#8b97a8')
+      for (let i = 0; i < labels.count; i++) {
+        if (labels.getX(i) !== 3 || selected?.has(instances.getX(i))) continue
+        dim.toArray(attribute.array as any, i * 3)
+      }
+    }
+    if (highlighted && instances) {
+      const highlight = new Color(options.highlightColor ?? '#ffe082')
+      for (let i = 0; i < labels.count; i++) {
+        if (labels.getX(i) === 3 && highlighted.has(instances.getX(i))) highlight.toArray(attribute.array as any, i * 3)
+      }
+    }
     attribute.needsUpdate = true
   } else {
-    geometry.setAttribute('color', new BufferAttribute(colors.slice(), 3))
+    const nextColors = colors.slice()
+    if (dimUnselected && instances) {
+      const dim = new Color('#8b97a8')
+      for (let i = 0; i < labels.count; i++) {
+        if (labels.getX(i) !== 3 || selected?.has(instances.getX(i))) continue
+        dim.toArray(nextColors, i * 3)
+      }
+    }
+    if (highlighted && instances) {
+      const highlight = new Color(options.highlightColor ?? '#ffe082')
+      for (let i = 0; i < labels.count; i++) {
+        if (labels.getX(i) === 3 && highlighted.has(instances.getX(i))) highlight.toArray(nextColors, i * 3)
+      }
+    }
+    geometry.setAttribute('color', new BufferAttribute(nextColors, 3))
   }
   if (index) index.needsUpdate = true
   geometry.setDrawRange(0, count)
