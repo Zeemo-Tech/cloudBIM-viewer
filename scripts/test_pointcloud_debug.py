@@ -64,8 +64,23 @@ class PriorApiTests(unittest.TestCase):
                 self.assertEqual(post({'throughStep':7,'priorMode':'topology'}),202)
                 state.start.assert_called_with(32,MODULE.available_workers(),7,'topology')
                 self.assertEqual(post({'throughStep':8,'priorMode':'off'}),400)
+                self.assertEqual(post({'throughStep':8,'priorMode':'topology'}),202)
+                state.start.assert_called_with(32,MODULE.available_workers(),8,'topology')
+                self.assertEqual(post({'throughStep':9,'priorMode':'topology'}),400)
                 self.assertEqual(post({'priorMode':'geometry','throughStep':6}),400)
                 self.assertEqual(post({'priorMode':{'path':'/tmp/anything'}}),400)
+                for mode in ('aligned', 'auto'):
+                    self.assertEqual(post({'throughStep':4, 'controlNetMode':mode}),202)
+                    state.start.assert_called_with(32, MODULE.available_workers(), 4, 'off', control_net_mode=mode)
+                for body in ({'throughStep':2, 'controlNetMode':'aligned'},
+                             {'throughStep':8, 'controlNetMode':'aligned'},
+                             {'throughStep':2, 'controlNetMode':'aligned', 'priorMode':'topology'},
+                             {'throughStep':2, 'controlNetMode':True},
+                             {'throughStep':2, 'controlNetMode':{}},
+                             {'throughStep':2, 'controlNetMode':'automatic'}):
+                    self.assertEqual(post(body),400)
+                state.prior_config=None
+                self.assertEqual(post({'throughStep':4, 'controlNetMode':'auto'}),400)
             finally:
                 server.shutdown();server.server_close();thread.join()
 
@@ -267,10 +282,12 @@ class PreviewApiTests(unittest.TestCase):
             self.assertIsNone(state.run)
             self.assertTrue((run_dir / "summary.json").is_file())
 
-    def test_viewer_skips_history_loading(self):
+    def test_viewer_uses_throttled_compact_history_for_experiment_comparison(self):
         viewer = Path(__file__).with_name("pointcloud-debug").joinpath("viewer.js").read_text()
         page = Path(__file__).with_name("pointcloud-debug").joinpath("index.html").read_text()
-        self.assertNotIn("`${api}/runs`", viewer)
+        self.assertIn("`${api}/runs`", viewer)
+        self.assertIn("Date.now() < historyRefreshAt", viewer)
+        self.assertIn("historyRefreshAt = Date.now() + 5000", viewer)
         self.assertNotIn("$('history')", viewer)
         self.assertNotIn('id="history"', page)
 

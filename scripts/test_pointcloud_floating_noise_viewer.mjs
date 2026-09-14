@@ -71,6 +71,6 @@ assert.match($('internalRebarHint').textContent, /空间复核结果|内外钢�
 const page = await readFile(new URL('./pointcloud-debug/index.html', import.meta.url), 'utf8');
 assert.doesNotMatch(page, /hidden id="completeRebarStep"/);
 assert.match(page, /hidden id="designPriorStep"/);
-assert.match(page, /value="7" selected>06/);
+assert.match(page, /value="8" selected>07/);
 assert.match(page.match(/<select id="throughStep">(.*?)<\/select>/s)[1], /value="7"/);
 console.log('Step 05: retained/before/noise filters, noise color and Step 06 entry and withdrawn Step 07 controls passed.');

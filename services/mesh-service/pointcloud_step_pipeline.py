@@ -28,6 +28,9 @@ from algorithms.design_guided_instances import refine_instances, VERSION as GUID
 ATTRIBUTES = {"normal_x": "<f4", "normal_y": "<f4", "normal_z": "<f4",
               "normal_valid": "u1", "normal_curvature": "<f4", "normal_radius": "<f4"}
 from algorithms.pointcloud_segmentation import (VERSION, segment_points, CLASS_ATTRIBUTES, PROJECTION_ATTRIBUTES, FUSION_ATTRIBUTES, REFINEMENT_ATTRIBUTES, SCENE_ATTRIBUTES)
+CONTROL_ATTRIBUTES = {"control_status": "u1", "control_instance": "<u4"}
+CONTROL_MODES = ("off", "aligned", "auto")
+CYLINDER_ATTRIBUTES = {"cylinder_keep": "u1", "cylinder_removed": "u1"}
 FUSION_LAS_ATTRIBUTES = {**FUSION_ATTRIBUTES, "source_record_index": "<u8"}
 
 
@@ -98,6 +101,11 @@ def write_las(source, output, context, subsets=None):
             attributes.update(COMPLETE_ATTRIBUTES)
         if getattr(context, 'prior_class', None) is not None:
             attributes.update(PRIOR_ATTRIBUTES)
+        if getattr(context, 'cylinder_keep', None) is not None:
+            attributes.update(CYLINDER_ATTRIBUTES)
+        if getattr(context, 'control_status', None) is not None:
+            attributes.update(CONTROL_ATTRIBUTES)
+            attributes['source_record_index'] = '<u8'
         for name, dtype in attributes.items():
             if name in original_names:
                 if header.point_format.dimension_by_name(name).dtype != np.dtype(dtype):
@@ -146,15 +154,31 @@ def write_las(source, output, context, subsets=None):
                 if getattr(context, 'prior_class', None) is not None:
                     for name in PRIOR_ATTRIBUTES:
                         result[name] = getattr(context, name)[offset:stop]
+                if getattr(context, 'cylinder_keep', None) is not None:
+                    for name in CYLINDER_ATTRIBUTES:
+                        result[name] = getattr(context, name)[offset:stop]
+                if getattr(context, 'control_status', None) is not None:
+                    for name in CONTROL_ATTRIBUTES:
+                        result[name] = getattr(context, name)[offset:stop]
+                    if 'source_record_index' not in original_names:
+                        result['source_record_index'] = np.arange(offset, stop, dtype=np.uint64)
                 writer.write_points(result)
                 for kind, subset_writer in subset_writers.items():
+                    if kind in ('control-steel', 'control-pending', 'control-removed', 'control-excluded'):
+                        label = {'control-steel': 1, 'control-pending': 2, 'control-removed': 3, 'control-excluded': 4}[kind]
+                        mask = context.control_status[offset:stop] == label
+                        if mask.any():
+                            subset_writer.write_points(result[mask])
+                        continue
                     final_classes = (context.refined_class if context.refined_class is not None else context.fused_class)
                     if context.internal_type is not None:
                         final_classes = final_classes[offset:stop].copy()
                         final_classes[context.internal_type[offset:stop] == 5] = 4
                     else:
                         final_classes = final_classes[offset:stop]
-                    mask = (((context.internal_type[offset:stop] > 0) & (context.internal_type[offset:stop] < 5)) if kind == 'internal' else
+                    mask = (context.cylinder_keep[offset:stop] == 1 if kind == 'cylinder-steel' else
+                            context.cylinder_removed[offset:stop] == 1 if kind == 'cylinder-removed' else
+                            ((context.internal_type[offset:stop] > 0) & (context.internal_type[offset:stop] < 5)) if kind == 'internal' else
                             context.prior_class[offset:stop] == 3 if kind == 'prior-steel' else
                             context.prior_class[offset:stop] == 4 if kind == 'prior-noise' else
                             ((context.complete_class[offset:stop] == 3) & (context.complete_instance[offset:stop] > 0)) if kind == 'resolved' else
@@ -209,6 +233,10 @@ def write_preview(directory, context, colors, run_id, limit):
         arrays.update({name: getattr(context, name)[ids] for name in COMPLETE_ATTRIBUTES})
     if getattr(context, 'prior_class', None) is not None:
         arrays.update({name: getattr(context, name)[ids] for name in PRIOR_ATTRIBUTES})
+    if getattr(context, 'cylinder_keep', None) is not None:
+        arrays.update({name: getattr(context, name)[ids] for name in CYLINDER_ATTRIBUTES})
+    if getattr(context, 'control_status', None) is not None:
+        arrays.update({name: getattr(context, name)[ids] for name in CONTROL_ATTRIBUTES})
     for name, array in arrays.items():
         array.tofile(preview_dir / f"{name}.bin")
     base = f"/runs/{run_id}/preview"
@@ -216,6 +244,10 @@ def write_preview(directory, context, colors, run_id, limit):
             "bounds": {"min": (lo - origin).tolist(), "max": (hi - origin).tolist()},
             "sampling": "deterministic evenly spaced source record indices; visualization only",
             **{name + "Url": f"{base}/{name}.bin" for name in ("positions", "normals", "colors", "valid")},
+            **({name + 'Url': f'{base}/{name}.bin' for name in CYLINDER_ATTRIBUTES}
+               if getattr(context, 'cylinder_keep', None) is not None else {}),
+            **({name + 'Url': f'{base}/{name}.bin' for name in CONTROL_ATTRIBUTES}
+               if getattr(context, 'control_status', None) is not None else {}),
             "sourceIndicesUrl": f"{base}/source_indices.bin",
             **({"sharedTableMaskUrl": f"{base}/shared_table_mask.bin", "partitionZonesUrl": f"{base}/partition_zones.bin",
                  "sharedLayersUrl": f"{base}/shared_layers.bin", "sharedFloatingNoiseUrl": f"{base}/shared_floating_noise.bin"}
@@ -248,7 +280,7 @@ class StepRun:
 
 
 def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, preview_limit=1000000, progress=None, through_step=1,
-                    prior_mode='off', design_prior=None):
+                    prior_mode='off', design_prior=None, control_net_mode='off'):
     """Always starts at raw source, never resumes a previous algorithm result.
 
     A successful run publishes a self-contained LAS and NPY attribute columns.
@@ -263,14 +295,18 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         raise ValueError(f"workers 必须是 1–{available_workers()} 的整数")
     if not isinstance(preview_limit, int) or preview_limit < 1:
         raise ValueError("preview_limit must be positive")
-    if type(through_step) is not int or through_step not in (1, 2, 3, 4, 5, 6, 7):
-        raise ValueError("through_step 必须是 1–7，7 对应页面第 06 步")
+    if type(through_step) is not int or through_step not in (1, 2, 3, 4, 5, 6, 7, 8):
+        raise ValueError("through_step 必须是 1–8，8 对应页面第 07 步")
+    if control_net_mode not in CONTROL_MODES:
+        raise ValueError('controlNetMode 必须为 off / aligned / auto')
+    if control_net_mode != 'off' and (through_step != 4 or prior_mode != 'off' or not isinstance(design_prior, dict)):
+        raise ValueError('融合后分层控制网需要 throughStep=4、priorMode=off 和服务端设计快照')
     if prior_mode not in PRIOR_MODES:
         raise ValueError('priorMode 必须为 off / geometry / topology')
-    if through_step == 7 and (prior_mode == 'off' or not isinstance(design_prior, dict)):
+    if through_step >= 7 and (prior_mode == 'off' or not isinstance(design_prior, dict)):
         raise ValueError('第 06 步需要服务端设计模型、粗配准快照及设计辅助模式')
     if through_step < 7 and prior_mode != 'off':
-        raise ValueError('设计辅助仅用于第 06 步（throughStep=7）')
+        raise ValueError('设计辅助用于第 06–07 步（throughStep=7/8）')
     progress = progress or (lambda *args: None)
     started, cpu_started = time.perf_counter(), time.process_time()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
@@ -293,15 +329,43 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         context, arrays, shapes, computation = stages.context, stages.arrays, stages.shapes, stages.computation
         timing.update(stages.timing)
         preprocessing = stages.preprocessing
-        if preprocessing and design_prior is not None:
+        if preprocessing and 'floatingZones' in preprocessing and design_prior is not None:
             preprocessing['floatingZones'].update(snapshotFingerprint=design_prior.get('fingerprint'),
                 modelInfo=design_prior.get('modelInfo', {}), sourceSha256=digest)
         count = len(positions)
         classification, projection, fusion = stages.classification, stages.projection, stages.fusion
         regions, refinement = stages.regions, stages.refinement
         internal_rebar, complete_rebar, execution = stages.internal_rebar, stages.complete_rebar, stages.execution
+        control_report = None
+        if control_net_mode != 'off':
+            from algorithms.rebar_control_net import fit_control_net
+            progress('03 融合后：分层拟合设计控制网', 0, 1)
+            t0 = time.perf_counter()
+            # Per-unit residuals contain Python work: parallel fit threads regressed
+            # on the reference scan. Keep normal/classifier workers independent.
+            with threadpool_limits(limits=1):
+                control_report, control_arrays = fit_control_net(positions, context.shared_table_mask, inventory,
+                    mode=control_net_mode, normals=context.normals, progress=progress,
+                    fused_classes=context.fused_class, layer_ids=context.shared_layer,
+                    layering=preprocessing.get('layering'), workers=1)
+            timing['controlNetS'] = time.perf_counter() - t0
+            control_report['elapsedS'] = timing['controlNetS']
+            control_report['modelInfo'] = design_prior.get('modelInfo', {})
+            control_report['snapshotFingerprint'] = design_prior.get('fingerprint')
+            design_inputs.report['consumers'] = {
+                'diameters': '03 control-net fixed-radius layered fit',
+                'centerlines': '03 control-net topology; upstream classification/layering uses saved pose; initializer in registration',
+                'counts': '03 physical-parent and straight-unit diagnostics; no forced observations',
+            }
+            design_inputs.report['design']['geometrySource'] = 'validated design inventory; controlNet.registration records initialization'
+            for name, dtype in CONTROL_ATTRIBUTES.items():
+                shapes[name] = ((count,), dtype)
+                arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
+                arrays[name][:] = control_arrays[name]
+                setattr(context, name, arrays[name])
+            atomic_json(directory / 'control-net.json', control_report)
         prior_report = None
-        if through_step == 7:
+        if through_step >= 7:
             for name, dtype in COMPLETE_ATTRIBUTES.items():
                 shapes[name] = ((count,), dtype)
                 arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype=dtype, shape=(count,))
@@ -311,6 +375,23 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
             complete_rebar['designReview'].update(snapshotFingerprint=design_prior['fingerprint'],
                 modelInfo=design_prior.get('modelInfo', {}), preparation=design_prior.get('preparation', {}))
             timing['guidedInstancesS'] = complete_rebar['elapsedS']
+        cylinder_report = None
+        if through_step == 8:
+            from algorithms.rebar_cylinder_denoise import fit_instance_denoise
+            progress("逐实例尺寸先验拟合与毛刺去噪", 0, 1)
+            t0 = time.perf_counter()
+            with threadpool_limits(limits=1):
+                cylinder_report, keep, removed = fit_instance_denoise(
+                    positions, context.complete_class, context.complete_instance, complete_rebar, inventory,
+                    cluster_ids=context.complete_cluster)
+            timing['cylinderDenoiseS'] = time.perf_counter() - t0
+            cylinder_report['elapsedS'] = timing['cylinderDenoiseS']
+            for name, value in zip(CYLINDER_ATTRIBUTES, (keep, removed)):
+                shapes[name] = ((count,), 'u1')
+                arrays[name] = np.lib.format.open_memmap(directory / f'{name}.npy', mode='w+', dtype='u1', shape=(count,))
+                arrays[name][:] = value
+                setattr(context, name, arrays[name])
+            atomic_json(directory / 'cylinder-denoise.json', cylinder_report)
         t0 = time.perf_counter()
         progress("持久化点云及法向量属性", 0, 1)
         las_name = "pointcloud-with-classes.las" if classification else "pointcloud-with-normals.las"
@@ -323,6 +404,11 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                            resolved=directory / 'resolved-steel.las', pending=directory / 'pending-steel.las')
         if prior_report is not None:
             subsets.update({'prior-steel': directory/'prior-steel.las', 'prior-noise': directory/'prior-noise.las'})
+        if cylinder_report is not None:
+            subsets.update({'cylinder-steel': directory / 'cylinder-steel.las', 'cylinder-removed': directory / 'cylinder-removed.las'})
+        if control_report is not None:
+            las_name = 'pointcloud-with-control-net.las'
+            subsets.update({f'control-{key}': directory / f'control-{key}.las' for key in ('steel', 'pending', 'removed', 'excluded')})
         write_las(source, directory / las_name, context, subsets=subsets)
         if complete_rebar is not None:
             atomic_json(directory / 'complete-instances.json', complete_rebar)
@@ -370,14 +456,17 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
         valid = int(np.count_nonzero(context.normal_valid))
         timing["totalS"] = time.perf_counter() - started
         manifest = {
-            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ("+" + GUIDED_VERSION if through_step == 7 else ""), "runId": run_id,
+            "schema": "pointcloud-steps-v1", "algorithmVersion": VERSION + '+' + DESIGN_INPUT_VERSION + ("+" + GUIDED_VERSION if through_step >= 7 else "") + ('+' + control_report['version'] if control_report else ''), "runId": run_id,
+            **({"controlNet": control_report} if control_report is not None else {}),
+            "controlNetMode": control_net_mode,
+            **({"cylinderDenoise": cylinder_report} if cylinder_report is not None else {}),
             "createdAt": datetime.now(timezone.utc).isoformat(), "completed": True,
             "runMode": "fresh-source-all-steps", "orientation": "unoriented",
             "source": {"name": source.name, "path": str(source), "sha256": digest, "pointCount": count,
                        "sizeBytes": stamp[2], "unchangedDuringRun": True},
             "priorMode": prior_mode,
             "designInputs": design_inputs.report,
-            "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step},
+            "parameters": {"k": k, "effectiveK": computation["effectiveK"], "workers": workers, "kIncludesSelf": True, "throughStep": through_step, "controlNetMode": control_net_mode},
             "validNormalCount": valid, "invalidNormalCount": count - valid,
             "steps": [{"id": "00-source", "pointCount": count}, {"id": "01-normals", "pointCount": count}]
                      + ([{"id": "01-table-removal", "pointCount": count, "dependsOn": ["01-normals"]},
@@ -386,9 +475,11 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                      + ([{"id": "02-classification", "pointCount": count, "dependsOn": ["01-layering"]}] if classification else [])
                      + ([{"id": "02-projection", "pointCount": count, "dependsOn": ["01-layering"]}] if projection else [])
                      + ([{"id": "03-fusion", "pointCount": count, "dependsOn": ["02-classification", "02-projection"]}] if fusion else [])
+                     + ([{"id": "03-control-net", "pointCount": count, "dependsOn": ["03-fusion", "01-layering"]}] if control_report is not None else [])
                      + ([{"id": "05-internal-rebar", "pointCount": internal_rebar['pointCount'], "dependsOn": ["03-fusion"]}] if internal_rebar is not None else [])
                      + ([{'id': '06-design-guided-instances', 'pointCount': count, 'dependsOn': ['05-internal-rebar']}] if complete_rebar is not None else [])
-                     + ([{'id': '07-design-prior', 'pointCount': count, 'dependsOn': ['06-complete-rebar']}] if prior_report is not None else []),
+                     + ([{'id': '07-design-prior', 'pointCount': count, 'dependsOn': ['06-complete-rebar']}] if prior_report is not None else [])
+                     + ([{'id': '07-cylinder-denoise', 'pointCount': cylinder_report['pointsAfter'], 'dependsOn': ['06-design-guided-instances']}] if cylinder_report is not None else []),
             **({"preprocessing": preprocessing} if preprocessing else {}),
             **({"classification": classification} if classification else {}),
             **({"projection": projection, "branchExecution": execution} if projection else {}),
@@ -403,7 +494,7 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                             "peakRssMB": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
                             "peakRssScope": "process lifetime high-water mark", 'normalComputation': computation},
             "timingScope": "server pipeline wall time; excludes HTTP queue/download/browser render; OS page cache not flushed",
-            "cache": {"scope": "same full-source context for independent classifiers, fusion and instance review", "treeBuildCount": 1,
+            "cache": {"scope": "full-source normals, classifiers, fusion and layered control net" if control_report else "same full-source context for independent classifiers, fusion and instance review", "treeBuildCount": 1,
                       "computationalSourceIndexFile": None,
                       "sourceSha256": digest, "positionMutationAllowed": False,
                       "restart": "NPY attributes persist; KD tree is rebuilt, never unpickled"},
@@ -415,6 +506,9 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                                "partition_zone": "0 unlocated, 1 strict inner, 2 frame band, 3 exterior; source XY ownership",
                                "shared_layer": "0 unassigned, 1 bottom steel, 2 top steel, 3 web layer; geometric candidates before classification",
                                "shared_floating_noise": "1 outside expanded design cloth; step 05 rejects all steel outside, regardless of instance or score; never clips classifier input"} if preprocessing else {}),
+                           **({"control_status": "0 table; 1 supported steel; 2 unresolved fusion steel; 3 local fitted-cylinder outlier; 4 excluded by fusion (retained)",
+                               "control_instance": "Design-unit index + 1 for supported steel, 0 otherwise; physical parent in controlNet.instances",
+                               "source_record_index": "Original source record index; existing source provenance is preserved"} if control_report is not None else {}),
                            **({"geometry_class": "4 removed floating noise; Geometry retention: 1 table, 2 fixture, 3 steel including recovery and shared-region retention; independent evidence stored separately",
                                "geometry_recovered": "1 = measured rebar recovery during this run; only final steel rows"} if classification else {}),
                            **({"projection_class": "4 removed floating noise; Projection retention: 1 table, 2 fixture, 3 steel including upper/lower height and shared-region retention; independent evidence stored separately",
@@ -443,10 +537,11 @@ def run_from_source(source: Path, output_root: Path, *, k=32, workers=None, prev
                            "lasExtraBytes": {**ATTRIBUTES, **(SCENE_ATTRIBUTES if preprocessing else {}), **(CLASS_ATTRIBUTES if classification else {}),
                                              **(PROJECTION_ATTRIBUTES if projection else {}), **(FUSION_LAS_ATTRIBUTES if fusion else {}),
                                              **(REFINEMENT_ATTRIBUTES if refinement else {}), **(INTERNAL_ATTRIBUTES if internal_rebar is not None else {}), **(COMPLETE_ATTRIBUTES if complete_rebar is not None else {}),
-                                             **(PRIOR_ATTRIBUTES if prior_report is not None else {})},
+                                             **(PRIOR_ATTRIBUTES if prior_report is not None else {}), **(CYLINDER_ATTRIBUTES if cylinder_report is not None else {}), **({**CONTROL_ATTRIBUTES, "source_record_index": "<u8"} if control_report is not None else {})},
                            "columns": {name: name + ".npy" for name in ("positions", "colors", *shapes)}},
             "preview": preview,
-            "files": {**({'completeSteelLasUrl': f'/runs/{run_id}/complete-steel.las',
+            "files": {**({"controlNetReportUrl": f"/runs/{run_id}/control-net.json",
+                          **{f"controlNet{key.title()}LasUrl": f"/runs/{run_id}/control-{key}.las" for key in ("steel", "pending", "removed", "excluded")}} if control_report is not None else {}), **({"cylinderSteelLasUrl": f"/runs/{run_id}/cylinder-steel.las", "cylinderRemovedLasUrl": f"/runs/{run_id}/cylinder-removed.las", "cylinderReportUrl": f"/runs/{run_id}/cylinder-denoise.json"} if cylinder_report is not None else {}), **({'completeSteelLasUrl': f'/runs/{run_id}/complete-steel.las',
                                 'noiseLasUrl': f'/runs/{run_id}/noise-only.las',
                                 'resolvedSteelLasUrl': f'/runs/{run_id}/resolved-steel.las',
                                 'pendingSteelLasUrl': f'/runs/{run_id}/pending-steel.las',

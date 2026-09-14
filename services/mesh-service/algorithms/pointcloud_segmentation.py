@@ -29,7 +29,7 @@ FUSION_ATTRIBUTES = {"fused_class": "u1", "fused_region": "u1", "fused_recovered
 REFINEMENT_ATTRIBUTES = {"refined_class": "u1", "refined_region": "u1", "refined_zone": "u1", "refined_changed": "u1", "refined_reason": "u1"}
 
 
-def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None):
+def segment_points(positions, directory, *, k=32, workers=1, through_step=6, source=None, progress=None, design_inventory=None, dimension_priors=None, stop_after_table=False):
     if type(through_step) is not int or through_step not in range(1,7):
         raise ValueError("through_step must be 1–6 (ending at UI Step 05)")
     progress = progress or (lambda *args: None)
@@ -69,6 +69,32 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
     internal_rebar = None
     complete_rebar = None
     execution = None
+    if stop_after_table:
+        if through_step != 2:
+            raise ValueError('stop_after_table requires through_step=2')
+        # The control-net experiment consumes raw non-table records. No frame,
+        # design envelope, classifier, or previous instance assignment runs.
+        from .projection_geometry_classifier import prepare_projection
+        t0 = time.perf_counter()
+        with threadpool_limits(limits=1):
+            prepared = prepare_projection(context.positions, context.normals, context.normal_valid,
+                progress=progress, fixed_table=persisted.get('plane') if persisted else None,
+                fixed_table_mask=arrays['shared_table_mask'] if persisted else None)
+        for name in SCENE_ATTRIBUTES:
+            if name == 'shared_table_mask':
+                arrays[name][:] = prepared['table_mask']
+            else:
+                arrays[name][:] = 0
+            setattr(context, name, arrays[name])
+        removed = int(np.count_nonzero(context.shared_table_mask))
+        timing['preprocessingS'] = time.perf_counter() - t0
+        preprocessing = {'tableRemoval': {'detected': prepared['table'] is not None,
+            'plane': prepared['table'], 'removedPoints': removed, 'remainingPoints': count-removed,
+            'elapsedS': prepared['timings']['tableFitS']},
+            'inputPolicy': 'raw source; table removal only; no classification, layers or fixture partition'}
+        return SimpleNamespace(context=context, arrays=arrays, shapes=shapes, computation=computation,
+            timing=timing, preprocessing=preprocessing, classification=None, projection=None,
+            fusion=None, regions=None, refinement=None, internal_rebar=None, complete_rebar=None, execution=None)
     if through_step >= 2:
         t0 = time.perf_counter()
         with threadpool_limits(limits=1):

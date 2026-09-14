@@ -66,6 +66,7 @@ def manifest_summary(manifest):
         "createdAt": manifest.get("createdAt"),
         "completed": manifest.get("completed") is True,
         "priorMode": manifest.get("priorMode", "off"),
+        "controlNetMode": manifest.get("controlNetMode", "off"),
         "throughStep": parameters.get("throughStep"),
         "source": {"name": source.get("name"), "pointCount": source.get("pointCount")},
         "manifestUrl": f"/runs/{run_id}/manifest.json",
@@ -166,7 +167,7 @@ class DebugState:
         with self.lock:
             return dict(self.state)
 
-    def start(self, k, workers, through_step=6, prior_mode='off'):
+    def start(self, k, workers, through_step=6, prior_mode='off', control_net_mode='off'):
         with self.lock:
             if self.state["status"] == "running":
                 return False
@@ -179,7 +180,7 @@ class DebugState:
                 snapshot = prepare_snapshot(self.prior_config) if self.prior_config and through_step >= 2 else None
                 self.run = run_from_source(self.source, self.output, k=k, workers=workers, progress=self.progress,
                     through_step=through_step, prior_mode=prior_mode, design_prior=snapshot,
-                    preview_limit=self.preview_limit)
+                    preview_limit=self.preview_limit, control_net_mode=control_net_mode)
                 self._install_tiles_mvp()
                 manifest = self.run.manifest
                 record = self.remember_run(self.run.directory, manifest)
@@ -374,26 +375,33 @@ def handler_for(state, allowed_hosts=()):
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("Expected application/json")
                 params = json.loads(self.rfile.read(length))
-                if not isinstance(params, dict) or set(params) - {"k", "workers", "throughStep", "priorMode"}:
-                    raise ValueError("Only k, workers, throughStep and priorMode may be specified")
+                if not isinstance(params, dict) or set(params) - {"k", "workers", "throughStep", "priorMode", "controlNetMode"}:
+                    raise ValueError("Only k, workers, throughStep, priorMode and controlNetMode may be specified")
                 k, workers = params.get("k", 32), params.get("workers", available_workers())
                 through_step = params.get("throughStep", 6)
                 prior_mode = params.get('priorMode', 'off')
+                control_net_mode = params.get('controlNetMode', 'off')
+                if control_net_mode not in ('off', 'aligned', 'auto'):
+                    raise ValueError('controlNetMode 必须为 off / aligned / auto')
+                if control_net_mode != 'off' and (through_step != 4 or prior_mode != 'off' or state.prior_config is None):
+                    raise ValueError('融合后分层控制网需要 throughStep=4、priorMode=off 和服务端设计快照')
                 if prior_mode not in PRIOR_MODES:
                     raise ValueError('priorMode 必须为 off / geometry / topology')
-                if through_step == 7 and (prior_mode == 'off' or state.prior_config is None):
+                if through_step >= 7 and (prior_mode == 'off' or state.prior_config is None):
                     raise ValueError('第 06 步需要服务端设计模型与粗配准配置，并启用设计辅助')
-                if through_step != 7 and prior_mode != 'off':
-                    raise ValueError('设计辅助仅用于第 06 步（throughStep=7）')
-                if type(through_step) is not int or through_step not in (1, 2, 3, 4, 5, 6, 7):
-                    raise ValueError("throughStep 必须是 1–7，7 对应页面第 06 步")
+                if through_step < 7 and prior_mode != 'off':
+                    raise ValueError('设计辅助用于第 06–07 步（throughStep=7/8）')
+                if type(through_step) is not int or through_step not in (1, 2, 3, 4, 5, 6, 7, 8):
+                    raise ValueError("throughStep 必须是 1–8，8 对应页面第 07 步")
                 if type(k) is not int or not 3 <= k <= 128:
                     raise ValueError("k 必须是 3–128 的整数")
                 if type(workers) is not int or not 1 <= workers <= available_workers():
                     raise ValueError(f"workers 必须是 1–{available_workers()} 的整数")
             except (ValueError, TypeError) as exc:
                 return self.json_response(400, {"error": str(exc)})
-            if not state.start(k, workers, through_step, prior_mode):
+            started = (state.start(k, workers, through_step, prior_mode, control_net_mode=control_net_mode)
+                       if control_net_mode != 'off' else state.start(k, workers, through_step, prior_mode))
+            if not started:
                 return self.json_response(409, {"error": "已有计算正在运行"})
             self.json_response(202, {"status": "running"})
     return Handler
@@ -410,11 +418,12 @@ def main():
     parser.add_argument("--port", type=int, default=6766)
     parser.add_argument("--k", type=int, default=32)
     parser.add_argument("--workers", type=int, default=available_workers())
-    parser.add_argument("--through-step", type=int, choices=(1, 2, 3, 4, 5, 6, 7), default=6)
+    parser.add_argument("--through-step", type=int, choices=(1, 2, 3, 4, 5, 6, 7, 8), default=6)
     parser.add_argument("--preview-limit", type=int, default=DEFAULT_PREVIEW_LIMIT,
                         help=f"maximum browser preview points (default: {DEFAULT_PREVIEW_LIMIT})")
     parser.add_argument('--prior-config', type=Path, help='server-owned source/model/alignment JSON; never accepted from browser')
     parser.add_argument('--prior-mode', choices=PRIOR_MODES, default='off')
+    parser.add_argument('--control-net-mode', choices=('off', 'aligned', 'auto'), default='off')
     parser.add_argument("--run", action="store_true", help="run from source immediately after startup")
     parser.add_argument("--compute-only", action="store_true", help="one isolated computation, no HTTP server")
     args = parser.parse_args()
@@ -425,16 +434,18 @@ def main():
     source_tiles = (args.source_tiles or source.parent / "tiles").absolute()
     if args.source_tiles and not (source_tiles / "tileset.json").is_file():
         parser.error("--source-tiles must contain tileset.json")
-    if args.through_step == 7 and (args.prior_mode == 'off' or args.prior_config is None):
+    if args.through_step >= 7 and (args.prior_mode == 'off' or args.prior_config is None):
         parser.error('Step 06 requires --prior-config and --prior-mode geometry/topology')
-    if args.through_step != 7 and args.prior_mode != 'off':
-        parser.error('Design assistance requires --through-step 7')
+    if args.through_step < 7 and args.prior_mode != 'off':
+        parser.error('Design assistance requires --through-step 7 or 8')
+    if args.control_net_mode != 'off' and (args.through_step != 4 or args.prior_mode != 'off' or args.prior_config is None):
+        parser.error('Post-fusion layered control net requires --through-step 4, --prior-mode off and --prior-config')
     if args.preview_limit < 1:
         parser.error('--preview-limit must be positive')
     if args.compute_only:
         snapshot = prepare_snapshot(args.prior_config) if args.prior_config and args.through_step >= 2 else None
         result = run_from_source(source, output, k=args.k, workers=args.workers, through_step=args.through_step,
-            prior_mode=args.prior_mode, design_prior=snapshot, preview_limit=args.preview_limit)
+            prior_mode=args.prior_mode, design_prior=snapshot, preview_limit=args.preview_limit, control_net_mode=args.control_net_mode)
         tile_state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
         tile_state.run = result
         tile_state._install_tiles_mvp()
@@ -447,7 +458,7 @@ def main():
     state = DebugState(source, output, args.prior_config, args.preview_limit, source_tiles)
     server = ThreadingHTTPServer((args.host, args.port), handler_for(state, allowed_hosts))
     if args.run:
-        state.start(args.k, args.workers, args.through_step, args.prior_mode)
+        state.start(args.k, args.workers, args.through_step, args.prior_mode, args.control_net_mode)
     print(f"Point cloud step debugger listening on {args.host}:{args.port}", flush=True)
     print(f"Durable point attributes: {output}", flush=True)
     try:
