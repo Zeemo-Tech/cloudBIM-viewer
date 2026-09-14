@@ -38,7 +38,7 @@ func (blockingAnalysisMeshProvider) Build(context.Context, AnalysisMeshBuildRequ
 }
 
 func (provider *fakeAnalysisMeshProvider) ListAlgorithms(context.Context) ([]AnalysisMeshAlgorithmDescriptor, error) {
-	return []AnalysisMeshAlgorithmDescriptor{{ID: "pymeshlab-isotropic-component-v1", ImplementationVersion: "1", ContractVersion: "1"}}, nil
+	return []AnalysisMeshAlgorithmDescriptor{{ID: defaultAnalysisMeshAlgorithm, ImplementationVersion: "1", ContractVersion: "1"}}, nil
 }
 
 func (provider *fakeAnalysisMeshProvider) Build(_ context.Context, request AnalysisMeshBuildRequest) (AnalysisMeshArtifactManifest, error) {
@@ -196,6 +196,35 @@ func TestMeshProviderGateSerializesAndHonorsCancellation(t *testing.T) {
 	secondRelease()
 }
 
+func TestValidAnalysisMeshRowRejectsRemovedAlgorithmWithoutDeletingArtifact(t *testing.T) {
+	assetDir := t.TempDir()
+	paths, err := AnalysisMeshStoragePaths(Asset{Dir: assetDir}, "am-retired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.FinalPath, 0750); err != nil {
+		t.Fatal(err)
+	}
+	manifest := writeAnalysisMeshArtifact(t, paths.FinalPath)
+	manifest.Algorithm.ID = "removed-analysis-algorithm"
+	rewriteAnalysisMeshManifest(t, paths.FinalPath, manifest)
+	byteSize, err := ValidateAnalysisMeshManifest(paths.FinalPath, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := AnalysisMeshDerivativeRow(1, paths, manifest, byteSize, "request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newApp(config{})
+	if a.validAnalysisMeshRow(Asset{ID: 1, Type: "bim", Status: "ready", Dir: assetDir}, row) {
+		t.Fatal("analysis mesh from a removed algorithm was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(paths.FinalPath, "manifest.json")); err != nil {
+		t.Fatalf("retired analysis artifact was removed: %v", err)
+	}
+}
+
 func TestAnalysisMeshFingerprintAndLifecycle(t *testing.T) {
 	a := Asset{ID: 9, SourceSize: 42, Dir: t.TempDir()}
 	f1, err := AnalysisMeshRequestFingerprint(a, "input", "ifc-v1", map[string]any{"b": 2, "a": 1}, map[string]any{"x": true})
@@ -231,54 +260,64 @@ func TestAnalysisMeshFingerprintAndLifecycle(t *testing.T) {
 	}
 }
 
-func TestAnalysisMeshParametersFollowVerifiedLegacyProfile(t *testing.T) {
+func TestAnalysisMeshProfileMapsRebarSweepIdentityAndParameters(t *testing.T) {
 	dir := t.TempDir()
 	asset := verifiedLegacyRemeshAsset(t, dir)
 	legacy := map[string]any{
-		"target_edge_length": 0.01, "clean_tolerance": 0.001,
-		"use_decimation": false, "decimation_ratio": 0.7,
-		"subdivision_iterations": 3, "subdivision_threshold_ratio": 2.0,
-		"adaptive": false, "crease_angle": 45.0, "use_isotropic": true,
-		"isotropic_iterations": 8, "surface_dist_ratio": 0.4,
-		"isotropic_collapse": true, "sliver_merge_ratio": 0.02,
-		"sliver_relax_checksurfdist": false,
+		"cross_section_sides": float64(16),
+		"axial_spacing":       0.01,
+		"max_chord_error":     0.0001,
 	}
 	paramsJSON, err := canonicalJSON(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fingerprint, err := legacyRemeshFingerprint(asset.RemeshInputHash, asset.RemeshAlgorithm, asset.RemeshImplementationVersion, asset.RemeshContractVersion, legacy)
+	fingerprint, err := legacyRemeshFingerprint(asset.RemeshInputHash, "rebar_sweep", "1.0.0", "1", legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	row := DBAsset{
 		Type: "bim", Status: "ready", Dir: dir, RemeshStatus: "succeeded",
-		RemeshAlgorithm: asset.RemeshAlgorithm, RemeshParamsJSON: paramsJSON,
-		RemeshInputHash: asset.RemeshInputHash, RemeshImplementationVersion: asset.RemeshImplementationVersion,
-		RemeshContractVersion: asset.RemeshContractVersion, RemeshFingerprint: fingerprint,
+		RemeshAlgorithm: "rebar_sweep", RemeshParamsJSON: paramsJSON,
+		RemeshInputHash: asset.RemeshInputHash, RemeshImplementationVersion: "1.0.0",
+		RemeshContractVersion: "1", RemeshFingerprint: fingerprint,
 		RemeshContentHash: asset.RemeshContentHash,
 	}
-	parameters, err := analysisMeshParametersFromLegacy(row)
+	algorithmID, parameters, err := analysisMeshProfileFromLegacy(row)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if algorithmID != "rebar-sweep-component-v1" {
+		t.Fatalf("analysis algorithm = %q", algorithmID)
+	}
 	want := map[string]any{
-		"targetEdgeLength": 0.01, "cleanTolerance": 0.001,
-		"useDecimation": false, "decimationRatio": 0.7,
-		"subdivisionIterations": float64(3), "subdivisionThresholdRatio": 2.0,
-		"adaptive": false, "featureAngleDegrees": 45.0, "useIsotropic": true,
-		"iterations": float64(8), "surfaceDistanceRatio": 0.4,
-		"isotropicCollapse": true, "sliverMergeRatio": 0.02,
-		"sliverRelaxCheckSurfaceDistance": false,
+		"crossSectionSides": float64(16),
+		"axialSpacing":      0.01,
+		"maxChordError":     0.0001,
 	}
 	if !sameJSON(parameters, want) {
 		t.Fatalf("analysis parameters = %#v, want %#v", parameters, want)
+	}
+	removed := row
+	removed.RemeshAlgorithm = "removed_algorithm"
+	removed.RemeshFingerprint, err = legacyRemeshFingerprint(
+		removed.RemeshInputHash,
+		removed.RemeshAlgorithm,
+		removed.RemeshImplementationVersion,
+		removed.RemeshContractVersion,
+		legacy,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := analysisMeshProfileFromLegacy(removed); err == nil {
+		t.Fatal("removed remesh algorithm was mapped to an analysis mesh")
 	}
 }
 
 func TestAnalysisMeshDerivativeAndJobTransitions(t *testing.T) {
 	m := AnalysisMeshArtifactManifest{ArtifactVersion: "analysis-mesh-artifact-v1", EntryPath: "tileset.json", ContentHash: "hash"}
-	m.Algorithm.ID, m.Algorithm.ImplementationVersion, m.Algorithm.ContractVersion = "ifc-v1", "1", "v1"
+	m.Algorithm.ID, m.Algorithm.ImplementationVersion, m.Algorithm.ContractVersion = defaultAnalysisMeshAlgorithm, "1", "v1"
 	m.Algorithm.EffectiveParameters = map[string]any{}
 	row, err := AnalysisMeshDerivativeRow(3, AnalysisMeshPaths{RelativePath: "analysis-mesh/am-abc"}, m, 11, "request")
 	if err != nil || row.Kind != analysisMeshKind || row.Status != "ready" || row.EntryPath != "tileset.json" || row.Version != "am-abc" {
@@ -332,9 +371,9 @@ func TestAnalysisMeshBuildLifecycleCachesAndPublishesImmutableVersion(t *testing
 	a.db = db
 	a.analysisMeshProvider = provider
 	post := func(force bool) *httptest.ResponseRecorder {
-		body := `{"algorithmId":"pymeshlab-isotropic-component-v1","parameters":{"targetEdgeLength":0.02}}`
+		body := `{"parameters":{"crossSectionSides":16,"axialSpacing":0.01,"maxChordError":0.0001}}`
 		if force {
-			body = `{"algorithmId":"pymeshlab-isotropic-component-v1","parameters":{"targetEdgeLength":0.02},"force":true}`
+			body = `{"parameters":{"crossSectionSides":16,"axialSpacing":0.01,"maxChordError":0.0001},"force":true}`
 		}
 		context, response := rebarContext(http.MethodPost, "/assets/1/analysis-mesh", body, 7)
 		a.analysisMeshBuild(context)
@@ -459,7 +498,7 @@ func writeAnalysisMeshArtifact(t *testing.T, root string) AnalysisMeshArtifactMa
 	m.ModelFrame.SourceBounds.Min = []float64{-1, -1, -1}
 	m.ModelFrame.SourceBounds.Max = []float64{1, 1, 1}
 	m.ModelFrame.NormalizationCenter = []float64{0, 0, 0}
-	m.Algorithm.ID, m.Algorithm.ImplementationVersion, m.Algorithm.ContractVersion = "ifc-v1", "1", "v1"
+	m.Algorithm.ID, m.Algorithm.ImplementationVersion, m.Algorithm.ContractVersion = defaultAnalysisMeshAlgorithm, "1", "v1"
 	m.Algorithm.EffectiveParameters = map[string]any{}
 	aggregate := sha256.New()
 	for _, name := range []string{"components.json", "metrics.json", "tiles/tile-000000.glb", "tileset.json"} {

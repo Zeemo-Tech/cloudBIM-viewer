@@ -69,13 +69,21 @@ class SpatialStore:
         path, count = self.cells[key]
         return np.memmap(path, dtype=RECORD, mode="r", shape=(count,))
 
+    def _intersecting_cells(self, lo, hi):
+        # Bound temporary AABB arrays independently of the total occupied-cell
+        # count. Sorting preserves the original deterministic cell order.
+        keys=sorted(self.cells)
+        for start in range(0,len(keys),4096):
+            batch=keys[start:start+4096]
+            lower=np.asarray(batch)*self.p.block_size
+            intersects=np.all((lower<hi)&(lower+self.p.block_size>lo),axis=1)
+            for index in np.flatnonzero(intersects):
+                yield batch[index]
+
     def query(self, lo, hi):
         """Half-open box; bounded accumulation, never concatenate the raw cloud."""
         parts, count = [], 0
-        for key in sorted(self.cells):
-            a = np.asarray(key)*self.p.block_size
-            if np.any(a >= hi) or np.any(a+self.p.block_size <= lo):
-                continue
+        for key in self._intersecting_cells(lo, hi):
             data = self.records(key)
             for start in range(0, len(data), 100_000):
                 rows = data[start:start+100_000]

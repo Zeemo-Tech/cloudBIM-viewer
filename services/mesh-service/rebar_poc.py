@@ -708,11 +708,13 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
     from algorithms import REBAR_ALGORITHM_REGISTRY
     from rebar_tiles import rewrite_pnts
     opts = normalize_rebar_input_options(input_options)
+    if algorithm == "geometric-v6" and opts["voxelSize"] is not None:
+        raise InvalidRebarInputOptionsError("V6 classifies full source points; voxelSize is unsupported")
     max_points = int(opts["maxInputPoints"])
     voxel_size = opts["voxelSize"]
     algo = REBAR_ALGORITHM_REGISTRY.get(algorithm)
     effective = dict(algo.normalize_parameters(parameters))
-    if algorithm == "geometric-v5" and (point_cloud_format or Path(point_cloud_path).suffix.lstrip('.')).lower() in ('ply', 'pcd'):
+    if algorithm in ("geometric-v5", "geometric-v6") and (point_cloud_format or Path(point_cloud_path).suffix.lstrip('.')).lower() in ('ply', 'pcd'):
         # The existing Open3D decoder materializes these formats. Bound its
         # advertised point count before decoding; LAS/LAZ remains streaming.
         checked_path = resolve_point_cloud_path(point_cloud_path, storage_root=storage_root, point_cloud_format=point_cloud_format)
@@ -723,6 +725,7 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
     from algorithms.rebar_base import RebarInputContext
     from rebar_stream import iter_source_chunks, write_raw_labels
     prior = None
+    dimension_priors = None
     if bim_prior is not None:
         if not algo.descriptor.get("capabilities", {}).get("bimPrior", False):
             raise InvalidRebarInputOptionsError("selected algorithm does not support BIM priors")
@@ -743,15 +746,25 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
                 raise StoragePathViolationError("BIM inputs must be regular files inside shared storage")
             paths[key] = str(resolved)
         try:
-            prior = load_bim_prior(**paths, scan_to_bim=list(bim_prior["scan_to_bim"]))
+            if algorithm == "geometric-v6":
+                from algorithms.rebar_dimension_priors import load_dimension_priors
+                dimension_priors = load_dimension_priors(ifc_path=paths["ifc_path"])
+            else:
+                prior = load_bim_prior(**paths, scan_to_bim=list(bim_prior["scan_to_bim"]))
         except (ValueError, OSError, KeyError) as exc:
             raise InvalidBimPriorError("BIM geometry or alignment is unusable") from exc
-        prior["fingerprint"] = bim_prior.get("fingerprint", "")
-    context = RebarInputContext(loaded.points,
-        lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format), prior)
+        if prior is not None:
+            prior["fingerprint"] = bim_prior.get("fingerprint", "")
+    context = RebarInputContext(
+        sample=loaded.points,
+        iter_chunks=lambda: iter_source_chunks(_stable_reader or point_cloud_path, point_cloud_format),
+        bim_prior=prior,
+        source_path=point_cloud_path,
+        dimension_priors=dimension_priors,
+    )
     output = _confined_output_directory(output_directory, storage_root)
-    if algorithm == 'geometric-v5' and output.exists():
-        raise PointCloudInputError('V5 artifact versions are immutable; use a new output directory')
+    if algo.descriptor.get('analysisSchema') == 'rebar-analysis-v2' and output.exists():
+        raise PointCloudInputError('artifact versions are immutable; use a new output directory')
     source_candidate = Path(source_tileset_path).expanduser()
     if source_candidate.is_symlink():
         raise StoragePathViolationError("source tileset path must not be a symlink")
@@ -783,6 +796,8 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
         rebar_total = 0
         intersection_total = 0
         scene_counts = np.zeros(5, dtype=np.int64)
+        fixture_counts = np.zeros(4, dtype=np.int64)
+        role_counts = np.zeros(3, dtype=np.int64)
         direction_point_counts = {"directionA": 0, "directionB": 0}
         direction_ids: set[int] = set()
         instance_ids: set[int] = set()
@@ -799,6 +814,10 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
                 if attrs.scene_class is not None:
                     if np.any(attrs.scene_class > 4): raise ValueError("unrecognized scene class")
                     scene_counts[:] += np.bincount(attrs.scene_class, minlength=5)
+                    if attrs.fixture_kind is not None:
+                        fixture_counts[:] += np.bincount(attrs.fixture_kind[attrs.scene_class == 4], minlength=4)
+                    if attrs.rebar_role is not None:
+                        role_counts[:] += np.bincount(attrs.rebar_role[attrs.scene_class == 2], minlength=3)
                 direction_ids.update(int(value) for value in np.unique(attrs.rebar_direction)
                                      if value not in (0, np.uint16(65535)))
                 instance_ids.update(int(value) for value in np.unique(attrs.rebar_instance)
@@ -825,6 +844,10 @@ def _compute_rebar_artifact(*, point_cloud_path: str, point_cloud_format: str | 
             summary["display"] = {"totalPointCount": total, "rebarPointCount": rebar_total,
                 "sceneClassCounts": dict(zip(("unknown", "table", "rebar", "noise", "fixture"), map(int, scene_counts)))}
             summary["sceneClassCounts"] = summary["display"]["sceneClassCounts"]
+            summary["fixtureKindCounts"] = dict(zip(("unknown", "squareTube", "plate", "bolt"), map(int, fixture_counts)))
+            summary["rebarRoleCounts"] = dict(zip(("unresolved", "planar", "web"), map(int, role_counts)))
+            summary["display"]["fixtureKindCounts"] = summary["fixtureKindCounts"]
+            summary["display"]["rebarRoleCounts"] = summary["rebarRoleCounts"]
             summary["rawLabelsPath"] = "labels/manifest.json"
             summary["featuresPath"] = "features/manifest.json"
         elif algo.descriptor.get("capabilities", {}).get("rawLabels", False):

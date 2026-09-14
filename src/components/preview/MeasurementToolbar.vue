@@ -16,6 +16,7 @@ const props = withDefaults(
     disabled?: boolean
     placement?: 'left' | 'right'
     position?: 'fixed' | 'absolute' | 'static'
+    orientation?: 'horizontal' | 'vertical'
     toggleIcon?: 'fold' | 'ruler'
     clearOnToggleOff?: boolean
     defaultModeOnOpen?: Exclude<AnalysisMode, 'none'>
@@ -24,6 +25,7 @@ const props = withDefaults(
     disabled: false,
     placement: 'right',
     position: 'fixed',
+    orientation: 'horizontal',
     toggleIcon: 'fold',
     clearOnToggleOff: false,
     defaultModeOnOpen: undefined,
@@ -67,6 +69,7 @@ function toggleToolbar() {
     :class="[
       `placement-${props.placement}`,
       `position-${props.position}`,
+      `orientation-${props.orientation}`,
       { 'is-collapsed': collapsed },
     ]"
     aria-label="测量工具"
@@ -76,6 +79,7 @@ function toggleToolbar() {
       :class="{ 'is-active': !collapsed || props.mode !== 'none' }"
       type="button"
       :aria-expanded="!collapsed"
+      :aria-label="collapsed ? '展开测量工具' : '收起测量工具'"
       :title="collapsed ? '展开测量工具' : '收起测量工具'"
       @click="toggleToolbar"
     >
@@ -91,6 +95,8 @@ function toggleToolbar() {
         :class="{ 'is-active': props.mode === action.mode }"
         type="button"
         :disabled="props.disabled"
+        :aria-label="action.title"
+        :aria-pressed="props.mode === action.mode"
         :title="action.title"
         @click="select(action.mode)"
       >
@@ -103,6 +109,7 @@ function toggleToolbar() {
         type="button"
         :disabled="props.disabled"
         title="清除全部测量结果"
+        aria-label="清除全部测量结果"
         @click="emit('clear')"
       >
         <el-icon><Delete /></el-icon>
@@ -141,8 +148,16 @@ function toggleToolbar() {
   left: 0;
 }
 
-.placement-left .measurement-actions {
+.orientation-vertical {
   flex-direction: column;
+}
+
+.orientation-vertical .measurement-actions {
+  flex-direction: column;
+}
+
+.orientation-vertical .measurement-action {
+  width: 100%;
 }
 
 .measurement-toggle,
@@ -187,15 +202,15 @@ function toggleToolbar() {
 }
 
 .measurement-action {
-  min-height: 32px;
+  min-height: 36px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .measurement-action.is-active {
-  border-color: rgba(248, 113, 113, 0.62);
-  color: #fecaca;
-  background: rgba(220, 38, 38, 0.2);
+  border-color: var(--brand-opto-trace);
+  color: #fff;
+  background: var(--color-primary);
 }
 
 .measurement-action--clear {

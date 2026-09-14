@@ -17,6 +17,7 @@ export function buildRebarOverlay(inspection: RebarInspection): THREE.Group {
   const group = new THREE.Group()
   group.name = 'rebar-centerlines'
   for (const instance of inspection.instances) {
+    if (inspection.visibleRebarRoles?.[instance.role ?? 'unresolved'] === false) continue
     const associatedWithSelectedIntersection = inspection.selectedIntersectionId !== undefined && inspection.selectedIntersectionId !== null &&
       inspection.intersections.find((intersection) => intersection.id === inspection.selectedIntersectionId)?.instanceIds.includes(instance.id)
     if (!inspection.showCenterlines && instance.id !== inspection.selectedId && !associatedWithSelectedIntersection) continue
@@ -54,16 +55,16 @@ export function buildRebarOverlay(inspection: RebarInspection): THREE.Group {
     for (const intersection of inspection.intersections) {
       if (!isFiniteIntersection(intersection)) continue
       const selected = inspection.selectedIntersectionId === intersection.id
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        color: selected ? '#fef08a' : '#facc15', depthTest: false, depthWrite: false,
-      }))
-      sprite.name = `rebar-intersection-${intersection.id}`
-      sprite.userData.rebarIntersectionId = intersection.id
-      sprite.userData.rebarIntersection = intersection
-      sprite.position.set(...intersection.position)
-      sprite.scale.setScalar(selected ? 0.05 : 0.035)
-      sprite.renderOrder = 9002
-      group.add(sprite)
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(selected ? .025 : .0175, 14, 10),
+        new THREE.MeshBasicMaterial({ color: selected ? '#fef08a' : '#ef4444', depthTest: false, depthWrite: false }),
+      )
+      marker.name = `rebar-intersection-${intersection.id}`
+      marker.userData.rebarIntersectionId = intersection.id
+      marker.userData.rebarIntersection = intersection
+      marker.position.set(...intersection.position)
+      marker.renderOrder = 9002
+      group.add(marker)
     }
   }
   return group

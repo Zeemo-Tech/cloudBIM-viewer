@@ -1,0 +1,61 @@
+{
+  "runId": "20260911T143955-750c7a5a",
+  "sourcePoints": 9216369,
+  "hardForbiddenPoints": 60507,
+  "layerCounts": {
+    "0": 6887754,
+    "1": 575792,
+    "2": 814166,
+    "3": 537422,
+    "4": 401235
+  },
+  "classes": {
+    "geometry_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1936340,
+      "3": 1903526,
+      "4": 60507
+    },
+    "projection_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1823424,
+      "3": 2016442,
+      "4": 60507
+    },
+    "fused_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1842036,
+      "3": 1997830,
+      "4": 60507
+    },
+    "refined_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1842036,
+      "3": 1997830,
+      "4": 60507
+    },
+    "complete_class": {
+      "0": 0,
+      "1": 5315996,
+      "2": 1842036,
+      "3": 1885692,
+      "4": 172645
+    }
+  },
+  "baseline": {
+    "previousFittedSteel": 1729464,
+    "designHardHits": 0,
+    "step05NoiseHits": 0
+  },
+  "totalS": 44.33783596699868,
+  "step05": {
+    "reviewedCandidatePointCount": 261574,
+    "removedPointCount": 45776,
+    "confirmedSteelReviewExcluded": true
+  },
+  "assertions": "source-order arrays, table/frame exclusions, branch/fusion/final hard veto passed"
+}

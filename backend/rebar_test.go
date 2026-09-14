@@ -42,7 +42,10 @@ func (p *fakeRebarProvider) ListAlgorithms(context.Context) ([]RebarAlgorithmDes
 	v5 := RebarAlgorithmDescriptor{ID: "geometric-v5", Version: version, AnalysisSchema: "rebar-analysis-v2", Capabilities: map[string]any{"bimPrior": false}, ParameterSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"radius": map[string]any{"type": "number", "default": 0.02}}}, InputOptionSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"maxInputPoints": map[string]any{"type": "integer", "default": 1000}}}, Visualization: map[string]any{"schema": "rebar-visualization-v1", "defaultMode": "rebar-class"}}
 	v3 := v5
 	v3.ID = "geometric-v3"
-	return []RebarAlgorithmDescriptor{v5, v3}, nil
+	v6 := v5
+	v6.ID = "geometric-v6"
+	v6.Capabilities = map[string]any{"bimPrior": true}
+	return []RebarAlgorithmDescriptor{v6, v5, v3}, nil
 }
 func (p *fakeRebarProvider) Compute(_ context.Context, r RebarComputeRequest) (RebarArtifactManifest, error) {
 	p.calls++
@@ -123,6 +126,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	fake := &fakeRebarProvider{}
 	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
 	a.db = db
+	installPreprocessedScan(t, a, assetFromDB(asset))
 	a.rebarProvider = fake
 	post := func(force bool) *httptest.ResponseRecorder {
 		q := ""
@@ -229,7 +233,7 @@ func TestRebarComputeLifecycle(t *testing.T) {
 	}
 }
 
-func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t *testing.T) {
+func TestRebarV6DefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	root := t.TempDir()
 	db, err := gorm.Open(sqlite.Open("file:rebar_defaults?mode=memory&cache=shared"), &gorm.Config{})
@@ -251,6 +255,7 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	fake := &fakeRebarProvider{}
 	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
 	a.db, a.rebarProvider = db, fake
+	installPreprocessedScan(t, a, Asset{ID: 1, OwnerID: 7, Dir: dir})
 	post := func(body string) *httptest.ResponseRecorder {
 		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation", body, 7)
 		a.rebarCompute(c)
@@ -259,8 +264,8 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	if w := post(`{}`); w.Code != 200 || fake.calls != 1 {
 		t.Fatalf("defaults=%d %s", w.Code, w.Body.String())
 	}
-	if fake.request.Algorithm != "geometric-v5" {
-		t.Fatalf("V5 was not the default: %q", fake.request.Algorithm)
+	if fake.request.Algorithm != "geometric-v6" {
+		t.Fatalf("V6 was not the default: %q", fake.request.Algorithm)
 	}
 	if got := fake.request.Parameters["radius"]; got != float64(0.02) {
 		t.Fatalf("parameter defaults were not sent: %#v", fake.request.Parameters)
@@ -278,6 +283,94 @@ func TestRebarDescriptorDefaultsShareCacheKeyAndV5RejectsBimWithoutResolution(t 
 	fake.computeErr = &RebarProviderError{Code: "resource_limit_exceeded", Status: http.StatusUnprocessableEntity}
 	if w := post(`{"parameters":{"radius":0.03}}`); w.Code != 422 || !bytes.Contains(w.Body.Bytes(), []byte("resource_limit_exceeded")) {
 		t.Fatalf("resource limit=%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRebarV6FollowsCurrentLinkedBimAndRejectsStaleLatest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file:rebar_linked_bim?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&DBAsset{}, &DBAssetDerivative{}, &DBAlignment{}, &DBUpload{}); err != nil {
+		t.Fatal(err)
+	}
+	scanDir := filepath.Join(root, "assets", "scan")
+	if err = os.MkdirAll(filepath.Join(scanDir, "tiles"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(scanDir, "source.las"), []byte("scan"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(scanDir, "tiles", "tileset.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	linked := int64(2)
+	scan := DBAsset{ID: 1, OwnerID: 7, Type: "pointcloud", Status: "ready", SourceName: "scan.las", SourceSize: 4, LinkedBimID: &linked, Dir: scanDir}
+	if err = db.Create(&scan).Error; err != nil {
+		t.Fatal(err)
+	}
+	identity := `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]`
+	createBim := func(id int64, uploadID, contents string) string {
+		t.Helper()
+		assetDir := filepath.Join(root, "assets", uploadID)
+		uploadDir := filepath.Join(root, "uploads", uploadID)
+		if err := os.MkdirAll(assetDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		for name, value := range map[string]string{"model.glb": "geometry-" + contents, "metadata.json": "{}"} {
+			if err := os.WriteFile(filepath.Join(assetDir, name), []byte(value), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(uploadDir, "source"), []byte(contents), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&DBAsset{ID: id, OwnerID: 7, Type: "bim", Status: "ready", SourceName: contents + ".ifc", Dir: assetDir}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&DBUpload{ID: uploadID, AssetID: id, AssetType: "bim", FileName: contents + ".ifc", FileSize: int64(len(contents)), Offset: int64(len(contents)), Status: "ready", OwnerID: 7, Dir: uploadDir}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&DBAlignment{ScanID: 1, BimID: id, OwnerID: 7, MatrixJSON: identity}).Error; err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(uploadDir, "source")
+	}
+	firstIFC := createBim(2, "first-bim", "first")
+	fake := &fakeRebarProvider{}
+	a := newApp(config{DataDir: root, MeshServiceStorageDir: root, WorkerCount: 1})
+	a.db, a.rebarProvider = db, fake
+	installPreprocessedScan(t, a, assetFromDB(scan))
+	post := func() *httptest.ResponseRecorder {
+		c, w := rebarContext(http.MethodPost, "/assets/1/rebar-segmentation", `{}`, 7)
+		a.rebarCompute(c)
+		return w
+	}
+	if w := post(); w.Code != http.StatusOK || fake.calls != 1 {
+		t.Fatalf("first compute=%d %s calls=%d", w.Code, w.Body.String(), fake.calls)
+	}
+	if fake.request.BimPrior == nil || fake.request.BimPrior.IFCPath != firstIFC {
+		t.Fatalf("first compute did not use linked BIM: %+v", fake.request.BimPrior)
+	}
+	secondIFC := createBim(3, "second-bim", "second")
+	if err = db.Model(&DBAsset{}).Where("id=?", 1).Update("linked_bim_id", 3).Error; err != nil {
+		t.Fatal(err)
+	}
+	c, w := rebarContext(http.MethodGet, "/assets/1/rebar-segmentation/latest", "", 7)
+	a.rebarLatest(c)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("stale linked-BIM result remained visible: %d %s", w.Code, w.Body.String())
+	}
+	if w = post(); w.Code != http.StatusOK || fake.calls != 2 {
+		t.Fatalf("changed BIM did not invalidate cache: %d %s calls=%d", w.Code, w.Body.String(), fake.calls)
+	}
+	if fake.request.BimPrior == nil || fake.request.BimPrior.IFCPath != secondIFC {
+		t.Fatalf("second compute did not use current linked BIM: %+v", fake.request.BimPrior)
 	}
 }
 

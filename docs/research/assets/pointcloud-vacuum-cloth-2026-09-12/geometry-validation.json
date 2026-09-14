@@ -1,0 +1,32 @@
+{
+  "runId": "20260911T160716-67a12906",
+  "version": "floating-zones-v6-planar-shared-bend-cloth",
+  "components": [
+    {
+      "role": "triangulated-cloth",
+      "vertices": 97964,
+      "triangles": 195924,
+      "volumeM3": 0.13520750180662186,
+      "allEdgesTwoOppositeFaces": true
+    },
+    {
+      "role": "shared-bend-cloth",
+      "vertices": 56,
+      "triangles": 108,
+      "volumeM3": 0.0009171269525473669,
+      "allEdgesTwoOppositeFaces": true
+    }
+  ],
+  "lateralSurfaceAllowanceMm": 5.0,
+  "physicalSurfaceSamples": 77760,
+  "physicalSurfaceMisses": 0,
+  "orthogonalBoundaryEdges": 1124,
+  "bodyRoofFaceChecks": 96838,
+  "bendFacetInsideOutsideChecks": 108,
+  "bendCloths": 1,
+  "bendDesignBarCount": 10,
+  "publishedJsonMaskMatchesAllSourceRows": true,
+  "step05HardNoisePoints": 524605,
+  "step05AllHardPointsClassifiedNoise": true,
+  "maskRecomputeSeconds": 1.6087124347686768
+}

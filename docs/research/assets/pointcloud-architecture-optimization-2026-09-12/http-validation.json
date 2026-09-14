@@ -1,0 +1,41 @@
+[
+  {
+    "path": "/",
+    "bytes": 29262,
+    "ok": true
+  },
+  {
+    "path": "/api/status",
+    "bytes": 566,
+    "ok": true
+  },
+  {
+    "path": "/api/runs",
+    "bytes": 4860,
+    "ok": true
+  },
+  {
+    "variant": "baseline",
+    "runId": "20260912T113646-c34c9605",
+    "manifest": true,
+    "tileBytes": 438,
+    "attributeBytes": 122,
+    "attributeMagic": "PCTA"
+  },
+  {
+    "variant": "candidate",
+    "runId": "20260912T113748-23c11a16",
+    "manifest": true,
+    "tileBytes": 438,
+    "attributeBytes": 122,
+    "attributeMagic": "PCTA"
+  },
+  {
+    "variant": "experiment",
+    "runId": "20260912T113214-aa9fc17f",
+    "manifest": true,
+    "tileBytes": 438,
+    "attributeBytes": 122,
+    "attributeMagic": "PCTA"
+  }
+]

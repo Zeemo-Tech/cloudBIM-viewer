@@ -4,6 +4,7 @@ export type C2MProfile = 'quick' | 'reference'
 
 export type C2MMetricDirection =
   | 'mesh-vertices-to-scan-points'
+  | 'mesh-vertices-to-instance-scan-points'
   | 'scan-points-to-mesh-triangles'
 
 export interface C2MApproximation {
@@ -41,6 +42,10 @@ export interface C2MHistogram {
   binEdges: number[]
   counts: number[]
   overflowCount?: number
+  /** Client-derived tail counts; older stored histograms may omit these. */
+  underflowCount?: number
+  positiveOverflowCount?: number
+  unknownCount?: number
 }
 
 export interface C2MResult {
@@ -54,10 +59,10 @@ export interface C2MResult {
   algorithmVersion?: string
   metricDirection?: C2MMetricDirection | ''
   approximation?: C2MApproximation | null
-  stats: C2MStats
+  stats: C2MStats | null
   histogram?: C2MHistogram | null
   visualization?: C2MVisualization
-  diagnostics?: { scanBboxRaw?: { min: number[]; max: number[] }; scanBboxAfterTransform?: { min: number[]; max: number[] }; meshBbox?: { min: number[]; max: number[] }; bboxOverlapIoU?: number }
+  diagnostics?: { scanBboxRaw?: { min: number[]; max: number[] }; scanBboxAfterTransform?: { min: number[]; max: number[] }; meshBbox?: { min: number[]; max: number[] }; bboxOverlapIoU?: number; rebarComparison?: RebarComparison }
   coloredPlyAvailable?: boolean
   fresh?: boolean
   staleReason?: string
@@ -79,7 +84,35 @@ export interface C2MResult {
   }
 }
 
+export interface RebarComparisonBar {
+  ifcGlobalId: string
+  designBarId: string
+  name: string
+  instanceIds: number[]
+  reviewInstanceIds?: number[]
+  reviewPointCount?: number
+  pointCount: number
+  pointsAfter: number
+  vertexStart: number
+  vertexCount: number
+  knownCount: number
+  unknownCount: number
+  status: 'matched' | 'missing' | 'review'
+  stats: C2MStats | null
+}
+
+export interface RebarComparison {
+  schema: 'rebar-comparison-v1'
+  bars: RebarComparisonBar[]
+  excludedComponentCount: number
+  unassignedPointCount: number
+  knownVertexCount: number
+  unknownVertexCount: number
+  instanceMapHash: string
+}
+
 export interface C2MParams {
+  denoiseVersion: string
   modelScanFileId: number
   modelBimFileId: number
   profile: C2MProfile

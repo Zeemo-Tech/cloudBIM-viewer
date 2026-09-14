@@ -1,0 +1,32 @@
+{
+  "success": {
+    "text": "#426f73",
+    "surface": "#edf4f4",
+    "contrast": 5.02
+  },
+  "warning": {
+    "text": "#896432",
+    "surface": "#f8f3e9",
+    "contrast": 4.83
+  },
+  "danger": {
+    "text": "#a34f59",
+    "surface": "#f8eef0",
+    "contrast": 4.84
+  },
+  "info": {
+    "text": "#506585",
+    "surface": "#eef2f7",
+    "contrast": 5.27
+  },
+  "accent": {
+    "text": "#466d87",
+    "surface": "#edf3f7",
+    "contrast": 4.94
+  },
+  "primary": {
+    "text": "#ffffff",
+    "surface": "#4e66cc",
+    "contrast": 5.13
+  }
+}

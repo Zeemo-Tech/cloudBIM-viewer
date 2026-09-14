@@ -40,7 +40,7 @@ class V5ContractTests(unittest.TestCase):
             try:
                 raw=[]
                 for path in runtime.feature_chunks:
-                    with np.load(path) as saved:raw.append({k:saved[k] for k in saved.files})
+                    with runtime.chunks.read(path) as saved:raw.append({k:saved[k] for k in saved.files})
                 combined={k:np.concatenate([x[k] for x in raw]) for k in raw[0]}
                 order=np.argsort(combined['source_index']);combined={k:v[order] for k,v in combined.items()}
                 results.append((det,features,combined))

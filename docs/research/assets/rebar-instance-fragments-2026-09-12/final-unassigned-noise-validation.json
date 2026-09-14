@@ -1,0 +1,46 @@
+{
+  "baselineRun": "20260912T094236-39c1e620",
+  "runId": "20260912T094935-22406573",
+  "version": "design-guided-instances-v13-final-unassigned-noise",
+  "finalUnassignedNoise": {
+    "removedPointCount": 3278,
+    "highScoreRemovedPointCount": 2463,
+    "protectedHookRemovedPointCount": 0,
+    "policy": "after all connections and filters, every remaining unassigned steel candidate becomes noise"
+  },
+  "unassignedRebarPointCount": 0,
+  "instanceCount": 206,
+  "changedClassPointsVsBaseline": 3278,
+  "baselineUnassignedPoints": 3278,
+  "baselineUnassignedNowNoise": 3278,
+  "instanceLabelChangesVsBaseline": 0,
+  "classCounts": {
+    "table": 5315996,
+    "fixture": 1890864,
+    "rebar": 1563956,
+    "noise": 445553
+  },
+  "preview": {
+    "complete_class": "matched",
+    "complete_instance": "matched"
+  },
+  "lasPointCounts": {
+    "complete-steel.las": 1563956,
+    "resolved-steel.las": 1563956,
+    "pending-steel.las": 0,
+    "noise-only.las": 445553,
+    "pointcloud-with-classes.las": 9216369
+  },
+  "screenshotSourceRowClasses": {
+    "8817763": 4,
+    "8817899": 4,
+    "679269": 4,
+    "607005": 4
+  },
+  "tiles": {
+    "tileCount": 354,
+    "pointCount": 2302885,
+    "unassignedSteelPoints": 0
+  },
+  "baselineInstanceCount": 206
+}

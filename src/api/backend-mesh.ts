@@ -1,23 +1,11 @@
 import { backendRequest, backendRequestRaw, normalizeBackendUrl, type BackendResult } from '@/api/backend-http'
 
-export interface MeshAlgorithmParam {
-  key: string
-  label: string
-  type: 'int' | 'float' | 'bool'
-  default: number | boolean | null
-  min?: number
-  max?: number
-  tooltip?: string
-  visible_when?: { key: string; value: boolean | number } | null
-}
-
-export interface MeshAlgorithm {
-  name: string
-  label: string
-  implementationVersion: string
-  contractVersion: string
-  params: MeshAlgorithmParam[]
-}
+export const REBAR_SWEEP_ALGORITHM = 'rebar_sweep'
+export const DEFAULT_REBAR_SWEEP_PARAMS = {
+  cross_section_sides: 16,
+  axial_spacing: 0.01,
+  max_chord_error: 0.0001,
+} as const
 
 export interface RemeshStats {
   vertexBefore: number
@@ -43,11 +31,7 @@ export interface RemeshStatus {
   contentHash?: string
 }
 
-export function getMeshAlgorithms() {
-  return backendRequest<BackendResult<MeshAlgorithm[]>>('/mesh/algorithms', { method: 'GET' })
-}
-
-export function remeshBimAsset(assetId: number, payload: { algorithm: string; params?: Record<string, unknown>; force?: boolean }) {
+export function remeshBimAsset(assetId: number, payload: { algorithm: typeof REBAR_SWEEP_ALGORITHM; params?: Record<string, unknown>; force?: boolean }) {
   return backendRequest<BackendResult<{ status: 'queued'; message: string }>>(`/assets/${assetId}/mesh/remesh`, {
     method: 'POST',
     data: payload,
@@ -66,6 +50,8 @@ export async function downloadRemeshResult(assetId: number) {
   const response = await backendRequestRaw<Blob>(`/assets/${assetId}/mesh/remesh/latest`, {
     method: 'GET',
     responseType: 'blob',
+    // This URL is mutable: each completed run replaces the artifact.
+    headers: { 'Cache-Control': 'no-cache' },
   })
   return response.data
 }

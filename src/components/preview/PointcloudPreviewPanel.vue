@@ -12,11 +12,14 @@ import type {
   StandardView,
 } from './UnifiedViewer3D.vue'
 import type { RebarVisualizationMetadata, RebarInspection } from '@/api/backend-rebar'
+import type { PointcloudTablePlane } from '@/features/pointcloud/tableVisibility'
 
 const props = withDefaults(
   defineProps<{
     assetId: number | null
     tilesetUrl?: string | null
+    tablePlane?: PointcloudTablePlane | null
+    tableVisible?: boolean
     rebarVisualization?: RebarVisualizationMetadata | null
     rebarInspection?: RebarInspection | null
     minimal?: boolean
@@ -29,6 +32,8 @@ const props = withDefaults(
   {
     minimal: false,
     tilesetUrl: null,
+    tablePlane: null,
+    tableVisible: true,
     rebarVisualization: null,
     analysisMode: 'none',
     analysisPoints: () => [],
@@ -47,6 +52,7 @@ const emit = defineEmits<{
   (event: 'analysis-delete', payload: { kind: 'point' | 'distance' | 'area'; id: string }): void
   (event: 'analysis-mode-exit', mode: AnalysisMode): void
   (event: 'pointcloud-source-fallback'): void
+  (event: 'edl-fallback'): void
   (event: 'pointcloud-color-stats', payload: {
     histogram: number[]
     hasIntensity: boolean
@@ -98,6 +104,8 @@ defineExpose({
     type="pointcloud"
     :asset-id="assetId"
     :pointcloud-tileset-url="tilesetUrl"
+    :pointcloud-table-plane="tablePlane"
+    :pointcloud-table-visible="tableVisible"
     :rebar-visualization="rebarVisualization"
     :rebar-inspection="rebarInspection"
     :minimal="minimal"
@@ -114,6 +122,7 @@ defineExpose({
     @analysis-delete="emit('analysis-delete', $event)"
     @analysis-mode-exit="emit('analysis-mode-exit', $event)"
     @pointcloud-source-fallback="emit('pointcloud-source-fallback')"
+    @edl-fallback="emit('edl-fallback')"
     @pointcloud-color-stats="emit('pointcloud-color-stats', $event)"
   />
 </template>

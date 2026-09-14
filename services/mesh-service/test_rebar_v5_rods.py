@@ -1,8 +1,9 @@
 import unittest
+from dataclasses import replace
 import numpy as np
 
 from algorithms.rebar_v5.contracts import Params
-from algorithms.rebar_v5.rods import distance_to_paths, hough_lines, hough_seeds, planar_bars, refine_axis, trace, _same_axis
+from algorithms.rebar_v5.rods import distance_to_paths, hough_lines, hough_seeds, planar_bars, refine_axis, trace, _same_axis, web_bars
 from algorithms.rebar_v4_geometry import LinePrimitive
 from rebar_validation import _rod
 from rebar_validation import make_truth_scene, REBAR
@@ -125,6 +126,61 @@ class RodTests(unittest.TestCase):
             self.assertNotEqual(*dominant)
         finally:
             adapter.close(analysis)
+
+    def test_fragmented_long_inclined_web_keeps_observed_gaps(self):
+        """Three short cylindrical observations make one long diagonal web, not three misses."""
+        direction = np.array([.18, 0., .108]); direction /= np.linalg.norm(direction)
+        cloud = _rod(np.random.default_rng(74), -.5*.31*direction, .5*.31*direction,
+                     .006, 3000, top_arcs=False)
+        axial = (cloud + .5*.31*direction) @ direction
+        # Each retained physical piece is < the ordinary 45 mm primitive
+        # threshold; the two gaps remain inferred rather than fabricated.
+        keep = ((axial >= .000) & (axial <= .040)) | ((axial >= .125) & (axial <= .165)) | ((axial >= .250) & (axial <= .290))
+        cloud = cloud[keep]
+        web_p = replace(self.p, min_primitive_length=.045, min_instance_length=.080, axial_gap=.070, join_gap=.090)
+        found, _ = web_bars(cloud, features(cloud, direction), web_p, [], [])
+        self.assertEqual(len(found), 1)
+        self.assertGreater(found[0]["length"], .11)
+        line = np.asarray(found[0]["centerline"])
+        self.assertGreater(np.linalg.norm(line[0]-line[-1]), .27)
+        self.assertGreaterEqual(len(found[0]["observedSegments"]), 3)
+        self.assertGreaterEqual(len(found[0]["inferredSegments"]), 2)
+
+    def test_isolated_short_inclined_fragment_is_not_promoted_to_a_web(self):
+        direction = np.array([.08, 0., .048]); direction /= np.linalg.norm(direction)
+        cloud = _rod(np.random.default_rng(75), -.020*direction, .020*direction,
+                     .006, 360, top_arcs=False)
+        web_p = replace(self.p, min_primitive_length=.045, min_instance_length=.080)
+        found, _ = web_bars(cloud, features(cloud, direction), web_p, [], [])
+        self.assertEqual(found, [])
+
+    def test_fragmented_web_survives_actual_multiscale_default_pipeline(self):
+        direction=np.array([.18,0.,.108]);direction/=np.linalg.norm(direction)
+        cloud=_rod(np.random.default_rng(74),-.155*direction,.155*direction,.006,3000,top_arcs=False)
+        axial=(cloud+.155*direction)@direction
+        cloud=cloud[((axial>=0)&(axial<=.040))|((axial>=.125)&(axial<=.165))|((axial>=.250)&(axial<=.290))]
+        adapter=GeometricV5Adapter()
+        analysis=adapter.analyze(cloud,adapter.normalize_parameters({}))
+        try:
+            attrs=adapter.project_points(cloud,analysis)
+            self.assertGreater((attrs.rebar_role==2).mean(),.95)
+            self.assertEqual(len(analysis.data['instances']),1)
+            item=analysis.data['instances'][0]
+            self.assertEqual(len(item['observedSegments']),3)
+            self.assertEqual(len(item['inferredSegments']),2)
+            self.assertAlmostEqual(item['radius'],.006,delta=.001)
+        finally:adapter.close(analysis)
+
+    def test_distant_short_wrong_axis_is_not_authorized_by_another_web(self):
+        direction=np.array([.18,0.,.108]);direction/=np.linalg.norm(direction)
+        long=_rod(np.random.default_rng(8104),-.15*direction,.15*direction,.006,1200,top_arcs=False)
+        other=np.array([0.,1.,1.]);other/=np.linalg.norm(other)
+        short=_rod(np.random.default_rng(8105),np.array([1.,1.,0.])-.02*other,np.array([1.,1.,0.])+.02*other,.006,200,top_arcs=False)
+        points=np.vstack((long,short))
+        f={'axis_tangent':np.vstack((np.tile(direction,(len(long),1)),np.tile(other,(len(short),1)))),'axis_linearity':np.ones(len(points))}
+        found,_=web_bars(points,f,Params(),[],[])
+        self.assertTrue(found)
+        self.assertFalse(distance_to_paths(short,found,Params()).any())
 
 
 if __name__ == "__main__":

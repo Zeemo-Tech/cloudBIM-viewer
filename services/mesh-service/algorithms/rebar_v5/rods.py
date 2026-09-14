@@ -63,7 +63,8 @@ def hough_seeds(points, tangents, rows, candidates, basis, p):
         aligned = np.abs(tangent2 @ axis2) >= np.cos(np.deg2rad(p.orientation_tolerance_degrees))
         # Keep neighbouring cylinders out of a voted surface stripe. The raw
         # circle refit below expands around this seed to recover its centre.
-        selected = aligned & (np.abs(coords @ normal2 - rho) <= .50*p.offset_cell_size)
+        width = .50*p.offset_cell_size
+        selected = aligned & (np.abs(coords @ normal2-rho) <= width)
         if int(selected.sum()) < p.min_primitive_votes:
             continue
         support = cloud[selected]
@@ -87,6 +88,39 @@ def hough_seeds(points, tangents, rows, candidates, basis, p):
             radius = float(np.clip(np.quantile(radial, .55), p.min_radius, p.max_radius))
             result.append(LinePrimitive(center+lo*direction, center+hi*direction, direction,
                 radius, int(len(group)), float(votes)))
+    return result
+
+
+def _hough_axis_families(points, rows, candidates, basis, p):
+    """Fit one finite physical axis family before splitting occluded spans."""
+    cloud = points[rows]
+    result = []
+    for _, axis2, rho in candidates:
+        normal2 = np.array([-axis2[1], axis2[0]])
+        coords = cloud @ basis.T
+        matched = np.abs(coords @ normal2-rho) <= p.max_radius+p.support_distance
+        support = cloud[matched]
+        if len(support) < p.min_primitive_votes:
+            continue
+        centered = support-np.mean(support, axis=0)
+        _, _, vectors = np.linalg.svd(centered, full_matrices=False)
+        direction = canonical_direction(vectors[0])
+        # The PCA refinement must retain the voted web orientation; otherwise
+        # a nearby transverse rod could rotate this family into itself.
+        voted = canonical_direction(axis2 @ basis)
+        if abs(float(direction @ voted)) < np.cos(np.deg2rad(p.orientation_tolerance_degrees)):
+            continue
+        center = np.mean(support, axis=0)
+        axial = (support-center) @ direction
+        order = np.argsort(axial, kind="stable")
+        groups = np.split(order, np.flatnonzero(np.diff(axial[order]) > p.axial_gap)+1)
+        for group in groups:
+            values = axial[group]
+            if len(group) < p.min_primitive_votes or values[-1]-values[0] < p.min_primitive_length:
+                continue
+            radial = np.linalg.norm(support[group]-center-values[:, None]*direction, axis=1)
+            result.append(LinePrimitive(center+values[0]*direction, center+values[-1]*direction,
+                direction, float(np.clip(np.quantile(radial, .55), p.min_radius, p.max_radius)), len(group), 1.))
     return result
 
 
@@ -257,10 +291,17 @@ def web_bars(points,f,p,layers,planar):
         direction=direction/norm
         if not any(abs(direction@other)>np.cos(np.deg2rad(10)) for other in azimuths):azimuths.append(direction)
         if len(azimuths)>=12:break
-    detected=[];strip_count=hough_count=0
+    # Only a voted web axis may seed short observed fragments.  This is a
+    # narrow recovery for an occluded long diagonal: ordinary local primitive
+    # and fallback thresholds remain unchanged, as does the 80 mm instance
+    # contract enforced by ``trace`` below.
+    fragment_p=replace(p, min_primitive_length=min(p.min_primitive_length,
+        max(.012, 2.*p.min_radius)))
+    detected=[];fragment_mask=np.zeros(len(points),bool);families=[];strip_count=hough_count=0
     for direction in azimuths:
         transverse=np.array([-direction[1],direction[0]])
         offsets=points[rows,:2]@transverse
+        support_offsets=points[:,:2]@transverse
         step=p.web_strip_width-p.web_strip_overlap
         for start in np.arange(offsets.min()-p.web_strip_overlap,offsets.max()+step,step):
             selected=rows[(offsets>=start)&(offsets<start+p.web_strip_width)&bounded]
@@ -272,14 +313,46 @@ def web_bars(points,f,p,layers,planar):
             tangent=np.column_stack((f["axis_tangent"][selected,:2]@direction,f["axis_tangent"][selected,2]))
             candidates=hough_lines(side,tangent,p)
             hough_count+=len(candidates)
+            # Preserve only support that actually matched a voted finite
+            # strip axis.  A Hough vote in one strip must never authorize an
+            # unrelated diagonal fragment elsewhere in the residual cloud.
+            coords = points[selected] @ np.vstack((np.array([direction[0], direction[1], 0.]), np.array([0., 0., 1.]))).T
+            tangent2 = f["axis_tangent"][selected] @ np.vstack((np.array([direction[0], direction[1], 0.]), np.array([0., 0., 1.]))).T
+            for _, axis2, rho in candidates:
+                normal2 = np.array([-axis2[1], axis2[0]])
+                aligned = np.abs(tangent2 @ axis2) >= np.cos(np.deg2rad(p.orientation_tolerance_degrees))
+                # A Hough cell is a surface-side vote.  Expand it only across
+                # one physically permitted rod tube so sparse voxel sampling
+                # still supplies enough circular support for its short piece.
+                matched = aligned & (np.abs(coords @ normal2-rho) <= max(
+                    1.5*p.offset_cell_size, p.max_radius+p.support_distance))
+                fragment_mask[selected[matched]]=True
             local=primitives(points,f,p,selected,minimum_votes=5)
             local.extend(hough_seeds(points, f["axis_tangent"], selected, candidates,
                 np.vstack((np.array([direction[0], direction[1], 0.]), np.array([0.,0.,1.]))), p))
+            local.extend(hough_seeds(points, f["axis_tangent"], selected, candidates,
+                np.vstack((np.array([direction[0], direction[1], 0.]), np.array([0.,0.,1.]))), fragment_p))
+            # The vote already established orientation; avoid requiring every
+            # voxel PCA tangent to agree before fitting finite axial spans.
+            support_rows=np.flatnonzero((support_offsets>=start)&(support_offsets<start+p.web_strip_width))
+            families.extend(_hough_axis_families(points, support_rows, candidates,
+                np.vstack((np.array([direction[0], direction[1], 0.]), np.array([0.,0.,1.]))), fragment_p))
             detected.extend(x for x in local if abs(x.tangent[2])>np.sin(np.deg2rad(p.planar_angle_degrees)))
+    # Do not lower the residual fallback threshold.  Short pieces are only
+    # admitted after at least one bounded Hough strip observed their shared
+    # diagonal orientation; tracing still applies the normal instance length.
+    fragment_rows=np.flatnonzero(fragment_mask)
+    fragments = primitives(points, f, fragment_p, fragment_rows, minimum_votes=5) if len(fragment_rows) else []
     # Bounded all-direction residual recovery is independent from layer priors.
     fallback=primitives(points,f,p,rows,minimum_votes=5)
     detected=deduplicate_primitives(detected+fallback)
-    return deduplicate_instances(trace(detected,points,p,"web"),p),{"stripCount":strip_count,"houghCandidateCount":hough_count,"fallback":True}
+    instances = trace(detected, points, p, "web")
+    # Keep the Hough-authorized short evidence separate until it has traced
+    # into a physical path; primitive-level overlap pruning otherwise lets a
+    # long broad seed erase every occluded observed piece.
+    instances.extend(trace(deduplicate_primitives(fragments), points, p, "web"))
+    instances.extend(trace(deduplicate_primitives(families), points, p, "web"))
+    return deduplicate_instances(instances,p),{"stripCount":strip_count,"houghCandidateCount":hough_count,"fallback":True}
 
 
 def deduplicate_instances(instances,p):

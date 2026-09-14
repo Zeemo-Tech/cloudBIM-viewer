@@ -1,0 +1,41 @@
+{
+  "baselineRun": "20260910T163330-08ec0443",
+  "run": "20260910T164009-0ff165be",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "sourcePointCount": 9216369,
+  "beforeCounts": {
+    "table": 5209994,
+    "fixture": 2211888,
+    "rebar": 1794487
+  },
+  "afterCounts": {
+    "table": 5209994,
+    "fixture": 2214799,
+    "rebar": 1791576
+  },
+  "removedSteelCandidates": 2911,
+  "addedSteelCandidates": 0,
+  "tableLabelChanges": 0,
+  "algorithmVersion": "normal-geometry-v5-component-support",
+  "classificationElapsedS": 4.090284930978669,
+  "timings": {
+    "readS": 0.17542985299951397,
+    "treeS": 1.8007621339929756,
+    "normalsS": 5.336957835010253,
+    "classificationS": 4.09045924799284,
+    "projectionS": 19.6905050619971,
+    "classifiersWallS": 19.692283134005265,
+    "fusionS": 0.7193771429883782,
+    "regionsS": 0.2314971569867339,
+    "refinementS": 0.21176636300515383,
+    "internalRebarS": 3.630832978989929,
+    "guidedInstancesS": 6.512188271008199,
+    "persistS": 2.2482215169875417,
+    "previewS": 0.7158511670131702,
+    "totalS": 41.28438873801497
+  },
+  "sourceIdentityAndOriginalLasFields": "passed",
+  "unchangedStep01": "passed",
+  "npyLasAndPreviewConsistency": "passed",
+  "accuracyScope": "Candidate changes only; no manually labelled full-scan ground truth."
+}

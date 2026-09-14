@@ -1,0 +1,32 @@
+{
+  "baselineRun": "20260911T030958-836f8ee8",
+  "finalRun": "20260911T031047-85d3442c",
+  "v2": {
+    "observedInstancesAfter": 209,
+    "filteredPoints": 100151,
+    "pendingInstances": 0
+  },
+  "v3": {
+    "observedInstancesAfter": 209,
+    "filteredPoints": 94841,
+    "pendingInstances": 0,
+    "earlyExtensionClusters": 155,
+    "earlyExtensionPoints": 113716
+  },
+  "previouslyFilteredNowSteelPoints": 5475,
+  "newlyFilteredSteelPoints": 165,
+  "previouslyResolvedNowPendingPoints": 0,
+  "sourcePointCount": 9216369,
+  "shortFamilyValues": [
+    "1",
+    "2",
+    "3",
+    "4"
+  ],
+  "shortBars": {
+    "instances": 12,
+    "sourcePoints": 74746,
+    "keptSteelPoints": 74746,
+    "sameIdPoints": 74746
+  }
+}

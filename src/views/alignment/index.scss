@@ -300,23 +300,23 @@
 }
 
 .mesh-remesh-status--succeeded {
-  color: #95d475;
-  background: rgba(103, 194, 58, 0.12);
+  color: var(--color-success);
+  background: var(--color-success-soft);
 }
 
 .mesh-remesh-status--queued {
-  color: #eebe77;
-  background: rgba(230, 162, 60, 0.12);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 .mesh-remesh-status--processing {
-  color: #79bbff;
-  background: rgba(64, 158, 255, 0.12);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .mesh-remesh-status--failed {
-  color: #f89898;
-  background: rgba(245, 108, 108, 0.12);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
 }
 
 .calibration-page .mesh-remesh-summary {
@@ -365,7 +365,7 @@
 }
 
 .calibration-page .mesh-remesh-summary--succeeded {
-  border-color: rgb(33 132 98 / 20%);
+  border-color: var(--color-success);
   background: var(--color-success-soft);
 }
 
@@ -376,7 +376,7 @@
 
 .calibration-page .mesh-remesh-summary--queued,
 .calibration-page .mesh-remesh-summary--processing {
-  border-color: rgb(54 120 201 / 20%);
+  border-color: var(--color-primary);
   background: var(--color-primary-soft);
 }
 
@@ -387,7 +387,7 @@
 }
 
 .calibration-page .mesh-remesh-summary--failed {
-  border-color: rgb(194 77 88 / 20%);
+  border-color: var(--color-danger);
   background: var(--color-danger-soft);
 }
 
@@ -673,13 +673,13 @@
 }
 
 .calibration-page .mesh-stat-item em {
-  color: #26975f;
+  color: var(--color-success);
   font-style: normal;
 }
 
 .mesh-remesh-error {
   margin-top: 8px;
-  color: #f89898;
+  color: var(--color-danger);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -758,17 +758,17 @@
 .c2m-result-warning {
   margin-top: 8px;
   padding: 7px 9px;
-  border: 1px solid rgba(230, 162, 60, 0.42);
-  color: #f3d19e;
-  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
   font-size: 11px;
   line-height: 1.5;
 }
 
 .c2m-result-warning--stale {
-  border-color: rgba(245, 108, 108, 0.5);
-  color: #fab6b6;
-  background: rgba(245, 108, 108, 0.13);
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 @media (max-width: 720px) {
@@ -844,11 +844,11 @@
   height: 7px;
   flex: 0 0 7px;
   border-radius: 50%;
-  background: #2f9a69;
+  background: var(--color-primary);
 }
 
 .calibration-page .c2m-panel :deep(.el-switch) {
-  --el-switch-on-color: #2f9a69;
+  --el-switch-on-color: var(--color-primary);
   --el-switch-off-color: #b7c2d1;
 }
 
@@ -1756,11 +1756,15 @@
 }
 
 .el-button--success {
-  --el-button-bg-color: rgba(103, 194, 58, 0.2);
-  --el-button-border-color: rgba(103, 194, 58, 0.5);
-  --el-button-hover-bg-color: rgba(103, 194, 58, 0.3);
-  --el-button-hover-border-color: rgba(103, 194, 58, 0.7);
-  --el-button-text-color: rgba(255, 255, 255, 0.92);
+  --el-button-bg-color: var(--color-primary-soft);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-text-color: #fff;
+  --el-button-hover-bg-color: var(--color-primary-hover);
+  --el-button-hover-border-color: var(--color-primary-hover);
+  --el-button-active-text-color: #fff;
+  --el-button-active-bg-color: var(--color-primary-active);
+  --el-button-active-border-color: var(--color-primary-active);
+  --el-button-text-color: var(--color-primary);
 }
 
 .el-input__wrapper,
@@ -2195,14 +2199,14 @@
 .fine-result {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(103, 194, 58, 0.32);
+  border: 1px solid var(--color-success);
   border-radius: 8px;
-  background: rgba(103, 194, 58, 0.08);
+  background: var(--color-success-soft);
 }
 
 .fine-result--warning {
-  border-color: rgba(230, 162, 60, 0.45);
-  background: rgba(230, 162, 60, 0.1);
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
 .fine-result__title {
@@ -2352,10 +2356,12 @@
  * panel treatment as the calibration workspace in the analysis application.
  * -------------------------------------------------------------------------- */
 .BimPointcloudAlign-container.calibration-page {
-  --editor-panel-width: 300px;
+  --editor-panel-width: var(--viewer-panel-width, 360px);
   --editor-toolbar-width: 50px;
-  --editor-header-height: 62px;
-  height: 100%;
+  --editor-header-height: 72px;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2392,6 +2398,31 @@
   flex: 0 1 auto;
 }
 
+.calibration-page .alignment-title-context {
+  min-width: 0;
+  display: grid;
+  gap: var(--spacing-xs);
+}
+
+.calibration-page .alignment-file-context {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.calibration-page .workflow-guidance {
+  margin: 0;
+  padding: var(--spacing-compact) var(--spacing-md);
+  border-bottom: 1px solid var(--border-color-light);
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-relaxed);
+}
+
 .calibration-page .topbar-left.title-block > .el-button {
   width: 32px;
   height: 32px;
@@ -2425,7 +2456,9 @@
 
 .calibration-page .alignment-workflow-nav {
   min-width: 0;
-  height: 46px;
+  max-width: 1500px;
+  height: 56px;
+  margin-inline: auto;
   display: flex;
   flex: 1 1 auto;
   overflow-x: auto;
@@ -2436,7 +2469,7 @@
 .calibration-page .alignment-workflow-track {
   box-sizing: border-box;
   width: 100%;
-  min-width: 540px;
+  min-width: 760px;
   height: 100%;
   display: flex;
   align-items: center;
@@ -2523,7 +2556,7 @@
 
 .calibration-page .alignment-workflow-step__copy strong {
   color: currentColor;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
   line-height: 1.2;
 }
@@ -2531,7 +2564,7 @@
 .calibration-page .alignment-workflow-step__copy small {
   margin-top: 2px;
   color: currentColor;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.2;
   opacity: 0.9;
 }
@@ -3179,8 +3212,8 @@
 .calibration-page .stage-state {
   padding: 3px 7px;
   border-radius: 4px;
-  color: #2f7c60;
-  background: #e8f6ef;
+  color: var(--text-secondary);
+  background: var(--color-info-soft);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -3631,9 +3664,9 @@
 }
 
 .calibration-page .left-toolbar.view-toolbar :deep(.alignment-measurement-toolbar .measurement-action.is-active) {
-  border-color: rgb(220 38 38 / 42%);
-  color: #b91c1c;
-  background: #fef2f2;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .calibration-page .viewport.viewport-shell.three-view-pane {
@@ -3686,13 +3719,13 @@
 
 .calibration-page .pointcloud-segmented button {
   min-width: 42px;
-  height: 25px;
+  height: 32px;
   padding: 0 9px;
   border: 0;
   border-right: 1px solid rgb(255 255 255 / 10%);
   color: rgb(226 232 240 / 76%);
   background: transparent;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -3733,7 +3766,7 @@
   border-radius: 6px;
   color: rgb(255 255 255 / 72%);
   background: rgb(255 255 255 / 7%);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .calibration-page .pointcloud-size-control input {
@@ -3842,14 +3875,6 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-}
-
-.calibration-page .control-panel-header .panel-heading small {
-  color: var(--color-primary);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  line-height: 1;
-  text-transform: uppercase;
 }
 
 .calibration-page .control-panel-header .panel-heading strong {
@@ -4308,14 +4333,14 @@
 }
 
 .calibration-page .control-panel .fine-result {
-  border-color: rgb(33 132 98 / 24%);
+  border-color: var(--color-success);
   border-radius: var(--radius-xs);
   background: var(--color-success-soft);
 }
 
 .calibration-page .control-panel .fine-result--warning,
 .calibration-page .control-panel .c2m-result-warning {
-  border-color: rgb(170 118 37 / 28%);
+  border-color: var(--color-warning);
   background: var(--color-warning-soft);
 }
 
@@ -4376,9 +4401,9 @@
 }
 
 .calibration-page .control-panel :deep(.el-button--success:not(.is-text):not(.is-link)) {
-  border-color: var(--color-success);
+  border-color: var(--color-primary);
   color: #fff;
-  background: var(--color-success);
+  background: var(--color-primary);
 }
 
 .calibration-page .right-panel.control-panel.is-workflow-panel
@@ -4532,7 +4557,7 @@
 }
 
 .calibration-page .control-panel :deep(.el-switch) {
-  --el-switch-on-color: var(--color-success);
+  --el-switch-on-color: var(--color-primary);
   --el-switch-off-color: var(--border-color-hover);
 }
 
@@ -4662,3 +4687,55 @@
     padding-inline: 9px;
   }
 }
+
+
+.calibration-page .c2m-source-note,
+.calibration-page .rebar-comparison-card p {
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.calibration-page .rebar-comparison-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d7e4ef;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+.calibration-page .rebar-comparison-details {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.calibration-page .rebar-report-page { gap: 14px; }
+.calibration-page .rebar-report-page h2 { margin: 0; font-size: 22px; }
+.calibration-page .rebar-report-page p { margin: 0; font-size: 12px; line-height: 1.6; }
+.calibration-page .rebar-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  th, td { padding: 7px 4px; border: 1px solid #d7e1ed; text-align: left; }
+  th { background: #eef4fa; }
+  small { display: block; font-size: 9px; overflow-wrap: anywhere; }
+  td:first-child { max-width: 160px; overflow-wrap: anywhere; }
+}
+.calibration-page .rebar-report-provenance { overflow-wrap: anywhere; color: #64748b; }
+.calibration-page .rebar-report-page footer { margin-top: auto; font-size: 11px; color: #64748b; }
+
+.calibration-page .c2m-display-help {
+  margin: 8px 0; color: #64748b; font-size: 11px; line-height: 1.7;
+}
+.calibration-page .c2m-range-readout {
+  margin-top: 12px; color: #1e293b; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums;
+  span, small { color: #64748b; font-size: 11px; font-weight: 400; margin: 0 5px; }
+}
+.calibration-page .c2m-chart-options { padding: 10px 0; border-top: 1px solid #e2e8f0; }
+.calibration-page .c2m-chart-options > summary { padding: 4px 0; color: #64748b; font-size: 12px; cursor: pointer; }
+.calibration-page .c2m-chart-options[open] > summary { margin-bottom: 10px; }
+.calibration-page .c2m-range-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.calibration-page .c2m-advanced-card .c2m-setting-row--plain { grid-template-columns: minmax(0, 1fr) 104px; }
+.calibration-page .c2m-advanced-card .c2m-setting-row--plain > :deep(.el-input-number) { width: 104px; }
+.calibration-page .c2m-advanced-card .c2m-setting-row__label { gap: 4px; flex-wrap: wrap; }

@@ -1,0 +1,42 @@
+[
+  {
+    "name": "ifc upload rendered",
+    "passed": true,
+    "detail": "选择IFC模型\nIFC · 可将文件拖放到此处\n选择文件\n归档信息\n\n模型与点云通过归档编号自动关联\n\n待生成\n楼栋\n楼层\n楼板类型\n选择类型\n归档序号\n请先选择文件，再填写归档信息\n开始上传"
+  },
+  {
+    "name": "cad upload rendered",
+    "passed": true,
+    "detail": "选择CAD图纸\nDWG / DXF / PDF · 可将文件拖放到此处\n选择文件\n归档信息\n\n模型与点云通过归档编号自动关联\n\n待生成\n楼栋\n楼层\n楼板类型\n选择类型\n归档序号\n请先选择文件，再填写归档信息\n开始上传"
+  },
+  {
+    "name": "legacy upload rendered",
+    "passed": true,
+    "detail": "IFC 模型\n点云文件\n选择BIM模型\nIFC · 可将文件拖放到此处\n选择文件\n归档信息\n\n模型与点云通过归档编号自动关联\n\n待生成\n楼栋\n楼层\n楼板类型\n选择类型\n归档序号\n请先选择文件，再填写归档信息\n开始上传"
+  },
+  {
+    "name": "/projects refresh and desktop/Mac layout",
+    "passed": true,
+    "detail": "no page horizontal overflow"
+  },
+  {
+    "name": "/design/bim refresh and desktop/Mac layout",
+    "passed": true,
+    "detail": "no page horizontal overflow"
+  },
+  {
+    "name": "/design/cad refresh and desktop/Mac layout",
+    "passed": true,
+    "detail": "no page horizontal overflow"
+  },
+  {
+    "name": "/design/overview refresh and desktop/Mac layout",
+    "passed": true,
+    "detail": "no page horizontal overflow"
+  },
+  {
+    "name": "/survey refresh and desktop/Mac layout",
+    "passed": true,
+    "detail": "no page horizontal overflow"
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "sourcePointCount": 9216369,
+  "instanceCount": 259,
+  "filteredPoints": 1967,
+  "unassignedSteelPoints": 79476,
+  "internalMergeOperations": [
+    {
+      "action": "merge",
+      "sourceInstanceIds": [
+        30,
+        76
+      ],
+      "designUnitId": "1b9YNqdvPA1AzGxyF9pvM0:representation0/item0:1229/unit0",
+      "reason": "same_design_unit_and_observed_endpoint_continuity",
+      "gapM": 0.10360092879064368,
+      "offsetM": 0.002149005510857153,
+      "overlapM": 0.0
+    }
+  ],
+  "splitOperations": [],
+  "checks": "source identity, preceding arrays, no recovery, ownership counts and segment referential integrity passed",
+  "independentBaseline": true,
+  "lasRoundtripAndSubsets": true,
+  "quality": "no complete manual instance ground truth; render review required"
+}

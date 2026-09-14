@@ -160,3 +160,18 @@
 .el-popper {
   z-index: var(--z-overlay);
 }
+
+// Full-size form controls share the 36px desktop contract; compact viewer controls retain their sizes.
+.el-button:not(.el-button--small):not(.el-button--large):not(.is-text):not(.is-link) { height: var(--control-height); }
+
+/* Actions keep the brand colour; success remains a result/message semantic. */
+.el-button--success {
+  --el-button-text-color: #fff;
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-text-color: #fff;
+  --el-button-hover-bg-color: var(--color-primary-hover);
+  --el-button-hover-border-color: var(--color-primary-hover);
+  --el-button-active-bg-color: var(--color-primary-active);
+  --el-button-active-border-color: var(--color-primary-active);
+}

@@ -1,0 +1,76 @@
+{
+  "beforeRun": "20260911T061129-e1d0d51e",
+  "afterRun": "20260911T063516-740da715",
+  "sourcePointCount": 9216369,
+  "highScorePoints": 1520479,
+  "step05": {
+    "beforeNoise": 5352,
+    "afterNoise": 8656,
+    "newNoise": 3304,
+    "restoredToSteel": 0,
+    "highScoreNoise": 0,
+    "newNoisePreviouslyAssigned": 3290,
+    "addedScoreCounts": {
+      "0.25": 3,
+      "0.6499999761581421": 3301
+    }
+  },
+  "step06": {
+    "beforeNoise": 109897,
+    "afterNoise": 120382,
+    "newNoise": 11538,
+    "restoredToSteel": 1053,
+    "highScoreNoise": 0,
+    "newNoisePreviouslyAssigned": 3290,
+    "addedScoreCounts": {
+      "0.25": 7261,
+      "0.5": 232,
+      "0.6499999761581421": 4045
+    }
+  },
+  "removedCleanupChanges": {
+    "interiorToSteel": 0,
+    "bandToFixture": 857,
+    "bandToSteel": 483,
+    "exteriorToFixture": 414,
+    "exteriorToSteel": 447,
+    "totalChanged": 2201
+  },
+  "timings": {
+    "before": {
+      "readS": 0.17272403198876418,
+      "treeS": 1.7988763530156575,
+      "normalsS": 5.195081953017507,
+      "preprocessingS": 1.0828629080206156,
+      "classificationS": 5.93423858701135,
+      "projectionS": 8.23582527198596,
+      "classifiersWallS": 8.237634127988713,
+      "fusionS": 0.7582124450127594,
+      "regionsS": 0.03215678301057778,
+      "refinementS": 0.16340721998130903,
+      "internalRebarS": 3.5149499679973815,
+      "guidedInstancesS": 8.189667736995034,
+      "persistS": 2.4760089019837324,
+      "previewS": 0.7591226829972584,
+      "totalS": 32.39211995899677
+    },
+    "after": {
+      "readS": 0.17314800200983882,
+      "treeS": 1.8034623640123755,
+      "normalsS": 5.340708323987201,
+      "preprocessingS": 1.0658130280207843,
+      "classificationS": 6.029097496997565,
+      "projectionS": 8.343801265000366,
+      "classifiersWallS": 8.345397802011576,
+      "fusionS": 0.777070709009422,
+      "regionsS": 0.03224215397494845,
+      "refinementS": 0.03640381200239062,
+      "internalRebarS": 3.8903274439799134,
+      "guidedInstancesS": 8.545549458998721,
+      "persistS": 2.5827686789853033,
+      "previewS": 0.7218221859948244,
+      "totalS": 33.32551205999334
+    }
+  },
+  "instanceMetadataVerified": true
+}

@@ -1,0 +1,107 @@
+{
+  "baseline": {
+    "runId": "20260912T113646-c34c9605",
+    "url": "http://127.0.0.1:8766/?run=20260912T113646-c34c9605",
+    "tiles": {
+      "schema": "pointcloud-tile-attributes-v1",
+      "attributeUrlTemplate": "/runs/20260912T113646-c34c9605/tile-attributes/complete-rebar/{tilePath}.bin",
+      "format": {
+        "magic": "PCTA",
+        "version": 1,
+        "headerBytes": 32,
+        "byteOrder": "littleEndian",
+        "recordBytes": 9,
+        "properties": [
+          {
+            "name": "complete_class",
+            "type": "uint8",
+            "offset": 0
+          },
+          {
+            "name": "complete_instance",
+            "type": "uint32",
+            "offset": 1
+          },
+          {
+            "name": "complete_cluster",
+            "type": "uint32",
+            "offset": 5
+          }
+        ]
+      },
+      "tileCount": 354,
+      "pointCount": 2302885,
+      "mapping": "nearest native LAS XYZ with f32-rounding distance and second-nearest ambiguity checks"
+    }
+  },
+  "candidate": {
+    "runId": "20260912T113748-23c11a16",
+    "url": "http://127.0.0.1:8766/?run=20260912T113748-23c11a16",
+    "tiles": {
+      "schema": "pointcloud-tile-attributes-v1",
+      "attributeUrlTemplate": "/runs/20260912T113748-23c11a16/tile-attributes/complete-rebar/{tilePath}.bin",
+      "format": {
+        "magic": "PCTA",
+        "version": 1,
+        "headerBytes": 32,
+        "byteOrder": "littleEndian",
+        "recordBytes": 9,
+        "properties": [
+          {
+            "name": "complete_class",
+            "type": "uint8",
+            "offset": 0
+          },
+          {
+            "name": "complete_instance",
+            "type": "uint32",
+            "offset": 1
+          },
+          {
+            "name": "complete_cluster",
+            "type": "uint32",
+            "offset": 5
+          }
+        ]
+      },
+      "tileCount": 354,
+      "pointCount": 2302885,
+      "mapping": "nearest native LAS XYZ with f32-rounding distance and second-nearest ambiguity checks"
+    }
+  },
+  "experiment": {
+    "runId": "20260912T113214-aa9fc17f",
+    "url": "http://127.0.0.1:8766/?run=20260912T113214-aa9fc17f",
+    "tiles": {
+      "schema": "pointcloud-tile-attributes-v1",
+      "attributeUrlTemplate": "/runs/20260912T113214-aa9fc17f/tile-attributes/complete-rebar/{tilePath}.bin",
+      "format": {
+        "magic": "PCTA",
+        "version": 1,
+        "headerBytes": 32,
+        "byteOrder": "littleEndian",
+        "recordBytes": 9,
+        "properties": [
+          {
+            "name": "complete_class",
+            "type": "uint8",
+            "offset": 0
+          },
+          {
+            "name": "complete_instance",
+            "type": "uint32",
+            "offset": 1
+          },
+          {
+            "name": "complete_cluster",
+            "type": "uint32",
+            "offset": 5
+          }
+        ]
+      },
+      "tileCount": 354,
+      "pointCount": 2302885,
+      "mapping": "nearest native LAS XYZ with f32-rounding distance and second-nearest ambiguity checks"
+    }
+  }
+}

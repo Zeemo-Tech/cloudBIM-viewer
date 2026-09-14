@@ -1,9 +1,21 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 // @ts-ignore Node's strip-types runner intentionally uses the explicit source extension.
-import { createRebarColorizer, instanceColor, v3Color, validateVisualization, legendItems } from './index.ts'
+import { createRebarColorizer, instanceColor, v3Color, validateVisualization, legendItems, isRebarPointVisible, rebarPointVisibilityCategory, rebarSemanticColor, visibleRebarPointIndices } from './index.ts'
 
 const metadata = { schema: 'rebar-visualization-v1', defaultMode: 'rebar-class', instanceStrategy: 'golden-angle-v1', attributes: { SCENE_CLASS: {} }, values: {}, colors: { clutter: '#334155', table: '#94a3b8', noise: '#d946ef', rebar: '#ef4444', directionA: '#22d3ee', directionB: '#f97316', intersection: '#facc15' } } as const
+
+test('spatial instance palette overrides instance colors while preserving semantic and legacy fallback colors', () => {
+  const palette = new Map<number, [number, number, number]>([[35, [0.2, 0.8, 0.9]]])
+  const colorize = createRebarColorizer(metadata, palette)
+  const legacy = createRebarColorizer(metadata)
+  const point = { sceneClass: 2, flags: 0, direction: 1, instance: 35 }
+  assert.deepEqual(colorize('rebar-instance', point), palette.get(35))
+  assert.deepEqual(colorize('rebar-class', point), legacy('rebar-class', point))
+  assert.deepEqual(colorize('rebar-direction', point), legacy('rebar-direction', point))
+  assert.deepEqual(colorize('rebar-instance', { ...point, instance: 99 }), instanceColor(99))
+  assert.deepEqual(colorize('rebar-instance', { ...point, flags: 1 }), legacy('rebar-instance', { ...point, flags: 1 }))
+})
 
 test('validates v3 metadata and composites class colors', () => {
   assert.ok(validateVisualization(metadata))
@@ -101,4 +113,48 @@ test('V5 has no point-intersection color and reserves bit 1 for ownership ambigu
   assert.deepEqual(v3Color('rebar-instance', v5, { sceneClass: 2, flags: 2, instance: 0 }), [168 / 255, 85 / 255, 247 / 255])
   assert.notDeepEqual(v3Color('rebar-class', v5, { sceneClass: 2, flags: 1, instance: 7 }), [250 / 255, 204 / 255, 21 / 255])
   assert.ok(!legendItems('rebar-class', v5).some((item) => /交点|交叉/.test(item.label)))
+})
+
+test('point visibility covers each V5 subtype and uses broad legacy fallbacks', () => {
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 4, fixtureKind: 1 }), 'fixtureSquareTube')
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 4, fixtureKind: 2 }), 'fixturePlate')
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 4, fixtureKind: 3 }), 'fixtureBolt')
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 4 }), 'fixtureUnknown')
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 2, rebarRole: 1 }), 'rebarPlanar')
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 2, rebarRole: 2 }), 'rebarWeb')
+  assert.equal(rebarPointVisibilityCategory({ sceneClass: 2 }), 'rebarUnresolved')
+  assert.equal(isRebarPointVisible({ sceneClass: 4, fixtureKind: 1 }, { fixtureSquareTube: false }), false)
+  assert.equal(isRebarPointVisible({ sceneClass: 4 }, { fixtureSquareTube: false }), true)
+  assert.equal(isRebarPointVisible({ sceneClass: 2 }, { rebarUnresolved: false }), false)
+  assert.equal(isRebarPointVisible({ sceneClass: 0 }, { unknown: false }), false)
+})
+
+test('V5 scene mode colors steel roles independently', () => {
+  const v5 = { schema: 'rebar-visualization-v3', defaultMode: 'rebar-class', instanceStrategy: 'golden-angle-v1', attributes: {}, values: { sceneClass: { unknown: 0, table: 1, rebar: 2, noise: 3, fixture: 4 }, rebarRole: { unresolved: 0, planar: 1, web: 2 } }, colors: { unknown: '#334155', table: '#94a3b8', rebar: '#ef4444', noise: '#d946ef', fixture: '#10b981', directionA: '#22d3ee', directionB: '#f97316' } } as const
+  assert.deepEqual(v3Color('rebar-class', v5, { sceneClass: 2, flags: 0, rebarRole: 1 }), [45 / 255, 212 / 255, 191 / 255])
+  assert.deepEqual(v3Color('rebar-class', v5, { sceneClass: 2, flags: 0, rebarRole: 2 }), [251 / 255, 146 / 255, 60 / 255])
+})
+
+test('legacy V5 visualization keeps its original steel color without role contract', () => {
+  const legacy = { schema: 'rebar-visualization-v3', defaultMode: 'rebar-class', instanceStrategy: 'golden-angle-v1', attributes: {}, values: { sceneClass: { unknown: 0, table: 1, rebar: 2, noise: 3, fixture: 4 } }, colors: { unknown: '#334155', table: '#94a3b8', rebar: '#ef4444', noise: '#d946ef', fixture: '#10b981', directionA: '#22d3ee', directionB: '#f97316' } } as const
+  assert.deepEqual(v3Color('rebar-class', legacy, { sceneClass: 2, flags: 0 }), [239 / 255, 68 / 255, 68 / 255])
+})
+
+test('visibility index has an all-visible fast path and restores every source index', () => {
+  const points = [{ sceneClass: 0 }, { sceneClass: 4, fixtureKind: 1 }, { sceneClass: 2, rebarRole: 2 }, { sceneClass: 3 }]
+  let calls = 0
+  assert.equal(visibleRebarPointIndices(points.length, index => { calls += 1; return points[index] }, {}), null)
+  assert.equal(calls, 0)
+  assert.deepEqual(visibleRebarPointIndices(points.length, index => points[index], { fixtureSquareTube: false, rebarWeb: false }), [0, 3])
+  assert.equal(visibleRebarPointIndices(points.length, index => points[index], {}), null)
+})
+
+test('semantic subtype colors and legends use producer colors with correct fixture and steel labels', () => {
+  const v5 = { schema: 'rebar-visualization-v3', defaultMode: 'rebar-class', instanceStrategy: 'golden-angle-v1', attributes: {}, values: { sceneClass: { unknown: 0, table: 1, rebar: 2, noise: 3, fixture: 4 }, fixtureKind: { unknown: 0, squareTube: 1, plate: 2, bolt: 3 }, rebarRole: { unresolved: 0, planar: 1, web: 2 } }, colors: { unknown: '#334155', table: '#94a3b8', rebar: '#ef4444', noise: '#d946ef', fixture: '#11aa77', squareTube: '#60a5fa', plate: '#fbbf24', bolt: '#f472b6', unresolved: '#a855f7', planar: '#2dd4bf', web: '#fb923c', directionA: '#22d3ee', directionB: '#f97316' } } as const
+  assert.equal(rebarSemanticColor(v5, 'fixtureUnknown'), '#11aa77')
+  assert.equal(rebarSemanticColor(v5, 'fixtureSquareTube'), '#60a5fa')
+  assert.equal(rebarSemanticColor(v5, 'rebarPlanar'), '#2dd4bf')
+  const legend = legendItems('rebar-class', v5)
+  assert.ok(legend.some((item) => item.label === '夹具·夹持板' && item.color[0] === 251 / 255))
+  assert.ok(legend.some((item) => item.label === '钢筋·斜腹杆'))
 })

@@ -13,7 +13,7 @@
 - 正值：scan 在法线朝向一侧（BIM 表面偏内，实际墙面向外凸出，存在空隙/测量超标）
 - 负值：scan 在法线背侧（BIM 表面偏外，实际墙面向内凹入，存在混凝土不足）
 - 颜色：蓝→青（负偏差）→绿（零偏差）→黄→红（正偏差）
-- 超出配色半宽的顶点统一使用暗灰 `#3a3a3a`
+- 超出配色半宽的有效顶点保持蓝/红端点色，容差内使用绿色系
 
 对外 compute/recolor 契约统一使用 raw per-vertex distances 进行统计、
 直方图和着色，以保证 PLY、distances.bin 与容差比例逐顶点一致。
@@ -31,15 +31,14 @@ import numpy as np
 import open3d as o3d
 from scipy.spatial import cKDTree
 
-# 工程云图色契约，与前端 src/utils/c2mColormap.ts 的五个 stop 一致。
-_C2M_COLOR_STOPS = np.array([
-    [0x0D, 0x47, 0xA1],  # 蓝（强负偏差）
-    [0x00, 0xBC, 0xD4],  # 青（负偏差容差边界）
-    [0x00, 0xC8, 0x53],  # 绿（零偏差）
-    [0xFF, 0xD6, 0x00],  # 黄（正偏差容差边界）
-    [0xD5, 0x00, 0x00],  # 红（强正偏差）
+# Shared with src/utils/c2mColormap.ts: green within tolerance, directional
+# cool/warm colors outside; outliers saturate without disappearing.
+_C2M_COLOR_SEGMENTS = np.array([
+    [[59, 130, 246], [34, 211, 238]],
+    [[134, 239, 172], [34, 197, 94]],
+    [[34, 197, 94], [134, 239, 172]],
+    [[251, 191, 36], [255, 82, 82]],
 ], dtype=np.float64) / 255.0
-_C2M_OUT_OF_RANGE_COLOR = np.array([0x3A, 0x3A, 0x3A], dtype=np.float64) / 255.0
 
 logger = logging.getLogger(__name__)
 
@@ -381,18 +380,9 @@ def colorize_mesh_by_signed_distance(
     max_colormap_distance: float,
     tolerance_limit: float = 0.05,
 ) -> o3d.geometry.TriangleMesh:
-    """用工程云图色契约按 raw 有符号距离给 mesh 顶点着色。
+    """Green within inclusive engineering tolerance; blue/red saturate beyond display bounds.
 
-    双参数分段映射（与前端 `c2mColormap.ts` 保持一致）：
-      -max_colormap_distance → t=0   蓝（强负偏差）
-      -tolerance_limit       → t=0.25 青（负偏差容差边界）
-      0                      → t=0.5  绿（零偏差）
-      +tolerance_limit       → t=0.75 黄（正偏差容差边界）
-      +max_colormap_distance → t=1   红（强正偏差）
-      超出 ±max_colormap_distance → 暗灰 #3a3a3a
-
-    当 tolerance_limit == max_colormap_distance 时，远端区间自然退化为空，
-    ±limit 分别使用青/黄容差边界色，不在函数内暗中改写容差。
+    Interpolate in sRGB to match the browser CPU/shader and legend contract.
     """
     cap = float(max_colormap_distance)
     tol = float(tolerance_limit)
@@ -412,7 +402,8 @@ def colorize_mesh_by_signed_distance(
 
     # 分段线性映射到 t ∈ [0, 1]
     t = np.full_like(d, 0.5)
-    out_of_range = np.abs(d) > cap
+    t[d < -cap] = 0.0
+    t[d > cap] = 1.0
 
     # 容差内区间始终存在，包含端点以保证 T == C 时仍定义良好。
     neg_near = (d >= -tol) & (d <= 0)
@@ -426,18 +417,13 @@ def colorize_mesh_by_signed_distance(
         t[neg_far] = 0.25 * (d[neg_far] + cap) / (cap - tol)
         t[pos_far] = 0.75 + 0.25 * (d[pos_far] - tol) / (cap - tol)
 
-    # 在相邻五色 stop 的 sRGB 数值间插值；Three.js 动态着色会先做同样
-    # 的插值，再把结果转换到线性色彩空间供渲染器使用。
-    scaled = np.clip(t, 0.0, 1.0) * (_C2M_COLOR_STOPS.shape[0] - 1)
-    lower = np.minimum(np.floor(scaled).astype(np.int64), _C2M_COLOR_STOPS.shape[0] - 2)
-    fraction = scaled - lower
+    t = np.clip(t, 0.0, 1.0)
+    segment = np.where(t < 0.25, 0, np.where(t <= 0.5, 1, np.where(t <= 0.75, 2, 3)))
+    fraction = t * 4 - segment
     colors = (
-        _C2M_COLOR_STOPS[lower] * (1.0 - fraction[:, np.newaxis])
-        + _C2M_COLOR_STOPS[lower + 1] * fraction[:, np.newaxis]
+        _C2M_COLOR_SEGMENTS[segment, 0] * (1.0 - fraction[:, np.newaxis])
+        + _C2M_COLOR_SEGMENTS[segment, 1] * fraction[:, np.newaxis]
     )
-
-    # 超出色温范围覆盖为暗灰 #3a3a3a，与色带形成强区隔
-    colors[out_of_range] = _C2M_OUT_OF_RANGE_COLOR
 
     mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
     return mesh

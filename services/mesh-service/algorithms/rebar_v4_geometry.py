@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 import numpy as np
+from .spatial_keys import unique_integer_rows
 from scipy.spatial import cKDTree
 
 
@@ -350,7 +351,7 @@ def sparse_grid_components(
     if len(values) == 0:
         return []
     keys = np.floor(np.asarray(values)[:, :dimensions] / cell).astype(np.int64)
-    unique, inverse = np.unique(keys, axis=0, return_inverse=True)
+    unique, inverse = unique_integer_rows(keys, return_inverse=True)
     lookup = {tuple(row): index for index, row in enumerate(unique.tolist())}
     dsu = _DisjointSet(len(unique))
     offsets = np.array(np.meshgrid(*([[-1, 0, 1]] * dimensions))).T.reshape(
@@ -362,10 +363,18 @@ def sparse_grid_components(
             other = lookup.get(tuple((key + offset).tolist()))
             if other is not None and other > index:
                 dsu.union(index, other)
-    groups: dict[int, list[int]] = {}
-    for row, cell_index in enumerate(inverse.tolist()):
-        groups.setdefault(dsu.find(cell_index), []).append(row)
-    return [np.asarray(rows, dtype=np.intp) for _, rows in sorted(groups.items())]
+    # Resolve each occupied cell once.  A dense scan can contain millions of
+    # points in a few cells, so resolving the disjoint-set root per point made
+    # grouping dominate fixture refinement.  Stable sorting preserves input row
+    # order inside each component; root order follows unique's lexicographic
+    # cell order because union always retains the lower cell index.
+    roots = np.fromiter(
+        (dsu.find(index) for index in range(len(unique))), dtype=np.intp, count=len(unique)
+    )
+    point_roots = roots[inverse]
+    order = np.argsort(point_roots, kind="stable")
+    split_at = np.flatnonzero(np.diff(point_roots[order])) + 1
+    return [rows.astype(np.intp, copy=False) for rows in np.split(order, split_at)]
 
 
 def deterministic_two_means(

@@ -101,7 +101,7 @@ def _shaft_cells(local: np.ndarray, axial: np.ndarray, radius: float):
     angles = np.mod(np.arctan2(local[:, 1], local[:, 0]), 2 * np.pi)
     bins = 24
     cells = np.column_stack((np.floor(axial / grid).astype(int), np.floor(angles / (2 * np.pi) * bins).astype(int)))
-    return grid, bins, [tuple(item) for item in np.unique(cells, axis=0)]
+    return grid, bins, [tuple(item) for item in np.unique(cells, axis=0).tolist()]
 
 
 def _head_plane(points: np.ndarray, axis: np.ndarray, expected: float, tolerance: float):
@@ -137,12 +137,30 @@ def detect_bolts(points, features, fixtures, p):
     surface_tolerance = max(float(getattr(p, "support_distance", .004)), .0015)
     axis_limit, candidate_distance = float(getattr(p, "bolt_max_length", .080)), max(float(getattr(p, "bolt_max_length", .080)), float(getattr(p, "bolt_candidate_distance", .20)))
     tangent_length = np.linalg.norm(tangent, axis=1)
+    valid_tangent = tangent_length > 1e-9
+    normalized_tangent = np.zeros_like(tangent, dtype=float)
+    normalized_tangent[valid_tangent] = tangent[valid_tangent] / tangent_length[valid_tangent, None]
+    all_cloud, all_finite, all_linearity = cloud, finite, linearity
+    all_valid_tangent, all_normalized_tangent = valid_tangent, normalized_tangent
+    from .candidates import PointBoundsIndex
+    point_index = PointBoundsIndex(cloud) if len(fixtures or []) > 4 else None
 
     for fixture_index, face in enumerate(fixtures or []):
         parsed = _face_data(face)
         if parsed is None:
             continue
         origin, face_normal, axes, extent = parsed
+        bounds = _fixture_candidate_bounds(origin, face_normal, axes, extent,
+            max(candidate_distance, surface_tolerance) + max(.006, surface_tolerance * 1.5))
+        if point_index is not None and bounds is not None:
+            candidate_rows = point_index.query(*bounds)
+            cloud, finite = all_cloud[candidate_rows], all_finite[candidate_rows]
+            linearity = all_linearity[candidate_rows]
+            valid_tangent = all_valid_tangent[candidate_rows]
+            normalized_tangent = all_normalized_tangent[candidate_rows]
+        else:
+            cloud, finite, linearity = all_cloud, all_finite, all_linearity
+            valid_tangent, normalized_tangent = all_valid_tangent, all_normalized_tangent
         local3 = cloud - origin
         local2 = np.column_stack((local3 @ axes[0], local3 @ axes[1]))
         within_face = np.all(np.abs(local2) <= extent + .012, axis=1)
@@ -150,8 +168,7 @@ def detect_bolts(points, features, fixtures, p):
             axis = face_normal * direction_sign
             signed = local3 @ axis
             aligned = np.zeros(len(cloud), dtype=bool)
-            valid_tangent = tangent_length > 1e-9
-            aligned[valid_tangent] = np.abs((tangent[valid_tangent] / tangent_length[valid_tangent, None]) @ axis) >= math.cos(math.radians(22))
+            aligned[valid_tangent] = np.abs(normalized_tangent[valid_tangent] @ axis) >= math.cos(math.radians(22))
             shaft_rows = np.flatnonzero(finite & within_face & (signed >= -surface_tolerance) & (signed <= candidate_distance) & aligned & (linearity >= .45))
             for component in _components(cloud[shaft_rows], max(shaft_radius_max * 2.5, .010)):
                 rows = shaft_rows[component]
@@ -191,7 +208,7 @@ def detect_bolts(points, features, fixtures, p):
                 grid, angle_bins, shaft_observed = _shaft_cells(shaft_local, height, radius)
                 head_grid = .003
                 head_local = local2[head_rows] - centre2
-                head_cells = [tuple(item) for item in np.unique(np.floor(head_local / head_grid).astype(int), axis=0)]
+                head_cells = [tuple(item) for item in np.unique(np.floor(head_local / head_grid).astype(int), axis=0).tolist()]
                 confidence = float(np.clip(.45 + min(len(rows) / 120, .25) + min(len(head_rows) / 100, .20) + min((head_radius / radius - 1) / 3, .10) - plane_residual / .01, 0, .99))
                 model = {
                     "id": len(models) + 1, "source": "fixture-bounded-headed-cylinder-v1", "fixtureIndex": fixture_index,
@@ -207,34 +224,187 @@ def detect_bolts(points, features, fixtures, p):
     return models, diagnostic
 
 
-def bolt_mask(points, models, p):
+def _fixture_candidate_bounds(origin, normal, axes, extent, depth):
+    """Enclose both signed shafts and every possible head observation."""
+    projection = np.vstack((normal, axes))
+    try:
+        inverse = np.linalg.inv(projection)
+        condition = np.linalg.cond(projection)
+    except np.linalg.LinAlgError:
+        return None
+    if not np.isfinite(inverse).all() or not np.isfinite(condition) or condition > 1e8:
+        return None
+    reach = np.abs(inverse) @ np.r_[depth, extent + .012]
+    scale = max(1., float(np.max(np.abs(origin))), float(np.max(reach)))
+    padding = max(1e-12, np.finfo(float).eps * scale * 32 * condition)
+    return origin - reach - padding, origin + reach + padding
+
+
+_CELL_DTYPE = np.dtype([("first", np.int64), ("second", np.int64)])
+
+
+def _cells(value: Any) -> np.ndarray:
+    cells = np.asarray(value, dtype=np.int64)
+    if cells.size == 0:
+        return np.empty((0, 2), dtype=np.int64)
+    if cells.ndim != 2 or cells.shape[1] != 2:
+        raise ValueError("bolt cells must be pairs")
+    return cells
+
+
+def _cell_membership(cells: np.ndarray, observed: np.ndarray) -> np.ndarray:
+    """Query integer cell pairs in NumPy, after geometric range rejection."""
+    if not len(cells) or not len(observed):
+        return np.zeros(len(cells), dtype=bool)
+    keys = np.ascontiguousarray(cells, dtype=np.int64).view(_CELL_DTYPE).ravel()
+    known = np.ascontiguousarray(observed, dtype=np.int64).view(_CELL_DTYPE).ravel()
+    return np.isin(keys, known)
+
+
+def _shaft_cell_membership(axial: np.ndarray, local: np.ndarray, grid: float, angle_bins: int, observed: np.ndarray) -> np.ndarray:
+    angle = np.mod(np.arctan2(local[:, 1], local[:, 0]), 2 * np.pi)
+    cells = np.column_stack((np.floor(axial / grid).astype(np.int64), np.floor(angle / (2 * np.pi) * angle_bins).astype(np.int64)))
+    return _cell_membership(cells, observed)
+
+
+def _head_cell_membership(local: np.ndarray, grid: float, observed: np.ndarray) -> np.ndarray:
+    return _cell_membership(np.floor(local / grid).astype(np.int64), observed)
+
+
+def _mask_model(model: dict[str, Any]):
+    """Decode a model without retaining views that could mutate caller data."""
+    try:
+        origin = np.asarray(model["axisOrigin"], dtype=float)
+        axis = np.asarray(model["axis"], dtype=float)
+        axes = np.asarray(model["radialAxes"], dtype=float)
+        lo, hi = map(float, model["axialRange"])
+        radius = float(model["shaftRadius"])
+        shaft, head = model["shaft"], model["head"]
+        grid, angle_bins = float(shaft["axialGrid"]), int(shaft["angleBins"])
+        residual = float(shaft["residualTolerance"])
+        shaft_cells = _cells(shaft["observedCells"])
+        head_cells, head_grid = _cells(head["occupiedCells"]), float(head["gridSize"])
+        head_axial, head_tolerance = float(head["axial"]), float(head["planeTolerance"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    axis_length = np.linalg.norm(axis)
+    if (origin.shape != (3,) or axis.shape != (3,) or axes.shape != (2, 3)
+            or not np.isfinite(np.concatenate((origin, axis, axes.ravel()))).all()
+            or not np.isfinite([lo, hi, radius, grid, residual, head_grid, head_axial, head_tolerance]).all()
+            or axis_length <= 1e-12 or grid <= 0 or head_grid <= 0 or angle_bins <= 0):
+        return None
+    return origin, axis / axis_length, axes, lo, hi, radius, grid, angle_bins, residual, shaft_cells, head_axial, head_tolerance, head_grid, head_cells
+
+
+def _model_candidates(cloud: np.ndarray, finite_rows: np.ndarray, decoded):
+    """Return geometrically plausible rows and local coordinates for one model."""
+    origin, axis, axes, lo, hi, radius, grid, _, residual, _, head_axial, head_tolerance, head_grid, head_cells = decoded
+    delta = cloud[finite_rows] - origin
+    axial = delta @ axis
+    local = np.column_stack((delta @ axes[0], delta @ axes[1]))
+    radial = np.linalg.norm(local, axis=1)
+    shaft = (axial >= lo - grid) & (axial <= hi + grid) & (np.abs(radial - radius) <= residual)
+    # The observed head-cell box is a safe coarse range. Do not use head.radius:
+    # real observed cells can legitimately extend beyond the fitted disk estimate.
+    head = np.zeros(len(finite_rows), dtype=bool)
+    if len(head_cells):
+        lower = head_cells.min(axis=0) * head_grid
+        upper = (head_cells.max(axis=0) + 1) * head_grid
+        head = ((np.abs(axial - head_axial) <= head_tolerance)
+                & np.all((local >= lower) & (local <= upper), axis=1))
+    return shaft, head, axial, local
+
+
+def _model_aabb(decoded):
+    """Conservative world AABB for the shaft/head ranges, or ``None`` if unsafe."""
+    origin, axis, axes, lo, hi, radius, grid, _, residual, _, head_axial, head_tolerance, head_grid, head_cells = decoded
+    ranges = []
+    if radius >= 0 and residual >= 0:
+        reach = radius + residual
+        ranges.append((np.array([lo - grid, -reach, -reach]), np.array([hi + grid, reach, reach])))
+    if head_tolerance >= 0 and len(head_cells):
+        # This is only a broad-phase box. Keep both neighbouring IEEE-754
+        # values around a cell edge; exact membership still uses floor below.
+        local_lower = head_cells.min(axis=0) * head_grid - 1e-12
+        local_upper = (head_cells.max(axis=0) + 1) * head_grid + 1e-12
+        ranges.append((
+            np.array([head_axial - head_tolerance, *local_lower]),
+            np.array([head_axial + head_tolerance, *local_upper]),
+        ))
+    if not ranges:
+        return origin, origin
+    lower = np.minimum.reduce([item[0] for item in ranges])
+    upper = np.maximum.reduce([item[1] for item in ranges])
+    projection = np.vstack((axis, axes))
+    try:
+        inverse = np.linalg.inv(projection)
+        condition = np.linalg.cond(projection)
+        if not np.isfinite(inverse).all() or not np.isfinite(condition) or condition > 1e8:
+            return None
+    except np.linalg.LinAlgError:
+        return None
+    centre, half = (lower + upper) / 2, (upper - lower) / 2
+    reach = np.abs(inverse) @ half
+    world_lower, world_upper = origin + inverse @ centre - reach, origin + inverse @ centre + reach
+    scale = max(1.0, float(np.max(np.abs(origin))), float(np.max(np.abs(world_lower))), float(np.max(np.abs(world_upper))))
+    padding = max(1e-12, np.finfo(float).eps * scale * 32 * condition)
+    if not np.isfinite(padding):
+        return None
+    return world_lower - padding, world_upper + padding
+
+
+def bolt_candidates(points, models, p):
+    """Discard models whose conservative world AABB misses this point block."""
+    cloud = np.asarray(points, dtype=float)
+    if cloud.ndim != 2 or cloud.shape[1] != 3:
+        return []
+    finite = np.isfinite(cloud).all(axis=1)
+    if not np.any(finite):
+        return []
+    lower, upper = cloud[finite].min(axis=0), cloud[finite].max(axis=0)
+    candidates = []
+    for model in models or []:
+        decoded = _mask_model(model)
+        if decoded is None:
+            continue
+        bounds = _model_aabb(decoded)
+        # A singular or badly conditioned projection cannot safely produce a
+        # world box. Keep that model and let the exact path decide its points.
+        if bounds is None:
+            candidates.append(model)
+            continue
+        model_lower, model_upper = bounds
+        if np.any(upper < model_lower) or np.any(lower > model_upper):
+            continue
+        candidates.append(model)
+    return candidates
+
+
+def bolt_mask(points, models, p, point_index=None):
     """Mask only observed shaft/head cells on narrow fitted surfaces."""
     cloud = np.asarray(points, dtype=float)
     result = np.zeros(len(cloud), dtype=bool)
     if cloud.ndim != 2 or cloud.shape[1] != 3:
         return result
-    finite = np.isfinite(cloud).all(axis=1)
-    for model in models or []:
-        try:
-            origin, axis, axes = np.asarray(model["axisOrigin"], float), np.asarray(model["axis"], float), np.asarray(model["radialAxes"], float)
-            lo, hi, radius = *map(float, model["axialRange"]), float(model["shaftRadius"])
-            shaft, head = model["shaft"], model["head"]
-            grid, angle_bins = float(shaft["axialGrid"]), int(shaft["angleBins"])
-            shaft_cells = {tuple(cell) for cell in shaft["observedCells"]}
-            head_cells, head_grid = {tuple(cell) for cell in head["occupiedCells"]}, float(head["gridSize"])
-        except (KeyError, TypeError, ValueError):
+    finite_rows = np.flatnonzero(np.isfinite(cloud).all(axis=1))
+    candidates = bolt_candidates(cloud, models, p)
+    if point_index is None and len(candidates) > 4:
+        from .candidates import PointBoundsIndex
+        point_index = PointBoundsIndex(cloud)
+    for model in candidates:
+        decoded = _mask_model(model)
+        if decoded is None or not len(finite_rows):
             continue
-        axis /= max(np.linalg.norm(axis), 1e-12)
-        delta = cloud - origin
-        axial = delta @ axis
-        local = np.column_stack((delta @ axes[0], delta @ axes[1]))
-        radial = np.linalg.norm(local, axis=1)
-        angle = np.mod(np.arctan2(local[:, 1], local[:, 0]), 2 * np.pi)
-        shaft_keys = list(zip(np.floor(axial / grid).astype(int), np.floor(angle / (2 * np.pi) * angle_bins).astype(int)))
-        observed_shaft = np.fromiter((key in shaft_cells for key in shaft_keys), bool, count=len(cloud))
-        shaft_surface = (axial >= lo - grid) & (axial <= hi + grid) & (np.abs(radial - radius) <= float(shaft["residualTolerance"])) & observed_shaft
-        head_keys = [tuple(cell) for cell in np.floor(local / head_grid).astype(int)]
-        observed_head = np.fromiter((key in head_cells for key in head_keys), bool, count=len(cloud))
-        head_surface = (np.abs(axial - float(head["axial"])) <= float(head["planeTolerance"])) & observed_head
-        result |= finite & (shaft_surface | head_surface)
+        bounds = _model_aabb(decoded) if point_index is not None else None
+        model_rows = finite_rows if bounds is None else point_index.query(*bounds)
+        if not len(model_rows):
+            continue
+        shaft, head, axial, local = _model_candidates(cloud, model_rows, decoded)
+        _, _, _, _, _, _, grid, angle_bins, _, shaft_cells, _, _, head_grid, head_cells = decoded
+        if shaft.any():
+            rows = model_rows[shaft]
+            result[rows] |= _shaft_cell_membership(axial[shaft], local[shaft], grid, angle_bins, shaft_cells)
+        if head.any():
+            rows = model_rows[head]
+            result[rows] |= _head_cell_membership(local[head], head_grid, head_cells)
     return result

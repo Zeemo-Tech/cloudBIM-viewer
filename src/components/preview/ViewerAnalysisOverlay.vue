@@ -80,6 +80,7 @@ const areaRecords = computed(() => props.areas ?? [])
       </span>
       <span v-else-if="props.mode === 'area'" class="analysis-value">{{ areaRecords.length }} 个区域</span>
       <span v-else class="analysis-value">{{ pointRecords.length }} 个点，最近 {{ pointText }}</span>
+      <span class="analysis-exit-hint">Esc 退出测量</span>
       <button type="button" class="analysis-clear" title="清除当前分析" @click="emit('clear')">清除</button>
     </div>
   </div>

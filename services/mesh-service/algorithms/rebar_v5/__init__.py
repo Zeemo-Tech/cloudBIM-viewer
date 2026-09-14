@@ -27,13 +27,13 @@ class GeometricV5Adapter(RebarAlgorithm):
         }
         return {"id":"geometric-v5","version":VERSION,"name":"Geometric rebar v5", "analysisSchema":"rebar-analysis-v2",
             "capabilities":{"class":True,"direction":True,"instance":True,"confidence":True,"sceneClass":True,
-                            "rebarFlags":True,"rawLabels":True,"features":True,"intersections":True,"bimPrior":False},
+                            "rebarFlags":True,"rawLabels":True,"features":True,"intersections":True,"fixtureKind":True,"rebarRole":True,"bimPrior":False},
             "inputOptionSchema":{"type":"object","properties":{"maxInputPoints":{"type":"integer","default":200000,"minimum":3,"maximum":200000,"description":"Bootstrap sample only; all source records receive features and labels"},"voxelSize":{"type":"number","minimum":0.000001}}},
             "parameterSchema":{"type":"object","additionalProperties":False,"properties":{
-                name:{"type":"integer" if isinstance(value,int) else "number","default":value,"minimum":1 if isinstance(value,int) else 0.000001,
+                name:({"type":"boolean","default":value} if isinstance(value,bool) else {"type":"integer" if isinstance(value,int) else "number","default":value,"minimum":1 if isinstance(value,int) else 0.000001,
                       **bounds.get(name,{}),
                       **({"unit":"m"} if any(token in name for token in ("radius","distance","gap","width","size","overlap","length","height","voxel","tolerance")) and "degrees" not in name and "ratio" not in name and "batch" not in name else {})}
-                for name,value in defaults.items()}},"visualization":VISUALIZATION}
+                ) for name,value in defaults.items()}},"visualization":VISUALIZATION}
 
     def normalize_parameters(self,raw):
         return asdict(Params.from_value(raw))

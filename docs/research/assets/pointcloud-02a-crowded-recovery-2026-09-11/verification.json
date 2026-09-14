@@ -1,0 +1,64 @@
+{
+  "baselineRun": "20260911T052043-541d4813",
+  "run": "20260911T053731-04d92d19",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "sourcePointCount": 9216369,
+  "beforeCounts": {
+    "table": 5209994,
+    "fixture": 2214799,
+    "rebar": 1791576
+  },
+  "afterCounts": {
+    "table": 5209994,
+    "fixture": 2149966,
+    "rebar": 1856409
+  },
+  "removedSteelCandidates": 0,
+  "addedSteelCandidates": 64833,
+  "tableLabelChanges": 0,
+  "algorithmVersion": "normal-geometry-v6-crowded-cylinders",
+  "classificationElapsedS": 5.705725707986858,
+  "timings": {
+    "readS": 0.17712143599055707,
+    "treeS": 1.8018844830221497,
+    "normalsS": 5.390320567996241,
+    "classificationS": 5.706096465000883,
+    "projectionS": 20.619309174013324,
+    "classifiersWallS": 20.621010331989964,
+    "fusionS": 0.7421441659971606,
+    "regionsS": 0.22441441801493056,
+    "refinementS": 0.21074623000458814,
+    "internalRebarS": 3.57498108400614,
+    "guidedInstancesS": 8.148470104002627,
+    "persistS": 3.057776579982601,
+    "previewS": 0.7595001929730643,
+    "totalS": 44.71707804498146
+  },
+  "sourceIdentityAndOriginalLasFields": "passed",
+  "unchangedStep01": "passed",
+  "npyLasAndPreviewConsistency": "passed",
+  "accuracyScope": "Candidate changes only; no manually labelled full-scan ground truth.",
+  "existingSteelPreserved": true,
+  "recoveryFlagsVerified": true,
+  "unchanged02B": true,
+  "roiM": [
+    2.65,
+    3.15,
+    -1.6,
+    -1.49,
+    0.018,
+    0.12
+  ],
+  "regions": {
+    "webAndUpperWindow": {
+      "sourcePoints": 21571,
+      "beforeSteel": 20142,
+      "afterSteel": 21571
+    },
+    "bottomWindow": {
+      "sourcePoints": 34099,
+      "beforeSteel": 30001,
+      "afterSteel": 32926
+    }
+  }
+}

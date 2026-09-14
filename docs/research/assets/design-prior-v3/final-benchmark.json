@@ -1,0 +1,215 @@
+{
+  "schema": "design-prior-benchmark-v1",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "workers": 16,
+  "rounds": 3,
+  "modelPreparation": {
+    "modelCacheHit": true,
+    "alignmentCacheHit": true,
+    "modelS": 0.04459113301709294,
+    "totalS": 0.04813575101434253
+  },
+  "runs": [
+    {
+      "mode": "off",
+      "repeat": 1,
+      "runId": "20260910T093041-bb542e40",
+      "wallS": 19.65180929400958,
+      "processWallS": 20.067002784024226,
+      "cpuS": 136.26615812100002,
+      "peakRssMB": 2809.28515625,
+      "priorS": 0,
+      "counts": {}
+    },
+    {
+      "mode": "geometry",
+      "repeat": 1,
+      "runId": "20260910T093101-1c501603",
+      "wallS": 19.674522881017765,
+      "processWallS": 20.234184254019056,
+      "cpuS": 135.255228212,
+      "peakRssMB": 2866.97265625,
+      "priorS": 0.27728275500703603,
+      "counts": {
+        "matched": 217,
+        "pending": 151,
+        "noise": 0,
+        "filteredPoints": 0,
+        "recoveredPoints": 0,
+        "mergedPoints": 73995,
+        "mergedInstances": 3
+      }
+    },
+    {
+      "mode": "topology",
+      "repeat": 1,
+      "runId": "20260910T093122-91416285",
+      "wallS": 19.697604093991686,
+      "processWallS": 20.235427118983353,
+      "cpuS": 136.074447905,
+      "peakRssMB": 2919.98828125,
+      "priorS": 0.30062649099272676,
+      "counts": {
+        "matched": 216,
+        "pending": 152,
+        "noise": 0,
+        "filteredPoints": 0,
+        "recoveredPoints": 0,
+        "mergedPoints": 73995,
+        "mergedInstances": 3
+      }
+    },
+    {
+      "mode": "off",
+      "repeat": 2,
+      "runId": "20260910T093142-c5023bdb",
+      "wallS": 19.057845214992994,
+      "processWallS": 19.46951015299419,
+      "cpuS": 139.617654074,
+      "peakRssMB": 2796.71875,
+      "priorS": 0,
+      "counts": {}
+    },
+    {
+      "mode": "geometry",
+      "repeat": 2,
+      "runId": "20260910T093201-b000363b",
+      "wallS": 19.825347595004132,
+      "processWallS": 20.32822154700989,
+      "cpuS": 138.57614286,
+      "peakRssMB": 2890.3125,
+      "priorS": 0.27795187398442067,
+      "counts": {
+        "matched": 217,
+        "pending": 151,
+        "noise": 0,
+        "filteredPoints": 0,
+        "recoveredPoints": 0,
+        "mergedPoints": 73995,
+        "mergedInstances": 3
+      }
+    },
+    {
+      "mode": "topology",
+      "repeat": 2,
+      "runId": "20260910T093222-953a7514",
+      "wallS": 19.67498572502518,
+      "processWallS": 20.175455726974178,
+      "cpuS": 137.826869342,
+      "peakRssMB": 2928.88671875,
+      "priorS": 0.30048212700057775,
+      "counts": {
+        "matched": 216,
+        "pending": 152,
+        "noise": 0,
+        "filteredPoints": 0,
+        "recoveredPoints": 0,
+        "mergedPoints": 73995,
+        "mergedInstances": 3
+      }
+    },
+    {
+      "mode": "off",
+      "repeat": 3,
+      "runId": "20260910T093242-18ab92b8",
+      "wallS": 18.67978371999925,
+      "processWallS": 19.11334688801435,
+      "cpuS": 133.78806108700002,
+      "peakRssMB": 2763.40625,
+      "priorS": 0,
+      "counts": {}
+    },
+    {
+      "mode": "geometry",
+      "repeat": 3,
+      "runId": "20260910T093301-6522a66d",
+      "wallS": 19.652759516000515,
+      "processWallS": 20.16970060899621,
+      "cpuS": 137.07442513799998,
+      "peakRssMB": 2878.57421875,
+      "priorS": 0.2762973610078916,
+      "counts": {
+        "matched": 217,
+        "pending": 151,
+        "noise": 0,
+        "filteredPoints": 0,
+        "recoveredPoints": 0,
+        "mergedPoints": 73995,
+        "mergedInstances": 3
+      }
+    },
+    {
+      "mode": "topology",
+      "repeat": 3,
+      "runId": "20260910T093321-cedef2ba",
+      "wallS": 19.65987662502448,
+      "processWallS": 20.173955217993353,
+      "cpuS": 135.245411948,
+      "peakRssMB": 2846.0546875,
+      "priorS": 0.29987316802726127,
+      "counts": {
+        "matched": 216,
+        "pending": 152,
+        "noise": 0,
+        "filteredPoints": 0,
+        "recoveredPoints": 0,
+        "mergedPoints": 73995,
+        "mergedInstances": 3
+      }
+    }
+  ],
+  "medians": {
+    "off": {
+      "wallS": 19.057845214992994,
+      "processWallS": 19.46951015299419,
+      "cpuS": 136.26615812100002,
+      "peakRssMB": 2796.71875,
+      "priorS": 0
+    },
+    "geometry": {
+      "wallS": 19.674522881017765,
+      "processWallS": 20.234184254019056,
+      "cpuS": 137.07442513799998,
+      "peakRssMB": 2878.57421875,
+      "priorS": 0.27728275500703603
+    },
+    "topology": {
+      "wallS": 19.67498572502518,
+      "processWallS": 20.175455726974178,
+      "cpuS": 136.074447905,
+      "peakRssMB": 2919.98828125,
+      "priorS": 0.30048212700057775
+    }
+  },
+  "comparison": {
+    "geometry": {
+      "wallOverhead": 0.03235820519413313,
+      "cpuOverhead": 0.005931531556663261,
+      "memoryOverhead": 0.029268394882395743,
+      "timeBudgetS": 120.0,
+      "timeGatePassed": true
+    },
+    "topology": {
+      "wallOverhead": 0.0323824914658597,
+      "cpuOverhead": -0.0014068806124979405,
+      "memoryOverhead": 0.04407648471981673,
+      "timeBudgetS": 120.0,
+      "timeGatePassed": true
+    }
+  },
+  "reviewSet": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/design-prior/review-v3/final/review-set.json",
+  "qualityGate": {
+    "geometry": {
+      "status": "unverified",
+      "reason": "尚无人工复核标签；数量和算法对应不能作为真值",
+      "scores": {}
+    },
+    "topology": {
+      "status": "unverified",
+      "reason": "尚无人工复核标签；数量和算法对应不能作为真值",
+      "scores": {}
+    }
+  },
+  "productionPromoted": false,
+  "measurement": "Fresh processes, fixed source and threads, full pipeline including exports. Model preparation is separate; OS page cache is not flushed."
+}

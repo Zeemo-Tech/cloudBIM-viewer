@@ -1,0 +1,346 @@
+{
+  "runId": "20260911T090514-65922647",
+  "denoising": {
+    "version": "floating-multiview-v2-density",
+    "candidatePointCount": 2009509,
+    "reviewedCandidatePointCount": 2009509,
+    "removedPointCount": 70534,
+    "highScoreCandidatePointCount": 1797560,
+    "highScoreRemovedPointCount": 6435,
+    "protectedCandidatePointCount": 1929493,
+    "blockedRemovalPointCount": 36,
+    "contextPointCount": 2009509,
+    "exteriorContextPointCount": 0,
+    "highScoreOverrideAllowed": true,
+    "protectionThreshold": 0.9,
+    "parameters": {
+      "voxel_size": 0.002,
+      "connection_radius": 0.004,
+      "slice_width": 0.02,
+      "view_angles": [
+        0.0,
+        30.0,
+        60.0,
+        90.0,
+        120.0,
+        150.0
+      ],
+      "projected_support_margin": 0.006,
+      "observed_support_radius": 0.003,
+      "minimum_negative_views": 3,
+      "high_score_negative_views": 4,
+      "density_window_cells": 13,
+      "density_fixture_fraction": 0.5,
+      "high_score_density_fixture_fraction": 0.65,
+      "density_minimum_fixture_voxels": 8,
+      "fixture_surface_radius": 0.006,
+      "fixture_surface_error": 0.0015,
+      "fixture_normal_alignment": 0.9,
+      "fixture_component_fraction": 0.65,
+      "high_score_fixture_component_fraction": 0.9
+    },
+    "scope": "all retained steel; internal and exterior candidates share spatial review",
+    "densityReview": {
+      "enabled": true,
+      "removedPointCount": 16303,
+      "highScoreRemovedPointCount": 110,
+      "fixtureVoxelCount": 472055,
+      "surfaceSupportedVoxelCount": 19341,
+      "observedContinuationProtectedPointCount": 1460,
+      "rejectedComponentCount": 252,
+      "highScoreRejectedComponentCount": 157
+    },
+    "rule": "sliced silhouettes and relative layer density + independent 3D evidence; high scores require stronger evidence",
+    "frozenObservedPointCount": 1667900,
+    "observedNeighborhoodPointCount": 1709923,
+    "componentCount": 847,
+    "voxelCount": 80580,
+    "removedComponentCount": 275,
+    "scoreDecisions": [
+      {
+        "band": "low",
+        "candidatePoints": 26937,
+        "removedPoints": 9323
+      },
+      {
+        "band": "medium",
+        "candidatePoints": 185012,
+        "removedPoints": 54776
+      },
+      {
+        "band": "high",
+        "candidatePoints": 1797560,
+        "removedPoints": 6435
+      }
+    ],
+    "elapsedS": 3.1711342770000783,
+    "exteriorReviewEnabled": true,
+    "interiorCandidatePointCount": 1738020,
+    "exteriorCandidatePointCount": 271489,
+    "interiorRemovedPointCount": 4329,
+    "exteriorRemovedPointCount": 66205
+  },
+  "added": 11101,
+  "addedHigh": 24,
+  "addedInterior": 38,
+  "addedExterior": 11063,
+  "targets": [
+    {
+      "id": 13,
+      "sourcePoints": 558,
+      "removed": 558,
+      "bboxMinM": [
+        2.1950918060502413,
+        -2.0810989277435055,
+        0.06723337467216012
+      ],
+      "bboxMaxM": [
+        2.3090105922448583,
+        -2.0664758707664546,
+        0.07260426938061101
+      ]
+    },
+    {
+      "id": 27,
+      "sourcePoints": 743,
+      "removed": 743,
+      "bboxMinM": [
+        2.284487727514644,
+        -1.4476789234806473,
+        0.05763610366926772
+      ],
+      "bboxMaxM": [
+        2.2910261835936963,
+        -1.3855918258292161,
+        0.0659713732406676
+      ]
+    },
+    {
+      "id": 60,
+      "sourcePoints": 654,
+      "removed": 654,
+      "bboxMinM": [
+        2.3480747759094873,
+        -1.2637747665240833,
+        0.06296778146204568
+      ],
+      "bboxMaxM": [
+        2.391750784403411,
+        -1.1827340848396521,
+        0.07296624229112074
+      ]
+    },
+    {
+      "id": 188,
+      "sourcePoints": 433,
+      "removed": 433,
+      "bboxMinM": [
+        3.0231679401856377,
+        -2.4007100327494335,
+        0.06584222575703369
+      ],
+      "bboxMaxM": [
+        3.073839731374943,
+        -2.353304812796221,
+        0.07499226389269227
+      ]
+    }
+  ],
+  "preservation": [
+    {
+      "id": 132,
+      "sourcePoints": 2754,
+      "removed": 0,
+      "bboxMinM": [
+        2.7561661234076134,
+        -1.4216533606436033,
+        0.020758484148366223
+      ],
+      "bboxMaxM": [
+        2.9189608136257186,
+        -1.376983047382482,
+        0.030685643793553846
+      ]
+    },
+    {
+      "id": 163,
+      "sourcePoints": 679,
+      "removed": 231,
+      "bboxMinM": [
+        2.942208512271518,
+        -1.4237370188482383,
+        0.021948583019952436
+      ],
+      "bboxMaxM": [
+        2.970298110192982,
+        -1.3767458457753798,
+        0.028922836506095922
+      ]
+    },
+    {
+      "id": 310,
+      "sourcePoints": 862,
+      "removed": 0,
+      "bboxMinM": [
+        4.031155809129801,
+        -2.3140735535136625,
+        0.0225158366087893
+      ],
+      "bboxMaxM": [
+        4.0722237507099,
+        -2.27592838044355,
+        0.032034271433642555
+      ]
+    },
+    {
+      "id": 520,
+      "sourcePoints": 875,
+      "removed": 0,
+      "bboxMinM": [
+        5.546033963503037,
+        -2.3149750080305926,
+        0.012522379953949538
+      ],
+      "bboxMaxM": [
+        5.576310827975643,
+        -2.2770949645881413,
+        0.02945126117413891
+      ]
+    },
+    {
+      "id": 613,
+      "sourcePoints": 6158,
+      "removed": 0,
+      "bboxMinM": [
+        6.126232357160506,
+        -1.5062174514487134,
+        0.033632037291844274
+      ],
+      "bboxMaxM": [
+        6.3777157803442215,
+        -1.4854357728830294,
+        0.12031322480032366
+      ]
+    },
+    {
+      "id": 650,
+      "sourcePoints": 1309,
+      "removed": 0,
+      "bboxMinM": [
+        6.318263280553278,
+        -1.4497713478710565,
+        0.06775149911316998
+      ],
+      "bboxMaxM": [
+        6.378238008817571,
+        -1.4218030164593491,
+        0.11665040676509907
+      ]
+    },
+    {
+      "id": 632,
+      "sourcePoints": 5023,
+      "removed": 0,
+      "bboxMinM": [
+        6.137109041763484,
+        -1.5924581429507394,
+        0.03734916518811382
+      ],
+      "bboxMaxM": [
+        6.375760761823968,
+        -1.558593730300224,
+        0.10918541679584143
+      ]
+    },
+    {
+      "id": 637,
+      "sourcePoints": 4125,
+      "removed": 0,
+      "bboxMinM": [
+        6.1505153458965545,
+        -2.197764964499754,
+        0.035799575978168685
+      ],
+      "bboxMaxM": [
+        6.373898157397207,
+        -2.18816471752051,
+        0.10908564286693229
+      ]
+    },
+    {
+      "id": 614,
+      "sourcePoints": 9933,
+      "removed": 0,
+      "bboxMinM": [
+        6.127267467577102,
+        -2.096769938138231,
+        0.031489355043410695
+      ],
+      "bboxMaxM": [
+        6.378356806936997,
+        -1.9718973201630865,
+        0.1041889921318071
+      ]
+    },
+    {
+      "id": 645,
+      "sourcePoints": 3712,
+      "removed": 0,
+      "bboxMinM": [
+        6.226284301814207,
+        -1.7230026703694838,
+        0.027680837653093295
+      ],
+      "bboxMaxM": [
+        6.376904080114858,
+        -1.697091085629492,
+        0.10377580999386458
+      ]
+    },
+    {
+      "id": 648,
+      "sourcePoints": 712,
+      "removed": 0,
+      "bboxMinM": [
+        6.313364786410274,
+        -2.0076611333647825,
+        0.07345284093034417
+      ],
+      "bboxMaxM": [
+        6.358795529803155,
+        -1.9879302654447408,
+        0.10441767948142935
+      ]
+    },
+    {
+      "id": 649,
+      "sourcePoints": 844,
+      "removed": 0,
+      "bboxMinM": [
+        6.316597282271481,
+        -2.2658733722188784,
+        0.048128888433495824
+      ],
+      "bboxMaxM": [
+        6.372100236652315,
+        -2.2514517752030474,
+        0.10289089609182686
+      ]
+    },
+    {
+      "id": 626,
+      "sourcePoints": 4053,
+      "removed": 0,
+      "bboxMinM": [
+        6.134049768804659,
+        -1.8923717826728157,
+        0.03438403586312798
+      ],
+      "bboxMaxM": [
+        6.372125095785621,
+        -1.8712398488536002,
+        0.10410013914589467
+      ]
+    }
+  ]
+}

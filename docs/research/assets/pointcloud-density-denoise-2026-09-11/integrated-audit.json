@@ -1,0 +1,61 @@
+{
+  "runId": "20260911T090514-65922647",
+  "version": "floating-multiview-v2-density",
+  "sourcePoints": 9216369,
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "unchangedUpstreamArrays": [
+    "positions",
+    "normals",
+    "geometry_class",
+    "geometry_support",
+    "geometry_recovered",
+    "projection_class",
+    "projection_layer",
+    "fused_class",
+    "fused_steel_score",
+    "fused_steel_evidence",
+    "refined_class",
+    "refined_zone"
+  ],
+  "oldRemoved": 59433,
+  "removed": 70534,
+  "newlyRemoved": 11101,
+  "oldRemovedNowRetained": 0,
+  "highScoreRemoved": 6435,
+  "exteriorRemoved": 66205,
+  "newHighScoreRemoved": 24,
+  "newExteriorRemoved": 11063,
+  "densityReview": {
+    "enabled": true,
+    "removedPointCount": 16303,
+    "highScoreRemovedPointCount": 110,
+    "fixtureVoxelCount": 472055,
+    "surfaceSupportedVoxelCount": 19341,
+    "observedContinuationProtectedPointCount": 1460,
+    "rejectedComponentCount": 252,
+    "highScoreRejectedComponentCount": 157
+  },
+  "scoreDecisions": [
+    {
+      "band": "low",
+      "candidatePoints": 26937,
+      "removedPoints": 9323
+    },
+    {
+      "band": "medium",
+      "candidatePoints": 185012,
+      "removedPoints": 54776
+    },
+    {
+      "band": "high",
+      "candidatePoints": 1797560,
+      "removedPoints": 6435
+    }
+  ],
+  "noisePersistsThroughStep06": true,
+  "allOriginalLasDimensionsPreserved": true,
+  "previewAndLasRowsMatch": true,
+  "instanceCountsMatch": true,
+  "denoisingElapsedS": 3.9260440329999255,
+  "totalElapsedS": 35.235142389999965
+}

@@ -31,7 +31,7 @@ function handleUploaded(kind: UploadKind) {
     class="file-upload-dialog"
     :model-value="modelValue"
     :title="title"
-    top="5vh"
+    top="max(16px, 5dvh)"
     append-to-body
     destroy-on-close
     :close-on-click-modal="false"
@@ -49,15 +49,10 @@ function handleUploaded(kind: UploadKind) {
 </template>
 
 <style>
-.file-upload-dialog{overflow:hidden;border:1px solid #dfe7f1;border-radius:22px;background:#f5f8fc;box-shadow:none}
-.file-upload-dialog .el-dialog__header{box-sizing:border-box;height:50px;display:flex;align-items:center;margin:0;padding:0 22px;}
-.file-upload-dialog .el-dialog__title{color:#2d486d;font-size:15px;font-weight:650}
-.file-upload-dialog .el-dialog__headerbtn{top:8px;right:10px}
-.file-upload-dialog .el-dialog__body{max-height:calc(84vh - 50px);padding:0;overflow:auto;scrollbar-width:none}
-.file-upload-dialog .el-dialog__body::-webkit-scrollbar{display:none;width:0;height:0}
-</style>
-
-<style>
-.file-upload-dialog { border-color: var(--border-color-light); border-radius: var(--radius-2xl); background: var(--bg-page); }
-.file-upload-dialog .el-dialog__title { color: var(--text-primary); font-size: var(--font-size-md); }
+.file-upload-dialog { padding: var(--workspace-gutter); overflow: hidden; border: 1px solid var(--border-color-light); border-radius: var(--radius-md); background: var(--bg-card); box-shadow: var(--shadow-lg); }
+.file-upload-dialog .el-dialog__header { min-height: 42px; margin: 0 0 var(--spacing-sm); padding: 0 var(--spacing-xl) 0 0; }
+.file-upload-dialog .el-dialog__title { font-size: var(--font-size-lg); font-weight: 600; color: var(--text-primary); }
+.file-upload-dialog .el-dialog__headerbtn { top: var(--spacing-sm); right: var(--spacing-sm); }
+.file-upload-dialog .el-dialog__body { max-height: calc(84vh - 50px); max-height: calc(84dvh - 50px); padding: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.file-upload-dialog .el-dialog__body::-webkit-scrollbar { display: none; width: 0; height: 0; }
 </style>

@@ -7,7 +7,7 @@ from unittest.mock import patch
 import numpy as np
 import ifcopenshell
 
-from rebar_bim import SCHEMA, _curve_points, _walk_items, _extruded_points, load_bim_prior
+from rebar_bim import SCHEMA, _curve_points, _walk_items, _extruded_points, _swept_disk_points, load_bim_prior
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +60,28 @@ class RebarBimPriorAssetTests(unittest.TestCase):
 
 
 class RebarBimPriorPortableTests(unittest.TestCase):
+    def test_degree_circle_and_explicit_full_composite_sweep_range(self):
+        model=ifcopenshell.file(schema='IFC4X3')
+        point=lambda xyz:model.create_entity('IfcCartesianPoint',tuple(float(x) for x in xyz))
+        position=model.create_entity('IfcAxis2Placement3D',point([0,0,0]),None,None)
+        circle=model.create_entity('IfcCircle',position,10.)
+        start=model.create_entity('IfcParameterValue',270.)
+        end=model.create_entity('IfcParameterValue',45.)
+        arc=model.create_entity('IfcTrimmedCurve',circle,(start,),(end,),True,'PARAMETER')
+        sampled=np.asarray(_curve_points(arc,.1,np.pi/180))
+        np.testing.assert_allclose(sampled[0],[0,-10,0],atol=1e-8)
+        np.testing.assert_allclose(sampled[-1],[np.sqrt(50),np.sqrt(50),0],atol=1e-8)
+        left=model.create_entity('IfcPolyline',(point([-20,-10,0]),point([0,-10,0])))
+        right=model.create_entity('IfcPolyline',(point([np.sqrt(50),np.sqrt(50),0]),point([20,20,0])))
+        segments=tuple(model.create_entity('IfcCompositeCurveSegment','CONTINUOUS',True,curve) for curve in (left,arc,right))
+        composite=model.create_entity('IfcCompositeCurve',segments,False)
+        swept=model.create_entity('IfcSweptDiskSolid',composite,4.,None,0.,137.)
+        result=_swept_disk_points(swept,np.eye(4),.001,np.pi/180)
+        self.assertIsNotNone(result)
+        np.testing.assert_allclose(result[0][[0,-1]],[[-.02,-.01,0],[.02,.02,0]])
+        swept.EndParam=136.
+        self.assertIsNone(_swept_disk_points(swept,np.eye(4),.001,np.pi/180))
+
     def test_mm_profile_solid_and_product_placements_compose_without_rotating_extrusion(self):
         model=ifcopenshell.file(schema='IFC4')
         point=lambda coords:model.create_entity('IfcCartesianPoint',tuple(float(x) for x in coords))

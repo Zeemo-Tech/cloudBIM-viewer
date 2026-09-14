@@ -3,7 +3,9 @@
 提供 REST API：
 - /remesh：接收网格文件，执行均匀化/简化后返回处理结果
 - /c2m/compute：Cloud-to-Mesh Distance 计算
-- /rebar/segment：无标注钢筋几何 PoC
+- /pointcloud-denoise/compute：配准后点云分类与去噪
+- /analysis-mesh/build：钢筋保形分析网格
+- /analysis-c2m/build：逐钢筋偏差对比
 
 离线诊断（容器内，原始网格与 remesh 产物对比法向统计）：
   docker compose run --rm mesh-service \\
@@ -27,7 +29,6 @@ from typing import Annotated, Any, Callable, Literal
 
 import numpy as np
 
-import pymeshlab
 import trimesh
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -36,7 +37,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from algorithms import ALGORITHM_REGISTRY
 from analysis_c2m_api import include_analysis_c2m_router
 from analysis_mesh_api import include_analysis_mesh_router
-from rebar_api import include_rebar_router
+from pointcloud_denoise_api import create_denoise_router
+from pointcloud_preprocess_api import create_preprocess_router
 
 
 logger = logging.getLogger(__name__)
@@ -44,27 +46,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """服务启动时预热 PyMeshLab，避免第一次请求触发冷启动延迟（30-60s）。
-
-    PyMeshLab 动态库（OpenGL、CGAL 等）在首次调用 filter 时才真正加载。
-    启动阶段构造最小三角网格并跑一遍 remove_null_faces，强制完成所有库的加载，
-    确保第一个真实请求能立即得到响应。
-    """
-    t0 = time.time()
+    """Initialize shared output storage before accepting requests."""
     _ensure_c2m_output_dir(migrate_existing=True)
-    print("[warmup] 开始预热 PyMeshLab...", flush=True)
-    try:
-        ms = pymeshlab.MeshSet()
-        # 构造最小三角形网格（3 顶点 1 面）触发底层库完整初始化
-        v = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float64)
-        f = np.array([[0, 1, 2]], dtype=np.int32)
-        mesh = pymeshlab.Mesh(vertex_matrix=v, face_matrix=f)
-        ms.add_mesh(mesh)
-        ms.meshing_remove_null_faces()
-        del ms
-        print(f"[warmup] PyMeshLab 预热完成，耗时 {time.time() - t0:.1f}s", flush=True)
-    except Exception as e:
-        print(f"[warmup] 预热失败（不影响服务启动）: {e}", flush=True)
     yield
 
 
@@ -109,7 +92,9 @@ def _single_heavy_task(task_name: str):
     return decorator
 
 
-include_rebar_router(app, heavy_task=_single_heavy_task)
+app.include_router(create_denoise_router(_single_heavy_task))
+app.include_router(create_preprocess_router(_single_heavy_task))
+
 include_analysis_mesh_router(app, heavy_task=_single_heavy_task)
 include_analysis_c2m_router(app, heavy_task=_single_heavy_task)
 
@@ -130,29 +115,7 @@ def _normalize_ply_to_float32(ply_path: str) -> None:
 
 
 SUPPORTED_INPUT_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply", ".stl", ".off"}
-INTERMEDIATE_FORMAT = ".ply"
 OUTPUT_FORMAT = ".ply"
-
-
-def _convert_to_intermediate(src_path: str, dst_path: str) -> None:
-    """用 trimesh 将任意格式转为中间 PLY，方便 PyMeshLab / Open3D 读取。
-
-    关键：对 Scene（如 GLB/GLTF）使用 scene.dump() 而非 geometry.values()，
-    前者会将场景图中每个节点的变换矩阵应用到顶点上，得到世界坐标；
-    后者只返回局部坐标，会导致输出 PLY 的坐标与 Three.js GLTFLoader 渲染的坐标不一致。
-    """
-    scene_or_mesh = trimesh.load(src_path)
-    if isinstance(scene_or_mesh, trimesh.Scene):
-        # dump() 应用场景图变换，返回世界坐标的 Trimesh 列表
-        meshes = scene_or_mesh.dump(concatenate=False)
-        if meshes:
-            mesh = trimesh.util.concatenate(meshes)
-        else:
-            # 回退：尝试直接合并（通常不会走到这里）
-            mesh = trimesh.util.concatenate(list(scene_or_mesh.geometry.values()))
-    else:
-        mesh = scene_or_mesh
-    mesh.export(dst_path)
 
 
 @app.get("/health")
@@ -180,7 +143,7 @@ def list_algorithms():
 @_single_heavy_task("remesh")
 def remesh(
     file: UploadFile = File(...),
-    algorithm: str = Form("bim_preprocessor"),
+    algorithm: str = Form("rebar_sweep"),
     params_json: str = Form("{}"),
 ):
     """执行网格均匀化处理。
@@ -202,6 +165,9 @@ def remesh(
     except json.JSONDecodeError:
         return JSONResponse(status_code=400, content={"code": 400, "msg": "params_json 不是合法的 JSON"})
 
+    if not isinstance(params, dict):
+        return JSONResponse(status_code=400, content={"code": 400, "msg": "params_json 必须是参数对象"})
+
     suffix = os.path.splitext(file.filename or "mesh.ply")[1].lower()
     if suffix not in SUPPORTED_INPUT_EXTENSIONS:
         return JSONResponse(
@@ -215,18 +181,10 @@ def remesh(
         with open(input_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        needs_convert = suffix not in {".ply", ".obj", ".stl", ".off"}
-        if needs_convert:
-            intermediate_path = os.path.join(work_dir, f"intermediate{INTERMEDIATE_FORMAT}")
-            _convert_to_intermediate(input_path, intermediate_path)
-            algo_input = intermediate_path
-        else:
-            algo_input = input_path
-
         output_path = os.path.join(work_dir, f"output{OUTPUT_FORMAT}")
 
         algo_instance = ALGORITHM_REGISTRY[algorithm]()
-        result = algo_instance.run(algo_input, output_path, params)
+        result = algo_instance.run(input_path, output_path, params)
 
         # 规范化输出：转为 float32 PLY，去掉 quality 等非标准属性，确保 Three.js 可解析
         _normalize_ply_to_float32(output_path)
@@ -243,6 +201,9 @@ def remesh(
             },
             background=_cleanup_task(work_dir),
         )
+    except ValueError as exc:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        return JSONResponse(status_code=400, content={"code": 400, "msg": str(exc)})
     except Exception:
         shutil.rmtree(work_dir, ignore_errors=True)
         tb = traceback.format_exc()
@@ -294,12 +255,21 @@ class C2MRequest(BaseModel):
 
     scan_path: str = Field(min_length=1)
     mesh_path: str = Field(min_length=1)
+    analysis_mesh_path: str | None = Field(default=None, min_length=1)
+    instance_map_path: str | None = Field(default=None, min_length=1)
     alignment_matrix: list[FiniteFloat] = Field(min_length=16, max_length=16)
     params: C2MParams = Field(default_factory=C2MParams)
+
+    @model_validator(mode="after")
+    def validate_instance_inputs(self):
+        if (self.analysis_mesh_path is None) != (self.instance_map_path is None):
+            raise ValueError("analysis_mesh_path 与 instance_map_path 必须同时提供")
+        return self
 
 
 C2M_OUTPUT_DIR = "/storage/c2m_results"
 C2M_QUICK_ALGORITHM_VERSION = "c2m-quick-v3"
+C2M_REBAR_ALGORITHM_VERSION = "c2m-rebar-instance-v1"
 
 
 def _is_c2m_artifact_name(name: str) -> bool:
@@ -465,6 +435,8 @@ def _c2m_compute_quick(req: C2MRequest):
         msg = f"PLY 文件不存在: {req.mesh_path}"
         print(f"[C2M] 校验失败: {msg}", flush=True)
         return JSONResponse(status_code=400, content={"code": 400, "msg": msg})
+    if req.analysis_mesh_path is not None:
+        return _c2m_compute_rebar_instances(req)
     p = req.params
     created_outputs: list[str] = []
 
@@ -581,6 +553,74 @@ def _c2m_compute_quick(req: C2MRequest):
         return JSONResponse(status_code=500, content={"code": 500, "msg": "C2M 计算失败"})
 
 
+def _c2m_compute_rebar_instances(req: C2MRequest):
+    """Compare every design rebar only with scan points assigned to that bar."""
+    import open3d as o3d
+
+    from algorithms.c2m_distance import compute_bbox_overlap
+    from analysis_c2m.core import C2MContractError
+    from rebar_comparison import colorize_with_unknown, compute_instance_comparison
+
+    p = req.params
+    created_outputs: list[str] = []
+    try:
+        result = compute_instance_comparison(
+            req.scan_path, req.analysis_mesh_path, req.instance_map_path,
+            req.alignment_matrix, voxel_size=p.voxel_size,
+            downsample_enabled=p.downsample_enabled,
+            max_histogram_distance=p.max_histogram_distance,
+            histogram_bins=p.histogram_bins, tolerance=p.tolerance_limit,
+        )
+        mesh = result.pop("mesh")
+        distances = result.pop("distances")
+        output_token = uuid.uuid4().hex
+        distances_float32 = np.asarray(distances, dtype="<f4")
+        dist_path, dist_size = _write_c2m_output_atomically(
+            f"dist_{output_token}.bin", distances_float32.tofile,
+            expected_size=distances_float32.nbytes,
+        )
+        created_outputs.append(dist_path)
+        colorize_with_unknown(mesh, distances, p.max_colormap_distance, p.tolerance_limit)
+        colored_path, colored_size = _write_c2m_output_atomically(
+            f"colored_{output_token}.ply",
+            lambda path: o3d.io.write_triangle_mesh(path, mesh, write_vertex_colors=True),
+        )
+        created_outputs.append(colored_path)
+        overlap = compute_bbox_overlap(
+            result["scanBboxAfterTransform"]["min"], result["scanBboxAfterTransform"]["max"],
+            result["meshBbox"]["min"], result["meshBbox"]["max"],
+        )
+        comparison = result.pop("rebarComparison")
+        return {
+            "profile": "quick", "algorithmVersion": C2M_REBAR_ALGORITHM_VERSION,
+            "approximation": {"voxelSize": p.voxel_size, "downsampleEnabled": p.downsample_enabled},
+            "metricDirection": "mesh-vertices-to-instance-scan-points",
+            "pointsBefore": result.pop("pointsBefore"), "pointsAfter": result.pop("pointsAfter"),
+            "meshVertices": len(mesh.vertices), "stats": result.pop("stats"),
+            "histogram": result.pop("histogram"),
+            "diagnostics": {
+                "scanBboxRaw": result.pop("scanBboxRaw"),
+                "scanBboxAfterTransform": result.pop("scanBboxAfterTransform"),
+                "meshBbox": result.pop("meshBbox"), "bboxOverlapIoU": round(overlap, 4),
+                "rebarComparison": comparison,
+            },
+            "coloredPlyPath": colored_path, "coloredPlySize": colored_size,
+            "distancesPath": dist_path, "distancesSize": dist_size,
+            "visualization": _c2m_visualization(p),
+        }
+    except C2MContractError as exc:
+        for output_path in created_outputs:
+            try: os.remove(output_path)
+            except FileNotFoundError: pass
+        return JSONResponse(status_code=400, content={"code": 400, "msg": str(exc)})
+    except Exception:
+        for output_path in created_outputs:
+            try: os.remove(output_path)
+            except FileNotFoundError: pass
+        logger.exception("逐筋 C2M 计算失败")
+        return JSONResponse(status_code=500, content={"code": 500, "msg": "逐筋 C2M 计算失败"})
+
+
 class C2MRecolorRequest(BaseModel):
     """重新着色请求：不重新计算距离，仅用新色彩参数生成 colored PLY。"""
     model_config = ConfigDict(extra="forbid")
@@ -593,6 +633,7 @@ class C2MRecolorRequest(BaseModel):
     tolerance_limit: FiniteFloat = Field(default=0.01, ge=0.0001, le=10.0)
     smoothing_iterations: Literal[0] = 0
     smoothing_strength: Literal[0.5] = 0.5
+    rebar_comparison: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_visualization_ranges(self):
@@ -616,6 +657,9 @@ def c2m_recolor(req: C2MRecolorRequest):
     from algorithms.c2m_distance import (
         colorize_mesh_by_signed_distance,
         compute_statistics,
+    )
+    from rebar_comparison import (
+        colorize_with_unknown, refresh_rebar_comparison, statistics_for_finite,
     )
 
     if not os.path.isfile(req.distances_path):
@@ -645,26 +689,31 @@ def c2m_recolor(req: C2MRecolorRequest):
                 },
             )
         distances = np.fromfile(req.distances_path, dtype="<f4")
-        if not np.all(np.isfinite(distances)):
+        if np.isinf(distances).any() or (req.rebar_comparison is None and np.isnan(distances).any()):
             return JSONResponse(
                 status_code=400,
-                content={"code": 400, "msg": "distances 包含 NaN 或无穷大"},
+                content={"code": 400, "msg": "distances 包含当前结果类型不支持的 NaN 或无穷大"},
             )
 
         # 2. 原始距离负责统计和直方图，确保调节容差/视窗后结果同步更新。
-        stat_result = compute_statistics(
-            distances,
-            req.max_histogram_distance,
-            req.histogram_bins,
+        stat_result = (statistics_for_finite(
+            distances, req.max_histogram_distance, req.histogram_bins, req.tolerance_limit,
+        ) if req.rebar_comparison is not None else compute_statistics(
+            distances, req.max_histogram_distance, req.histogram_bins,
             tolerance=req.tolerance_limit,
-        )
+        ))
+        comparison = (refresh_rebar_comparison(
+            req.rebar_comparison, distances, req.max_histogram_distance,
+            req.histogram_bins, req.tolerance_limit,
+        ) if req.rebar_comparison is not None else None)
 
         # 3. 用同一份 raw distances 重新着色。
-        colorize_mesh_by_signed_distance(
-            mesh, distances,
-            req.max_colormap_distance,
-            req.tolerance_limit,
-        )
+        if comparison is None:
+            colorize_mesh_by_signed_distance(
+                mesh, distances, req.max_colormap_distance, req.tolerance_limit,
+            )
+        else:
+            colorize_with_unknown(mesh, distances, req.max_colormap_distance, req.tolerance_limit)
 
         # 4. 先写同目录临时文件，完整后原子发布为全新 colored PLY。
         output_token = uuid.uuid4().hex
@@ -675,12 +724,22 @@ def c2m_recolor(req: C2MRecolorRequest):
         )
         created_output = colored_path
 
-        return {
+        response = {
             **stat_result,
             "visualization": _c2m_visualization(req),
             "coloredPlyPath": colored_path,
             "coloredPlySize": colored_size,
         }
+        if comparison is not None:
+            response["diagnostics"] = {"rebarComparison": comparison}
+        return response
+    except ValueError as exc:
+        if created_output is not None:
+            try:
+                os.remove(created_output)
+            except FileNotFoundError:
+                pass
+        return JSONResponse(status_code=400, content={"code": 400, "msg": str(exc)})
     except Exception:
         if created_output is not None:
             try:

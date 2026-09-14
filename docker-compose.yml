@@ -27,6 +27,14 @@ services:
     build:
       context: ./services/mesh-service
       dockerfile: Dockerfile
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
     restart: unless-stopped
     environment:
       PORT: 8001
@@ -34,13 +42,14 @@ services:
       C2M_OUTPUT_GID: ${CLOUDBIM_RUNTIME_GID:-1000}
       C2M_MAX_UNDOWNSAMPLED_POINTS: ${C2M_MAX_UNDOWNSAMPLED_POINTS:-5000000}
       ARTIFACT_OUTPUT_GID: ${CLOUDBIM_RUNTIME_GID:-1000}
+      REBAR_MEMORY_CACHE_MB: ${REBAR_MEMORY_CACHE_MB:-4096}
+      REBAR_SPATIAL_WORKERS: ${REBAR_SPATIAL_WORKERS:-4}
     ports:
       - "127.0.0.1:${MESH_SERVICE_PORT:-8001}:8001"
     volumes:
-      # Use the same persistent asset volume as the backend. C2M receives
-      # /storage paths, so a host bind here would make uploaded LAS files
-      # invisible to the mesh service when the backend uses cloudbim-data.
-      - cloudbim-data:/storage
+      # Match the backend in both named-volume and local bind-mount mode.
+      # Compute requests translate /app/data paths to /storage paths.
+      - ${CLOUDBIM_DATA_MOUNT:-cloudbim-data}:/storage
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/algorithms\")'"]
       interval: 5s
@@ -51,10 +60,19 @@ services:
   backend:
     # The checked-in IFC/LAS converters are Linux x86_64 binaries.
     platform: linux/amd64
+    user: "${CLOUDBIM_RUNTIME_UID:-65532}:${CLOUDBIM_RUNTIME_GID:-65532}"
     image: ${BACKEND_IMAGE:-cloudbim-backend:latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
       platforms:
         - linux/amd64
     restart: unless-stopped
@@ -93,7 +111,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8090}:8090"
     volumes:
-      - cloudbim-data:/app/data
+      - ${CLOUDBIM_DATA_MOUNT:-cloudbim-data}:/app/data
       - ${CLOUDBIM_GOCESIUMTILER_DIR:?Set CLOUDBIM_GOCESIUMTILER_DIR in .env}:/opt/tools/gocesiumtiler:ro
       - ${CLOUDBIM_IFC_BUNDLE_DIR:?Set CLOUDBIM_IFC_BUNDLE_DIR in .env}:/opt/tools/ifc_bundle:ro
     healthcheck:

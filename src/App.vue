@@ -9,6 +9,7 @@ import {
 import LoginView from '@/views/login/LoginView.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProjectSelectionView from '@/views/project/ProjectSelectionView.vue'
+import { getRouteInstanceKey, readNavigationRouteState } from '@/router/navigation'
 
 const UploadView = defineAsyncComponent(() => import('@/views/upload/SimpleUploadView.vue'))
 const ProjectSurveyView = defineAsyncComponent(() => import('@/views/project/ProjectSurveyView.vue'))
@@ -24,42 +25,8 @@ const authReady = ref(false)
 const route = useRoute()
 const router = useRouter()
 
-function readRouteState() {
-  const parseNumber = (value: string | null) => {
-    if (!value) return null
-    const next = Number(value)
-    return Number.isFinite(next) ? next : null
-  }
-  const pickString = (value: unknown) => {
-    if (Array.isArray(value)) {
-      return typeof value[0] === 'string' ? value[0] : null
-    }
-
-    return typeof value === 'string' ? value : null
-  }
-
-  return {
-    path: route.path,
-    projectId: parseNumber(pickString(route.query.projectId)),
-    projectName: pickString(route.query.projectName) || undefined,
-    view: pickString(route.query.view),
-    previewType: pickString(route.query.previewType),
-    assetId: parseNumber(pickString(route.query.assetId)),
-    bimAssetId: parseNumber(pickString(route.query.bimAssetId) || pickString(route.query.bimFileId)),
-    pointcloudAssetId: parseNumber(
-      pickString(route.query.pointcloudAssetId) || pickString(route.query.pointcloudFileId),
-    ),
-    displayName:
-      pickString(route.query.displayName) || pickString(route.query.bimDisplayName) || undefined,
-    pointcloudDisplayName:
-      pickString(route.query.pointcloudDisplayName) ||
-      pickString(route.query.scanDisplayName) ||
-      undefined,
-  }
-}
-
-const routeState = computed(() => readRouteState())
-const routeKey = computed(() => route.fullPath)
+const routeState = computed(() => readNavigationRouteState(route.path, route.query))
+const routeKey = computed(() => getRouteInstanceKey(routeState.value))
 
 const currentView = computed(() => {
   if (!authReady.value) {
@@ -117,7 +84,6 @@ const currentView = computed(() => {
 
 function handleLoginSuccess(nextSession: AuthSession) {
   session.value = nextSession
-  void router.replace('/projects')
 }
 
 onMounted(() => {

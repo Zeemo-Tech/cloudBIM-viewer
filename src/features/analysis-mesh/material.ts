@@ -21,36 +21,39 @@ const fragmentShader = /* glsl */ `
   uniform float discreteMode;
 
   vec3 colorStop(float position) {
-    const vec3 c0 = vec3(0.050980, 0.278431, 0.631373);
-    const vec3 c1 = vec3(0.000000, 0.737255, 0.831373);
-    const vec3 c2 = vec3(0.000000, 0.784314, 0.325490);
-    const vec3 c3 = vec3(1.000000, 0.839216, 0.000000);
-    const vec3 c4 = vec3(0.835294, 0.000000, 0.000000);
-    float scaled = clamp(position, 0.0, 1.0) * 4.0;
-    if (scaled < 1.0) return mix(c0, c1, scaled);
-    if (scaled < 2.0) return mix(c1, c2, scaled - 1.0);
-    if (scaled < 3.0) return mix(c2, c3, scaled - 2.0);
-    return mix(c3, c4, scaled - 3.0);
+    const vec3 blue = vec3(59.0, 130.0, 246.0) / 255.0;
+    const vec3 cyan = vec3(34.0, 211.0, 238.0) / 255.0;
+    const vec3 edge = vec3(134.0, 239.0, 172.0) / 255.0;
+    const vec3 green = vec3(34.0, 197.0, 94.0) / 255.0;
+    const vec3 amber = vec3(251.0, 191.0, 36.0) / 255.0;
+    const vec3 red = vec3(255.0, 82.0, 82.0) / 255.0;
+    float t = clamp(position, 0.0, 1.0);
+    if (t < 0.25) return mix(blue, cyan, t * 4.0);
+    if (t <= 0.5) return mix(edge, green, (t - 0.25) * 4.0);
+    if (t <= 0.75) return mix(green, edge, (t - 0.5) * 4.0);
+    return mix(amber, red, (t - 0.75) * 4.0);
   }
 
   float distancePosition(float value) {
-    if (value <= -tolerance) {
+    if (value < -tolerance) {
       return 0.25 * (value + colorRange) / (colorRange - tolerance);
     }
     if (value <= 0.0) return 0.25 + 0.25 * (value + tolerance) / tolerance;
-    if (value < tolerance) return 0.5 + 0.25 * value / tolerance;
+    if (value <= tolerance) return 0.5 + 0.25 * value / tolerance;
     return 0.75 + 0.25 * (value - tolerance) / (colorRange - tolerance);
   }
 
   void main() {
     bool known = vDistance <= 0.0 || vDistance > 0.0;
-    if (!known || abs(vDistance) > colorRange) {
-      gl_FragColor = vec4(0.227451, 0.227451, 0.227451, 1.0);
+    if (!known) {
+      gl_FragColor = vec4(vec3(168.0, 178.0, 193.0) / 255.0, 1.0);
       return;
     }
     float position = clamp(distancePosition(vDistance), 0.0, 1.0);
     if (discreteMode > 0.5) {
-      position = floor(position * (bandCount - 1.0) + 0.5) / (bandCount - 1.0);
+      if (position < 0.25) position = min(0.249999, floor(position * 4.0 * bandCount) / bandCount / 4.0);
+      else if (position > 0.75) position = max(0.750001, 0.75 + ceil((position - 0.75) * 4.0 * bandCount) / bandCount / 4.0);
+      else position = 0.25 + floor((position - 0.25) * 2.0 * bandCount + 0.5) / bandCount / 2.0;
     }
     gl_FragColor = vec4(colorStop(position), 1.0);
   }

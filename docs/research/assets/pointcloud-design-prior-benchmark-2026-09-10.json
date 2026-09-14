@@ -1,0 +1,258 @@
+{
+  "schema": "design-prior-benchmark-v1",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "workers": 16,
+  "rounds": 3,
+  "modelPreparation": {
+    "modelCacheHit": true,
+    "alignmentCacheHit": true,
+    "modelS": 0.0072814229934010655,
+    "totalS": 0.011405017983634025
+  },
+  "runs": [
+    {
+      "mode": "off",
+      "repeat": 1,
+      "runId": "20260910T053452-f8b54ad6",
+      "wallS": 18.78337232201011,
+      "processWallS": 19.218179930991028,
+      "cpuS": 134.494090862,
+      "peakRssMB": 2708.1171875,
+      "priorS": 0,
+      "counts": {}
+    },
+    {
+      "mode": "geometry",
+      "repeat": 1,
+      "runId": "20260910T053511-926813db",
+      "wallS": 20.033745413005818,
+      "processWallS": 20.53350860500359,
+      "cpuS": 139.897133916,
+      "peakRssMB": 2875.5859375,
+      "priorS": 0.5407419610128272,
+      "counts": {
+        "matched": 221,
+        "pending": 1067,
+        "noise": 5,
+        "filteredPoints": 193,
+        "recoveredPoints": 64478,
+        "mergedPoints": 0,
+        "mergedInstances": 0
+      }
+    },
+    {
+      "mode": "topology",
+      "repeat": 1,
+      "runId": "20260910T053531-6e1f24e5",
+      "wallS": 20.103038861008827,
+      "processWallS": 20.63299165701028,
+      "cpuS": 140.310373721,
+      "peakRssMB": 2904.62109375,
+      "priorS": 0.5788580710068345,
+      "counts": {
+        "matched": 305,
+        "pending": 983,
+        "noise": 5,
+        "filteredPoints": 193,
+        "recoveredPoints": 64478,
+        "mergedPoints": 0,
+        "mergedInstances": 0
+      }
+    },
+    {
+      "mode": "off",
+      "repeat": 2,
+      "runId": "20260910T053552-ec563986",
+      "wallS": 18.995600196998566,
+      "processWallS": 19.42530689400155,
+      "cpuS": 138.656845952,
+      "peakRssMB": 2711.015625,
+      "priorS": 0,
+      "counts": {}
+    },
+    {
+      "mode": "geometry",
+      "repeat": 2,
+      "runId": "20260910T053611-9b2ad6d0",
+      "wallS": 19.59314417198766,
+      "processWallS": 20.090338078007335,
+      "cpuS": 131.852390806,
+      "peakRssMB": 2896.734375,
+      "priorS": 0.5410089030046947,
+      "counts": {
+        "matched": 221,
+        "pending": 1067,
+        "noise": 5,
+        "filteredPoints": 193,
+        "recoveredPoints": 64478,
+        "mergedPoints": 0,
+        "mergedInstances": 0
+      }
+    },
+    {
+      "mode": "topology",
+      "repeat": 2,
+      "runId": "20260910T053631-71881992",
+      "wallS": 19.89947917399695,
+      "processWallS": 20.434812024002895,
+      "cpuS": 137.256333263,
+      "peakRssMB": 2863.015625,
+      "priorS": 0.5918399479996879,
+      "counts": {
+        "matched": 305,
+        "pending": 983,
+        "noise": 5,
+        "filteredPoints": 193,
+        "recoveredPoints": 64478,
+        "mergedPoints": 0,
+        "mergedInstances": 0
+      }
+    },
+    {
+      "mode": "off",
+      "repeat": 3,
+      "runId": "20260910T053652-a65e5f74",
+      "wallS": 19.342717998981243,
+      "processWallS": 19.820099766977364,
+      "cpuS": 137.02426436300001,
+      "peakRssMB": 2754.58203125,
+      "priorS": 0,
+      "counts": {}
+    },
+    {
+      "mode": "geometry",
+      "repeat": 3,
+      "runId": "20260910T053712-56a89d70",
+      "wallS": 21.060039878007956,
+      "processWallS": 21.57901185200899,
+      "cpuS": 141.080569653,
+      "peakRssMB": 2886.2578125,
+      "priorS": 0.5378377550223377,
+      "counts": {
+        "matched": 221,
+        "pending": 1067,
+        "noise": 5,
+        "filteredPoints": 193,
+        "recoveredPoints": 64478,
+        "mergedPoints": 0,
+        "mergedInstances": 0
+      }
+    },
+    {
+      "mode": "topology",
+      "repeat": 3,
+      "runId": "20260910T053733-a2c942c9",
+      "wallS": 20.111390520993154,
+      "processWallS": 20.678276853985153,
+      "cpuS": 141.38548973800002,
+      "peakRssMB": 2879.53125,
+      "priorS": 0.6108882649859879,
+      "counts": {
+        "matched": 305,
+        "pending": 983,
+        "noise": 5,
+        "filteredPoints": 193,
+        "recoveredPoints": 64478,
+        "mergedPoints": 0,
+        "mergedInstances": 0
+      }
+    }
+  ],
+  "medians": {
+    "off": {
+      "wallS": 18.995600196998566,
+      "processWallS": 19.42530689400155,
+      "cpuS": 137.02426436300001,
+      "peakRssMB": 2711.015625,
+      "priorS": 0
+    },
+    "geometry": {
+      "wallS": 20.033745413005818,
+      "processWallS": 20.53350860500359,
+      "cpuS": 139.897133916,
+      "peakRssMB": 2886.2578125,
+      "priorS": 0.5407419610128272
+    },
+    "topology": {
+      "wallS": 20.103038861008827,
+      "processWallS": 20.63299165701028,
+      "cpuS": 140.310373721,
+      "peakRssMB": 2879.53125,
+      "priorS": 0.5918399479996879
+    }
+  },
+  "comparison": {
+    "geometry": {
+      "wallOverhead": 0.054651877552744255,
+      "cpuOverhead": 0.020966137394390794,
+      "memoryOverhead": 0.06464078844990051,
+      "timeGatePassed": true
+    },
+    "topology": {
+      "wallOverhead": 0.05829974586353126,
+      "cpuOverhead": 0.023981952198586676,
+      "memoryOverhead": 0.06215959194259524,
+      "timeGatePassed": true
+    }
+  },
+  "reviewSet": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/design-prior/final/review-set.json",
+  "qualityGate": {
+    "geometry": {
+      "status": "unverified",
+      "reason": "尚无人工复核标签；数量和算法对应不能作为真值",
+      "scores": {}
+    },
+    "topology": {
+      "status": "unverified",
+      "reason": "尚无人工复核标签；数量和算法对应不能作为真值",
+      "scores": {}
+    }
+  },
+  "productionPromoted": false,
+  "measurement": "Fresh processes, fixed source and threads, full pipeline including exports. Model preparation is separate; OS page cache is not flushed.",
+  "artifactValidation": [
+    {
+      "runId": "20260910T053712-56a89d70",
+      "mode": "geometry",
+      "pointCount": 9216369,
+      "baselineColumns": 29,
+      "exteriorClusters": 384,
+      "components": 1293,
+      "webInstances": 147,
+      "checks": [
+        "old NPY columns identical",
+        "source LAS fields unchanged",
+        "source record indices",
+        "full LAS / NPY / preview / subset prior attributes identical",
+        "whole exterior clusters",
+        "web identity separation"
+      ],
+      "passed": true
+    },
+    {
+      "runId": "20260910T053733-a2c942c9",
+      "mode": "topology",
+      "pointCount": 9216369,
+      "baselineColumns": 29,
+      "exteriorClusters": 384,
+      "components": 1293,
+      "webInstances": 147,
+      "checks": [
+        "old NPY columns identical",
+        "source LAS fields unchanged",
+        "source record indices",
+        "full LAS / NPY / preview / subset prior attributes identical",
+        "whole exterior clusters",
+        "web identity separation"
+      ],
+      "passed": true
+    }
+  ],
+  "algorithmVersion": "design-prior-refinement-v2",
+  "coldModelPreparation": {
+    "modelCacheHit": false,
+    "alignmentCacheHit": false,
+    "modelS": 0.6863773450022563,
+    "totalS": 0.7221721000096295
+  }
+}

@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -18,6 +19,32 @@ def write_ascii_ply(path, points):
 
 
 class V5ArtifactTests(unittest.TestCase):
+    def test_detected_bolt_cells_survive_complete_artifact_publication(self):
+        from test_rebar_v5_bolts import fixture_plane, shaft, head, features, FIXTURE, P
+        from algorithms.rebar_v5.bolts import detect_bolts
+        plate, body, cap = fixture_plane(), shaft(), head()
+        points = np.vstack((plate, body, cap))
+        models, diagnostic = detect_bolts(points, features(len(points), np.arange(len(plate), len(plate)+len(body))), FIXTURE, P)
+        self.assertEqual(len(models), 1)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root/'source'; source.mkdir()
+            (source/'tileset.json').write_text('{}')
+            shown = points.astype('<f4')
+            _write(source/'bolt.pnts', {'POINTS_LENGTH': len(shown), 'POSITION': {'byteOffset': 0}}, shown.tobytes())
+            cloud = root/'bolt.ply'; write_ascii_ply(cloud, points)
+            # Feed the real bolt detector's output through the complete writer.
+            # This avoids relying on another detector to discover this fixture.
+            with patch('algorithms.rebar_v5.pipeline.detect_bolts', return_value=(models, diagnostic)):
+                manifest = compute_rebar_artifact(point_cloud_path=str(cloud), point_cloud_format='ply',
+                    source_tileset_path=str(source), output_directory=str(root/'artifact'), artifact_version='bolt-json',
+                    algorithm='geometric-v5', input_options={}, parameters={}, storage_root=str(root))
+            result = json.loads((root/'artifact'/manifest['resultPath']).read_text())
+            bolts = result['analysis']['algorithmDetails']['fixture']['bolts']
+            self.assertEqual(len(bolts), 1)
+            self.assertTrue(bolts[0]['shaft']['observedCells'])
+            self.assertTrue(bolts[0]['head']['occupiedCells'])
+
     def test_physical_ply_and_pnts_publish_complete_v2_source_artifacts(self):
         truth = make_truth_scene(seed=20260905, top_arcs=True)
         with tempfile.TemporaryDirectory() as temporary:
@@ -34,6 +61,8 @@ class V5ArtifactTests(unittest.TestCase):
                 input_options={"maxInputPoints": 100000}, parameters={"detection_point_limit": 100000}, storage_root=str(root),
             )
             artifact = root / "artifact"
+            self.assertEqual(manifest, json.loads((artifact / 'manifest.json').read_text()),
+                             'runtime cleanup must not mutate the published manifest response')
             self.assertEqual(manifest["schema"], "rebar-artifact-manifest-v2")
             self.assertEqual(manifest["analysisSchema"], "rebar-analysis-v2")
             self.assertEqual(manifest["featuresPath"], "features/manifest.json")

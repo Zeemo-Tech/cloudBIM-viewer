@@ -1,0 +1,2630 @@
+{
+  "schema": "pointcloud-speed-benchmark-v1",
+  "baselineCommit": "169d1a07cffa94f14a0d0bb46c11536f91994578",
+  "candidateHead": "169d1a07cffa94f14a0d0bb46c11536f91994578",
+  "candidatePythonSha256": "7a48d610fca97cd7d21e6194cfe83e6d9381b869d79bebe971d5de01d206f836",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "snapshotFingerprint": "fbafd9c433dc31533e86e7bf034e34d43a067d4bb3ef23db4806998ec798f479",
+  "parameters": {
+    "k": 32,
+    "workers": 16,
+    "mode": "topology",
+    "throughStep": 7
+  },
+  "timingScope": "fresh offline processes; OS page cache retained; no competing benchmark processes; totalS excludes final manifest publication; pipelineCallWallS includes it; processWallS also includes imports",
+  "runs": [
+    {
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/speed-review-20260912/final/1-baseline/20260912T103841-a14aa697",
+      "pipelineCallWallS": 46.60432425000181,
+      "timings": {
+        "readS": 0.1796281069982797,
+        "treeS": 1.8010742269980256,
+        "normalsS": 5.413806269993074,
+        "preprocessingS": 7.990688382007647,
+        "classificationS": 6.028323261998594,
+        "projectionS": 8.356749015001697,
+        "classifiersWallS": 8.358352900002501,
+        "fusionS": 0.775420905003557,
+        "regionsS": 0.0345325380039867,
+        "refinementS": 0.03658691799500957,
+        "internalRebarS": 7.762138096004492,
+        "guidedInstancesS": 9.575623277996783,
+        "persistS": 2.6084835279907566,
+        "previewS": 0.7513723440060858,
+        "totalS": 45.29916194299585
+      },
+      "internalTimings": {
+        "layersS": 0.011498499996378087,
+        "horizontalModelsS": 0.6747733090014663,
+        "webModelsS": 0.132151948986575,
+        "diameterRefinementS": 0.9917300649976823,
+        "residualModelsS": 0.49265033700794447,
+        "trackRefinementS": 0.20922265500121284,
+        "sourceAssignmentS": 0.6948468960035825,
+        "floatingDenoiseS": 4.506483535995358
+      },
+      "cpuS": 188.552129487,
+      "peakRssMB": 3689.7890625,
+      "algorithmStageWallS": 41.748223514005076,
+      "variant": "baseline",
+      "repeat": 1,
+      "processWallS": 47.03724790200067
+    },
+    {
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/speed-review-20260912/final/1-candidate/20260912T103931-4bb78b52",
+      "pipelineCallWallS": 42.240767601993866,
+      "timings": {
+        "readS": 0.181606127996929,
+        "treeS": 1.7979019740014337,
+        "normalsS": 5.206947918995866,
+        "preprocessingS": 6.750758226000471,
+        "classificationS": 6.528647243001615,
+        "projectionS": 7.6937771329976385,
+        "classifiersWallS": 7.6954027070023585,
+        "fusionS": 0.7591538900014712,
+        "regionsS": 0.03331424100906588,
+        "refinementS": 0.03563897800631821,
+        "internalRebarS": 6.626353537008981,
+        "guidedInstancesS": 8.452175362006528,
+        "persistS": 2.612433565998799,
+        "previewS": 0.7549287050060229,
+        "totalS": 40.917729762004456
+      },
+      "internalTimings": {
+        "layersS": 0.01116674899822101,
+        "horizontalModelsS": 0.6783770950132748,
+        "webModelsS": 0.1304742109932704,
+        "diameterRefinementS": 1.0029499759984901,
+        "residualModelsS": 0.4896347629983211,
+        "trackRefinementS": 0.20642267000221182,
+        "sourceAssignmentS": 0.676949599001091,
+        "floatingDenoiseS": 3.3809903710061917
+      },
+      "cpuS": 186.01039203599998,
+      "peakRssMB": 3773.31640625,
+      "algorithmStageWallS": 37.357646834032494,
+      "variant": "candidate",
+      "repeat": 1,
+      "processWallS": 42.68793714699859
+    },
+    {
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/speed-review-20260912/final/2-candidate/20260912T104017-71ab932c",
+      "pipelineCallWallS": 53.4656684470101,
+      "timings": {
+        "readS": 0.17591538399574347,
+        "treeS": 1.7919324449903797,
+        "normalsS": 5.057009754993487,
+        "preprocessingS": 6.721952414998668,
+        "classificationS": 6.617375187008292,
+        "projectionS": 7.83959377699648,
+        "classifiersWallS": 7.841296789993066,
+        "fusionS": 0.7769378539960599,
+        "regionsS": 0.03349775199603755,
+        "refinementS": 0.03426629499881528,
+        "internalRebarS": 6.601962808010285,
+        "guidedInstancesS": 8.500000945001375,
+        "persistS": 13.343327138005407,
+        "previewS": 0.755340192001313,
+        "totalS": 51.644556150000426
+      },
+      "internalTimings": {
+        "layersS": 0.011067768005887046,
+        "horizontalModelsS": 0.6787720419961261,
+        "webModelsS": 0.13432135499897413,
+        "diameterRefinementS": 0.9991132160066627,
+        "residualModelsS": 0.49743954799487256,
+        "trackRefinementS": 0.20712263800669461,
+        "sourceAssignmentS": 0.684519917005673,
+        "floatingDenoiseS": 3.3430227740027476
+      },
+      "cpuS": 183.17866244200002,
+      "peakRssMB": 3669.63671875,
+      "algorithmStageWallS": 37.358857058978174,
+      "variant": "candidate",
+      "repeat": 2,
+      "processWallS": 53.849819802999264
+    },
+    {
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/speed-review-20260912/final/2-baseline/20260912T104114-c6aa37fd",
+      "pipelineCallWallS": 46.49296220399265,
+      "timings": {
+        "readS": 0.1768324489967199,
+        "treeS": 1.7981176519970177,
+        "normalsS": 5.228778073011199,
+        "preprocessingS": 7.9066632030007895,
+        "classificationS": 6.040295264989254,
+        "projectionS": 8.35452796399477,
+        "classifiersWallS": 8.356082707992755,
+        "fusionS": 0.7634843470004853,
+        "regionsS": 0.033471304006525315,
+        "refinementS": 0.03549878300691489,
+        "internalRebarS": 7.801518196007237,
+        "guidedInstancesS": 9.686488744991948,
+        "persistS": 2.6019627960049547,
+        "previewS": 0.7541979020024883,
+        "totalS": 45.154440671001794
+      },
+      "internalTimings": {
+        "layersS": 0.012110805007978342,
+        "horizontalModelsS": 0.6828362079977524,
+        "webModelsS": 0.12994157600041945,
+        "diameterRefinementS": 0.9988303260033717,
+        "residualModelsS": 0.4892135380068794,
+        "trackRefinementS": 0.21089133799250703,
+        "sourceAssignmentS": 0.6923137819976546,
+        "floatingDenoiseS": 4.5386638269992545
+      },
+      "cpuS": 184.63283065500002,
+      "peakRssMB": 3589.31640625,
+      "algorithmStageWallS": 41.61010301101487,
+      "variant": "baseline",
+      "repeat": 2,
+      "processWallS": 46.89436446099717
+    },
+    {
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/speed-review-20260912/final/3-baseline/20260912T104203-985e0255",
+      "pipelineCallWallS": 46.47548601699236,
+      "timings": {
+        "readS": 0.17695993300003465,
+        "treeS": 1.808086861987249,
+        "normalsS": 5.257698927001911,
+        "preprocessingS": 7.827838126991992,
+        "classificationS": 6.147162515990203,
+        "projectionS": 8.395383169990964,
+        "classifiersWallS": 8.396990192995872,
+        "fusionS": 0.7720850079931552,
+        "regionsS": 0.0350184109993279,
+        "refinementS": 0.03568414400797337,
+        "internalRebarS": 7.791510350987664,
+        "guidedInstancesS": 9.660089823009912,
+        "persistS": 2.6395021839998662,
+        "previewS": 0.7593521559902001,
+        "totalS": 45.172318247001385
+      },
+      "internalTimings": {
+        "layersS": 0.010896794992731884,
+        "horizontalModelsS": 0.6867712539969943,
+        "webModelsS": 0.13253779399383347,
+        "diameterRefinementS": 1.0119080849981401,
+        "residualModelsS": 0.4946385149960406,
+        "trackRefinementS": 0.20921449399611447,
+        "sourceAssignmentS": 0.6915051179967122,
+        "floatingDenoiseS": 4.503815395000856
+      },
+      "cpuS": 185.31850603400002,
+      "peakRssMB": 3589.1953125,
+      "algorithmStageWallS": 41.58500184597506,
+      "variant": "baseline",
+      "repeat": 3,
+      "processWallS": 46.886369051993825
+    },
+    {
+      "directory": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/speed-review-20260912/final/3-candidate/20260912T104253-e5f44619",
+      "pipelineCallWallS": 42.384949881990906,
+      "timings": {
+        "readS": 0.1764955149992602,
+        "treeS": 1.8022566709987586,
+        "normalsS": 5.291612254004576,
+        "preprocessingS": 6.778906913008541,
+        "classificationS": 6.622934843995608,
+        "projectionS": 7.765356499992777,
+        "classifiersWallS": 7.76687622400641,
+        "fusionS": 0.7885313209990272,
+        "regionsS": 0.03306373598752543,
+        "refinementS": 0.03605367400450632,
+        "internalRebarS": 6.576983033999568,
+        "guidedInstancesS": 8.485301830995013,
+        "persistS": 2.563372260017786,
+        "previewS": 0.7563581089925719,
+        "totalS": 41.067182990998845
+      },
+      "internalTimings": {
+        "layersS": 0.010942023000097834,
+        "horizontalModelsS": 0.6794064470013836,
+        "webModelsS": 0.13171055899874773,
+        "diameterRefinementS": 0.9940200950077269,
+        "residualModelsS": 0.4909324409964029,
+        "trackRefinementS": 0.2075035769958049,
+        "sourceAssignmentS": 0.6835953849949874,
+        "floatingDenoiseS": 3.3333950029918924
+      },
+      "cpuS": 187.466294554,
+      "peakRssMB": 3588.62890625,
+      "algorithmStageWallS": 37.559585658003925,
+      "variant": "candidate",
+      "repeat": 3,
+      "processWallS": 42.78465028600476
+    }
+  ],
+  "comparisons": [
+    {
+      "baselineRun": "20260912T103841-a14aa697",
+      "candidateRun": "20260912T103841-a14aa697",
+      "identityEqual": true,
+      "columns": {
+        "colors": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1857478,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              152031
+            ]
+          ]
+        },
+        "complete_cluster": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "complete_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "curvature": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "fused_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "fused_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_evidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_score": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "geometry_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1988945,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1911428,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "geometry_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "geometry_support": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_type": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "neighbor_radius": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "normal_valid": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "normals": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "partition_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "positions": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "projection_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1877478,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2022895,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "projection_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_changed": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "refined_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_floating_noise": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_table_mask": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        }
+      },
+      "semanticReportsEqual": {
+        "preprocessing": true,
+        "classification": true,
+        "projection": true,
+        "fusion": true,
+        "regions": true,
+        "refinement": true,
+        "internalRebar": true,
+        "completeRebar": true
+      },
+      "passed": true
+    },
+    {
+      "baselineRun": "20260912T103841-a14aa697",
+      "candidateRun": "20260912T103931-4bb78b52",
+      "identityEqual": true,
+      "columns": {
+        "colors": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1857478,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              152031
+            ]
+          ]
+        },
+        "complete_cluster": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "complete_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "curvature": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "fused_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "fused_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_evidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_score": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "geometry_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1988945,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1911428,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "geometry_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "geometry_support": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_type": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "neighbor_radius": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "normal_valid": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "normals": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "partition_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "positions": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "projection_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1877478,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2022895,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "projection_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_changed": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "refined_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_floating_noise": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_table_mask": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        }
+      },
+      "semanticReportsEqual": {
+        "preprocessing": true,
+        "classification": true,
+        "projection": true,
+        "fusion": true,
+        "regions": true,
+        "refinement": true,
+        "internalRebar": true,
+        "completeRebar": true
+      },
+      "passed": true
+    },
+    {
+      "baselineRun": "20260912T103841-a14aa697",
+      "candidateRun": "20260912T104017-71ab932c",
+      "identityEqual": true,
+      "columns": {
+        "colors": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1857478,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              152031
+            ]
+          ]
+        },
+        "complete_cluster": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "complete_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "curvature": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "fused_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "fused_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_evidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_score": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "geometry_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1988945,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1911428,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "geometry_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "geometry_support": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_type": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "neighbor_radius": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "normal_valid": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "normals": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "partition_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "positions": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "projection_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1877478,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2022895,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "projection_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_changed": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "refined_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_floating_noise": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_table_mask": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        }
+      },
+      "semanticReportsEqual": {
+        "preprocessing": true,
+        "classification": true,
+        "projection": true,
+        "fusion": true,
+        "regions": true,
+        "refinement": true,
+        "internalRebar": true,
+        "completeRebar": true
+      },
+      "passed": true
+    },
+    {
+      "baselineRun": "20260912T103841-a14aa697",
+      "candidateRun": "20260912T104114-c6aa37fd",
+      "identityEqual": true,
+      "columns": {
+        "colors": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1857478,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              152031
+            ]
+          ]
+        },
+        "complete_cluster": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "complete_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "curvature": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "fused_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "fused_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_evidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_score": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "geometry_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1988945,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1911428,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "geometry_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "geometry_support": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_type": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "neighbor_radius": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "normal_valid": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "normals": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "partition_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "positions": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "projection_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1877478,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2022895,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "projection_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_changed": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "refined_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_floating_noise": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_table_mask": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        }
+      },
+      "semanticReportsEqual": {
+        "preprocessing": true,
+        "classification": true,
+        "projection": true,
+        "fusion": true,
+        "regions": true,
+        "refinement": true,
+        "internalRebar": true,
+        "completeRebar": true
+      },
+      "passed": true
+    },
+    {
+      "baselineRun": "20260912T103841-a14aa697",
+      "candidateRun": "20260912T104203-985e0255",
+      "identityEqual": true,
+      "columns": {
+        "colors": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1857478,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              152031
+            ]
+          ]
+        },
+        "complete_cluster": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "complete_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "curvature": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "fused_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "fused_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_evidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_score": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "geometry_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1988945,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1911428,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "geometry_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "geometry_support": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_type": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "neighbor_radius": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "normal_valid": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "normals": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "partition_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "positions": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "projection_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1877478,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2022895,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "projection_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_changed": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "refined_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_floating_noise": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_table_mask": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        }
+      },
+      "semanticReportsEqual": {
+        "preprocessing": true,
+        "classification": true,
+        "projection": true,
+        "fusion": true,
+        "regions": true,
+        "refinement": true,
+        "internalRebar": true,
+        "completeRebar": true
+      },
+      "passed": true
+    },
+    {
+      "baselineRun": "20260912T103841-a14aa697",
+      "candidateRun": "20260912T104253-e5f44619",
+      "identityEqual": true,
+      "columns": {
+        "colors": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1857478,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              152031
+            ]
+          ]
+        },
+        "complete_cluster": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "complete_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "complete_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "curvature": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "fused_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "fused_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_evidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "fused_steel_score": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "geometry_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1988945,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              1911428,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "geometry_recovered": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "geometry_support": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_confidence": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "internal_instance": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_segment": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "internal_type": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "neighbor_radius": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "normal_valid": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "normals": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "partition_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "positions": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "maxAbsError": 0.0
+        },
+        "projection_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1877478,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2022895,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "projection_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_changed": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_class": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369,
+          "confusionBaselineRowsCandidateColumns": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              5315996,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1890864,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              2009509,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "refined_reason": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_region": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "refined_zone": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_floating_noise": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_layer": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        },
+        "shared_table_mask": {
+          "equal": true,
+          "changedRows": 0,
+          "totalRows": 9216369
+        }
+      },
+      "semanticReportsEqual": {
+        "preprocessing": true,
+        "classification": true,
+        "projection": true,
+        "fusion": true,
+        "regions": true,
+        "refinement": true,
+        "internalRebar": true,
+        "completeRebar": true
+      },
+      "passed": true
+    }
+  ],
+  "medians": {
+    "baseline": {
+      "processWallS": 46.89436446099717,
+      "pipelineCallWallS": 46.49296220399265,
+      "algorithmStageWallS": 41.61010301101487,
+      "cpuS": 185.31850603400002,
+      "peakRssMB": 3589.31640625,
+      "timings": {
+        "readS": 0.17695993300003465,
+        "treeS": 1.8010742269980256,
+        "normalsS": 5.257698927001911,
+        "preprocessingS": 7.9066632030007895,
+        "classificationS": 6.040295264989254,
+        "projectionS": 8.356749015001697,
+        "classifiersWallS": 8.358352900002501,
+        "fusionS": 0.7720850079931552,
+        "regionsS": 0.0345325380039867,
+        "refinementS": 0.03568414400797337,
+        "internalRebarS": 7.791510350987664,
+        "guidedInstancesS": 9.660089823009912,
+        "persistS": 2.6084835279907566,
+        "previewS": 0.7541979020024883,
+        "totalS": 45.172318247001385
+      },
+      "internalTimings": {
+        "layersS": 0.011498499996378087,
+        "horizontalModelsS": 0.6828362079977524,
+        "webModelsS": 0.132151948986575,
+        "diameterRefinementS": 0.9988303260033717,
+        "residualModelsS": 0.49265033700794447,
+        "trackRefinementS": 0.20922265500121284,
+        "sourceAssignmentS": 0.6923137819976546,
+        "floatingDenoiseS": 4.506483535995358
+      }
+    },
+    "candidate": {
+      "processWallS": 42.78465028600476,
+      "pipelineCallWallS": 42.384949881990906,
+      "algorithmStageWallS": 37.358857058978174,
+      "cpuS": 186.01039203599998,
+      "peakRssMB": 3669.63671875,
+      "timings": {
+        "readS": 0.1764955149992602,
+        "treeS": 1.7979019740014337,
+        "normalsS": 5.206947918995866,
+        "preprocessingS": 6.750758226000471,
+        "classificationS": 6.617375187008292,
+        "projectionS": 7.765356499992777,
+        "classifiersWallS": 7.76687622400641,
+        "fusionS": 0.7769378539960599,
+        "regionsS": 0.03331424100906588,
+        "refinementS": 0.03563897800631821,
+        "internalRebarS": 6.601962808010285,
+        "guidedInstancesS": 8.485301830995013,
+        "persistS": 2.612433565998799,
+        "previewS": 0.755340192001313,
+        "totalS": 41.067182990998845
+      },
+      "internalTimings": {
+        "layersS": 0.011067768005887046,
+        "horizontalModelsS": 0.6787720419961261,
+        "webModelsS": 0.13171055899874773,
+        "diameterRefinementS": 0.9991132160066627,
+        "residualModelsS": 0.4909324409964029,
+        "trackRefinementS": 0.20712263800669461,
+        "sourceAssignmentS": 0.6835953849949874,
+        "floatingDenoiseS": 3.3430227740027476
+      }
+    }
+  },
+  "allOutputsEqual": true,
+  "speedup": 1.0969214858915572,
+  "timeReductionFraction": 0.08835772399223385
+}

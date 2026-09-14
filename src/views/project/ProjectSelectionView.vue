@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { readListState, writeListState } from '@/features/workspace/listState'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -12,17 +13,19 @@ const emit = defineEmits<{ logout: [] }>()
 const router = useRouter()
 const projects = ref<ProjectSummary[]>([])
 const loading = ref(false)
-const currentPage = ref(1)
-const pageSize = ref(4)
+const listStateKey = `cloudbim.list.v1:${props.session.username}:projects:projects`
+const restoredList = readListState(listStateKey, { keyword: '', fileType: 'all', fileState: 'all', dateRange: null as [Date, Date] | null }, [8, 12, 16, 24])
+const currentPage = ref(restoredList.page)
+const pageSize = ref(restoredList.pageSize)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 const form = reactive({ name: '', description: '' })
-const filters = reactive({ keyword: '', fileType: 'all', fileState: 'all', dateRange: null as [Date, Date] | null })
+const filters = reactive(restoredList.filters)
 const filteredProjects = computed(() => projects.value.filter((project) => {
   const keyword = filters.keyword.trim().toLowerCase()
   const scanDate = project.scanDate ? project.scanDate * 1000 : 0
-  const matchesDate = !filters.dateRange || (scanDate >= filters.dateRange[0].setHours(0, 0, 0, 0) && scanDate <= filters.dateRange[1].setHours(23, 59, 59, 999))
+  const matchesDate = !filters.dateRange || (scanDate >= new Date(filters.dateRange[0]).setHours(0, 0, 0, 0) && scanDate <= new Date(filters.dateRange[1]).setHours(23, 59, 59, 999))
   const matchesType = filters.fileType === 'all'
     || (filters.fileType === 'bim' && project.bimCount > 0)
     || (filters.fileType === 'pointcloud' && project.pointcloudCount > 0)
@@ -31,6 +34,12 @@ const filteredProjects = computed(() => projects.value.filter((project) => {
     && (filters.fileState === 'all' || project.status === filters.fileState)
     && matchesDate
 }))
+const hasActiveFilters = computed(() => Boolean(
+  filters.keyword.trim()
+  || filters.fileType !== 'all'
+  || filters.fileState !== 'all'
+  || filters.dateRange,
+))
 const pageCount = computed(() => Math.max(1, Math.ceil(filteredProjects.value.length / pageSize.value)))
 const pagedProjects = computed(() => filteredProjects.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value))
 
@@ -48,7 +57,7 @@ async function loadProjects() {
 
 function enterProject(project: ProjectSummary) {
   void router.push({
-    path: '/upload',
+    path: '/design/overview',
     query: { projectId: project.id, projectName: project.name },
   })
 }
@@ -121,6 +130,9 @@ onMounted(() => { void loadProjects() })
 watch([pageSize, () => filters.keyword, () => filters.fileType, () => filters.fileState, () => filters.dateRange], () => {
   currentPage.value = 1
 })
+watch([filters, currentPage, pageSize], () => {
+  writeListState(listStateKey, { filters: filters, page: currentPage.value, pageSize: pageSize.value })
+}, { deep: true, flush: 'sync' })
 </script>
 
 <template>
@@ -145,22 +157,22 @@ watch([pageSize, () => filters.keyword, () => filters.fileType, () => filters.fi
         <div class="toolbar-actions">
           <button class="toolbar-button" type="button" @click="resetFilters"><el-icon :size="16"><Refresh /></el-icon>重置</button>
           <button class="toolbar-button" type="button" @click="loadProjects"><el-icon :size="16"><Refresh /></el-icon>刷新</button>
-          <button class="toolbar-button" type="button" @click="openCreate"><el-icon :size="16"><CirclePlus /></el-icon>新建项目</button>
+          <button class="toolbar-button is-primary" type="button" @click="openCreate"><el-icon :size="16"><CirclePlus /></el-icon>新建项目</button>
         </div>
       </div>
 
       <div v-loading="loading" class="project-grid">
-        <article v-for="project in pagedProjects" :key="project.id" class="project-card" tabindex="0" @click="enterProject(project)" @keydown.enter="enterProject(project)">
+        <article v-for="project in pagedProjects" :key="project.id" class="project-card" tabindex="0" role="link" :aria-label="`进入项目：${project.name}`" @click="enterProject(project)" @keydown.enter.self="enterProject(project)" @keydown.space.self.prevent="enterProject(project)">
           <div class="card-top"><span class="project-folder"><el-icon><Folder /></el-icon></span><div class="card-actions"><button type="button" title="编辑项目" @click="openEdit(project, $event)"><el-icon><Edit /></el-icon></button><button type="button" title="删除项目" @click="removeProject(project, $event)"><el-icon><Delete /></el-icon></button></div></div>
           <div class="card-copy"><h2>{{ project.name }}</h2><p>{{ project.description || '暂无项目描述' }}</p></div>
           <div class="card-stats"><span><strong>{{ project.assetCount }}</strong>文件</span><span><strong>{{ project.bimCount }}</strong>BIM</span><span><strong>{{ project.pointcloudCount }}</strong>点云</span></div>
-          <footer><span class="project-status" :class="`is-${project.status}`">{{ statusText(project.status) }}</span><span class="project-date">更新于 {{ formatDate(project.updatedAt) }}</span><span class="enter-link">进入项目<el-icon><ArrowRight /></el-icon></span></footer>
+          <footer><span class="project-status" :class="`is-${project.status}`">{{ statusText(project.status) }}</span><span class="project-date">更新于 {{ formatDate(project.updatedAt) }}</span><button class="enter-link" type="button" :aria-label="`进入项目：${project.name}`" @click.stop="enterProject(project)">进入项目<el-icon><ArrowRight /></el-icon></button></footer>
         </article>
 
         <button v-if="!loading && !projects.length" class="empty-card" type="button" @click="openCreate"><el-icon><CirclePlus /></el-icon><strong>创建第一个项目</strong><span>开始管理 BIM 与点云文件</span></button>
-        <div v-else-if="!loading && !filteredProjects.length" class="empty-card"><el-icon><Search /></el-icon><strong>没有匹配的项目</strong><span>调整筛选条件后重试</span></div>
+        <div v-else-if="!loading && !filteredProjects.length" class="empty-card"><el-icon><Search /></el-icon><strong>没有匹配的项目</strong><span>当前筛选条件下没有结果</span><button v-if="hasActiveFilters" class="empty-action" type="button" @click="resetFilters">清除筛选</button></div>
       </div>
-      <NeumorphicPagination v-model:current-page="currentPage" v-model:page-size="pageSize" :total="filteredProjects.length" :page-size-options="[4, 8, 12, 16]" />
+      <NeumorphicPagination v-model:current-page="currentPage" v-model:page-size="pageSize" :total="filteredProjects.length" :page-size-options="[8, 12, 16, 24]" aria-label="项目列表分页" />
     </section>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑项目' : '新建项目'" width="480px">
@@ -456,4 +468,21 @@ watch([pageSize, () => filters.keyword, () => filters.fileType, () => filters.fi
 .project-date { color: var(--text-disabled); font-size: var(--font-size-xs); }
 .enter-link { color: var(--text-link); font-size: var(--font-size-xs); }
 .empty-card { color: var(--text-tertiary); border-color: var(--border-color-hover); background: var(--bg-card-translucent); }
+.entry-content { width: min(1800px, 92vw); }
+.project-toolbar { margin-bottom: var(--spacing-lg); }
+.project-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--spacing-lg); }
+.toolbar-button.is-primary { color: var(--bg-card); background: var(--color-primary); box-shadow: var(--shadow-sm); }
+.toolbar-button.is-primary:hover { color: var(--bg-card); background: var(--color-primary-hover); }
+.project-card:focus-visible { outline: 2px solid var(--border-color-focus); outline-offset: 3px; }
+.card-actions button { width: 40px; height: 40px; }
+.enter-link { min-height: 36px; padding: 0 2px; border: 0; background: transparent; cursor: pointer; }
+.enter-link:focus-visible, .empty-action:focus-visible { outline: 2px solid var(--border-color-focus); outline-offset: 2px; }
+.empty-action { min-height: var(--control-height); padding: 0 var(--spacing-md); border: 0; border-radius: var(--radius-sm); color: var(--bg-card); background: var(--color-primary); cursor: pointer; }
+</style>
+
+<style scoped lang="scss">
+@use '@/styles/workspace-controls' as controls;
+.toolbar-button { @include controls.action; } .toolbar-button.is-primary { @include controls.primary; } .project-toolbar { @include controls.filters; }
+.entry-brand .brand-mark { background: var(--brand-sapphire); box-shadow: none; }
+.project-entry-page { background: var(--bg-page); }
 </style>

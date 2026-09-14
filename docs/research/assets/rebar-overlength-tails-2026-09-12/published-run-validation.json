@@ -1,0 +1,340 @@
+{
+  "runId": "20260912T101509-17e6a074",
+  "baselineRun": "20260912T100054-e6470275",
+  "sourcePointCount": 9216369,
+  "changedClassPoints": 159,
+  "changedOwnerIds": [
+    78
+  ],
+  "unaffectedPointLabelsIdentical": true,
+  "sourceCoordinatesIdentical": true,
+  "instanceCount": 210,
+  "unassignedSteelPoints": 0,
+  "previewPointCount": 1000000,
+  "verifiedLasPoints": 9216369,
+  "subsetCounts": {
+    "complete-steel.las": 1857478,
+    "resolved-steel.las": 1857478,
+    "pending-steel.las": 0,
+    "noise-only.las": 152031
+  },
+  "verifiedTiles": 354,
+  "verifiedTilePoints": 2302885,
+  "filter": {
+    "version": "overlength-tails-v1",
+    "enabled": true,
+    "parameters": {
+      "relative_allowance": 0.15,
+      "absolute_allowance": 0.02,
+      "bin_size": 0.005,
+      "minimum_gap": 0.03,
+      "diameter_gap_factor": 3.0,
+      "spacing_gap_factor": 6.0,
+      "maximum_candidate_cost": 2.0,
+      "candidate_margin": 0.12,
+      "length_consensus_ratio": 1.05,
+      "maximum_angle_degrees": 12.0,
+      "maximum_bins": 100000,
+      "maximum_blocks": 128,
+      "maximum_instance_points": 1000000
+    },
+    "newDesignQueryCount": 0,
+    "candidateInstanceCount": 9,
+    "reviewedPointCount": 58948,
+    "measuredPointCount": 1566745,
+    "reclaimedInstanceCount": 1,
+    "removedPointCount": 159,
+    "highScoreRemovedPointCount": 10,
+    "decisions": [
+      {
+        "instanceId": 2,
+        "status": "skipped",
+        "reason": "ambiguous_length"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.41646249425009274,
+        "afterLengthM": 0.41646249425009274,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.41646249425009274,
+        "coreIntervalM": [
+          -0.2728424521240914,
+          0.1436200421260013
+        ],
+        "allowableUnionM": [
+          -0.198379957873999,
+          0.06915754787590889
+        ],
+        "instanceId": 14,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvFS:representation0/item0:1005/unit0",
+          "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.38455929559752233,
+        "afterLengthM": 0.38455929559752233,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38455929559752233,
+        "coreIntervalM": [
+          -0.19237412004322935,
+          0.19218517555429296
+        ],
+        "allowableUnionM": [
+          -0.14981482444570735,
+          0.14962587995677096
+        ],
+        "instanceId": 19,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021/unit0",
+          "1b9YNqdvPA1AzGxyF9pvCq:representation0/item0:1053/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "instanceId": 26,
+        "status": "skipped",
+        "reason": "ambiguous_length"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.3820729599068746,
+        "afterLengthM": 0.3820729599068746,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3820729599068746,
+        "coreIntervalM": [
+          -0.1910255682834853,
+          0.19104739162338935
+        ],
+        "allowableUnionM": [
+          -0.15095260837661095,
+          0.150974431716515
+        ],
+        "instanceId": 34,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.38877053677473594,
+        "afterLengthM": 0.38877053677473594,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38877053677473594,
+        "coreIntervalM": [
+          -0.19420562630628557,
+          0.19456491046845037
+        ],
+        "allowableUnionM": [
+          -0.14743508953154993,
+          0.14779437369371473
+        ],
+        "instanceId": 35,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.3754768469677947,
+        "afterLengthM": 0.3754768469677947,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3754768469677947,
+        "coreIntervalM": [
+          -0.1876157355849647,
+          0.18786111138283
+        ],
+        "allowableUnionM": [
+          -0.15413888861717032,
+          0.1543842644150356
+        ],
+        "instanceId": 50,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.383826955059353,
+        "afterLengthM": 0.383826955059353,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.383826955059353,
+        "coreIntervalM": [
+          -0.19189216455670458,
+          0.19193479050264842
+        ],
+        "allowableUnionM": [
+          -0.1500652094973519,
+          0.15010783544329573
+        ],
+        "instanceId": 51,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.38506027105104634,
+        "afterLengthM": 0.38506027105104634,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38506027105104634,
+        "coreIntervalM": [
+          -0.19241021697138885,
+          0.19265005407965752
+        ],
+        "allowableUnionM": [
+          -0.14934994592034279,
+          0.14958978302861145
+        ],
+        "instanceId": 72,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.37030804673280726,
+        "afterLengthM": 0.37030804673280726,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.37030804673280726,
+        "coreIntervalM": [
+          -0.18562966715934365,
+          0.18467837957346359
+        ],
+        "allowableUnionM": [
+          -0.15732162042653672,
+          0.15637033284065666
+        ],
+        "instanceId": 74,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "reclaimed",
+        "reason": "detached_extension_outside_core_length_envelope",
+        "tails": [
+          {
+            "side": "end",
+            "gapM": 0.13837111023010218,
+            "intervalM": [
+              0.29967800262814565,
+              0.33457644566782985
+            ],
+            "pointCount": 159
+          }
+        ],
+        "beforeLengthM": 0.4959366763947038,
+        "afterLengthM": 0.3226671231249174,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3226671231249174,
+        "coreIntervalM": [
+          -0.16136023072687394,
+          0.16130689239804347
+        ],
+        "allowableUnionM": [
+          -0.18069310760195684,
+          0.18063976927312636
+        ],
+        "axialSpacingM": 0.005,
+        "minimumGapM": 0.03,
+        "instanceId": 78,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDO:representation0/item0:1149/unit0"
+        ],
+        "lengthSource": "length_consensus",
+        "removedPointCount": 159,
+        "directExtensionPointCount": 159,
+        "clusterCarryPointCount": 0
+      }
+    ],
+    "skippedReasons": {
+      "within_length_allowance": 66,
+      "ambiguous_length": 2,
+      "core_already_overlong": 8,
+      "no_reliable_internal_core": 133
+    },
+    "designEvidenceS": 0.000841342072817497,
+    "measurementS": 0.046621762929135,
+    "decisionS": 0.0009549019596306607,
+    "updateS": 0.00025280700356233865,
+    "groupingS": 0.029054286002065055,
+    "elapsedS": 0.07859475098666735
+  },
+  "timings": {
+    "readS": 0.18181775000994094,
+    "treeS": 1.8115033630019752,
+    "normalsS": 5.350373724999372,
+    "preprocessingS": 7.823378916000365,
+    "classificationS": 6.047567914007232,
+    "projectionS": 8.233542638001381,
+    "classifiersWallS": 8.235024968002108,
+    "fusionS": 0.767692089008051,
+    "regionsS": 0.03280866699060425,
+    "refinementS": 0.0357256480056094,
+    "internalRebarS": 7.794091582996771,
+    "guidedInstancesS": 9.564413897998747,
+    "persistS": 2.7897783210064517,
+    "previewS": 0.8089066889951937,
+    "totalS": 45.25526212899422
+  }
+}

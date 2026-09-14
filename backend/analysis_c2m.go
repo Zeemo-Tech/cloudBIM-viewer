@@ -349,6 +349,12 @@ func (a *app) validAnalysisC2MResult(bim Asset, row DBC2MResult) bool {
 }
 
 func (a *app) ensureAnalysisC2M(parent context.Context, result DBC2MResult, force bool) (AnalysisC2MManifest, DBC2MResult, bool, error) {
+	if result.AlgorithmVersion == rebarC2MAlgorithm {
+		return AnalysisC2MManifest{}, result, false, errors.New("逐钢筋结果已包含实例约束偏差，请使用已保存的逐钢筋结果")
+	}
+	if fresh, reason := a.c2mFreshness(result); !fresh {
+		return AnalysisC2MManifest{}, result, false, errors.New(reason)
+	}
 	var scanRow, bimRow DBAsset
 	if err := a.db.Where("id = ? AND owner_id = ? AND type = ? AND status = ?", result.ScanID, result.OwnerID, "pointcloud", "ready").First(&scanRow).Error; err != nil {
 		return AnalysisC2MManifest{}, result, false, errors.New("scan asset is not ready")
@@ -357,7 +363,7 @@ func (a *app) ensureAnalysisC2M(parent context.Context, result DBC2MResult, forc
 		return AnalysisC2MManifest{}, result, false, errors.New("BIM asset is not ready")
 	}
 	scan, bim := assetFromDB(scanRow), assetFromDB(bimRow)
-	scanPath, err := a.resolveScanSourcePath(scan, result.OwnerID)
+	scanPath, err := a.resolveC2MScanPath(scan, result.BimID, result.OwnerID)
 	if err != nil {
 		return AnalysisC2MManifest{}, result, false, err
 	}
@@ -496,6 +502,12 @@ func (a *app) ensureAnalysisC2M(parent context.Context, result DBC2MResult, forc
 		"analysis_metadata_json": manifestMetadata,
 		"analysis_error":         nil,
 	}
+	a.c2mMutationMu.Lock()
+	defer a.c2mMutationMu.Unlock()
+	if fresh, reason := a.c2mFreshness(result); !fresh {
+		_ = os.RemoveAll(paths.FinalPath)
+		return AnalysisC2MManifest{}, result, false, errors.New(reason)
+	}
 	updated := a.db.Model(&DBC2MResult{}).Where("id = ? AND scan_id = ? AND bim_id = ?", result.ID, result.ScanID, result.BimID).Updates(updates)
 	if updated.Error != nil || updated.RowsAffected != 1 {
 		if removeErr := os.RemoveAll(paths.FinalPath); removeErr != nil {
@@ -550,6 +562,9 @@ func (a *app) processAnalysisC2MJob(parent context.Context, job analysisC2MJob) 
 	defer unlock()
 	var result DBC2MResult
 	if err := a.db.Where("scan_id = ? AND bim_id = ? AND owner_id = ?", job.ScanID, job.BimID, job.OwnerID).First(&result).Error; err != nil {
+		return
+	}
+	if result.AlgorithmVersion == rebarC2MAlgorithm {
 		return
 	}
 	// GORM mutates the model passed to Updates. Keep the last-ready snapshot for
@@ -633,6 +648,11 @@ func (a *app) analysisC2MLatest(c *gin.Context) {
 		fail(c, http.StatusNotFound, "analysis_c2m_not_found")
 		return
 	}
+	if fresh, reason := a.c2mFreshness(result); !fresh {
+		fail(c, http.StatusConflict, reason)
+		return
+	}
+
 	var bimRow DBAsset
 	if err := a.db.Where("id = ? AND owner_id = ?", bimID, userID(c)).First(&bimRow).Error; err != nil || !a.validAnalysisC2MResult(assetFromDB(bimRow), result) {
 		fail(c, http.StatusNotFound, "analysis_c2m_not_found")
@@ -656,6 +676,11 @@ func (a *app) analysisC2MResource(c *gin.Context) {
 		fail(c, http.StatusNotFound, "resource_not_found")
 		return
 	}
+	if fresh, reason := a.c2mFreshness(result); !fresh {
+		fail(c, http.StatusConflict, reason)
+		return
+	}
+
 	var bimRow DBAsset
 	if err := a.db.Where("id = ? AND owner_id = ?", bimID, userID(c)).First(&bimRow).Error; err != nil {
 		fail(c, http.StatusNotFound, "resource_not_found")

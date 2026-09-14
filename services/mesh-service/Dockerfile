@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# 安装 PyMeshLab + Open3D 运行时依赖（OpenGL / EGL / OpenMP / X11）
+# 安装 Open3D 运行时依赖（OpenGL / EGL / OpenMP / X11）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libegl1 \

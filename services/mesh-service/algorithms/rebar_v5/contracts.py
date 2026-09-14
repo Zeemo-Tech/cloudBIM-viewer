@@ -5,12 +5,15 @@ from dataclasses import asdict, dataclass, fields
 import numpy as np
 
 UNKNOWN, TABLE, REBAR, NOISE, FIXTURE = range(5)
+FIXTURE_UNKNOWN, FIXTURE_SQUARE_TUBE, FIXTURE_PLATE, FIXTURE_BOLT = range(4)
+ROLE_UNRESOLVED, ROLE_PLANAR, ROLE_WEB = range(3)
 AMBIGUOUS = 2  # Instance uncertainty only; bit zero is never a crossing flag.
-VERSION = "1"
+VERSION = "2"
 
 
 @dataclass(frozen=True)
 class Params:
+    ownership_review_enabled: bool = False
     random_seed: int = 20260905
     block_size: float = 0.25
     block_point_limit: int = 300_000
@@ -73,6 +76,10 @@ class Params:
         defaults.update(raw)
         for f in fields(cls):
             value = defaults[f.name]
+            if isinstance(getattr(cls(), f.name), bool):
+                if not isinstance(value, bool):
+                    raise ValueError(f"{f.name} must be a boolean")
+                continue
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or value <= 0:
                 raise ValueError(f"{f.name} must be finite and positive")
             if isinstance(getattr(cls(), f.name), int):
@@ -105,8 +112,10 @@ class Params:
 
 VISUALIZATION = {
     "schema": "rebar-visualization-v3", "defaultMode": "rebar-class",
-    "attributes": {"class":"REBAR_CLASS", "direction":"REBAR_DIRECTION", "instance":"REBAR_INSTANCE", "sceneClass":"SCENE_CLASS", "flags":"REBAR_FLAGS"},
-    "values": {"sceneClass":{"unknown":0,"table":1,"rebar":2,"noise":3,"fixture":4}, "flags":{"ambiguous":2}, "unassignedInstance":0},
-    "colors": {"unknown":"#64748b","table":"#cbd5e1","rebar":"#22d3ee","noise":"#e879f9","fixture":"#f97316", "directionA":"#22d3ee", "directionB":"#f97316"},
+    "attributes": {"class":"REBAR_CLASS", "direction":"REBAR_DIRECTION", "instance":"REBAR_INSTANCE", "sceneClass":"SCENE_CLASS", "flags":"REBAR_FLAGS", "fixtureKind":"FIXTURE_KIND", "rebarRole":"REBAR_ROLE"},
+    "values": {"sceneClass":{"unknown":0,"table":1,"rebar":2,"noise":3,"fixture":4}, "flags":{"ambiguous":2}, "unassignedInstance":0,
+               "fixtureKind":{"unknown":0,"squareTube":1,"plate":2,"bolt":3}, "rebarRole":{"unresolved":0,"planar":1,"web":2}},
+    "colors": {"unknown":"#64748b","table":"#cbd5e1","rebar":"#22d3ee","noise":"#e879f9","fixture":"#f97316", "directionA":"#22d3ee", "directionB":"#f97316",
+               "squareTube":"#60a5fa", "plate":"#fbbf24", "bolt":"#f472b6", "planar":"#2dd4bf", "web":"#fb923c"},
     "instanceStrategy":"golden-angle-v1",
 }
