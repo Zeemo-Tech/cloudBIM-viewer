@@ -293,6 +293,7 @@ const canOpenDeviationStep = computed(() => canOpenDenoiseStep.value && denoiseR
 let denoiseRequestId = 0
 let denoisePreviewRequestId = 0
 let denoisePreview: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null
+const reportGeometryRevision = ref(0)
 
 function workflowStepDisabled(step: WorkflowStepId): boolean {
   if (denoiseRunning.value || c2mRunning.value) return step !== activeWorkflowStep.value
@@ -415,6 +416,7 @@ async function showDenoisePreview(mode: 'source' | 'classes' | 'cleaned') {
     denoisePreview.matrix.copy(getRawMatrixWorldForCalibration(pointcloudGroup)).multiply(new THREE.Matrix4().makeTranslation(...result.result.previewOrigin))
     denoisePreview.matrixAutoUpdate = false
     scene.add(denoisePreview)
+    reportGeometryRevision.value += 1
     denoiseView.value = mode
     denoiseColorMode.value = mode
     applySceneVisibility()
@@ -542,11 +544,21 @@ const c2mDownsampleEnabled = ref(false)
 const c2mError = ref('')
 const selectedComparisonBarId = ref('')
 const comparisonInventory = ref<{ inventory: { bars: { ifcGlobalId: string }[] } } | null>(null)
+// Keep these guards above all comparison-derived computed values. Vue may
+// evaluate those values during setup (for example through an eager watcher).
+const c2mResultIsFresh = computed(() => isC2MResultFresh(c2mResult.value))
+const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFresh.value))
 const comparison = computed(() => canUseC2MResult.value ? c2mResult.value?.diagnostics?.rebarComparison : undefined)
 const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value?.bars ?? [], c2mDistances.value, c2mToleranceMm.value / 1000))
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
 const REPORT_ROWS_PER_PAGE = 8
 const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
+const REPORT_VIEWS_PER_PAGE = 1
+const comparisonReportViewPages = computed(() => {
+  const mappedBars = comparisonBars.value.filter((bar) => bar.status === 'matched')
+  return Array.from({ length: Math.ceil(mappedBars.length / REPORT_VIEWS_PER_PAGE) }, (_, page) => mappedBars.slice(page * REPORT_VIEWS_PER_PAGE, (page + 1) * REPORT_VIEWS_PER_PAGE))
+})
+const comparisonReportTotalPages = computed(() => 1 + comparisonReportPages.value.length + comparisonReportViewPages.value.length)
 const comparisonReportPageIndex = ref(0)
 const comparisonReportPageCount = computed(() => comparisonReportPages.value.length)
 function changeComparisonReportPage(delta: number) {
@@ -565,6 +577,7 @@ const rebarInspectionBars = computed(() => rebarInspectionAbnormalOnly.value
 const rebarInspectionIndex = computed(() => rebarInspectionBars.value.findIndex(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const comparisonBimVisibility = new WeakMap<THREE.Object3D, boolean>()
 let rebarCameraAnimationFrame: number | null = null
+let rebarCameraControlsWasEnabled: boolean | null = null
 const rebarInspectionMaterialState = new WeakMap<THREE.Material, { color?: THREE.Color; opacity: number; transparent: boolean; depthWrite: boolean }>()
 const c2mOriginalVertexColors = new WeakMap<THREE.BufferGeometry, Float32Array>()
 
@@ -691,6 +704,10 @@ function stopRebarCameraAnimation() {
     window.cancelAnimationFrame(rebarCameraAnimationFrame)
     rebarCameraAnimationFrame = null
   }
+  if (controls && rebarCameraControlsWasEnabled !== null) {
+    controls.enabled = rebarCameraControlsWasEnabled
+    rebarCameraControlsWasEnabled = null
+  }
 }
 
 function objectMatchesComparisonBar(object: THREE.Object3D, ifcGlobalId: string) {
@@ -748,6 +765,7 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
 
   const startPosition = activeCamera.position.clone()
   const startTarget = controls.target.clone()
+  const startUp = activeCamera.up.clone().normalize()
   const endTarget = bounds.getCenter(new THREE.Vector3())
   const size = bounds.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z, 0.1)
@@ -756,50 +774,12 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
   // a direct mouse pick can remain a tighter close-up for detail inspection.
   const framingMargin = isManualFocus ? 1.1 : 1.3
   const focusDim = Math.max(maxDim * framingMargin, 0.08)
-  const currentViewDirection = startPosition.clone().sub(startTarget)
-  if (currentViewDirection.lengthSq() < 1e-8) currentViewDirection.set(1, 0.6, 1)
-  currentViewDirection.normalize()
 
-  // A long rebar can look like a short dot when the camera travels along its
-  // length. Derive the dominant world axis from the bounds and force the
-  // inspection view to stay mostly perpendicular to that axis. This keeps
-  // both horizontal and vertical bars visually legible while preserving a
-  // smooth transition from the current camera pose.
-  const longAxis = new THREE.Vector3()
-  if (size.x >= size.y && size.x >= size.z) longAxis.set(1, 0, 0)
-  else if (size.y >= size.z) longAxis.set(0, 1, 0)
-  else longAxis.set(0, 0, 1)
-  const referenceUp = activeCamera.up.clone().normalize()
-  const viewDirection = currentViewDirection
-    .clone()
-    .addScaledVector(longAxis, -currentViewDirection.dot(longAxis))
-  if (viewDirection.lengthSq() < 1e-6 || Math.abs(viewDirection.dot(referenceUp)) > 0.9) {
-    const candidates = [
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3(1, 0, 0),
-    ]
-    let found = false
-    for (const candidate of candidates) {
-      const projected = candidate.addScaledVector(longAxis, -candidate.dot(longAxis))
-      if (projected.lengthSq() < 1e-6) continue
-      projected.normalize()
-      if (Math.abs(projected.dot(referenceUp)) <= 0.9) {
-        viewDirection.copy(projected)
-        found = true
-        break
-      }
-    }
-    if (!found) viewDirection.copy(longAxis).cross(referenceUp)
-  }
-  if (viewDirection.lengthSq() < 1e-6) viewDirection.set(0, 0, 1)
-  viewDirection.normalize()
+  //巡检序列固定使用顶视方向，避免每个构件根据自身包围盒改变为侧视。
+  //相机只平移、缩放到当前构件，连续巡检时阅读方向保持不变。
+  const viewDirection = new THREE.Vector3(0, 1, 0)
   const cameraDirection = viewDirection.clone().multiplyScalar(-1)
-  const cameraUp = referenceUp
-    .clone()
-    .addScaledVector(cameraDirection, -referenceUp.dot(cameraDirection))
-  if (cameraUp.lengthSq() < 1e-6) cameraUp.set(0, 1, 0)
-  cameraUp.normalize()
+  const cameraUp = new THREE.Vector3(0, 0, -1)
   const cameraRight = cameraDirection.clone().cross(cameraUp).normalize()
   const projectedWidth = Math.max(
     Math.abs(cameraRight.x) * size.x + Math.abs(cameraRight.y) * size.y + Math.abs(cameraRight.z) * size.z,
@@ -827,14 +807,25 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
   const aspect = isPerspectiveCamera(activeCamera) ? Math.max(activeCamera.aspect || 1, 0.1) : Math.max(viewportEl.value?.clientWidth || 1, 1) / Math.max(viewportEl.value?.clientHeight || 1, 1)
   const endOrthoSize = Math.max(projectedHeight * framingMargin, projectedWidth / aspect * framingMargin, 0.2)
   const startedAt = performance.now()
-  const duration = 520
+  // Give sequence navigation a little more time to read the member while still
+  // feeling responsive for a direct mouse pick.
+  const duration = isManualFocus ? 680 : 860
+  const wasControlsEnabled = controls.enabled
+  controls.enabled = false
+  rebarCameraControlsWasEnabled = wasControlsEnabled
 
   const animate = (now: number) => {
     if (!activeCamera || !controls) return
     const progress = Math.min(1, (now - startedAt) / duration)
-    const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - ((-2 * progress + 2) ** 3) / 2
+    // Smootherstep removes the small velocity kink at the midpoint and makes
+    // the camera feel deliberate when stepping through a long inspection list.
+    const eased = THREE.MathUtils.smootherstep(progress, 0, 1)
     activeCamera.position.lerpVectors(startPosition, endPosition, eased)
     controls.target.lerpVectors(startTarget, endTarget, eased)
+    // Keep the camera roll continuous while the inspection view changes. The
+    // previous implementation calculated cameraUp but never applied it,
+    // which made sequence navigation appear to snap into a side view.
+    activeCamera.up.lerpVectors(startUp, cameraUp, eased).normalize()
     if (isOrthographicCamera(activeCamera)) {
       orthoViewSize = THREE.MathUtils.lerp(startOrthoSize, endOrthoSize, eased)
       updateOrthographicFrustum()
@@ -843,7 +834,18 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
     controls.update()
     requestRender()
     if (progress < 1) rebarCameraAnimationFrame = window.requestAnimationFrame(animate)
-    else rebarCameraAnimationFrame = null
+    else {
+      activeCamera.position.copy(endPosition)
+      controls.target.copy(endTarget)
+      activeCamera.up.copy(cameraUp)
+      activeCamera.lookAt(controls.target)
+      controls.update()
+      rebarCameraAnimationFrame = null
+      if (rebarCameraControlsWasEnabled !== null) {
+        controls.enabled = rebarCameraControlsWasEnabled
+        rebarCameraControlsWasEnabled = null
+      }
+    }
   }
   rebarCameraAnimationFrame = window.requestAnimationFrame(animate)
 }
@@ -885,7 +887,21 @@ function resetRebarInspection() {
 
 function toggleRebarManualSelection() {
   rebarInspectionManualSelect.value = !rebarInspectionManualSelect.value
-  if (!rebarInspectionManualSelect.value) stopRebarCameraAnimation()
+  if (import.meta.env.DEV) {
+    console.debug('[rebar-inspection] manual selection', {
+      enabled: rebarInspectionManualSelect.value,
+      workflowStep: activeWorkflowStep.value,
+      hasComparison: Boolean(comparison.value),
+      pointcloudVisible: Boolean(denoisePreview?.visible || pointcloudGroup?.visible),
+    })
+  }
+  if (rebarInspectionManualSelect.value) {
+    ElMessage.info('手动选择已开启，请在视口中点击钢筋构件')
+  } else {
+    stopRebarCameraAnimation()
+    ElMessage.info('已退出手动选择')
+  }
+  applyComparisonSelection()
 }
 
 function onInspectionFilterChange() {
@@ -953,6 +969,15 @@ function getComparisonBarIdFromHit(hit: THREE.Intersection) {
 }
 
 function handleRebarInspectionPointerDown(event: PointerEvent) {
+  if (import.meta.env.DEV) {
+    console.debug('[rebar-inspection] pointerdown', {
+      button: event.button,
+      workflowStep: activeWorkflowStep.value,
+      analysisMode: analysisMode.value,
+      manualSelection: rebarInspectionManualSelect.value,
+      hasComparison: Boolean(comparison.value),
+    })
+  }
   if (
     event.button !== 0 || event.shiftKey || analysisMode.value !== 'none' ||
     activeWorkflowStep.value !== 3 || !comparison.value || !rebarInspectionManualSelect.value ||
@@ -960,6 +985,20 @@ function handleRebarInspectionPointerDown(event: PointerEvent) {
   ) return false
   const pointer = getPointerNdc(event)
   if (!pointer) return false
+  // Point-cloud hit testing uses a world-space threshold. Scale it with the
+  // current camera distance so manual selection remains usable after zooming.
+  const viewportHeight = Math.max(viewportEl.value?.clientHeight || 1, 1)
+  const viewDistance = controls?.target
+    ? activeCamera.position.distanceTo(controls.target)
+    : activeCamera.position.length()
+  const worldUnitsPerPixel = isPerspectiveCamera(activeCamera)
+    ? (2 * Math.max(viewDistance, 0.001) * Math.tan(THREE.MathUtils.degToRad(activeCamera.fov) * 0.5)) / viewportHeight
+    : (2 * Math.max(orthoViewSize, 0.001)) / viewportHeight
+  raycaster.params.Points.threshold = THREE.MathUtils.clamp(
+    worldUnitsPerPixel * Math.max(pointcloudPointSize.value * 2, 6),
+    1e-4,
+    Math.max(pointcloudMaxDim * 0.05, 0.01),
+  )
   raycaster.setFromCamera(pointer, activeCamera)
   const targets: THREE.Object3D[] = []
   if (c2mSceneGroup?.visible) targets.push(c2mSceneGroup)
@@ -967,14 +1006,33 @@ function handleRebarInspectionPointerDown(event: PointerEvent) {
   if (pointcloudGroup?.visible) targets.push(pointcloudGroup)
   if (bimPivot?.visible) targets.push(bimPivot)
   if (!targets.length) return false
-  const hit = raycaster.intersectObjects(targets, true).find(intersection => {
+  const intersections = raycaster.intersectObjects(targets, true).filter(intersection => {
     const object = intersection.object as THREE.Object3D
     return !(object.userData as any)?.__viewerPickIgnore
   })
+  // The nearest hit can be an unrelated shell or a mesh without metadata.
+  // Resolve every hit from front to back so one click still selects the first
+  // actual comparison member behind it.
+  const resolvedHit = intersections
+    .map((intersection) => ({ intersection, ifcGlobalId: getComparisonBarIdFromHit(intersection) }))
+    .find((item) => Boolean(item.ifcGlobalId))
+  const hit = resolvedHit?.intersection
+  const ifcGlobalId = resolvedHit?.ifcGlobalId ?? ''
+  if (import.meta.env.DEV) {
+    console.debug('[rebar-inspection] hit test', {
+      targets: targets.length,
+      intersections: intersections.length,
+      hit: Boolean(hit),
+      object: hit?.object?.name || hit?.object?.type || '',
+      distance: hit?.distance,
+      pointsThreshold: raycaster.params.Points.threshold,
+    })
+  }
   if (!hit) return false
-  const ifcGlobalId = getComparisonBarIdFromHit(hit)
+  if (import.meta.env.DEV) console.debug('[rebar-inspection] resolved member', ifcGlobalId || '(none)')
   if (!ifcGlobalId) return false
   selectInspectionBarById(ifcGlobalId)
+  event.preventDefault()
   return true
 }
 
@@ -1041,11 +1099,23 @@ const meshTaskActive = computed(() =>
 const meshControlsDisabled = computed(() => meshRunning.value || meshTaskActive.value)
 const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && !!props.bimAssetId)
 const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && canOpenDeviationStep.value && meshReady.value && !c2mRunning.value))
-const c2mResultIsFresh = computed(() => isC2MResultFresh(c2mResult.value))
-const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFresh.value))
 watch(comparisonReportPages, (pages) => {
   comparisonReportPageIndex.value = Math.min(
     comparisonReportPageIndex.value,
+    Math.max(pages.length - 1, 0),
+  )
+})
+const comparisonReportViewPageIndex = ref(0)
+const comparisonReportViewPageCount = computed(() => comparisonReportViewPages.value.length)
+function changeComparisonReportViewPage(delta: number) {
+  comparisonReportViewPageIndex.value = Math.min(
+    Math.max(comparisonReportViewPageIndex.value + delta, 0),
+    Math.max(comparisonReportViewPageCount.value - 1, 0),
+  )
+}
+watch(comparisonReportViewPages, (pages) => {
+  comparisonReportViewPageIndex.value = Math.min(
+    comparisonReportViewPageIndex.value,
     Math.max(pages.length - 1, 0),
   )
 })
@@ -1321,6 +1391,347 @@ function formatReportInstanceIds(instanceIds: readonly number[]) {
   return instanceIds.length > 8 ? `${visible} 等，共 ${instanceIds.length} 个` : visible
 }
 
+type ReportViewProjection = 'top' | 'front' | 'side'
+
+function reportGeometryPointsForBar(bar: RebarComparisonBar, source: 'design' | 'pointcloud') {
+  const points: THREE.Vector3[] = []
+  const addMeshPoints = (mesh: THREE.Mesh) => {
+    const positions = mesh.geometry?.getAttribute('position')
+    if (!positions) return
+    const stride = Math.max(1, Math.ceil(positions.count / 300))
+    mesh.updateMatrixWorld(true)
+    for (let index = 0; index < positions.count; index += stride) {
+      points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(mesh.matrixWorld))
+    }
+  }
+  if (source === 'design') {
+    if (c2mAnalysisSession) c2mAnalysisSession.forEachComponentMesh(bar.ifcGlobalId, addMeshPoints)
+    if (!points.length && bimPivot) {
+      bimPivot.updateMatrixWorld(true)
+      bimPivot.traverse((object) => {
+        if (object instanceof THREE.Mesh && objectMatchesComparisonBar(object, bar.ifcGlobalId)) addMeshPoints(object)
+      })
+    }
+  } else {
+    const geometry = denoisePreview?.geometry
+    const positions = geometry?.getAttribute('position')
+    const instances = geometry?.getAttribute('instance')
+    const labels = geometry?.getAttribute('label')
+    if (!positions || !instances) return points
+    const instanceIds = new Set(bar.instanceIds)
+    denoisePreview?.updateMatrixWorld(true)
+    const matrixWorld = denoisePreview?.matrixWorld ?? new THREE.Matrix4()
+    const stride = Math.max(1, Math.ceil(positions.count / 500))
+    for (let index = 0; index < positions.count; index += stride) {
+      if (labels && labels.getX(index) !== 3) continue
+      if (!instanceIds.has(Math.round(instances.getX(index)))) continue
+      points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld))
+    }
+  }
+  return points
+}
+
+function reportPrincipalAxis(points: THREE.Vector3[]) {
+  if (points.length < 2) return new THREE.Vector3(1, 0, 0)
+  const center = points.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / points.length)
+  const covariance = new THREE.Matrix3()
+  const values = new Array<number>(9).fill(0)
+  points.forEach((point) => {
+    const delta = point.clone().sub(center)
+    values[0] += delta.x * delta.x; values[1] += delta.x * delta.y; values[2] += delta.x * delta.z
+    values[4] += delta.y * delta.y; values[5] += delta.y * delta.z; values[8] += delta.z * delta.z
+  })
+  values[3] = values[1]; values[6] = values[2]; values[7] = values[5]
+  covariance.fromArray(values.map((value) => value / points.length))
+  let axis = new THREE.Vector3(1, 0, 0)
+  for (let iteration = 0; iteration < 12; iteration += 1) {
+    const next = axis.clone().applyMatrix3(covariance)
+    if (next.lengthSq() < 1e-12) break
+    axis.copy(next.normalize())
+  }
+  return axis.lengthSq() > 1e-8 ? axis : new THREE.Vector3(1, 0, 0)
+}
+
+const reportCanvasRefs = new Map<string, HTMLCanvasElement>()
+const reportViewRenderers = new Map<string, THREE.WebGLRenderer>()
+const reportViewScenes = new Map<string, THREE.Scene>()
+const reportViewCameras = new Map<string, THREE.OrthographicCamera>()
+
+function reportCanvasKey(ifcGlobalId: string, projection: ReportViewProjection) {
+  return `${ifcGlobalId}:${projection}`
+}
+
+function setReportCanvasRef(ifcGlobalId: string, projection: ReportViewProjection, element: Element | null) {
+  const key = reportCanvasKey(ifcGlobalId, projection)
+  if (element instanceof HTMLCanvasElement) reportCanvasRefs.set(key, element)
+  else reportCanvasRefs.delete(key)
+}
+
+function disposeReportView(key: string) {
+  reportViewRenderers.get(key)?.dispose()
+  reportViewRenderers.delete(key)
+  const sceneToDispose = reportViewScenes.get(key)
+  if (sceneToDispose) {
+    sceneToDispose.traverse((object) => {
+      const renderable = object as THREE.Mesh | THREE.Points | THREE.Line
+      if (!renderable.geometry) return
+      renderable.geometry.dispose()
+      const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material]
+      materials.forEach((material) => material?.dispose())
+    })
+  }
+  reportViewScenes.delete(key)
+  reportViewCameras.delete(key)
+}
+
+function disposeReportModelViews() {
+  Array.from(reportViewScenes.keys()).forEach(disposeReportView)
+}
+
+function subsetReportGeometry(source: THREE.BufferGeometry, start: number, count: number) {
+  const positions = source.getAttribute('position')
+  if (!positions || count <= 0 || start < 0 || start + count > positions.count) return null
+  const end = start + count
+  const geometry = new THREE.BufferGeometry()
+  for (const name of ['position', 'normal', 'color', 'uv']) {
+    const attribute = source.getAttribute(name)
+    if (!attribute || attribute.itemSize <= 0 || start + count > attribute.count) continue
+    const values = new Float32Array(count * attribute.itemSize)
+    for (let index = start; index < end; index += 1) {
+      for (let component = 0; component < attribute.itemSize; component += 1) {
+        values[(index - start) * attribute.itemSize + component] = attribute.getComponent(index, component)
+      }
+    }
+    geometry.setAttribute(name, new THREE.BufferAttribute(values, attribute.itemSize, attribute.normalized))
+  }
+  const originalIndex = source.getIndex()
+  if (originalIndex) {
+    const indices: number[] = []
+    for (let index = 0; index + 2 < originalIndex.count; index += 3) {
+      const a = originalIndex.getX(index)
+      const b = originalIndex.getX(index + 1)
+      const c = originalIndex.getX(index + 2)
+      if (a >= start && a < end && b >= start && b < end && c >= start && c < end) {
+        indices.push(a - start, b - start, c - start)
+      }
+    }
+    if (indices.length) geometry.setIndex(indices)
+  }
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function addReportDesignMeshes(root: THREE.Group, bar: RebarComparisonBar, points: THREE.Vector3[]) {
+  const addMesh = (mesh: THREE.Mesh) => {
+    const positions = mesh.geometry?.getAttribute('position')
+    if (!positions) return
+    mesh.updateMatrixWorld(true)
+    const geometry = mesh.geometry.clone()
+    geometry.applyMatrix4(mesh.matrixWorld)
+    const material = new THREE.MeshBasicMaterial({
+      color: '#3678c9',
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    const copy = new THREE.Mesh(geometry, material)
+    copy.renderOrder = 1
+    root.add(copy)
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geometry, 24),
+      new THREE.LineBasicMaterial({ color: '#3678c9', transparent: true, opacity: 0.9, toneMapped: false }),
+    )
+    edges.renderOrder = 2
+    root.add(edges)
+    const stride = Math.max(1, Math.ceil(positions.count / 300))
+    for (let index = 0; index < positions.count; index += stride) {
+      points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(mesh.matrixWorld))
+    }
+  }
+  if (c2mAnalysisSession) c2mAnalysisSession.forEachComponentMesh(bar.ifcGlobalId, addMesh)
+  if (!points.length && c2mSceneGroup) {
+    c2mSceneGroup.updateMatrixWorld(true)
+    c2mSceneGroup.traverse((object) => {
+      if (!(object instanceof THREE.Mesh) || points.length) return
+      const subset = subsetReportGeometry(object.geometry, bar.vertexStart, bar.vertexCount)
+      if (!subset) return
+      const matrixWorld = object.matrixWorld.clone()
+      const positions = subset.getAttribute('position')
+      const material = new THREE.MeshBasicMaterial({
+        color: '#3678c9', transparent: true, opacity: 0.22,
+        side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
+      })
+      const copy = new THREE.Mesh(subset, material)
+      copy.applyMatrix4(matrixWorld)
+      copy.renderOrder = 1
+      root.add(copy)
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(subset, 24),
+        new THREE.LineBasicMaterial({ color: '#3678c9', transparent: true, opacity: 0.9, toneMapped: false }),
+      )
+      edges.applyMatrix4(matrixWorld)
+      edges.renderOrder = 2
+      root.add(edges)
+      const stride = Math.max(1, Math.ceil(positions.count / 300))
+      for (let index = 0; index < positions.count; index += stride) {
+        points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld))
+      }
+    })
+  }
+  if (!points.length && bimPivot) {
+    bimPivot.updateMatrixWorld(true)
+    bimPivot.traverse((object) => {
+      if (object instanceof THREE.Mesh && objectMatchesComparisonBar(object, bar.ifcGlobalId)) addMesh(object)
+    })
+  }
+}
+
+function addReportPointCloud(root: THREE.Group, bar: RebarComparisonBar, points: THREE.Vector3[]) {
+  const geometry = denoisePreview?.geometry
+  const positions = geometry?.getAttribute('position')
+  const instances = geometry?.getAttribute('instance')
+  const labels = geometry?.getAttribute('label')
+  if (!positions || !instances || !denoisePreview) return
+  const instanceIds = new Set(bar.instanceIds)
+  denoisePreview.updateMatrixWorld(true)
+  const matrixWorld = denoisePreview.matrixWorld
+  const selected: number[] = []
+  const stride = Math.max(1, Math.ceil(positions.count / 12000))
+  for (let index = 0; index < positions.count; index += stride) {
+    if (labels && labels.getX(index) !== 3) continue
+    if (!instanceIds.has(Math.round(instances.getX(index)))) continue
+    const point = new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld)
+    points.push(point)
+    selected.push(point.x, point.y, point.z)
+  }
+  if (!selected.length) return
+  const pointGeometry = new THREE.BufferGeometry()
+  pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(selected, 3))
+  root.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial({
+    color: '#176b43',
+    size: 0.018,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    toneMapped: false,
+  })))
+}
+
+function reportViewLabel(projection: ReportViewProjection) {
+  return projection === 'top' ? '俯视' : projection === 'front' ? '正视' : '侧视'
+}
+
+function reportViewHint(projection: ReportViewProjection) {
+  return projection === 'top'
+    ? '沿世界 Y 轴观察'
+    : projection === 'front'
+      ? '沿世界 Z 轴观察（端面可能呈圆形）'
+      : '沿构件侧向观察（轴线竖向）'
+}
+
+function reportViewCorners(box: THREE.Box3) {
+  const { min, max } = box
+  return [
+    new THREE.Vector3(min.x, min.y, min.z), new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(min.x, max.y, min.z), new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z), new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(min.x, max.y, max.z), new THREE.Vector3(max.x, max.y, max.z),
+  ]
+}
+
+function renderReportModelView(bar: RebarComparisonBar, projection: ReportViewProjection) {
+  const key = reportCanvasKey(bar.ifcGlobalId, projection)
+  const canvas = reportCanvasRefs.get(key)
+  if (!canvas || canvas.clientWidth < 2 || canvas.clientHeight < 2) return
+  disposeReportView(key)
+  const designPoints: THREE.Vector3[] = []
+  const scanPoints: THREE.Vector3[] = []
+  const root = new THREE.Group()
+  addReportDesignMeshes(root, bar, designPoints)
+  addReportPointCloud(root, bar, scanPoints)
+  if (!designPoints.length && !scanPoints.length) return
+  root.updateMatrixWorld(true)
+  const bounds = new THREE.Box3().setFromObject(root)
+  const center = bounds.getCenter(new THREE.Vector3())
+  const size = bounds.getSize(new THREE.Vector3())
+  const maxDim = Math.max(size.x, size.y, size.z, 0.001)
+  const axis = reportPrincipalAxis(designPoints.length ? designPoints : scanPoints)
+  const viewDirection = projection === 'top'
+    ? new THREE.Vector3(0, 1, 0)
+    : projection === 'front'
+      ? new THREE.Vector3(0, 0, 1)
+      : new THREE.Vector3().crossVectors(axis, Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1)).normalize()
+  if (viewDirection.lengthSq() < 1e-8) viewDirection.set(1, 0, 0)
+  const viewUp = projection === 'top' ? new THREE.Vector3(0, 0, -1) : projection === 'front' ? new THREE.Vector3(0, 1, 0) : axis.clone().normalize()
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.001, maxDim * 20)
+  camera.position.copy(center).addScaledVector(viewDirection, maxDim * 4)
+  camera.up.copy(viewUp)
+  camera.lookAt(center)
+  camera.updateMatrixWorld(true)
+  const aspect = Math.max(canvas.clientWidth / Math.max(canvas.clientHeight, 1), 0.1)
+  let halfHeight = 0.001
+  let halfWidth = 0.001
+  reportViewCorners(bounds).forEach((corner) => {
+    const local = camera.worldToLocal(corner.clone())
+    halfWidth = Math.max(halfWidth, Math.abs(local.x))
+    halfHeight = Math.max(halfHeight, Math.abs(local.y))
+  })
+  halfHeight = Math.max(halfHeight, halfWidth / aspect) * 1.16
+  halfWidth = halfHeight * aspect
+  camera.left = -halfWidth
+  camera.right = halfWidth
+  camera.top = halfHeight
+  camera.bottom = -halfHeight
+  camera.updateProjectionMatrix()
+
+  if (projection === 'side' && designPoints.length > 1) {
+    const designCenter = designPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / designPoints.length)
+    const axisOffsets = designPoints.map((point) => point.clone().sub(designCenter).dot(axis))
+    const axisStart = designCenter.clone().addScaledVector(axis, Math.min(...axisOffsets))
+    const axisEnd = designCenter.clone().addScaledVector(axis, Math.max(...axisOffsets))
+    const axisGeometry = new THREE.BufferGeometry().setFromPoints([axisStart, axisEnd])
+    const axisMaterial = new THREE.LineDashedMaterial({ color: '#c47a25', dashSize: maxDim * 0.045, gapSize: maxDim * 0.025, transparent: true, opacity: 0.95, toneMapped: false })
+    const axisLine = new THREE.Line(axisGeometry, axisMaterial)
+    axisLine.computeLineDistances()
+    axisLine.renderOrder = 4
+    root.add(axisLine)
+  }
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)
+  renderer.setClearColor('#f7fafb', 1)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  const viewScene = new THREE.Scene()
+  viewScene.add(root)
+  viewScene.add(new THREE.AmbientLight(0xffffff, 1))
+  renderer.render(viewScene, camera)
+  reportViewRenderers.set(key, renderer)
+  reportViewScenes.set(key, viewScene)
+  reportViewCameras.set(key, camera)
+}
+
+async function renderReportModelViews() {
+  await nextTick()
+  disposeReportModelViews()
+  const bars = comparisonReportViewPages.value[comparisonReportViewPageIndex.value] ?? []
+  bars.forEach((bar) => {
+    ;(['top', 'front', 'side'] as ReportViewProjection[]).forEach((projection) => renderReportModelView(bar, projection))
+  })
+}
+
+watch(
+  [activeWorkflowStep, comparisonReportViewPageIndex, comparisonReportViewPages, reportGeometryRevision],
+  () => {
+    if (activeWorkflowStep.value === 4) void renderReportModelViews()
+  },
+  { deep: true },
+)
+
 async function runC2M() {
   if (!canRunC2M.value || !props.pointcloudAssetId || !props.bimAssetId) return
   if (meshTaskActive.value) {
@@ -1468,6 +1879,7 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
 
   nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
     if (!tileScene || requestId !== c2mSceneLoadRequestId || c2mTileset !== nextTileset) return
+    reportGeometryRevision.value += 1
     if (rendererMode === 'webgpu') sanitizeObjectForWebGPU(tileScene)
     tileScene.traverse((object: THREE.Object3D) => {
       const mesh = object as THREE.Mesh
@@ -1526,6 +1938,7 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
   })
   nextTileset.addEventListener('load-root-tileset', () => {
     if (requestId !== c2mSceneLoadRequestId || c2mTileset !== nextTileset) return
+    reportGeometryRevision.value += 1
     requestRender()
   })
   nextTileset.addEventListener('load-error', ({ error }: any) => {
@@ -6798,6 +7211,7 @@ async function handleLoadBimFromApi(silent = false) {
           bimPivot = pivot
           bimLoaded.value = true
           bimVisible.value = true
+          reportGeometryRevision.value += 1
 
           ensureInitialTransformState(bimPivot)
           recenterLoadedContentAsWhole()
@@ -7146,6 +7560,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposeReportModelViews()
+  reportCanvasRefs.clear()
   resetRebarInspection()
   denoiseRequestId++
   clearDenoisePreview()
@@ -7578,13 +7994,13 @@ onBeforeUnmount(() => {
               <div class="cover-brand"><div class="report-preview-mark"><img src="/favicon.ico" alt="系统标识" /></div><div><span>点云与工程坐标配准</span><strong>BIM 与点云校准系统</strong></div></div>
               <div class="cover-report-number"><small>报告编号</small><strong>REPORT / 001</strong></div>
             </header>
-            <div class="cover-main"><span class="cover-kicker">BIM 与点云校准成果</span><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><p>Scan vs BIM Deviation Report</p><i aria-hidden="true"></i></div>
+            <div class="cover-main"><span class="cover-kicker">BIM 与点云校准成果</span><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><i aria-hidden="true"></i></div>
             <dl class="cover-details"><div><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></div><div><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></div><div><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></div><div><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></div><div><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></div><div><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></div></dl>
             <div class="cover-status"><span></span><div><small>当前检测状态</small><strong>{{ canUseC2MResult ? '逐钢筋偏差结果已生成' : '待生成有效偏差结果' }}</strong></div></div>
             <div class="cover-footer"><span>BIM 与点云校准</span><span>第 01 页</span></div>
           </div>
         </div>
-        <div v-for="(bars, page) in comparisonReportPages" :key="page" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-for="(bars, page) in comparisonReportPages" :key="`table-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
           <nav v-if="comparisonReportPageCount > 1 && page === comparisonReportPageIndex" class="rebar-report-page-nav" aria-label="表格翻页">
             <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonReportPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
             <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonReportPageCount }} 页</strong><small>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }}</small></span>
@@ -7595,9 +8011,9 @@ onBeforeUnmount(() => {
               <div class="report-preview-mark"><img src="/favicon.ico" alt="系统标识" /></div>
               <div>
                 <strong>{{ reportTitle }}</strong>
-                <span>{{ reportProjectName }} · Scan vs BIM</span>
+                <span>{{ reportProjectName }}</span>
               </div>
-              <small>REPORT / 001 · {{ page + 2 }} / {{ comparisonReportPages.length + 1 }}</small>
+              <small>REPORT / 001 · {{ page + 2 }} / {{ comparisonReportTotalPages }}</small>
             </header>
             <div class="rebar-report-heading">
               <div>
@@ -7623,7 +8039,62 @@ onBeforeUnmount(() => {
                 <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
               </tr></tbody>
             </table>
-            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差报告</span><span>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} 页</span></footer>
+            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差报告</span><span>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
+          </article>
+        </div>
+        <div v-for="(bars, page) in comparisonReportViewPages" :key="`views-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportViewPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <nav v-if="comparisonReportViewPageCount > 1" class="rebar-report-page-nav" aria-label="构件三视图翻页">
+            <button type="button" aria-label="上一组三视图" title="上一组三视图" :disabled="page === 0" @click="changeComparisonReportViewPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
+            <span class="rebar-report-page-nav-label"><strong>构件三视图 · 第 {{ page + 1 }} / {{ comparisonReportViewPageCount }} 页</strong><small>每页 {{ bars.length }} 个已映射构件</small></span>
+            <button type="button" aria-label="下一组三视图" title="下一组三视图" :disabled="page >= comparisonReportViewPageCount - 1" @click="changeComparisonReportViewPage(1)"><el-icon><ArrowRight /></el-icon></button>
+          </nav>
+          <article class="report-preview-page rebar-report-page rebar-report-views-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
+            <header class="report-preview-page__header">
+              <div class="report-preview-mark"><img src="/favicon.ico" alt="系统标识" /></div>
+              <div><strong>{{ reportTitle }}</strong><span>{{ reportProjectName }}</span></div>
+              <small>REPORT / 001 · {{ comparisonReportPages.length + page + 2 }} / {{ comparisonReportTotalPages }}</small>
+            </header>
+            <div class="rebar-report-heading">
+              <div>
+                <h2>钢筋构件三视图</h2>
+              </div>
+              <div class="rebar-report-count"><strong>{{ bars.length }}</strong><span>个已映射构件</span></div>
+            </div>
+            <div class="rebar-report-view-guide" aria-label="三视图图例">
+              <span><i class="rebar-report-view-guide__swatch is-design"></i>BIM 设计模型</span>
+              <span><i class="rebar-report-view-guide__swatch is-scan"></i>实测点云</span>
+              <span><i class="rebar-report-view-guide__swatch is-axis"></i>设计轴</span>
+            </div>
+            <div class="rebar-report-view-grid">
+              <section v-for="bar in bars" :key="bar.ifcGlobalId" class="rebar-report-view-card">
+                <header>
+                  <div class="rebar-report-view-card__title">
+                    <strong>{{ bar.name || bar.designBarId }}</strong>
+                    <span class="rebar-report-status" :class="`is-${bar.status}`">{{ rebarStatusLabel(bar.status) }}</span>
+                  </div>
+                  <span class="rebar-report-view-card__id">构件编号 {{ bar.ifcGlobalId }}</span>
+                  <div class="rebar-report-view-card__summary">
+                    <span>设计顶点 <b>{{ bar.vertexCount.toLocaleString() }}</b></span>
+                    <span>映射点 <b>{{ bar.pointCount.toLocaleString() }}</b></span>
+                    <span>映射实例 <b>{{ bar.instanceIds.length }}</b></span>
+                    <span>覆盖率 <b>{{ formatC2MPercentage(bar.vertexCount ? bar.knownCount / bar.vertexCount : undefined) }}</b></span>
+                    <span>平均偏差 <b>{{ bar.stats?.meanAbs === undefined ? '--' : `${(bar.stats.meanAbs * 1000).toFixed(2)} mm` }}</b></span>
+                  </div>
+                </header>
+                <div class="rebar-report-views" aria-label="钢筋构件三视图">
+                  <div v-for="projection in (['top', 'front', 'side'] as ReportViewProjection[])" :key="projection" class="rebar-report-view">
+                    <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}<small>{{ reportViewHint(projection) }}</small></strong>
+                    <canvas
+                      :ref="(element) => setReportCanvasRef(bar.ifcGlobalId, projection, element as Element | null)"
+                      class="rebar-report-model-canvas"
+                      role="img"
+                      :aria-label="`${reportViewLabel(projection)}真实模型视图`"
+                    ></canvas>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 构件三视图报告</span><span>第 {{ comparisonReportPages.length + page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
           </article>
         </div>
       </section>
@@ -8146,9 +8617,11 @@ onBeforeUnmount(() => {
                   class="rebar-inspection__manual-select"
                   :type="rebarInspectionManualSelect ? 'primary' : 'default'"
                   :plain="!rebarInspectionManualSelect"
-                  @click="toggleRebarManualSelection"
+                  :aria-pressed="rebarInspectionManualSelect"
+                  :title="rebarInspectionManualSelect ? '退出手动选择' : '开启手动选择'"
+                  @click.stop="toggleRebarManualSelection"
                 >
-                  手动选择
+                  {{ rebarInspectionManualSelect ? '退出手动选择' : '手动选择' }}
                 </el-button>
                 <el-button
                   aria-label="下一根钢筋"
