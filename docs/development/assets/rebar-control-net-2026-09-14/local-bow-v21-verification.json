@@ -1,0 +1,274 @@
+{
+  "official": {
+    "runId": "20260914T170543-dd48a2ce",
+    "version": "design-control-net-v21",
+    "timings": {
+      "readS": 0.1932189470389858,
+      "treeS": 1.804426955000963,
+      "normalsS": 5.708177610009443,
+      "preprocessingS": 0.3858918210025877,
+      "controlNetS": 16.12435924698366,
+      "persistS": 0.9543923119781539,
+      "previewS": 0.35875589202623814,
+      "totalS": 25.587165820994414
+    },
+    "counts": {
+      "input": 9216369,
+      "table": 5315996,
+      "matched": 1827099,
+      "pending": 2073245,
+      "removed": 29,
+      "excluded": 0,
+      "designUnits": 210,
+      "fittedUnits": 210,
+      "designBars": 70,
+      "candidateFittedUnits": 0,
+      "extendedShortUnits": 12,
+      "surfaceRefinedUnits": 5,
+      "surfaceResampledUnits": 6,
+      "longBodyRefinedUnits": 1,
+      "lengthReviewUnits": 0
+    },
+    "sourceCoordinatesNormalsAndTableUnchanged": true,
+    "fullReplayArraysAndBodiesIdentical": true,
+    "previewPointCount": 1000000,
+    "previewSourceMappingCorrect": true
+  },
+  "benchmark": [
+    {
+      "version": "v20",
+      "runDirectory": "/tmp/cloudbim-v21/pipeline-v20/20260914T170306-0ef81a13",
+      "timings": {
+        "readS": 0.1854846590431407,
+        "treeS": 1.7998473059851676,
+        "normalsS": 5.591711193032097,
+        "preprocessingS": 0.38679537700954825,
+        "controlNetS": 15.525923879991751,
+        "persistS": 1.0014614809770137,
+        "previewS": 0.35882538999430835,
+        "totalS": 24.90662322100252
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1815457,
+        "pending": 2084887,
+        "removed": 29,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "surfaceResampledUnits": 5,
+        "lengthReviewUnits": 0
+      }
+    },
+    {
+      "version": "v21",
+      "runDirectory": "/tmp/cloudbim-v21/pipeline-v21/20260914T170331-f6518ae7",
+      "timings": {
+        "readS": 0.17621637100819498,
+        "treeS": 1.7924899739446118,
+        "normalsS": 5.950548518972937,
+        "preprocessingS": 0.3868838860071264,
+        "controlNetS": 15.97719695098931,
+        "persistS": 1.0155515569495037,
+        "previewS": 0.3637288330355659,
+        "totalS": 25.727515993989073
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1827099,
+        "pending": 2073245,
+        "removed": 29,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "surfaceResampledUnits": 6,
+        "longBodyRefinedUnits": 1,
+        "lengthReviewUnits": 0
+      }
+    }
+  ],
+  "ownership": {
+    "changedBodies": [
+      11,
+      49,
+      58
+    ],
+    "newlyAssigned": 11776,
+    "netAssignedChange": 11642,
+    "previousOwnersLost": 134,
+    "reassignedToDifferentOwner": 6,
+    "maxChangedPointDistanceToAffectedGeometryM": 0.00637124134707734,
+    "maxNewOwnerSurfaceResidualM": 0.0014396406251546015,
+    "sourceTableMaskUnchanged": true,
+    "allStatusesConsistentWithOwner": true,
+    "endpoints": [
+      {
+        "id": 28,
+        "side": "start",
+        "medianBeforeMm": 0.14528336449139145,
+        "medianAfterMm": 0.14528336449139145,
+        "ownedBefore": 1189,
+        "ownedAfter": 1189,
+        "points": 1189
+      },
+      {
+        "id": 28,
+        "side": "end",
+        "medianBeforeMm": 0.48304735202299875,
+        "medianAfterMm": 0.48304735202299875,
+        "ownedBefore": 673,
+        "ownedAfter": 673,
+        "points": 1015
+      },
+      {
+        "id": 29,
+        "side": "start",
+        "medianBeforeMm": 0.1724007848105454,
+        "medianAfterMm": 0.1724007848105454,
+        "ownedBefore": 1272,
+        "ownedAfter": 1272,
+        "points": 1272
+      },
+      {
+        "id": 29,
+        "side": "end",
+        "medianBeforeMm": 1.3893917237644782,
+        "medianAfterMm": 1.3893917237644782,
+        "ownedBefore": 510,
+        "ownedAfter": 510,
+        "points": 989
+      },
+      {
+        "id": 30,
+        "side": "start",
+        "medianBeforeMm": 0.16771443736195982,
+        "medianAfterMm": 0.16771443736195982,
+        "ownedBefore": 1518,
+        "ownedAfter": 1518,
+        "points": 1518
+      },
+      {
+        "id": 30,
+        "side": "end",
+        "medianBeforeMm": 1.2228760632637223,
+        "medianAfterMm": 1.2228760632637223,
+        "ownedBefore": 517,
+        "ownedAfter": 517,
+        "points": 943
+      },
+      {
+        "id": 32,
+        "side": "start",
+        "medianBeforeMm": 0.2278641828889834,
+        "medianAfterMm": 0.2278641828889834,
+        "ownedBefore": 1183,
+        "ownedAfter": 1183,
+        "points": 1183
+      },
+      {
+        "id": 32,
+        "side": "end",
+        "medianBeforeMm": 0.5707531585421797,
+        "medianAfterMm": 0.5707531585421797,
+        "ownedBefore": 633,
+        "ownedAfter": 633,
+        "points": 965
+      },
+      {
+        "id": 34,
+        "side": "start",
+        "medianBeforeMm": 0.2581296965427642,
+        "medianAfterMm": 0.2581296965427642,
+        "ownedBefore": 1101,
+        "ownedAfter": 1101,
+        "points": 1101
+      },
+      {
+        "id": 34,
+        "side": "end",
+        "medianBeforeMm": 1.040182131098936,
+        "medianAfterMm": 1.040182131098936,
+        "ownedBefore": 743,
+        "ownedAfter": 743,
+        "points": 1092
+      }
+    ]
+  },
+  "localBend": [
+    {
+      "version": "v20",
+      "points": 10006,
+      "medianMm": 2.4825551770196155,
+      "surfaceSupport": 0.2580451728962622,
+      "assigned": 2508,
+      "assignedFraction": 0.2506496102338597,
+      "rowPoints": 54078
+    },
+    {
+      "version": "v21",
+      "points": 10006,
+      "medianMm": 0.4997821745760453,
+      "surfaceSupport": 0.9566260243853688,
+      "assigned": 9554,
+      "assignedFraction": 0.9548271037377574,
+      "rowPoints": 65737
+    }
+  ],
+  "loader": {
+    "runId": "20260914T170543-dd48a2ce",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 124,
+      "pendingPieces": 26,
+      "inferredPieces": 26,
+      "unresolvedPieces": 0,
+      "locallySupportedPieces": 3,
+      "locallyMatchedPoints": 3304,
+      "matchedPoints": 40035,
+      "workers": 8,
+      "elapsedS": 7.353563598997425
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design": 124,
+      "fit": 210,
+      "curve-fit": 124,
+      "curve-design-inferred": 26,
+      "curve-local-supported": 7
+    },
+    "webglInteraction": "unverified: CUA reported no browsers; iab unavailable"
+  },
+  "las": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1827099,
+    "control-pending.las": 2073245,
+    "control-removed.las": 29,
+    "control-excluded.las": 0
+  },
+  "parallelReplay": {
+    "workers": [
+      4,
+      8
+    ],
+    "fullSourceStatusAndInstanceArraysIdentical": true,
+    "allBodyAndCurvedPieceRowsIdentical": true
+  },
+  "tests": {
+    "python": 117,
+    "node": 42,
+    "isolatedIndexExport": true
+  },
+  "basis": "v20 to v21; real-source records; unchanged classification tolerance"
+}

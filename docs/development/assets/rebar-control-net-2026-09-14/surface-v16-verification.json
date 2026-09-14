@@ -1,0 +1,687 @@
+{
+  "runId": "20260914T120236-67f3aadd",
+  "sourceAndTableUnchanged": true,
+  "fullOwnershipEqualsIndependentReplay": true,
+  "previewSourceMappingVerified": true,
+  "unchangedStraightAxes": 51,
+  "maxAttachmentGapM": 0,
+  "counts": {
+    "input": 9216369,
+    "table": 5315996,
+    "matched": 1775810,
+    "pending": 2124533,
+    "removed": 30,
+    "excluded": 0,
+    "designUnits": 210,
+    "fittedUnits": 210,
+    "designBars": 70,
+    "candidateFittedUnits": 0,
+    "extendedShortUnits": 12,
+    "surfaceRefinedUnits": 5,
+    "lengthReviewUnits": 0
+  },
+  "curves": {
+    "designPieces": 150,
+    "fittedPieces": 123,
+    "pendingPieces": 27,
+    "inferredPieces": 23,
+    "matchedPoints": 30529,
+    "workers": 8,
+    "elapsedS": 6.917578257038258
+  },
+  "changedCurves": [],
+  "unconnected": [
+    {
+      "unitIds": [
+        2
+      ],
+      "kind": "terminal",
+      "reason": "unstable-held-out-curve"
+    },
+    {
+      "unitIds": [
+        7
+      ],
+      "kind": "terminal",
+      "reason": "insufficient-continuous-curved-surface"
+    },
+    {
+      "unitIds": [
+        10
+      ],
+      "kind": "terminal",
+      "reason": "insufficient-continuous-curved-surface"
+    },
+    {
+      "unitIds": [
+        11
+      ],
+      "kind": "terminal",
+      "reason": "unobserved-terminal-leg"
+    }
+  ],
+  "surfaceRefinements": [
+    {
+      "id": 2,
+      "kind": "straight",
+      "method": "held-out-full-surface-end-correction",
+      "ends": [
+        {
+          "side": "start",
+          "correctionSpanM": 0.5,
+          "validationMedianBeforeM": 0.0017162642511210939,
+          "validationMedianAfterM": 0.0003124366278653421,
+          "maxShiftM": 0.008871838383939713,
+          "improvedValidationBands": 6
+        },
+        {
+          "side": "end",
+          "correctionSpanM": 0.7054328560976636,
+          "validationMedianBeforeM": 0.0017264694571972807,
+          "validationMedianAfterM": 0.00027536452250794766,
+          "maxShiftM": 0.0073971562153841795,
+          "improvedValidationBands": 7
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "straight",
+      "method": "held-out-full-surface-end-correction",
+      "ends": [
+        {
+          "side": "start",
+          "correctionSpanM": 0.5,
+          "validationMedianBeforeM": 0.001732162038800067,
+          "validationMedianAfterM": 0.00036815858074170163,
+          "maxShiftM": 0.002658627473635086,
+          "improvedValidationBands": 8
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "straight",
+      "method": "held-out-full-surface-end-correction",
+      "ends": [
+        {
+          "side": "start",
+          "correctionSpanM": 0.5,
+          "validationMedianBeforeM": 0.002466857871348869,
+          "validationMedianAfterM": 0.0008434863776734178,
+          "maxShiftM": 0.003839760439164543,
+          "improvedValidationBands": 6
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "kind": "short",
+      "method": "held-out-full-surface-short-pose",
+      "validationMedianBeforeM": 0.0006476445534776779,
+      "validationMedianAfterM": 0.00047151376629012446,
+      "maxEndpointShiftM": 0.0015577477708993703,
+      "improvedValidationBands": 5
+    },
+    {
+      "id": 57,
+      "kind": "short",
+      "method": "held-out-full-surface-short-pose",
+      "validationMedianBeforeM": 0.0002877579251373743,
+      "validationMedianAfterM": 0.0002094496603496222,
+      "maxEndpointShiftM": 0.0011107767956628036,
+      "improvedValidationBands": 6
+    }
+  ],
+  "short51Recovery": null,
+  "officialTimings": {
+    "readS": 0.18612104299245402,
+    "treeS": 1.8031241450225934,
+    "normalsS": 6.0173490539891645,
+    "preprocessingS": 0.3898916729958728,
+    "controlNetS": 14.961673491983674,
+    "persistS": 1.0350080839707516,
+    "previewS": 0.3602360909571871,
+    "totalS": 24.817971181997564
+  },
+  "shortLengthsMm": [
+    {
+      "id": 49,
+      "design": 280.0000000000002,
+      "fitted": 318.43673613789645
+    },
+    {
+      "id": 50,
+      "design": 280.0000000000002,
+      "fitted": 383.95267670159177
+    },
+    {
+      "id": 51,
+      "design": 280.0000000000002,
+      "fitted": 344.2793707862489
+    },
+    {
+      "id": 52,
+      "design": 280.0000000000002,
+      "fitted": 318.43022314068537
+    },
+    {
+      "id": 53,
+      "design": 280.0000000000002,
+      "fitted": 365.94998431443616
+    },
+    {
+      "id": 54,
+      "design": 280.0000000000002,
+      "fitted": 364.75543711552325
+    },
+    {
+      "id": 55,
+      "design": 280.0000000000002,
+      "fitted": 297.0327713400792
+    },
+    {
+      "id": 56,
+      "design": 280.0000000000002,
+      "fitted": 380.6336269973502
+    },
+    {
+      "id": 57,
+      "design": 280.0000000000002,
+      "fitted": 315.2961152288806
+    },
+    {
+      "id": 58,
+      "design": 280.0000000000002,
+      "fitted": 362.0676406983948
+    },
+    {
+      "id": 59,
+      "design": 280.0000000000002,
+      "fitted": 381.07960765425656
+    },
+    {
+      "id": 60,
+      "design": 280.0000000000002,
+      "fitted": 378.04305989691875
+    }
+  ],
+  "benchmark": [
+    {
+      "version": "v15",
+      "iteration": 0,
+      "elapsedS": 15.24943980295211,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1762206,
+        "pending": 2138137,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "lengthReviewUnits": 0
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 123,
+        "pendingPieces": 27,
+        "matchedPoints": 33721,
+        "workers": 8,
+        "elapsedS": 7.57553019199986
+      },
+      "stages": [
+        {
+          "kind": "straight",
+          "designUnits": 54,
+          "fittedUnits": 54,
+          "lockedPoints": 1489125,
+          "elapsedS": 5.030987586011179
+        },
+        {
+          "kind": "short",
+          "designUnits": 12,
+          "fittedUnits": 12,
+          "lockedPoints": 69968,
+          "elapsedS": 0.6907587809837423
+        },
+        {
+          "kind": "web",
+          "designUnits": 144,
+          "fittedUnits": 144,
+          "lockedPoints": 169392,
+          "elapsedS": 1.031191738031339
+        }
+      ]
+    },
+    {
+      "version": "v16",
+      "iteration": 0,
+      "elapsedS": 14.990558008023072,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1775810,
+        "pending": 2124533,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 123,
+        "pendingPieces": 27,
+        "inferredPieces": 23,
+        "matchedPoints": 30529,
+        "workers": 8,
+        "elapsedS": 6.958276275952812
+      },
+      "stages": [
+        {
+          "kind": "straight",
+          "designUnits": 54,
+          "fittedUnits": 54,
+          "lockedPoints": 1504066,
+          "elapsedS": 5.276598693977576
+        },
+        {
+          "kind": "short",
+          "designUnits": 12,
+          "fittedUnits": 12,
+          "lockedPoints": 71823,
+          "elapsedS": 0.7327720350003801
+        },
+        {
+          "kind": "web",
+          "designUnits": 144,
+          "fittedUnits": 144,
+          "lockedPoints": 169392,
+          "elapsedS": 1.0334856039844453
+        }
+      ]
+    },
+    {
+      "version": "v16",
+      "iteration": 1,
+      "elapsedS": 14.817914558982011,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1775810,
+        "pending": 2124533,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 123,
+        "pendingPieces": 27,
+        "inferredPieces": 23,
+        "matchedPoints": 30529,
+        "workers": 8,
+        "elapsedS": 6.94659792695893
+      },
+      "stages": [
+        {
+          "kind": "straight",
+          "designUnits": 54,
+          "fittedUnits": 54,
+          "lockedPoints": 1504066,
+          "elapsedS": 5.121660900011193
+        },
+        {
+          "kind": "short",
+          "designUnits": 12,
+          "fittedUnits": 12,
+          "lockedPoints": 71823,
+          "elapsedS": 0.7373740859911777
+        },
+        {
+          "kind": "web",
+          "designUnits": 144,
+          "fittedUnits": 144,
+          "lockedPoints": 169392,
+          "elapsedS": 1.022766646987293
+        }
+      ]
+    },
+    {
+      "version": "v15",
+      "iteration": 1,
+      "elapsedS": 15.109427581017371,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1762206,
+        "pending": 2138137,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "lengthReviewUnits": 0
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 123,
+        "pendingPieces": 27,
+        "matchedPoints": 33721,
+        "workers": 8,
+        "elapsedS": 7.51178132602945
+      },
+      "stages": [
+        {
+          "kind": "straight",
+          "designUnits": 54,
+          "fittedUnits": 54,
+          "lockedPoints": 1489125,
+          "elapsedS": 4.952594636008143
+        },
+        {
+          "kind": "short",
+          "designUnits": 12,
+          "fittedUnits": 12,
+          "lockedPoints": 69968,
+          "elapsedS": 0.6940594390034676
+        },
+        {
+          "kind": "web",
+          "designUnits": 144,
+          "fittedUnits": 144,
+          "lockedPoints": 169392,
+          "elapsedS": 1.0416197459562682
+        }
+      ]
+    }
+  ],
+  "pipelineBenchmark": [
+    {
+      "version": "v15",
+      "runDirectory": "/tmp/cloudbim-v16/pipeline-v15/20260914T120139-3f68118a",
+      "timings": {
+        "readS": 0.1862469870247878,
+        "treeS": 1.8654545489698648,
+        "normalsS": 5.96368224703474,
+        "preprocessingS": 0.38601885800017044,
+        "controlNetS": 15.09973561798688,
+        "persistS": 0.9967555179609917,
+        "previewS": 0.3619054090231657,
+        "totalS": 24.915176194976084
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1762206,
+        "pending": 2138137,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "lengthReviewUnits": 0
+      }
+    },
+    {
+      "version": "v16",
+      "runDirectory": "/tmp/cloudbim-v16/pipeline-v16/20260914T120204-2a9e3273",
+      "timings": {
+        "readS": 0.18231540801934898,
+        "treeS": 1.8026566139888018,
+        "normalsS": 6.095571190002374,
+        "preprocessingS": 0.38917408901033923,
+        "controlNetS": 14.968799767026212,
+        "persistS": 1.0588788680033758,
+        "previewS": 0.36339083703933284,
+        "totalS": 24.925641496956814
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1775810,
+        "pending": 2124533,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      }
+    }
+  ],
+  "httpLoader": {
+    "runId": "20260914T120236-67f3aadd",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 123,
+      "pendingPieces": 27,
+      "inferredPieces": 23,
+      "matchedPoints": 30529,
+      "workers": 8,
+      "elapsedS": 6.917578257038258
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design-pending": 4,
+      "curve-design": 123,
+      "fit": 210,
+      "curve-fit": 123,
+      "curve-design-inferred": 23
+    },
+    "webglInteraction": "unverified: no CUA browser available"
+  },
+  "las": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1775810,
+    "control-pending.las": 2124533,
+    "control-removed.las": 30,
+    "control-excluded.las": 0
+  },
+  "poolChecks": {
+    "shared-success-8-8": {
+      "workers": 8,
+      "curveWorkers": 8,
+      "failure": false,
+      "route": {
+        "executorPassed": true,
+        "executorMaxWorkers": 8,
+        "bodyPidsAtCurveEntry": [
+          3127243,
+          3127246,
+          3127247,
+          3127248,
+          3127249,
+          3127250,
+          3127251,
+          3127252
+        ],
+        "liveBodyAtCurveEntry": 8,
+        "postCurveSubmitPid": 3127250
+      },
+      "bodyWorkerPids": [
+        3127243,
+        3127246,
+        3127247,
+        3127248,
+        3127249,
+        3127250,
+        3127251,
+        3127252
+      ],
+      "curveWorkerPids": [
+        3127243,
+        3127246,
+        3127247,
+        3127248,
+        3127249,
+        3127250,
+        3127251,
+        3127252
+      ],
+      "maxDirectChildren": 9,
+      "maxLivePoolWorkers": 8,
+      "numericalThreadsMax": 1,
+      "workersReaped": true,
+      "parentInputsUnchanged": true,
+      "backgroundThreadCompleted": true,
+      "error": null
+    },
+    "smaller-success-8-4": {
+      "workers": 8,
+      "curveWorkers": 4,
+      "failure": false,
+      "route": {
+        "executorPassed": false,
+        "executorMaxWorkers": null,
+        "bodyPidsAtCurveEntry": [
+          3127503,
+          3127507,
+          3127508,
+          3127509,
+          3127510,
+          3127511,
+          3127512
+        ],
+        "liveBodyAtCurveEntry": 0,
+        "localCurvePidsAliveAfterReturn": 0
+      },
+      "bodyWorkerPids": [
+        3127503,
+        3127507,
+        3127508,
+        3127509,
+        3127510,
+        3127511,
+        3127512
+      ],
+      "curveWorkerPids": [
+        3127779,
+        3127782,
+        3127783,
+        3127784
+      ],
+      "maxDirectChildren": 9,
+      "maxLivePoolWorkers": 7,
+      "numericalThreadsMax": 1,
+      "workersReaped": true,
+      "parentInputsUnchanged": true,
+      "backgroundThreadCompleted": true,
+      "error": null
+    },
+    "larger-success-4-8": {
+      "workers": 4,
+      "curveWorkers": 8,
+      "failure": false,
+      "route": {
+        "executorPassed": false,
+        "executorMaxWorkers": null,
+        "bodyPidsAtCurveEntry": [
+          3127950,
+          3127953,
+          3127954,
+          3127955
+        ],
+        "liveBodyAtCurveEntry": 0,
+        "localCurvePidsAliveAfterReturn": 0
+      },
+      "bodyWorkerPids": [
+        3127950,
+        3127953,
+        3127954,
+        3127955
+      ],
+      "curveWorkerPids": [
+        3128080,
+        3128083,
+        3128084,
+        3128085,
+        3128086,
+        3128087,
+        3128088,
+        3128089
+      ],
+      "maxDirectChildren": 9,
+      "maxLivePoolWorkers": 8,
+      "numericalThreadsMax": 1,
+      "workersReaped": true,
+      "parentInputsUnchanged": true,
+      "backgroundThreadCompleted": true,
+      "error": null
+    },
+    "shared-failure-8-8": {
+      "workers": 8,
+      "curveWorkers": 8,
+      "failure": true,
+      "route": {
+        "executorPassed": true,
+        "executorMaxWorkers": 8,
+        "bodyPidsAtCurveEntry": [
+          3128339,
+          3128342,
+          3128343,
+          3128344,
+          3128345,
+          3128346,
+          3128347,
+          3128348
+        ],
+        "liveBodyAtCurveEntry": 8
+      },
+      "bodyWorkerPids": [
+        3128339,
+        3128342,
+        3128343,
+        3128344,
+        3128345,
+        3128346,
+        3128347,
+        3128348
+      ],
+      "curveWorkerPids": [
+        3128339,
+        3128342,
+        3128343,
+        3128344,
+        3128345,
+        3128346,
+        3128347,
+        3128348
+      ],
+      "maxDirectChildren": 9,
+      "maxLivePoolWorkers": 8,
+      "numericalThreadsMax": 1,
+      "workersReaped": true,
+      "parentInputsUnchanged": true,
+      "backgroundThreadCompleted": true,
+      "error": "intentional curve-worker failure"
+    }
+  },
+  "tests": {
+    "python": 91,
+    "node": 35
+  }
+}

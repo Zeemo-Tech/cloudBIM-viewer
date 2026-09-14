@@ -1,0 +1,191 @@
+{
+  "runId": "20260914T144525-00f0cd5f",
+  "sourceNormalsTableAndFullOwnershipUnchanged": true,
+  "fullArraysEqualIndependentReplay": true,
+  "all210BodyFitsUnchanged": true,
+  "unchangedOtherCurves": 146,
+  "maxAttachmentGapM": 0.0,
+  "terminals": [
+    {
+      "unitIds": [
+        2
+      ],
+      "reason": "unstable-held-out-curve",
+      "basis": {
+        "anchorSide": "start",
+        "bendRadiusM": 0.02,
+        "bendAngleRad": 2.3561944901923573,
+        "tailLengthM": 0.039998749914706616,
+        "orientation": "body-tangent-and-design-plane"
+      }
+    },
+    {
+      "unitIds": [
+        7
+      ],
+      "reason": "insufficient-continuous-curved-surface",
+      "basis": {
+        "anchorSide": "start",
+        "bendRadiusM": 0.02,
+        "bendAngleRad": 2.3561944901923573,
+        "tailLengthM": 0.03999874991470659,
+        "orientation": "body-tangent-and-design-plane"
+      }
+    },
+    {
+      "unitIds": [
+        10
+      ],
+      "reason": "insufficient-continuous-curved-surface",
+      "basis": {
+        "anchorSide": "start",
+        "bendRadiusM": 0.02,
+        "bendAngleRad": 2.3561944901923573,
+        "tailLengthM": 0.03999874991470659,
+        "orientation": "body-tangent-and-design-plane"
+      }
+    },
+    {
+      "unitIds": [
+        11
+      ],
+      "reason": "unobserved-terminal-leg",
+      "basis": {
+        "anchorSide": "start",
+        "bendRadiusM": 0.02,
+        "bendAngleRad": 2.3561944901923573,
+        "tailLengthM": 0.039998749914706616,
+        "orientation": "body-tangent-and-design-plane"
+      }
+    }
+  ],
+  "counts": {
+    "input": 9216369,
+    "table": 5315996,
+    "matched": 1775810,
+    "pending": 2124533,
+    "removed": 30,
+    "excluded": 0,
+    "designUnits": 210,
+    "fittedUnits": 210,
+    "designBars": 70,
+    "candidateFittedUnits": 0,
+    "extendedShortUnits": 12,
+    "surfaceRefinedUnits": 5,
+    "lengthReviewUnits": 0
+  },
+  "curves": {
+    "designPieces": 150,
+    "fittedPieces": 123,
+    "pendingPieces": 27,
+    "inferredPieces": 27,
+    "unresolvedPieces": 0,
+    "matchedPoints": 30529,
+    "workers": 8,
+    "elapsedS": 6.951785603014287
+  },
+  "officialTimings": {
+    "readS": 0.18629612302174792,
+    "treeS": 1.8098205040441826,
+    "normalsS": 5.722152986971196,
+    "preprocessingS": 0.3858830949757248,
+    "controlNetS": 15.064424093987327,
+    "persistS": 1.0996126070385799,
+    "previewS": 0.36245176201919094,
+    "totalS": 24.68775038101012
+  },
+  "pipelineBenchmark": [
+    {
+      "version": "v16",
+      "runDirectory": "/tmp/cloudbim-v17/pipeline-v16/20260914T144216-c46655bd",
+      "timings": {
+        "readS": 0.18417591595789418,
+        "treeS": 1.7941113979904912,
+        "normalsS": 5.8935000150231645,
+        "preprocessingS": 0.38932753301924095,
+        "controlNetS": 15.51642499899026,
+        "persistS": 1.0519874549936503,
+        "previewS": 0.37047522695502266,
+        "totalS": 25.25711876695277
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1775810,
+        "pending": 2124533,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      }
+    },
+    {
+      "version": "v17",
+      "runDirectory": "/tmp/cloudbim-v17/pipeline-v17/20260914T144241-99198f43",
+      "timings": {
+        "readS": 0.184254580992274,
+        "treeS": 1.842869881016668,
+        "normalsS": 5.880690074001905,
+        "preprocessingS": 0.3937329880427569,
+        "controlNetS": 15.319722412037663,
+        "persistS": 1.0144929910311475,
+        "previewS": 0.36107014800654724,
+        "totalS": 25.05217044102028
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1775810,
+        "pending": 2124533,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      }
+    }
+  ],
+  "httpLoader": {
+    "runId": "20260914T144525-00f0cd5f",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 123,
+      "pendingPieces": 27,
+      "inferredPieces": 27,
+      "unresolvedPieces": 0,
+      "matchedPoints": 30529,
+      "workers": 8,
+      "elapsedS": 6.951785603014287
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design": 123,
+      "fit": 210,
+      "curve-fit": 123,
+      "curve-design-inferred": 27
+    },
+    "webglInteraction": "unverified: no CUA browser available"
+  },
+  "las": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1775810,
+    "control-pending.las": 2124533,
+    "control-removed.las": 30,
+    "control-excluded.las": 0
+  },
+  "tests": {
+    "python": 98,
+    "node": 37
+  }
+}

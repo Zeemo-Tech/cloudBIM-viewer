@@ -1,0 +1,13 @@
+{
+  "previewPoints": 1000000,
+  "previewMatchesSource": {
+    "control_status": true,
+    "control_instance": true
+  },
+  "sha256": {
+    "backend/data/assets/95b6b41c5857d9eb3407b155/pointcloud-steps/20260914T155930-098fe029/control-net.json": "72472770ba56993486dfe9e05aa69b96f275c9066f088076c26ef9d5667c6e72",
+    "services/mesh-service/algorithms/rebar_control_net.py": "7dbb9885f96adb36e97f4eb11b0a56f9647c4cc3ff78e0de2fb647bd032dd620",
+    "services/mesh-service/algorithms/rebar_control_curves.py": "c81611adba8836f8c44836d4194d6468eddf915ac22f00e6667f619fb2cedf7e",
+    "services/mesh-service/rebar_prior_axis.py": "5b75d94382d5da59d3a7a0d895a4ab18728a245fa0d371d3c653cbe5af0b8f8a"
+  }
+}

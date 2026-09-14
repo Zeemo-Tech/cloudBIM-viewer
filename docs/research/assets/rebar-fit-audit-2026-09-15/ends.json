@@ -1,0 +1,1202 @@
+[
+  {
+    "id": 1,
+    "side": "end",
+    "points": 762,
+    "pending": 238,
+    "oldMedianMm": 0.5384574514596969,
+    "newMedianMm": 0.2992028504337049,
+    "oldHeldCoverage": 0.5362903225806451,
+    "newHeldCoverage": 0.530241935483871,
+    "shiftMm": 0.3994099662486309,
+    "shiftUVmm": [
+      0.3027225083373562,
+      -0.2605521139516465
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 12,
+    "side": "start",
+    "points": 1312,
+    "pending": 36,
+    "oldMedianMm": 0.12879151303904057,
+    "newMedianMm": 0.10845444069192958,
+    "oldHeldCoverage": 0.9803921568627451,
+    "newHeldCoverage": 0.9803921568627451,
+    "shiftMm": 0.14497538150307868,
+    "shiftUVmm": [
+      0.12053440860698268,
+      -0.08055630070781646
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 12,
+    "side": "end",
+    "points": 594,
+    "pending": 203,
+    "oldMedianMm": 1.2483082060668975,
+    "newMedianMm": 1.0393944408385696,
+    "oldHeldCoverage": 0.5171568627450981,
+    "newHeldCoverage": 0.5171568627450981,
+    "shiftMm": 0.5370032988703299,
+    "shiftUVmm": [
+      0.5369008816245765,
+      -0.010487435738512052
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 13,
+    "side": "start",
+    "points": 1360,
+    "pending": 0,
+    "oldMedianMm": 0.5036490826903959,
+    "newMedianMm": 0.13971726506557292,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.7963780643782269,
+    "shiftUVmm": [
+      0.7956370822247403,
+      0.03434610329736301
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 13,
+    "side": "end",
+    "points": 924,
+    "pending": 270,
+    "oldMedianMm": 0.6775479330604928,
+    "newMedianMm": 0.41853338752748254,
+    "oldHeldCoverage": 0.5800653594771242,
+    "newHeldCoverage": 0.5718954248366013,
+    "shiftMm": 0.5484446075946596,
+    "shiftUVmm": [
+      -0.39128117083630126,
+      -0.3843052601105446
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 14,
+    "side": "start",
+    "points": 1337,
+    "pending": 45,
+    "oldMedianMm": 0.7695679376376998,
+    "newMedianMm": 0.13301453265437796,
+    "oldHeldCoverage": 0.9821162444113264,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 1.2384029681412478,
+    "shiftUVmm": [
+      -0.37969220655389846,
+      -1.1787602554307999
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 14,
+    "side": "end",
+    "points": 961,
+    "pending": 326,
+    "oldMedianMm": 1.1906932894432538,
+    "newMedianMm": 1.13457888722175,
+    "oldHeldCoverage": 0.5238095238095238,
+    "newHeldCoverage": 0.5238095238095238,
+    "shiftMm": 0.2619177743629518,
+    "shiftUVmm": [
+      0.2559964515769019,
+      0.05537813022554184
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 15,
+    "side": "start",
+    "points": 1269,
+    "pending": 0,
+    "oldMedianMm": 0.16756928467461116,
+    "newMedianMm": 0.10956418904496212,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.1235861526582697,
+    "shiftUVmm": [
+      0.09835161081257521,
+      0.07483647359038828
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 15,
+    "side": "end",
+    "points": 1020,
+    "pending": 330,
+    "oldMedianMm": 0.7054919646944267,
+    "newMedianMm": 0.7437433329681364,
+    "oldHeldCoverage": 0.5496402877697841,
+    "newHeldCoverage": 0.5525179856115108,
+    "shiftMm": 0.15395335280198721,
+    "shiftUVmm": [
+      -0.14873856575390468,
+      0.03973001254020095
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 16,
+    "side": "start",
+    "points": 1196,
+    "pending": 0,
+    "oldMedianMm": 0.13975898223371822,
+    "newMedianMm": 0.12520634044010892,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.09271525152485638,
+    "shiftUVmm": [
+      -0.029005948717255425,
+      -0.08806118784305225
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 16,
+    "side": "end",
+    "points": 939,
+    "pending": 383,
+    "oldMedianMm": 1.8471080396838289,
+    "newMedianMm": 1.826071858433786,
+    "oldHeldCoverage": 0.45795795795795796,
+    "newHeldCoverage": 0.46096096096096095,
+    "shiftMm": 0.10948179815852342,
+    "shiftUVmm": [
+      -0.024718687118076576,
+      0.10665482002789324
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 17,
+    "side": "start",
+    "points": 1413,
+    "pending": 499,
+    "oldMedianMm": 0.27195496825020876,
+    "newMedianMm": 2.65779322569386,
+    "oldHeldCoverage": 0.8420107719928187,
+    "newHeldCoverage": 0.2800718132854578,
+    "shiftMm": 5.074329986145483,
+    "shiftUVmm": [
+      -4.671573776151067,
+      -1.981217621129207
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 17,
+    "side": "end",
+    "points": 289,
+    "pending": 180,
+    "oldMedianMm": 2.7981475344802162,
+    "newMedianMm": 1.9757985071255082,
+    "oldHeldCoverage": 0.38162544169611307,
+    "newHeldCoverage": 0.4169611307420495,
+    "shiftMm": 6.055757564679069,
+    "shiftUVmm": [
+      -4.994316229113443,
+      -3.4247635080077927
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 18,
+    "side": "start",
+    "points": 1131,
+    "pending": 122,
+    "oldMedianMm": 0.14994506642398683,
+    "newMedianMm": 0.13985735542663752,
+    "oldHeldCoverage": 0.8441780821917808,
+    "newHeldCoverage": 0.8441780821917808,
+    "shiftMm": 0.12192761889252611,
+    "shiftUVmm": [
+      0.09898813917970942,
+      -0.07118772752757013
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 18,
+    "side": "end",
+    "points": 701,
+    "pending": 248,
+    "oldMedianMm": 0.5615627067964831,
+    "newMedianMm": 0.3968048686455675,
+    "oldHeldCoverage": 0.574025974025974,
+    "newHeldCoverage": 0.5792207792207792,
+    "shiftMm": 0.6197492886493479,
+    "shiftUVmm": [
+      0.42866321189581275,
+      -0.44759024961290017
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 19,
+    "side": "start",
+    "points": 1423,
+    "pending": 11,
+    "oldMedianMm": 0.17545350266017207,
+    "newMedianMm": 0.12195658799265402,
+    "oldHeldCoverage": 0.9847856154910097,
+    "newHeldCoverage": 0.9847856154910097,
+    "shiftMm": 0.4398184139597862,
+    "shiftUVmm": [
+      -0.42929418999943525,
+      0.09563856800909727
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 19,
+    "side": "end",
+    "points": 929,
+    "pending": 285,
+    "oldMedianMm": 0.8756590153383738,
+    "newMedianMm": 0.379752640830607,
+    "oldHeldCoverage": 0.6206185567010309,
+    "newHeldCoverage": 0.6144329896907217,
+    "shiftMm": 0.9403565488314284,
+    "shiftUVmm": [
+      -0.33800786855100395,
+      -0.877508472738447
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 20,
+    "side": "start",
+    "points": 2855,
+    "pending": 1789,
+    "oldMedianMm": 5.526395427271352,
+    "newMedianMm": 4.083622626445705,
+    "oldHeldCoverage": 0.3652815013404826,
+    "newHeldCoverage": 0.18900804289544235,
+    "shiftMm": 5.638774830428576,
+    "shiftUVmm": [
+      -5.261782318887653,
+      -2.0271725177981494
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 20,
+    "side": "end",
+    "points": 838,
+    "pending": 291,
+    "oldMedianMm": 0.5439030391035317,
+    "newMedianMm": 0.22845661000812467,
+    "oldHeldCoverage": 0.6292134831460674,
+    "newHeldCoverage": 0.6264044943820225,
+    "shiftMm": 0.6630381010400026,
+    "shiftUVmm": [
+      0.605376606936074,
+      -0.27044165212721727
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 21,
+    "side": "start",
+    "points": 1424,
+    "pending": 27,
+    "oldMedianMm": 0.5454984391034668,
+    "newMedianMm": 0.1386865996202461,
+    "oldHeldCoverage": 0.9633152173913043,
+    "newHeldCoverage": 0.9660326086956522,
+    "shiftMm": 0.8050304092880947,
+    "shiftUVmm": [
+      0.7310356669695358,
+      0.337136194284985
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 21,
+    "side": "end",
+    "points": 744,
+    "pending": 224,
+    "oldMedianMm": 0.47094990814169296,
+    "newMedianMm": 0.22184728165662018,
+    "oldHeldCoverage": 0.7090909090909091,
+    "newHeldCoverage": 0.7090909090909091,
+    "shiftMm": 0.680858200547522,
+    "shiftUVmm": [
+      0.6488722011534743,
+      -0.2062347105194825
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 22,
+    "side": "start",
+    "points": 1313,
+    "pending": 2,
+    "oldMedianMm": 0.17102826728134696,
+    "newMedianMm": 0.09523817717350253,
+    "oldHeldCoverage": 0.9969418960244648,
+    "newHeldCoverage": 0.9969418960244648,
+    "shiftMm": 0.29375532385035347,
+    "shiftUVmm": [
+      -0.0884129250621349,
+      0.28013451228362307
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 22,
+    "side": "end",
+    "points": 751,
+    "pending": 249,
+    "oldMedianMm": 0.603696722758779,
+    "newMedianMm": 0.22489442529812723,
+    "oldHeldCoverage": 0.6438848920863309,
+    "newHeldCoverage": 0.6402877697841727,
+    "shiftMm": 0.5192703893813716,
+    "shiftUVmm": [
+      0.17837603468094762,
+      -0.48767174158421633
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 23,
+    "side": "start",
+    "points": 1230,
+    "pending": 0,
+    "oldMedianMm": 0.1350565001109697,
+    "newMedianMm": 0.13343967140436305,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.03486531774532229,
+    "shiftUVmm": [
+      0.03414656109560555,
+      -0.007042921753531153
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 23,
+    "side": "end",
+    "points": 901,
+    "pending": 327,
+    "oldMedianMm": 0.7161474870899407,
+    "newMedianMm": 0.6107273771760362,
+    "oldHeldCoverage": 0.5771812080536913,
+    "newHeldCoverage": 0.5749440715883669,
+    "shiftMm": 0.16836353321158182,
+    "shiftUVmm": [
+      -0.09594975508414731,
+      0.1383471135036057
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 24,
+    "side": "start",
+    "points": 1084,
+    "pending": 0,
+    "oldMedianMm": 0.2716684244569098,
+    "newMedianMm": 0.12238012931644954,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.5274570021063264,
+    "shiftUVmm": [
+      0.31285270143035454,
+      0.424657598870811
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 24,
+    "side": "end",
+    "points": 1040,
+    "pending": 468,
+    "oldMedianMm": 1.3726619651273715,
+    "newMedianMm": 0.6144626889151529,
+    "oldHeldCoverage": 0.5201401050788091,
+    "newHeldCoverage": 0.6287215411558669,
+    "shiftMm": 1.4750540038716915,
+    "shiftUVmm": [
+      1.2270184194710132,
+      0.8186636138346232
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 25,
+    "side": "start",
+    "points": 1197,
+    "pending": 0,
+    "oldMedianMm": 0.10453560959196849,
+    "newMedianMm": 0.07254695595682992,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.13476794764596842,
+    "shiftUVmm": [
+      0.10009765880664726,
+      0.09023778817177709
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 25,
+    "side": "end",
+    "points": 1109,
+    "pending": 347,
+    "oldMedianMm": 0.47458288913922264,
+    "newMedianMm": 0.48898501589743326,
+    "oldHeldCoverage": 0.6403225806451613,
+    "newHeldCoverage": 0.6387096774193548,
+    "shiftMm": 0.2867293459878927,
+    "shiftUVmm": [
+      -0.15504594221544904,
+      -0.24119385077809985
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 26,
+    "side": "start",
+    "points": 1232,
+    "pending": 26,
+    "oldMedianMm": 0.42938281710214665,
+    "newMedianMm": 0.18930069465639177,
+    "oldHeldCoverage": 0.9936808846761453,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.8878616250222594,
+    "shiftUVmm": [
+      0.2738000180475192,
+      0.8445897319434718
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 26,
+    "side": "end",
+    "points": 432,
+    "pending": 211,
+    "oldMedianMm": 0.802340033698857,
+    "newMedianMm": 2.5384852508143414,
+    "oldHeldCoverage": 0.5900621118012422,
+    "newHeldCoverage": 0.21428571428571427,
+    "shiftMm": 2.175855618620002,
+    "shiftUVmm": [
+      -0.7167981188086542,
+      2.0543972668285475
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 27,
+    "side": "start",
+    "points": 1295,
+    "pending": 0,
+    "oldMedianMm": 0.23385117124975024,
+    "newMedianMm": 0.13109908005264764,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.36263523568125605,
+    "shiftUVmm": [
+      0.15477477444694854,
+      0.32794676908378945
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 27,
+    "side": "end",
+    "points": 996,
+    "pending": 325,
+    "oldMedianMm": 0.6896125992698507,
+    "newMedianMm": 0.7303629854958829,
+    "oldHeldCoverage": 0.593996840442338,
+    "newHeldCoverage": 0.5971563981042654,
+    "shiftMm": 0.535866644182139,
+    "shiftUVmm": [
+      0.028587298805571957,
+      -0.5351035663252752
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 28,
+    "side": "start",
+    "points": 1189,
+    "pending": 1178,
+    "oldMedianMm": 3.7249295448245556,
+    "newMedianMm": 0.26620147756187934,
+    "oldHeldCoverage": 0.011864406779661017,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 4.565761950459507,
+    "shiftUVmm": [
+      -0.7075415404133825,
+      -4.510606074226972
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 28,
+    "side": "end",
+    "points": 1015,
+    "pending": 514,
+    "oldMedianMm": 1.5386128038540436,
+    "newMedianMm": 0.5800394773326546,
+    "oldHeldCoverage": 0.45950155763239875,
+    "newHeldCoverage": 0.5903426791277259,
+    "shiftMm": 1.6370495128651272,
+    "shiftUVmm": [
+      -0.787775167178437,
+      -1.435040554670472
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 29,
+    "side": "start",
+    "points": 1272,
+    "pending": 883,
+    "oldMedianMm": 4.056580153927673,
+    "newMedianMm": 0.2248052432914662,
+    "oldHeldCoverage": 0.3060897435897436,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 7.949140749128642,
+    "shiftUVmm": [
+      7.50811528081371,
+      2.610946874118492
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 29,
+    "side": "end",
+    "points": 989,
+    "pending": 781,
+    "oldMedianMm": 4.223242814221267,
+    "newMedianMm": 0.9938601791342554,
+    "oldHeldCoverage": 0.22340425531914893,
+    "newHeldCoverage": 0.6276595744680851,
+    "shiftMm": 6.31447729771304,
+    "shiftUVmm": [
+      -6.311173226169245,
+      -0.20424507978859363
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 30,
+    "side": "start",
+    "points": 1518,
+    "pending": 1018,
+    "oldMedianMm": 3.761653281163924,
+    "newMedianMm": 0.16163100114479323,
+    "oldHeldCoverage": 0.34404283801874164,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 7.64717664890775,
+    "shiftUVmm": [
+      7.5485110136065465,
+      1.2244558697889598
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 30,
+    "side": "end",
+    "points": 943,
+    "pending": 670,
+    "oldMedianMm": 2.5667769207932367,
+    "newMedianMm": 1.1104582046574312,
+    "oldHeldCoverage": 0.2634989200863931,
+    "newHeldCoverage": 0.6004319654427646,
+    "shiftMm": 3.239159949731293,
+    "shiftUVmm": [
+      -2.9338410988968877,
+      1.3728559962234692
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 31,
+    "side": "start",
+    "points": 1317,
+    "pending": 0,
+    "oldMedianMm": 0.20798467464654613,
+    "newMedianMm": 0.08994425925619312,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.4235926566168723,
+    "shiftUVmm": [
+      0.08613486591899738,
+      0.4147427197828261
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 31,
+    "side": "end",
+    "points": 968,
+    "pending": 431,
+    "oldMedianMm": 0.8932691415018974,
+    "newMedianMm": 0.5954007306819241,
+    "oldHeldCoverage": 0.6568848758465011,
+    "newHeldCoverage": 0.7155756207674944,
+    "shiftMm": 1.4624361417349308,
+    "shiftUVmm": [
+      -0.09017344244150438,
+      -1.4596534585067784
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 32,
+    "side": "start",
+    "points": 1183,
+    "pending": 589,
+    "oldMedianMm": 1.426946843831029,
+    "newMedianMm": 0.10234952418214696,
+    "oldHeldCoverage": 0.5168350168350169,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 1.831003492947546,
+    "shiftUVmm": [
+      1.4029725118028413,
+      1.1765381091625295
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 32,
+    "side": "end",
+    "points": 965,
+    "pending": 827,
+    "oldMedianMm": 2.315471401369222,
+    "newMedianMm": 0.5828628777929347,
+    "oldHeldCoverage": 0.1838074398249453,
+    "newHeldCoverage": 0.6936542669584245,
+    "shiftMm": 2.9305101115041676,
+    "shiftUVmm": [
+      -2.891904815030267,
+      0.474105530903118
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 33,
+    "side": "start",
+    "points": 1598,
+    "pending": 758,
+    "oldMedianMm": 1.2904462224714732,
+    "newMedianMm": 1.1505177159359539,
+    "oldHeldCoverage": 0.5768707482993197,
+    "newHeldCoverage": 0.5673469387755102,
+    "shiftMm": 7.895201712696588,
+    "shiftUVmm": [
+      7.784677006672134,
+      1.3164398907497887
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 33,
+    "side": "end",
+    "points": 1018,
+    "pending": 348,
+    "oldMedianMm": 0.5126020147086389,
+    "newMedianMm": 0.5387301572062331,
+    "oldHeldCoverage": 0.7247311827956989,
+    "newHeldCoverage": 0.7096774193548387,
+    "shiftMm": 0.9327116168197401,
+    "shiftUVmm": [
+      -0.6442268711877805,
+      -0.6744795761104235
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 34,
+    "side": "start",
+    "points": 1101,
+    "pending": 372,
+    "oldMedianMm": 0.982792217257862,
+    "newMedianMm": 0.07228311756130382,
+    "oldHeldCoverage": 0.6709796672828097,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 6.951779794329684,
+    "shiftUVmm": [
+      3.868868078779596,
+      5.775733901232876
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 34,
+    "side": "end",
+    "points": 1092,
+    "pending": 742,
+    "oldMedianMm": 2.9762111051867866,
+    "newMedianMm": 0.9639555321062326,
+    "oldHeldCoverage": 0.34689922480620156,
+    "newHeldCoverage": 0.7131782945736435,
+    "shiftMm": 5.491199486342597,
+    "shiftUVmm": [
+      -5.45528233348177,
+      0.6270298723433307
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 35,
+    "side": "start",
+    "points": 1138,
+    "pending": 0,
+    "oldMedianMm": 0.1688311825416254,
+    "newMedianMm": 0.1307378597103677,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.15214336950452373,
+    "shiftUVmm": [
+      0.09581269988612794,
+      0.11818431124612447
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 35,
+    "side": "end",
+    "points": 1007,
+    "pending": 298,
+    "oldMedianMm": 0.6241780199023913,
+    "newMedianMm": 0.46303793214774974,
+    "oldHeldCoverage": 0.6981132075471698,
+    "newHeldCoverage": 0.6886792452830188,
+    "shiftMm": 0.73077770103207,
+    "shiftUVmm": [
+      -0.7293763431465825,
+      -0.045234924381897086
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 36,
+    "side": "start",
+    "points": 1202,
+    "pending": 0,
+    "oldMedianMm": 0.12693337187312004,
+    "newMedianMm": 0.12134613699357104,
+    "oldHeldCoverage": 1.0,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 0.17409214959657143,
+    "shiftUVmm": [
+      -0.17408027556420005,
+      0.002033275841390937
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 36,
+    "side": "end",
+    "points": 1101,
+    "pending": 415,
+    "oldMedianMm": 0.9976682951811366,
+    "newMedianMm": 0.5977103418986184,
+    "oldHeldCoverage": 0.6201022146507666,
+    "newHeldCoverage": 0.6047700170357752,
+    "shiftMm": 0.9956958999719422,
+    "shiftUVmm": [
+      -0.05938125256097358,
+      -0.9939236349263587
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 37,
+    "side": "start",
+    "points": 1425,
+    "pending": 126,
+    "oldMedianMm": 0.2563969022153982,
+    "newMedianMm": 0.1254189645437309,
+    "oldHeldCoverage": 0.8348623853211009,
+    "newHeldCoverage": 0.8348623853211009,
+    "shiftMm": 0.39835392228827404,
+    "shiftUVmm": [
+      -0.05807778898538026,
+      0.3940974724976321
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 37,
+    "side": "end",
+    "points": 1004,
+    "pending": 360,
+    "oldMedianMm": 0.7535567151915876,
+    "newMedianMm": 0.3055004216551698,
+    "oldHeldCoverage": 0.6192982456140351,
+    "newHeldCoverage": 0.612280701754386,
+    "shiftMm": 0.7194609330229917,
+    "shiftUVmm": [
+      -0.7180570014518853,
+      0.044924122832182604
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 38,
+    "side": "start",
+    "points": 1697,
+    "pending": 906,
+    "oldMedianMm": 1.53910268146068,
+    "newMedianMm": 0.3015359833682032,
+    "oldHeldCoverage": 0.4484167517875383,
+    "newHeldCoverage": 0.7528089887640449,
+    "shiftMm": 2.1237244369063384,
+    "shiftUVmm": [
+      0.5505056899242029,
+      -2.0511335815285707
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 38,
+    "side": "end",
+    "points": 1017,
+    "pending": 380,
+    "oldMedianMm": 1.2600672213121147,
+    "newMedianMm": 0.23409584405600578,
+    "oldHeldCoverage": 0.612565445026178,
+    "newHeldCoverage": 0.6561954624781849,
+    "shiftMm": 1.3837392940960866,
+    "shiftUVmm": [
+      -0.5230451639762472,
+      -1.2810769650831275
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 39,
+    "side": "start",
+    "points": 1615,
+    "pending": 199,
+    "oldMedianMm": 0.2995939509678014,
+    "newMedianMm": 0.14288800877586466,
+    "oldHeldCoverage": 0.785097192224622,
+    "newHeldCoverage": 0.7894168466522679,
+    "shiftMm": 0.3261301470693145,
+    "shiftUVmm": [
+      -0.31833579116370764,
+      0.07087451510683529
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 39,
+    "side": "end",
+    "points": 467,
+    "pending": 259,
+    "oldMedianMm": 0.5496652028078108,
+    "newMedianMm": 1.9827694042793413,
+    "oldHeldCoverage": 0.5634674922600619,
+    "newHeldCoverage": 0.30030959752321984,
+    "shiftMm": 2.162575080805689,
+    "shiftUVmm": [
+      -2.1605028389230245,
+      -0.094649158090736
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 40,
+    "side": "start",
+    "points": 1565,
+    "pending": 169,
+    "oldMedianMm": 0.20827592575007248,
+    "newMedianMm": 0.18707645625810637,
+    "oldHeldCoverage": 0.8101123595505618,
+    "newHeldCoverage": 0.8101123595505618,
+    "shiftMm": 0.06819010373481194,
+    "shiftUVmm": [
+      0.04705725058446535,
+      -0.049350840061697515
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 40,
+    "side": "end",
+    "points": 1004,
+    "pending": 407,
+    "oldMedianMm": 0.48209519126024647,
+    "newMedianMm": 0.5151729102995479,
+    "oldHeldCoverage": 0.580110497237569,
+    "newHeldCoverage": 0.583793738489871,
+    "shiftMm": 0.10350377416458062,
+    "shiftUVmm": [
+      0.025442596303920907,
+      -0.10032798991123174
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 41,
+    "side": "start",
+    "points": 1386,
+    "pending": 59,
+    "oldMedianMm": 0.0925341905706435,
+    "newMedianMm": 0.09898403875524889,
+    "oldHeldCoverage": 0.9181692094313454,
+    "newHeldCoverage": 0.9181692094313454,
+    "shiftMm": 0.07102599481032465,
+    "shiftUVmm": [
+      -0.046026675858913076,
+      -0.054094704437447585
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 41,
+    "side": "end",
+    "points": 965,
+    "pending": 388,
+    "oldMedianMm": 0.6474733982991532,
+    "newMedianMm": 0.6569065334797903,
+    "oldHeldCoverage": 0.5597147950089126,
+    "newHeldCoverage": 0.5597147950089126,
+    "shiftMm": 0.35855903657597327,
+    "shiftUVmm": [
+      -0.12695067920804784,
+      -0.33533283131674635
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 42,
+    "side": "start",
+    "points": 1648,
+    "pending": 1199,
+    "oldMedianMm": 1.9225929001998103,
+    "newMedianMm": 1.849834134313488,
+    "oldHeldCoverage": 0.30241423125794153,
+    "newHeldCoverage": 0.39898348157560354,
+    "shiftMm": 6.41184212624995,
+    "shiftUVmm": [
+      -2.8576303272311505,
+      -5.7398317366315075
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 42,
+    "side": "end",
+    "points": 1030,
+    "pending": 429,
+    "oldMedianMm": 0.839333430479961,
+    "newMedianMm": 0.5771081001543455,
+    "oldHeldCoverage": 0.5707317073170731,
+    "newHeldCoverage": 0.5609756097560976,
+    "shiftMm": 0.7305983099512101,
+    "shiftUVmm": [
+      0.1952998246453981,
+      -0.7040112705042735
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 43,
+    "side": "start",
+    "points": 1334,
+    "pending": 273,
+    "oldMedianMm": 0.9725288822628997,
+    "newMedianMm": 0.17965850132277872,
+    "oldHeldCoverage": 0.8157894736842105,
+    "newHeldCoverage": 0.9736842105263158,
+    "shiftMm": 1.5049191147328647,
+    "shiftUVmm": [
+      0.9644100403415918,
+      -1.1552899272376083
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 43,
+    "side": "end",
+    "points": 982,
+    "pending": 373,
+    "oldMedianMm": 0.5141851805594989,
+    "newMedianMm": 0.5735995843781829,
+    "oldHeldCoverage": 0.6031468531468531,
+    "newHeldCoverage": 0.6083916083916084,
+    "shiftMm": 0.5850561249352312,
+    "shiftUVmm": [
+      0.5640896444647052,
+      -0.15522094682068918
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 44,
+    "side": "start",
+    "points": 1371,
+    "pending": 44,
+    "oldMedianMm": 0.2253023962350436,
+    "newMedianMm": 0.1365981869266039,
+    "oldHeldCoverage": 0.9388038942976356,
+    "newHeldCoverage": 0.9388038942976356,
+    "shiftMm": 0.5128981117329239,
+    "shiftUVmm": [
+      0.4499797472123032,
+      -0.2461355320102131
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 44,
+    "side": "end",
+    "points": 1061,
+    "pending": 409,
+    "oldMedianMm": 0.48671594128342965,
+    "newMedianMm": 0.4742028424624858,
+    "oldHeldCoverage": 0.5787037037037037,
+    "newHeldCoverage": 0.5817901234567902,
+    "shiftMm": 0.24910402495418038,
+    "shiftUVmm": [
+      0.19708816567192253,
+      -0.1523452335993803
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 45,
+    "side": "start",
+    "points": 1412,
+    "pending": 47,
+    "oldMedianMm": 0.23584253556275125,
+    "newMedianMm": 0.10019032071613963,
+    "oldHeldCoverage": 0.9371657754010695,
+    "newHeldCoverage": 0.9358288770053476,
+    "shiftMm": 0.3593679600667583,
+    "shiftUVmm": [
+      -0.011204573805334796,
+      -0.3591932463847059
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 45,
+    "side": "end",
+    "points": 922,
+    "pending": 344,
+    "oldMedianMm": 0.6352968340395145,
+    "newMedianMm": 0.6390947877213992,
+    "oldHeldCoverage": 0.5569852941176471,
+    "newHeldCoverage": 0.5625,
+    "shiftMm": 0.4349541972851143,
+    "shiftUVmm": [
+      0.4057916089429677,
+      -0.15658328086809198
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 46,
+    "side": "start",
+    "points": 1436,
+    "pending": 413,
+    "oldMedianMm": 1.0313319721371195,
+    "newMedianMm": 0.1888861145407225,
+    "oldHeldCoverage": 0.7524752475247525,
+    "newHeldCoverage": 1.0,
+    "shiftMm": 1.7918564604728495,
+    "shiftUVmm": [
+      1.4252470507096733,
+      -1.0860112427510438
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 46,
+    "side": "end",
+    "points": 1273,
+    "pending": 946,
+    "oldMedianMm": 2.636333803298979,
+    "newMedianMm": 3.3349636336405477,
+    "oldHeldCoverage": 0.29763560500695413,
+    "newHeldCoverage": 0.21696801112656466,
+    "shiftMm": 4.3287985869716,
+    "shiftUVmm": [
+      -2.576559420606572,
+      -3.4784822492936267
+    ],
+    "axisModel": "evidence-selected-straight"
+  },
+  {
+    "id": 47,
+    "side": "start",
+    "points": 1470,
+    "pending": 2,
+    "oldMedianMm": 0.18337689298455506,
+    "newMedianMm": 0.1184645654619921,
+    "oldHeldCoverage": 0.9986338797814208,
+    "newHeldCoverage": 0.9986338797814208,
+    "shiftMm": 0.33566430757311067,
+    "shiftUVmm": [
+      0.08928865899300419,
+      0.3235708002180772
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 47,
+    "side": "end",
+    "points": 985,
+    "pending": 651,
+    "oldMedianMm": 2.3167028689134463,
+    "newMedianMm": 2.7986503348990324,
+    "oldHeldCoverage": 0.34429065743944637,
+    "newHeldCoverage": 0.36678200692041524,
+    "shiftMm": 7.514232615519189,
+    "shiftUVmm": [
+      0.10724815608150808,
+      -7.513467217812924
+    ],
+    "axisModel": "evidence-selected-bow"
+  },
+  {
+    "id": 48,
+    "side": "start",
+    "points": 3676,
+    "pending": 2638,
+    "oldMedianMm": 5.914198452465598,
+    "newMedianMm": 2.3245958781811407,
+    "oldHeldCoverage": 0.2777777777777778,
+    "newHeldCoverage": 0.31813417190775684,
+    "shiftMm": 8.308041182664839,
+    "shiftUVmm": [
+      2.489948737641072,
+      7.92614052214409
+    ],
+    "axisModel": "supported-spline"
+  },
+  {
+    "id": 48,
+    "side": "end",
+    "points": 965,
+    "pending": 248,
+    "oldMedianMm": 0.23187093800321018,
+    "newMedianMm": 0.23046338230509836,
+    "oldHeldCoverage": 0.6504504504504505,
+    "newHeldCoverage": 0.6486486486486487,
+    "shiftMm": 0.004934668999188506,
+    "shiftUVmm": [
+      0.0004888671200632187,
+      -0.004910393779573405
+    ],
+    "axisModel": "supported-spline"
+  }
+]

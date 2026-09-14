@@ -178,5 +178,5 @@ test('curve neighborhood and viewer wording cover filtering, focus and fitted-vs
   assert.match(viewer, /new THREE\.Box3\(\)\.setFromObject\(controlNetOverlay\)/)
   assert.match(viewer, /未确认设计弯曲线（未拟合）/)
   assert.match(viewer, /主体观测 \/ 设计直段长度/)
-  assert.match(viewer, /弯曲段拟合 \/ 待定 \/ 设计/)
+  assert.match(viewer, /弯段：点云确认 \/ 未恢复 \/ 总数/)
 })

@@ -70,7 +70,7 @@ class ControlNetTests(unittest.TestCase):
 
         report, attrs = self.fit(points, inv, normals, table=table_mask)
 
-        self.assertEqual(report['version'], 'design-control-net-v14')
+        self.assertEqual(report['version'], 'design-control-net-v21')
         self.assertEqual(report['inputStage'], 'post-table')
         self.assertNotIn('layers', report)
         self.assertEqual([row['layerId'] for row in report['instances']], [2, 1])
@@ -382,15 +382,16 @@ class ControlNetTests(unittest.TestCase):
         self.assertGreater(np.mean(attrs['control_instance'][:len(known)] == 2), .95)
         self.assertGreater(np.mean(attrs['control_instance'][len(known):] == 1), .95)
 
-    def test_relocated_overlength_keeps_design_length_and_requires_review(self):
+    def test_relocated_overlength_extends_fitted_length_and_preserves_design(self):
         steel, normals = tube([0, .4, 0], [.37, .4, 0], along=90)
         report, _ = self.fit(steel, inventory([([0, 0, 0], [.28, 0, 0])], kinds=['short']), normals)
         row = report['instances'][0]
         self.assertEqual(row['status'], 'fitted')
         self.assertEqual(row['designLengthM'], .28)
-        self.assertEqual(row['fittedLengthM'], .28)
-        self.assertEqual(row['lengthCheck'], 'review-observed-span')
-        self.assertEqual(report['counts']['lengthReviewUnits'], 1)
+        self.assertAlmostEqual(row['fittedLengthM'], .37, delta=.005)
+        self.assertEqual(row['lengthCheck'], 'extended-observed-span')
+        self.assertEqual(report['counts']['lengthReviewUnits'], 0)
+        self.assertEqual(report['counts']['extendedShortUnits'], 1)
         self.assertAlmostEqual(row['observedLengthM'], .37, delta=.01)
         self.assertAlmostEqual(np.linalg.norm(np.diff(row['centerlineM'], axis=0)), row['fittedLengthM'])
 

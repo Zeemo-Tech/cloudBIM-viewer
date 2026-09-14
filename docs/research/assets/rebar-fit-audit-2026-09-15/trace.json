@@ -1,0 +1,146 @@
+[
+  {
+    "id": 28,
+    "k": 192,
+    "candidateCount": 5184,
+    "selectedCount": 2649,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-straight",
+    "rmseMm": 0.319935031269162,
+    "matchesSavedAxis": true,
+    "axisEvidenceRangeM": [
+      0.47866640711092495,
+      1.1446962380592085
+    ],
+    "endpointMedianMm": 3.7757543307628225,
+    "endpointCoverage": 0.009251471825063078,
+    "endpointPoints": 1189,
+    "endpointPointsSelected": 197
+  },
+  {
+    "id": 28,
+    "k": 768,
+    "candidateCount": 19857,
+    "selectedCount": 11443,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-bow",
+    "rmseMm": 0.19736056238427757,
+    "matchesSavedAxis": false,
+    "axisEvidenceRangeM": [
+      0.02870240698822908,
+      1.1315256930783952
+    ],
+    "endpointMedianMm": 0.14528336449139145,
+    "endpointCoverage": 1.0,
+    "endpointPoints": 1189,
+    "endpointPointsSelected": 859
+  },
+  {
+    "id": 29,
+    "k": 192,
+    "candidateCount": 5184,
+    "selectedCount": 2412,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-straight",
+    "rmseMm": 0.5766600780509081,
+    "matchesSavedAxis": true,
+    "axisEvidenceRangeM": [
+      0.009373624532405412,
+      1.016701025487648
+    ],
+    "endpointMedianMm": 3.88671997431514,
+    "endpointCoverage": 0.3058176100628931,
+    "endpointPoints": 1272,
+    "endpointPointsSelected": 169
+  },
+  {
+    "id": 29,
+    "k": 768,
+    "candidateCount": 20012,
+    "selectedCount": 10656,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-bow",
+    "rmseMm": 0.23722663329060692,
+    "matchesSavedAxis": false,
+    "axisEvidenceRangeM": [
+      0.02278509406068923,
+      1.0148923472577767
+    ],
+    "endpointMedianMm": 0.1724007848105454,
+    "endpointCoverage": 1.0,
+    "endpointPoints": 1272,
+    "endpointPointsSelected": 992
+  },
+  {
+    "id": 30,
+    "k": 192,
+    "candidateCount": 5184,
+    "selectedCount": 2302,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-straight",
+    "rmseMm": 0.5333158251713729,
+    "matchesSavedAxis": true,
+    "axisEvidenceRangeM": [
+      0.00763148533436469,
+      0.8056498322337174
+    ],
+    "endpointMedianMm": 3.9237887893999823,
+    "endpointCoverage": 0.32938076416337286,
+    "endpointPoints": 1518,
+    "endpointPointsSelected": 165
+  },
+  {
+    "id": 30,
+    "k": 768,
+    "candidateCount": 19846,
+    "selectedCount": 10233,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-bow",
+    "rmseMm": 0.2731825164806028,
+    "matchesSavedAxis": false,
+    "axisEvidenceRangeM": [
+      0.015013741665201486,
+      1.011713803671055
+    ],
+    "endpointMedianMm": 0.16771443736195982,
+    "endpointCoverage": 1.0,
+    "endpointPoints": 1518,
+    "endpointPointsSelected": 1174
+  },
+  {
+    "id": 34,
+    "k": 192,
+    "candidateCount": 5184,
+    "selectedCount": 2078,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-straight",
+    "rmseMm": 0.4913092075284929,
+    "matchesSavedAxis": true,
+    "axisEvidenceRangeM": [
+      0.4767326712192916,
+      1.1435354439990046
+    ],
+    "endpointMedianMm": 0.9945380350028523,
+    "endpointCoverage": 0.662125340599455,
+    "endpointPoints": 1101,
+    "endpointPointsSelected": 162
+  },
+  {
+    "id": 34,
+    "k": 768,
+    "candidateCount": 19757,
+    "selectedCount": 10205,
+    "reason": "prior-axis-supported",
+    "axisModel": "evidence-selected-bow",
+    "rmseMm": 0.37269421686683296,
+    "matchesSavedAxis": false,
+    "axisEvidenceRangeM": [
+      0.015778936471233112,
+      1.1336574530632908
+    ],
+    "endpointMedianMm": 0.2581296965427642,
+    "endpointCoverage": 1.0,
+    "endpointPoints": 1101,
+    "endpointPointsSelected": 900
+  }
+]

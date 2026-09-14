@@ -29,7 +29,11 @@ class _SupportedSpline:
         return result
 
 
-def fit_prior_axis(points, start, tangent, length, radius, *, independent=False, initial_centerline=None, straight=False, guard_bending=False):
+def fit_prior_axis(points, start, tangent, length, radius, *, independent=False, initial_centerline=None,
+                   straight=False, guard_bending=False, spline_coefficients=6):
+    if (isinstance(spline_coefficients, bool) or not isinstance(spline_coefficients, (int, np.integer))
+            or spline_coefficients not in (6, 10, 14)):
+        raise ValueError('spline_coefficients must be 6, 10 or 14')
     if radius is None or not np.isfinite(radius) or radius <= 0:
         return None, "missing-design-radius"
     helper = np.eye(3)[np.argmin(np.abs(tangent))]
@@ -100,11 +104,11 @@ def fit_prior_axis(points, start, tangent, length, radius, *, independent=False,
         initial = seed.copy(); initial[0] += [np.cos(angle), np.sin(angle)]
         candidates.append(solve(linear[ids], normalized[ids], weights[ids], initial, np.empty((0, 2))))
     best = min(candidates, key=lambda result: result.cost)
-    # Six cubic B-spline coefficients describe smooth bow and tilt over the full
-    # design length. No per-window gates or gap filling are involved.
-    knots = np.r_[np.zeros(4), 1/3, 2/3, np.ones(4)]
+    # Six coefficients are the fast default. Callers may request bounded extra
+    # capacity, but must validate it on independent surface evidence.
+    knots = np.r_[np.zeros(4), np.linspace(0., 1., spline_coefficients-2)[1:-1], np.ones(4)]
     spline = (BSpline([0., 0., 1., 1.], np.eye(2), 1, extrapolate=True)
-              if straight else BSpline(knots, np.eye(6), 3, extrapolate=True))
+              if straight else BSpline(knots, np.eye(spline_coefficients), 3, extrapolate=True))
     if guard_bending and not straight:
         spline = _SupportedSpline(spline, support_low, support_high)
     basis = spline(s)

@@ -1262,6 +1262,35 @@ function controlNetPolylineLength(points) {
     + Math.hypot(...point.map((value, axis) => value - points[index][axis])), 0);
 }
 
+function controlNetOwnershipSummary(report) {
+  const stages = report?.policy?.ownershipStages;
+  if (!Array.isArray(stages) || !stages.length) return '';
+  const names = {straight: '直筋', short: '短筋', web: '腹杆'};
+  return `${stages.map((stage) => `${names[stage.kind] || stage.kind} ${fmt(stage.fittedUnits)} / ${fmt(stage.designUnits)} · 锁定 ${fmt(stage.lockedPoints)} 点`).join(' → ')}；待定点保留`;
+}
+
+function controlNetOwnershipHint(report) {
+  const stages = report?.policy?.ownershipStages;
+  if (!Array.isArray(stages) || !stages.length) return '';
+  const names = {straight: '直筋', short: '短筋', web: '腹杆'};
+  return `归属顺序为 ${stages.map((stage) => names[stage.kind] || stage.kind).join(' → ')}；每阶段锁定唯一支持点，待定点继续保留。`;
+}
+
+function controlNetLengthDetail(item) {
+  if (item?.lengthCheck !== 'extended-observed-span') return '';
+  const evidence = item.lengthEvidence;
+  return `主体设计 / 拟合长度 ${fmtHeight(item.designLengthM)} / ${fmtHeight(item.fittedLengthM)}；首端 / 末端延长 ${fmtHeight(evidence.extensionStartM)} / ${fmtHeight(evidence.extensionEndM)}。`;
+}
+
+function controlNetLengthObservation(item) {
+  if (item?.lengthCheck === 'extended-observed-span') {
+    return `主体观测跨度 ${fmtHeight(item.observedLengthM)}。${controlNetLengthDetail(item)}`;
+  }
+  const label = item?.kind === 'web' && item.axisModel === 'fixed-length-straight-cylinder'
+    ? '主体支持跨度 / 设计直段长度' : '主体观测 / 设计直段长度';
+  return `${label} ${fmtHeight(item?.observedLengthM)} / ${fmtHeight(item?.designLengthM)}。`;
+}
+
 function controlNetCurvedPiecesForUnit(report, unitId) {
   return (report?.curvedPieces || []).filter((piece) => piece.unitIds.includes(Number(unitId)));
 }
@@ -1269,13 +1298,20 @@ function controlNetCurvedPiecesForUnit(report, unitId) {
 function controlNetCurveStats(report, unitId = null) {
   const pieces = unitId == null ? (report?.curvedPieces || []) : controlNetCurvedPiecesForUnit(report, unitId);
   const fitted = pieces.filter((piece) => piece.status === 'fitted');
+  const inferred = pieces.filter((piece) => piece.connectionStatus === 'design-inferred');
   return {
     designPieces: pieces.length,
     fittedPieces: fitted.length,
     pendingPieces: pieces.length - fitted.length,
-    matchedPoints: pieces.reduce((sum, piece) => sum + piece.pointCount, 0),
+    inferredPieces: inferred.length,
+    scanGuidedPieces: inferred.filter(piece => piece.inferenceMethod === 'scan-guided-parametric-terminal').length,
+    unresolvedPieces: pieces.length - fitted.length - inferred.length,
+    matchedPoints: pieces.reduce((sum, piece) => sum + piece.pointCount + (piece.localSupport?.pointCount || 0), 0),
+    locallyMatchedPoints: pieces.reduce((sum, piece) => sum + (piece.localSupport?.pointCount || 0), 0),
+    locallySupportedPieces: pieces.filter(piece => piece.localSupport?.pointCount > 0).length,
     designLengthM: pieces.reduce((sum, piece) => sum + piece.designLengthM, 0),
     fittedLengthM: fitted.reduce((sum, piece) => sum + (piece.fittedLengthM ?? controlNetPolylineLength(piece.centerlineM)), 0),
+    inferredLengthM: inferred.reduce((sum, piece) => sum + piece.inferredLengthM, 0),
   };
 }
 
@@ -1286,7 +1322,32 @@ function validateControlNetCurvedPieces(report) {
   }
   if (!Array.isArray(report.curvedPieces)) throw new Error('控制网弯曲段清单必须为数组');
   const units = new Map(report.instances.map((item) => [item.id, item]));
+  const reportVersion = Number(report.version?.match(/^design-control-net-v(\d+)$/)?.[1]) || 0;
   const pieceIds = new Set();
+  const validTerminal = (piece) => {
+    const p = piece.terminalParameters;
+    if (p == null) return piece.inferenceMethod !== 'scan-guided-parametric-terminal';
+    const curve = piece.centerlineM || piece.inferredCenterlineM;
+    if (reportVersion < 18 || piece.kind !== 'terminal' || p.model !== 'circular-arc-tangent-tail'
+      || ![p.offsetM, p.arcCenterM, p.arcNormal, p.arcTangent].every(controlNetVec3)
+      || !['rollRad', 'pitchRad', 'yawRad', 'radiusM', 'sweepRad', 'tailLengthM'].every(k => Number.isFinite(p[k]))
+      || p.radiusM <= piece.diameterM * .525 || p.sweepRad <= .2 || p.sweepRad >= Math.PI * 1.8 || p.tailLengthM < 0
+      || !Array.isArray(curve) || curve.length !== (p.tailLengthM > 1e-6 ? 58 : 57)) return false;
+    const n = p.arcNormal, t = p.arcTangent;
+    if (Math.abs(Math.hypot(...n) - 1) > 1e-6 || Math.abs(Math.hypot(...t) - 1) > 1e-6
+      || Math.abs(n.reduce((sum, value, i) => sum + value * t[i], 0)) > 1e-6) return false;
+    const side = [n[1]*t[2]-n[2]*t[1], n[2]*t[0]-n[0]*t[2], n[0]*t[1]-n[1]*t[0]];
+    for (let i = 0; i <= 40; i++) {
+      const a = p.sweepRad * i / 40;
+      const expected = p.arcCenterM.map((v, j) => v + p.radiusM * (Math.sin(a)*t[j] - Math.cos(a)*side[j]));
+      if (!controlNetVec3(curve[16+i]) || Math.hypot(...expected.map((v,j) => v-curve[16+i][j])) > 1e-6) return false;
+    }
+    if (p.tailLengthM > 1e-6) {
+      const expected = curve[56].map((v,j) => v+p.tailLengthM*(Math.cos(p.sweepRad)*t[j]+Math.sin(p.sweepRad)*side[j]));
+      if (!controlNetVec3(curve[57]) || Math.hypot(...expected.map((v,j) => v-curve[57][j])) > 1e-6) return false;
+    }
+    return true;
+  };
   for (const piece of report.curvedPieces) {
     const fitted = piece?.status === 'fitted';
     const expectedUnits = piece?.kind === 'join' ? 2 : piece?.kind === 'terminal' ? 1 : 0;
@@ -1294,6 +1355,47 @@ function validateControlNetCurvedPieces(report) {
     const referencedUnits = references.map((id) => units.get(id));
     const fittedCenterline = piece?.centerlineM;
     const designCenterline = piece?.designCenterlineM;
+    const inferenceFields = ['inferredCenterlineM', 'connectionStatus', 'inferredLengthM', 'inferenceMethod'];
+    const hasInference = inferenceFields.some((field) => piece?.[field] != null);
+    const inferredCenterline = piece?.inferredCenterlineM;
+    const local = piece?.localSupport;
+    const validLocal = local == null || (reportVersion >= 20
+      && piece.status === 'pending' && piece.connectionStatus === 'design-inferred'
+      && piece.inferenceMethod === 'scan-guided-parametric-terminal'
+      && local.method === 'independent-continuous-surface-intervals'
+      && Number.isSafeInteger(local.pointCount) && local.pointCount >= 12
+      && local.pointCount <= referencedUnits.reduce((sum, unit) => sum + (unit?.pointCount || 0), 0)
+      && Number.isFinite(local.validationMaxChangeM) && local.validationMaxChangeM >= 0
+      && local.validationMaxChangeM <= Math.max(.001, .25*piece.diameterM)
+      && Array.isArray(local.intervalsM) && local.intervalsM.length > 0
+      && local.intervalsM.every((range, i) => Array.isArray(range) && range.length === 2
+        && range.every(Number.isFinite) && range[0] >= 0 && range[1] > range[0]
+        && range[1] <= piece.inferredLengthM + 1e-8
+        && (i === 0 || range[0] > local.intervalsM[i-1][1])));
+    const validInference = !hasInference || (reportVersion >= 16
+      && piece?.status === 'pending' && piece?.pointCount === 0
+      && piece?.centerlineM == null && piece?.fittedLengthM == null
+      && piece?.connectionStatus === 'design-inferred'
+      && ((piece?.kind === 'join' && piece?.inferenceMethod === 'body-anchored-design-join'
+        && referencedUnits.length === 2 && referencedUnits.every((unit) => unit?.kind === 'web' && unit.status === 'fitted'))
+        || (reportVersion >= 17 && piece?.kind === 'terminal'
+          && (piece?.inferenceMethod === 'body-anchored-design-terminal'
+            || (reportVersion >= 18 && piece?.inferenceMethod === 'scan-guided-parametric-terminal'
+              && Number.isSafeInteger(piece.inferenceValidation?.heldSupport) && piece.inferenceValidation.heldSupport >= 24
+              && Number.isFinite(piece.inferenceValidation?.observedP90ChangeM)
+              && piece.inferenceValidation.observedP90ChangeM >= 0
+              && piece.inferenceValidation.observedP90ChangeM <= Math.max(.002, .5*piece.diameterM)))
+          && referencedUnits.length === 1 && referencedUnits[0]?.kind === 'straight' && referencedUnits[0].status === 'fitted'
+          && ['start', 'end'].includes(piece.inferenceBasis?.anchorSide)
+          && piece.inferenceBasis?.orientation === 'body-tangent-and-design-plane'
+          && Number.isFinite(piece.inferenceBasis?.bendRadiusM) && piece.inferenceBasis.bendRadiusM > piece.diameterM / 2 * 1.05
+          && Number.isFinite(piece.inferenceBasis?.bendAngleRad) && piece.inferenceBasis.bendAngleRad > .2 && piece.inferenceBasis.bendAngleRad < Math.PI * 1.8
+          && Number.isFinite(piece.inferenceBasis?.tailLengthM) && piece.inferenceBasis.tailLengthM >= 0))
+      && Array.isArray(inferredCenterline) && inferredCenterline.length >= 2
+      && inferredCenterline.every((point) => controlNetVec3(point))
+      && Number.isFinite(piece?.inferredLengthM) && piece.inferredLengthM > 0
+      && Math.abs(controlNetPolylineLength(inferredCenterline) - piece.inferredLengthM) <= 1e-6
+      );
     if (typeof piece?.id === 'string' && pieceIds.has(piece.id)) throw new Error(`控制网弯曲段编号重复：${piece.id}`);
     if (references.length && new Set(references).size !== references.length) throw new Error(`控制网弯曲段引用重复：${piece?.id || '未编号'}`);
     if (references.length && referencedUnits.some((unit) => !unit)) throw new Error(`控制网弯曲段引用不存在：${piece?.id || '未编号'}`);
@@ -1314,6 +1416,7 @@ function validateControlNetCurvedPieces(report) {
       || typeof piece.geometrySource !== 'string' || !piece.geometrySource.trim()
       || (designCenterline != null && (!Array.isArray(designCenterline) || designCenterline.length < 2
         || designCenterline.some((point) => !controlNetVec3(point))))
+      || !validInference || !validLocal || !validTerminal(piece)
       || (fitted ? !Array.isArray(fittedCenterline) || fittedCenterline.length < 2
         || fittedCenterline.some((point) => !controlNetVec3(point))
         || (piece.fittedLengthM != null && Math.abs(controlNetPolylineLength(fittedCenterline) - piece.fittedLengthM) > 1e-6)
@@ -1325,8 +1428,12 @@ function validateControlNetCurvedPieces(report) {
   if (report.curveSummary != null) {
     const summary = report.curveSummary, actual = controlNetCurveStats(report);
     const keys = ['designPieces', 'fittedPieces', 'pendingPieces', 'matchedPoints'];
+    if (summary.unresolvedPieces != null) keys.push('unresolvedPieces');
+    for (const key of ['locallySupportedPieces', 'locallyMatchedPoints']) if (summary[key] != null) keys.push(key);
     if (typeof summary !== 'object' || summary == null
-      || keys.some((key) => !Number.isSafeInteger(summary[key]) || summary[key] < 0 || summary[key] !== actual[key])) {
+      || keys.some((key) => !Number.isSafeInteger(summary[key]) || summary[key] < 0 || summary[key] !== actual[key])
+      || (summary.inferredPieces != null && (!Number.isSafeInteger(summary.inferredPieces)
+        || summary.inferredPieces < 0 || summary.inferredPieces !== actual.inferredPieces))) {
       throw new Error('控制网弯曲段汇总与清单不一致');
     }
   }
@@ -1409,6 +1516,41 @@ async function loadControlNetPreview(manifest, fetcher = fetchBytes) {
     || new Set(report.layers.map((layer) => layer.id)).size !== report.layers.length)) {
     throw new Error('控制网分层统计无效');
   }
+  const reportVersion = Number(report.version.match(/^design-control-net-v(\d+)$/)?.[1]) || 0;
+  const lengthEvidenceValid = (item) => {
+    const extended = item?.lengthCheck === 'extended-observed-span';
+    if (!extended) return item?.lengthEvidence == null;
+    const evidence = item.lengthEvidence;
+    const startShift = evidence?.endpointShiftStartM ?? -evidence?.extensionStartM;
+    const endShift = evidence?.endpointShiftEndM ?? evidence?.extensionEndM;
+    return reportVersion >= 15 && item.kind === 'short' && item.status === 'fitted'
+      && Number.isFinite(item.fittedLengthM) && item.fittedLengthM > item.designLengthM
+      && evidence && typeof evidence.method === 'string' && evidence.method.trim()
+      && Number.isFinite(evidence.extensionStartM) && evidence.extensionStartM >= 0
+      && Number.isFinite(evidence.extensionEndM) && evidence.extensionEndM >= 0
+      && Array.isArray(evidence.observedRangeM) && evidence.observedRangeM.length === 2
+      && evidence.observedRangeM.every(Number.isFinite) && evidence.observedRangeM[1] > evidence.observedRangeM[0]
+      && Number.isSafeInteger(evidence.supportPoints) && evidence.supportPoints > 0
+      && Number.isFinite(evidence.searchMarginM) && evidence.searchMarginM > 0
+      && Number.isFinite(startShift) && Number.isFinite(endShift)
+      && Math.abs(evidence.extensionStartM - Math.max(0, -startShift)) <= 1e-6
+      && Math.abs(evidence.extensionEndM - Math.max(0, endShift)) <= 1e-6
+      && Math.abs(item.fittedLengthM - item.designLengthM
+        - endShift + startShift) <= 1e-6;
+  };
+  const ownershipStages = report?.policy?.ownershipStages;
+  if (reportVersion >= 15 && (typeof report?.policy?.ownershipPolicy !== 'string' || !report.policy.ownershipPolicy.trim()
+    || !Array.isArray(ownershipStages) || ownershipStages.some((stage) => !['straight', 'short', 'web'].includes(stage?.kind)
+      || ['designUnits', 'fittedUnits', 'lockedPoints'].some((name) => !Number.isSafeInteger(stage[name]) || stage[name] < 0)
+      || stage.fittedUnits > stage.designUnits || !Number.isFinite(stage.elapsedS) || stage.elapsedS < 0)
+    || new Set(ownershipStages.map((stage) => stage.kind)).size !== ownershipStages.length
+    || ownershipStages.some((stage, index) => index > 0
+      && ['straight', 'short', 'web'].indexOf(stage.kind) <= ['straight', 'short', 'web'].indexOf(ownershipStages[index - 1].kind)))) {
+    throw new Error('控制网分阶段归属策略无效');
+  }
+  if (reportVersion >= 15 && (!Number.isSafeInteger(report.counts.extendedShortUnits) || report.counts.extendedShortUnits < 0)) {
+    throw new Error('控制网短筋延长计数无效');
+  }
   const unitKeys = new Set();
   for (const unit of report.inventory.units) {
     const key = String(unit?.designUnitId ?? '');
@@ -1439,10 +1581,11 @@ async function loadControlNetPreview(manifest, fetcher = fetchBytes) {
       || (item.rmseM != null && (!Number.isFinite(item.rmseM) || item.rmseM < 0))
       || (item.fittedLengthM != null && (item.kind !== 'short' || !Number.isFinite(item.fittedLengthM)
         || item.fittedLengthM < item.designLengthM || item.fittedLengthM > 1.5 * item.designLengthM))
-      || (Number(report.version.match(/^design-control-net-v(\d+)$/)?.[1]) >= 8 && item.fittedLengthM != null
+      || (reportVersion >= 8 && reportVersion < 15 && item.fittedLengthM != null
         && Math.abs(item.fittedLengthM-item.designLengthM) > 1e-9)
       || (item.lengthCheck != null && (item.kind !== 'short'
-        || !['consistent-visible-span', 'review-observed-span'].includes(item.lengthCheck)))
+        || !['consistent-visible-span', 'review-observed-span', 'extended-observed-span'].includes(item.lengthCheck)))
+      || !lengthEvidenceValid(item)
       || !Array.isArray(centerline) || centerline.some((point) => !controlNetVec3(point))
       || (item.bodyDisplayCenterlineM != null && (!fitted || !Array.isArray(item.bodyDisplayCenterlineM)
         || item.bodyDisplayCenterlineM.length < 2 || item.bodyDisplayCenterlineM.some((point) => !controlNetVec3(point))))
@@ -1468,6 +1611,10 @@ async function loadControlNetPreview(manifest, fetcher = fetchBytes) {
     || instance.some((id, index) => status[index] === 1 ? !ids.has(id) || report.instances[id - 1].status !== 'fitted' : id !== 0)) {
     throw new Error('控制网预览状态与设计单元身份不一致');
   }
+  if (reportVersion >= 15 && report.counts.extendedShortUnits
+    !== report.instances.filter((item) => item.lengthCheck === 'extended-observed-span').length) {
+    throw new Error('控制网短筋延长计数与实例不一致');
+  }
   return {status, instance, instanceById: new Map(report.instances.map((item) => [item.id, item]))};
 }
 
@@ -1481,7 +1628,7 @@ function controlNetIdentityColor(value, salt = 0) {
 function clearControlNetOverlay() {
   if (!controlNetOverlay) return;
   controlNetScene.remove(controlNetOverlay);
-  controlNetOverlay.traverse((object) => { object.geometry?.dispose?.(); object.material?.dispose?.(); });
+  controlNetOverlay.traverse((object) => { if (object.isInstancedMesh) object.dispose(); object.geometry?.dispose?.(); object.material?.dispose?.(); });
   controlNetOverlay = null;
 }
 
@@ -1502,9 +1649,42 @@ function createControlNetOverlay(report, origin, options = null) {
       ? selectedLayer === 'all' || units.some((item) => controlNetFitLayerId(item) === Number(selectedLayer))
       : piece.unitIds.includes(Number(selectedId));
   };
-  const addCurve = (piece, centerline, kind, color, dashed = false) => {
+  // A sampled centerline can contain hundreds of short segments. Submit its
+  // cylinders together, rather than issuing two transparent draws per segment.
+  // Keep each unit/piece separate so its metadata and filtering remain intact.
+  const addTubes = (model, centerline, diameter, color, opacity) => {
+    const segments = [];
+    const offset = new THREE.Vector3(...origin);
+    for (let index = 1; index < centerline.length; index += 1) {
+      const a = new THREE.Vector3(...centerline[index - 1]).sub(offset);
+      const b = new THREE.Vector3(...centerline[index]).sub(offset);
+      const direction = b.clone().sub(a), length = direction.length();
+      if (length > 1e-7) segments.push({a, b, direction, length});
+    }
+    if (!segments.length) return;
+    const baseLength = segments[0].length;
+    const geometry = new THREE.CylinderGeometry(diameter / 2, diameter / 2, baseLength, 12, 1, true);
+    const material = new THREE.MeshBasicMaterial({color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide});
+    const tubes = new THREE.InstancedMesh(geometry, material, segments.length);
+    const transform = new THREE.Object3D();
+    const up = new THREE.Vector3(0, 1, 0);
+    segments.forEach(({a, b, direction, length}, index) => {
+      transform.position.copy(a).add(b).multiplyScalar(.5);
+      transform.quaternion.setFromUnitVectors(up, direction.normalize());
+      transform.scale.set(1, length / baseLength, 1);
+      transform.updateMatrix();
+      tubes.setMatrixAt(index, transform.matrix);
+    });
+    tubes.instanceMatrix.needsUpdate = true;
+    tubes.computeBoundingBox();
+    tubes.computeBoundingSphere();
+    model.add(tubes);
+  };
+  const addCurve = (piece, centerline, kind, color, dashed = false, showTube = !dashed) => {
     const model = new THREE.Group();
     model.userData = {kind, pieceId: piece.id, status: piece.status, unitIds: [...piece.unitIds], designBarId: piece.designBarId};
+    if (piece.connectionStatus) model.userData.connectionStatus = piece.connectionStatus;
+    if (piece.inferenceMethod) model.userData.inferenceMethod = piece.inferenceMethod;
     const points = centerline.flatMap((point) => point.map((value, axis) => value - origin[axis]));
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
     const material = dashed
@@ -1513,17 +1693,7 @@ function createControlNetOverlay(report, origin, options = null) {
     const line = new THREE.Line(geometry, material);
     if (dashed) line.computeLineDistances();
     model.add(line);
-    if (!dashed) for (let index = 1; index < centerline.length; index += 1) {
-      const a = new THREE.Vector3(...centerline[index - 1]).sub(new THREE.Vector3(...origin));
-      const b = new THREE.Vector3(...centerline[index]).sub(new THREE.Vector3(...origin));
-      const direction = b.clone().sub(a), length = direction.length();
-      if (length <= 1e-7) continue;
-      const tube = new THREE.Mesh(new THREE.CylinderGeometry(piece.diameterM / 2, piece.diameterM / 2, length, 12, 1, true),
-        new THREE.MeshBasicMaterial({color, transparent: true, opacity: .16, depthWrite: false, side: THREE.DoubleSide}));
-      tube.position.copy(a).add(b).multiplyScalar(.5);
-      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
-      model.add(tube);
-    }
+    if (showTube) addTubes(model, centerline, piece.diameterM, color, dashed ? .1 : .16);
     group.add(model);
   };
   if (showInitialization) {
@@ -1538,6 +1708,7 @@ function createControlNetOverlay(report, origin, options = null) {
     }
     for (const piece of report.curvedPieces || []) {
       if (!piece.designCenterlineM?.length || !visiblePiece(piece)) continue;
+      if (showFit && piece.connectionStatus === 'design-inferred') continue;
       addCurve(piece, piece.designCenterlineM, piece.status === 'pending' ? 'curve-design-pending' : 'curve-design',
         piece.status === 'pending' ? 0x38bdf8 : 0x94a3b8, true);
     }
@@ -1558,22 +1729,31 @@ function createControlNetOverlay(report, origin, options = null) {
       const points = bodyCenterline.flatMap((point) => point.map((value, axis) => value - origin[axis]));
       const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
       model.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({color})));
-      for (let index = 1; index < bodyCenterline.length; index += 1) {
-        const a = new THREE.Vector3(...bodyCenterline[index - 1]).sub(new THREE.Vector3(...origin));
-        const b = new THREE.Vector3(...bodyCenterline[index]).sub(new THREE.Vector3(...origin));
-        const direction = b.clone().sub(a), length = direction.length();
-        if (length <= 1e-7) continue;
-        const tube = new THREE.Mesh(new THREE.CylinderGeometry(item.diameterM / 2, item.diameterM / 2, length, 12, 1, true),
-          new THREE.MeshBasicMaterial({color, transparent: true, opacity: .16, depthWrite: false, side: THREE.DoubleSide}));
-        tube.position.copy(a).add(b).multiplyScalar(.5);
-        tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
-        model.add(tube);
-      }
+      addTubes(model, bodyCenterline, item.diameterM, color, .16);
       group.add(model);
     }
     for (const piece of report.curvedPieces || []) {
       if (piece.status !== 'fitted' || !visiblePiece(piece)) continue;
       addCurve(piece, piece.centerlineM, 'curve-fit', 0xff8a2b);
+    }
+    for (const piece of report.curvedPieces || []) {
+      if (piece.connectionStatus !== 'design-inferred' || !visiblePiece(piece)) continue;
+      addCurve(piece, piece.inferredCenterlineM, 'curve-design-inferred', 0x22d3ee, true, true);
+      for (const [low, high] of piece.localSupport?.intervalsM || []) {
+        const clipped = []; let station = 0;
+        const curve = piece.inferredCenterlineM;
+        for (let i = 1; i < curve.length; i++) {
+          const a = curve[i-1], b = curve[i], length = Math.hypot(...b.map((v,j) => v-a[j]));
+          const left = Math.max(low, station), right = Math.min(high, station+length);
+          if (length > 1e-12 && right > left) {
+            const at = s => a.map((v,j) => v+(b[j]-v)*(s-station)/length);
+            if (!clipped.length) clipped.push(at(left));
+            clipped.push(at(right));
+          }
+          station += length;
+        }
+        if (clipped.length >= 2) addCurve(piece, clipped, 'curve-local-supported', 0xff8a2b);
+      }
     }
   }
   return group;
@@ -1599,7 +1779,7 @@ function rebuildControlNetUnitOptions() {
     || controlNetFitLayerId(item) === Number(selectedLayer));
   const parents = new Map((current?.controlNet?.inventory?.bars || []).map(bar => [bar.designBarId,bar.name || bar.ifcGlobalId || bar.designBarId]));
   $('controlNetUnitFilter').replaceChildren(...[['all', '全部设计单元'], ...instances.map((item) => [String(item.id),
-    `#${item.id} · ${controlNetHasSemanticLayers(current?.controlNet) ? `${controlNetLayerName(controlNetFitLayerId(item))} · ` : ''}母筋 ${parents.get(item.designBarId) || item.designBarId} · ${item.status === 'fitted' ? `${item.lengthCheck === 'review-observed-span' ? '已匹配 · 长度待核查' : '已拟合'} · RMSE ${fmtHeight(item.rmseM)}` : item.status === 'pending' ? '待定' : '未拟合'}`])]
+    `#${item.id} · ${controlNetHasSemanticLayers(current?.controlNet) ? `${controlNetLayerName(controlNetFitLayerId(item))} · ` : ''}母筋 ${parents.get(item.designBarId) || item.designBarId} · ${item.status === 'fitted' ? `${item.lengthCheck === 'review-observed-span' ? '已匹配 · 长度待核查' : item.lengthCheck === 'extended-observed-span' ? '已拟合 · 实测延长' : '已拟合'} · RMSE ${fmtHeight(item.rmseM)}` : item.status === 'pending' ? '待定' : '未拟合'}`])]
     .map(([value, label]) => new Option(label, value)));
   $('controlNetUnitFilter').value = instances.some((item) => String(item.id) === previous) ? previous : 'all';
 }
@@ -1659,9 +1839,14 @@ function installControlNetPreview() {
     [inputStage === 'post-fusion' ? '输入 / 03 融合候选' : inputStage === 'post-layering' ? '输入 / 分层后候选' : '输入 / 台面后候选', `${fmt(counts.input)} / ${fmt(counts.input - counts.table - (counts.excluded ?? 0))}`],
     ['支持 / 待定 / 局部离群 / 融合排除', `${fmt(counts.matched)} / ${fmt(counts.pending)} / ${fmt(counts.removed)} / ${fmt(counts.excluded ?? 0)}`],
     ...(counts.lengthReviewUnits ? [['短筋长度待核查', `${fmt(counts.lengthReviewUnits)} 根（模型保持设计长度）`]] : []),
+    ...(Number.isSafeInteger(counts.extendedShortUnits) ? [['实测延长短筋', `${fmt(counts.extendedShortUnits)} 根`]] : []),
     ['拟合单元 / 设计单元 / 物理母筋', `${fmt(counts.fittedUnits)} / ${fmt(counts.designUnits)} / ${fmt(counts.designBars)}`],
+    ...(counts.surfaceResampledUnits ? [['管面复核修正', `${fmt(counts.surfaceResampledUnits)} 根`]] : []),
+    ...(controlNetOwnershipSummary(report) ? [['分阶段归属（拟合 / 设计）', controlNetOwnershipSummary(report)]] : []),
     ...(report.curvedPieces ? [
-      ['弯曲段拟合 / 待定 / 设计', `${fmt(curveStats.fittedPieces)} / ${fmt(curveStats.pendingPieces)} / ${fmt(curveStats.designPieces)}`],
+      ['弯段：点云确认 / 未恢复 / 总数', `${fmt(curveStats.fittedPieces)} / ${fmt(curveStats.unresolvedPieces)} / ${fmt(curveStats.designPieces)}`],
+      ...(curveStats.inferredPieces ? [['补接弯段（含推断）', `${fmt(curveStats.inferredPieces)} 段 · ${fmtHeight(curveStats.inferredLengthM)}`]] : []),
+      ...(curveStats.locallyMatchedPoints ? [['补接中的局部确认', `${fmt(curveStats.locallySupportedPieces)} 段 · ${fmt(curveStats.locallyMatchedPoints)} 点`]] : []),
       ['弯曲段支持点', fmt(curveStats.matchedPoints)],
       ['弯曲段拟合 / 设计长度', `${fmtHeight(curveStats.fittedLengthM)} / ${fmtHeight(curveStats.designLengthM)}`],
     ] : []),
@@ -1700,18 +1885,27 @@ function controlNetAxisLabel(item) {
   const labels = {'evidence-selected-straight': '截面证据优先选择直线。',
     'evidence-selected-bow': '截面证据支持简单弧形。',
     'supported-spline': '连续截面支持样条弯曲；证据范围外按端部切线延伸。'};
-  return (labels[item.axisModel] || '') + (item.webEvidence?.method === 'radial-normal-ambiguity-resolution'
-    ? '初始圆柱候选存在歧义，经表面法向补充判别后通过拟合检查。' : '');
+  const refined = item.axisRefinement?.method === 'held-out-full-surface-end-correction'
+    ? '端部已根据独立管面证据回正，保留可靠主体与设计总长。'
+    : item.axisRefinement?.method === 'held-out-full-surface-short-pose'
+      ? '短筋位置与倾斜已通过独立管面证据修正。' : '';
+  return (refined || labels[item.axisModel] || '') + (item.webEvidence?.method === 'radial-normal-ambiguity-resolution'
+    ? '初始圆柱候选存在歧义，经表面法向补充判别后通过拟合检查。' : '')
+    + (item.recoveryEvidence?.method === 'full-source-finite-interval'
+      ? '错位恢复已用完整局部点云复核有限长度。' : '')
+    + (item.surfaceReview?.method === 'held-out-long-body-axis'
+      ? '局部弯曲已根据独立管面证据修正，保留设计直径与总长。' : '');
 }
 
 function controlNetShortReviewUnits(report) {
   return (report?.instances || []).filter(item => item.kind === 'short'
-    && (item.status !== 'fitted' || item.fitCandidateScope === 'unclaimed-short-pose-search'));
+    && (item.status !== 'fitted' || item.fitCandidateScope === 'unclaimed-short-pose-search'
+      || item.lengthCheck === 'extended-observed-span'));
 }
 
 function focusControlNetShort() {
   const items = controlNetShortReviewUnits(current?.controlNet);
-  if (!items.length) { setStatus('当前没有错位找回或未拟合的短筋'); return; }
+  if (!items.length) { setStatus('当前没有延长、错位找回或未拟合的短筋'); return; }
   const index = items.findIndex(item => String(item.id) === $('controlNetUnitFilter').value);
   $('controlNetLayerFilter').value = 'all';
   rebuildControlNetUnitOptions();
@@ -1753,7 +1947,8 @@ function controlNetLocalPredicate(item, unit, origin) {
 
 function controlNetCurveLocalPredicate(pieces, origin) {
   const paths = pieces.flatMap((piece) => {
-    const curve = piece.status === 'fitted' ? piece.centerlineM : piece.designCenterlineM;
+    const curve = piece.status === 'fitted' ? piece.centerlineM
+      : piece.connectionStatus === 'design-inferred' ? piece.inferredCenterlineM : piece.designCenterlineM;
     if (!curve?.length) return [];
     const radius = Math.max(.02, piece.diameterM * 4);
     return curve.slice(1).map((end, index) => {
@@ -1810,18 +2005,30 @@ function applyControlNetAppearance() {
   }
   rebuildControlNetOverlay();
   const selectedCurveStats = selectedItem ? controlNetCurveStats(current.controlNet, selectedItem.id) : null;
+  const hookDetail = selectedCurves.filter(piece => piece.terminalParameters).map(piece => {
+    const p = piece.terminalParameters;
+    const deg = v => (v * 180 / Math.PI).toFixed(1);
+    const lengthSource = piece.terminalLengthEvidence?.physicalEndObserved ? '端面定位'
+      : p.tailExtentSource === 'continuous-scan-support' ? '侧面观测，端面未确认' : '设计长度';
+    return `弯钩参数：平面旋转 ${deg(p.rollRad)}°，上翘 ${deg(p.pitchRad)}°，偏转 ${deg(p.yawRad)}°，半径 ${(p.radiusM*1000).toFixed(1)} mm，转角 ${deg(p.sweepRad)}°，尾腿 ${(p.tailLengthM*1000).toFixed(1)} mm（${lengthSource}）。`;
+  }).join('');
   const curveDetail = selectedCurveStats?.designPieces
-    ? `相邻弯曲段 ${fmt(selectedCurveStats.designPieces)} 段（拟合 ${fmt(selectedCurveStats.fittedPieces)} / 待定 ${fmt(selectedCurveStats.pendingPieces)}）· 曲段新增支持 ${fmt(selectedCurveStats.matchedPoints)} 点 · 拟合曲线总长 ${fmtHeight(selectedCurveStats.fittedLengthM)}，设计弯段长 ${fmtHeight(selectedCurveStats.designLengthM)}。${selectedCurves.some(piece => piece.status === 'fitted' && piece.attachmentStatus === 'body-anchored-transition') ? '拟合总长包含接入主体的过渡段；遮挡处为模型插值，不能视作全长实测。' : ''}${selectedCurves.some(piece => piece.status === 'pending') ? `弯段待定原因：${[...new Set(selectedCurves.filter(piece => piece.status === 'pending').map(piece => controlNetReason(piece.reason)))].join('；')}。` : ''}`
+    ? `相邻弯曲段 ${fmt(selectedCurveStats.designPieces)} 段（点云确认 ${fmt(selectedCurveStats.fittedPieces)} / 补接 ${fmt(selectedCurveStats.inferredPieces)} / 未恢复 ${fmt(selectedCurveStats.unresolvedPieces)}）· 曲段新增支持 ${fmt(selectedCurveStats.matchedPoints)} 点 · 拟合曲线总长 ${fmtHeight(selectedCurveStats.fittedLengthM)}，设计弯段长 ${fmtHeight(selectedCurveStats.designLengthM)}。${selectedCurveStats.inferredPieces ? `其中 ${fmt(selectedCurveStats.inferredPieces)} 段补接（${fmtHeight(selectedCurveStats.inferredLengthM)}），其中 ${fmt(selectedCurveStats.scanGuidedPieces)} 段由观测调整参数；缺测部分仍依赖设计；局部确认 ${fmt(selectedCurveStats.locallyMatchedPoints)} 点已归属，整段仍不计入确认拟合长度。` : ''}${selectedCurves.some(piece => piece.status === 'fitted' && piece.attachmentStatus === 'body-anchored-transition') ? '拟合总长包含接入主体的过渡段；遮挡处为模型插值，不能视作全长实测。' : ''}${selectedCurves.some(piece => piece.status === 'pending' && piece.connectionStatus !== 'design-inferred') ? `弯段待定原因：${[...new Set(selectedCurves.filter(piece => piece.status === 'pending' && piece.connectionStatus !== 'design-inferred').map(piece => controlNetReason(piece.reason)))].join('；')}。` : ''}`
     : '';
   $('controlNetHint').textContent = selectedItem
-    ? `单元 #${selectedItem.id} · ${controlNetHasSemanticLayers(current.controlNet) ? `拟合层 ${controlNetLayerName(controlNetFitLayerId(selectedItem))} · ` : ''}母筋 ${current.controlNet.inventory.bars?.find(bar=>bar.designBarId===selectedItem.designBarId)?.name || selectedItem.designBarId} · ${selectedItem.status === 'fitted' ? (selectedItem.lengthCheck === 'review-observed-span' ? '位置已匹配，长度待核查' : '拟合成功') : selectedItem.status === 'pending' ? '待定' : '未拟合'} · 单元支持 ${fmt(selectedItem.pointCount)} 点 · 主体 RMSE ${fmtHeight(selectedItem.rmseM)} · ${selectedItem.kind === 'web' && selectedItem.axisModel === 'fixed-length-straight-cylinder' ? '主体支持跨度 / 设计直段长度' : '主体观测 / 设计直段长度'} ${fmtHeight(selectedItem.observedLengthM)} / ${fmtHeight(selectedItem.designLengthM)}。${curveDetail}${selectedItem.displacementM ? `中心错位 ${fmtHeight(Math.hypot(...selectedItem.displacementM))}；主体显示长度 ${fmtHeight(controlNetPolylineLength(selectedItem.bodyDisplayCenterlineM || selectedItem.centerlineM))}。` : ''}${selectedItem.axisModel === 'fixed-length-straight-cylinder' ? '主体采用直线圆柱约束，端部弯曲单独显示。' : ''}${nearby || curveNearby ? `当前显示本单元及相邻弯曲段附近的点${selectedItem.kind === 'web' ? '，并保留腹杆端点附近的原始点' : ''}，不代表这些点均已归属本筋。` : ''}${selectedItem.lengthCheck === 'review-observed-span' ? '观测跨度不等于实测钢筋长度，可能包含邻筋或端部噪点；本模型保持设计长度。' : ''}${controlNetAxisLabel(selectedItem)}${controlNetReason(selectedItem.reason)}`
-    : `显示 ${fmt(size)} 个样本点。亮橙色实线及圆柱表示已确认拟合的直段和弯曲段；黄色虚线为待确认直段候选。初始化 / 设计开关中的蓝色虚线弯曲段仅为未确认设计曲线，不代表拟合成功。${controlNetInputStage(current.controlNet) === 'post-fusion' ? '融合排除点单独查看，不混入完整候选。' : '输入为全部非台面原始点，尚未进行禁飞区划分或分类筛选。'}`;
+    ? `单元 #${selectedItem.id} · ${controlNetHasSemanticLayers(current.controlNet) ? `拟合层 ${controlNetLayerName(controlNetFitLayerId(selectedItem))} · ` : ''}母筋 ${current.controlNet.inventory.bars?.find(bar=>bar.designBarId===selectedItem.designBarId)?.name || selectedItem.designBarId} · ${selectedItem.status === 'fitted' ? (selectedItem.lengthCheck === 'review-observed-span' ? '位置已匹配，长度待核查' : selectedItem.lengthCheck === 'extended-observed-span' ? '拟合成功，端部延长有连续表面支持' : '拟合成功') : selectedItem.status === 'pending' ? '待定' : '未拟合'} · 单元支持 ${fmt(selectedItem.pointCount)} 点 · 主体 RMSE ${fmtHeight(selectedItem.rmseM)} · ${controlNetLengthObservation(selectedItem)}${curveDetail}${hookDetail}${selectedItem.displacementM ? `中心错位 ${fmtHeight(Math.hypot(...selectedItem.displacementM))}；主体显示长度 ${fmtHeight(controlNetPolylineLength(selectedItem.bodyDisplayCenterlineM || selectedItem.centerlineM))}。` : ''}${selectedItem.axisModel === 'fixed-length-straight-cylinder' ? '主体采用直线圆柱约束，端部弯曲单独显示。' : ''}${nearby || curveNearby ? `当前显示本单元及相邻弯曲段附近的点${selectedItem.kind === 'web' ? '，并保留腹杆端点附近的原始点' : ''}，不代表这些点均已归属本筋。` : ''}${selectedItem.lengthCheck === 'review-observed-span' ? '观测跨度不等于实测钢筋长度，可能包含邻筋或端部噪点；本模型保持设计长度。' : ''}${controlNetAxisLabel(selectedItem)}${controlNetReason(selectedItem.reason)}`
+    : `显示 ${fmt(size)} 个样本点。亮橙色实线及圆柱表示已确认拟合的直段和弯曲段；${current.controlNet.curvedPieces?.some(piece => piece.connectionStatus === 'design-inferred') ? '青色虚线及半透明圆管表示含推断的补接，参数拟合与纯设计补接可在单元详情区分；' : ''}黄色虚线为待确认直段候选。初始化 / 设计开关中的蓝色虚线弯曲段仅为未确认设计曲线，不代表拟合成功。${controlNetOwnershipHint(current.controlNet) || (controlNetInputStage(current.controlNet) === 'post-fusion' ? '融合排除点单独查看，不混入完整候选。' : '输入为全部非台面原始点，尚未进行禁飞区划分或分类筛选。')}`;
   const legends = colorMode === 'parents' ? [['不同颜色', '物理母筋'], ['#facc15', '待定'], ['#ef476f', '局部离群']]
     : colorMode === 'units' ? [['不同颜色', '设计单元'], ['#facc15', '待定'], ['#ef476f', '局部离群']]
       : colorMode === 'layers' ? [['#3ba1fa', '下层钢筋'], ['#ab6bf5', '上层钢筋'], ['#fa8c2e', '腹杆层'], ['#949fba', '未归层']]
         : [['#2dd4bf', '支持钢筋'], ['#facc15', '待定 / 歧义'], ['#ef476f', '局部离群'], ['#7d5ca8', '融合排除']];
   if ($('controlNetFitOverlay').checked) legends.unshift(['#ff8a2b', '拟合轴线 / 圆柱']);
-  if ($('controlNetInitializationOverlay').checked && current.controlNet.curvedPieces?.some((piece) => piece.status === 'pending' && piece.designCenterlineM)) legends.unshift(['#38bdf8', '未确认设计弯曲线（未拟合）']);
+  if ($('controlNetFitOverlay').checked && current.controlNet.curvedPieces?.some((piece) => piece.connectionStatus === 'design-inferred')) legends.unshift(['#22d3ee', '补接，含缺测推断（虚线 / 半透明管）']);
+  if ($('controlNetFitOverlay').checked && current.controlNet.curveSummary?.locallyMatchedPoints > 0) legends.unshift(['#ff8a2b', '补接中的局部确认管面']);
+  if ($('controlNetInitializationOverlay').checked && current.controlNet.curvedPieces?.some((piece) => piece.status === 'pending'
+    && piece.designCenterlineM && (!$('controlNetFitOverlay').checked || piece.connectionStatus !== 'design-inferred'))) {
+    legends.unshift(['#38bdf8', '未确认设计弯曲线（未拟合）']);
+  }
   $('controlNetLegend').replaceChildren(...legends.map(([color, label]) => { const row = document.createElement('span'); const swatch = document.createElement('i'); swatch.className = 'swatch'; swatch.style.background = color === '不同颜色' ? 'linear-gradient(90deg,#22c55e,#a78bfa,#f97316)' : color; row.append(swatch, label); return row; }));
   requestRender();
 }
@@ -3020,6 +3227,7 @@ function metrics(manifest) {
       [`${controlStage} 初始化 / 配准`, `${controlNet.mode === 'auto' ? '自动' : '粗对齐'} / ${controlNet.registration.method}`],
       [`${controlStage} 支持 / 待定 / 局部离群 / 融合排除`, `${fmt(controlNet.counts.matched)} / ${fmt(controlNet.counts.pending)} / ${fmt(controlNet.counts.removed)} / ${fmt(controlNet.counts.excluded ?? 0)}`],
       [`${controlStage} 拟合单元 / 设计单元 / 物理母筋`, `${fmt(controlNet.counts.fittedUnits)} / ${fmt(controlNet.counts.designUnits)} / ${fmt(controlNet.counts.designBars)}`],
+      ...(Number.isSafeInteger(controlNet.counts.extendedShortUnits) ? [[`${controlStage} 实测延长短筋`, `${fmt(controlNet.counts.extendedShortUnits)} 根`]] : []),
       [`${controlStage} 控制网耗时`, fmt(controlNet.elapsedS, ' s')],
     );
   }
@@ -3558,7 +3766,7 @@ async function loadManifest(manifest) {
     $('floatingZonesControls').querySelector('h2').textContent = layeringOnly ? '01D 钢筋分层' : '01D 钢筋分层与禁飞区';
     $('floatingForbiddenOnly').closest('label').hidden = layeringOnly;
     if (layeringOnly) $('floatingForbiddenOnly').checked = false;
-    $('floatingHint').textContent = layeringOnly ? '分为底层钢筋、顶层钢筋、腹杆层；本轮停在禁飞区划分之前，全部非台面点参与控制网拟合。' : '分为底层钢筋、顶层钢筋、腹杆层；红色为禁飞区候选，05 步剔除包络外的全部钢筋点。';
+    $('floatingHint').textContent = layeringOnly ? '分为底层钢筋、顶层钢筋、腹杆层；本轮停在禁飞区划分之前，以非台面点作为初始候选，后续阶段只使用尚未锁定的候选点。' : '分为底层钢筋、顶层钢筋、腹杆层；红色为禁飞区候选，05 步剔除包络外的全部钢筋点。';
     $('classificationStep').disabled = !classes;
     $('projectionStep').disabled = !projectionClasses;
     $('fusionStep').disabled = !fusedClasses;
@@ -3795,10 +4003,10 @@ function updateControlNetRunMode() {
   const mode = $('controlNetMode').value;
   const experiment = mode !== 'off';
   $('run').textContent = experiment ? `↻ 运行台面后控制网（${mode === 'auto' ? '自动初始化' : '粗对齐'}）` : '↻ 重新运行';
-  $('run').title = experiment ? '移除台面后直接拟合控制网，不执行分区、分层或分类' : '使用现有完整流程重新运行';
+  $('run').title = experiment ? '移除台面后开始控制网分阶段拟合，不执行分区、分层或分类' : '使用现有完整流程重新运行';
   $('controlNetModeHint').textContent = experiment
-    ? `${mode === 'auto' ? '从台面移除后的扫描几何自动估计初始位姿' : '使用已有粗对齐位姿初始化'}；以全部非台面原始点为候选，按空间邻域和圆柱表面证据拟合，不依赖分层，保留待定点供检查。`
-    : '控制网实验在台面移除后，直接使用全部非台面点拟合，无需分区、分层或分类。';
+    ? `${mode === 'auto' ? '从台面移除后的扫描几何自动估计初始位姿' : '使用已有粗对齐位姿初始化'}；以非台面点作为初始候选，按直筋、短筋、腹杆依次拟合；确认点锁定，待定点保留。`
+    : '控制网实验在台面移除后，以非台面点作为初始候选，按直筋、短筋、腹杆依次拟合；确认点锁定，待定点保留。';
 }
 
 $('run').addEventListener('click', async () => {

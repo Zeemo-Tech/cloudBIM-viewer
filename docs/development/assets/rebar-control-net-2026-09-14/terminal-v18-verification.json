@@ -1,0 +1,542 @@
+{
+  "runId": "20260914T152022-70f63cad",
+  "sourceNormalsTableUnchanged": true,
+  "all210BodyFitsUnchanged": true,
+  "allPreviouslyOwnedPointsPreserved": true,
+  "fullOwnershipMatchesIndependentReplay": true,
+  "unchangedPreviouslyConfirmedCurves": 123,
+  "maxAttachmentGapM": 0.0,
+  "terminals": [
+    {
+      "unitIds": [
+        2
+      ],
+      "status": "pending",
+      "reason": "unstable-held-out-curve",
+      "inferenceMethod": "scan-guided-parametric-terminal",
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.00011344938649985251,
+          -0.0010028202894349612,
+          2.7399527245818192e-05
+        ],
+        "rollRad": 0.380898440008724,
+        "pitchRad": 0.009651896222572247,
+        "yawRad": -0.020153741459291497,
+        "radiusM": 0.022793028724673717,
+        "sweepRad": 2.5507046085968916,
+        "tailLengthM": 0.050536725011900034,
+        "tailExtentSource": "continuous-scan-support",
+        "arcCenterM": [
+          6.350737840957338,
+          -1.4273629625083322,
+          0.06910225326376541
+        ],
+        "arcNormal": [
+          0.019313551295426876,
+          -0.9281005634377062,
+          -0.3718283621282424
+        ],
+        "arcTangent": [
+          0.9997548353569714,
+          0.013899373022228408,
+          0.0172359104762065
+        ]
+      },
+      "validation": {
+        "observedP90ChangeM": 0.002358575599917837,
+        "heldSupport": 160,
+        "coveredBins": 8
+      }
+    },
+    {
+      "unitIds": [
+        3
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          0.0014618592659555111,
+          -0.00012069114856998115,
+          1.8752262323014266e-05
+        ],
+        "rollRad": -0.05957373438788218,
+        "pitchRad": 0.0,
+        "yawRad": 0.0,
+        "radiusM": 0.022402489158799246,
+        "sweepRad": 2.5393281093789235,
+        "tailLengthM": 0.03999874991470659,
+        "tailExtentSource": "design",
+        "arcCenterM": [
+          6.3519993200080584,
+          -1.4972783903078721,
+          0.06598530415325095
+        ],
+        "arcNormal": [
+          0.015653756005464564,
+          -0.998104025731897,
+          0.05952574015249205
+        ],
+        "arcTangent": [
+          0.9996425857970891,
+          0.01691265813914094,
+          0.020704170004562327
+        ]
+      },
+      "validation": null
+    },
+    {
+      "unitIds": [
+        4
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.0007720293935137238,
+          -3.764252408609202e-05,
+          -2.530549750223127e-05
+        ],
+        "rollRad": -0.34613303503529147,
+        "pitchRad": 0.0,
+        "yawRad": 0.0,
+        "radiusM": 0.021992895579169645,
+        "sweepRad": 2.533602433266483,
+        "tailLengthM": 0.0399987499147066,
+        "tailExtentSource": "design",
+        "arcCenterM": [
+          6.34994516428617,
+          -1.5781790890112397,
+          0.06053908601684234
+        ],
+        "arcNormal": [
+          0.01633772656492009,
+          -0.9405532330296318,
+          0.339253142252503
+        ],
+        "arcTangent": [
+          0.999770141279873,
+          0.020078248609325486,
+          0.007518546269420392
+        ]
+      },
+      "validation": null
+    },
+    {
+      "unitIds": [
+        5
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.0001899418615406576,
+          -0.00524845389154996,
+          3.161734225830396e-05
+        ],
+        "rollRad": 0.21916522011069225,
+        "pitchRad": 0.0,
+        "yawRad": 0.0,
+        "radiusM": 0.022016534274138792,
+        "sweepRad": 2.526567799656185,
+        "tailLengthM": 0.039998749914706616,
+        "tailExtentSource": "design",
+        "arcCenterM": [
+          6.350441541950681,
+          -1.7115764663672217,
+          0.05714697780211459
+        ],
+        "arcNormal": [
+          -0.037775154810517714,
+          -0.975352147857803,
+          -0.2173964704134172
+        ],
+        "arcTangent": [
+          0.9990498093318476,
+          -0.041594064651861516,
+          0.013015846485546581
+        ]
+      },
+      "validation": null
+    },
+    {
+      "unitIds": [
+        6
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.0035266411064527447,
+          -0.0021665418136581466,
+          -0.0019045493447073154
+        ],
+        "rollRad": 0.2457050206686748,
+        "pitchRad": 0.0,
+        "yawRad": 0.0,
+        "radiusM": 0.021730094454743772,
+        "sweepRad": 2.52943371842166,
+        "tailLengthM": 0.03999874991470659,
+        "tailExtentSource": "design",
+        "arcCenterM": [
+          6.347470472786739,
+          -1.8808606898405587,
+          0.056214276661242124
+        ],
+        "arcNormal": [
+          0.013512536602543512,
+          -0.9698726628418632,
+          -0.2432373927392713
+        ],
+        "arcTangent": [
+          0.9999074346062844,
+          0.012719383255509933,
+          0.004831098082048519
+        ]
+      },
+      "validation": null
+    },
+    {
+      "unitIds": [
+        7
+      ],
+      "status": "pending",
+      "reason": "insufficient-continuous-curved-surface",
+      "inferenceMethod": "scan-guided-parametric-terminal",
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.008167366379253688,
+          -0.000166654924099285,
+          0.0014483450489317618
+        ],
+        "rollRad": 0.4067752630611222,
+        "pitchRad": -0.004032017817506804,
+        "yawRad": 0.025222158235012376,
+        "radiusM": 0.023771118704208682,
+        "sweepRad": 2.5308419905622586,
+        "tailLengthM": 0.04501929847192829,
+        "tailExtentSource": "continuous-scan-support",
+        "arcCenterM": [
+          6.342274699317741,
+          -1.9855164773264038,
+          0.058664313930728504
+        ],
+        "arcNormal": [
+          0.020695594437402213,
+          -0.9181872262474459,
+          -0.39560575062415887
+        ],
+        "arcTangent": [
+          0.9994446980178766,
+          0.008664384975745901,
+          0.03217489762140081
+        ]
+      },
+      "validation": {
+        "observedP90ChangeM": 0.00018923059809540749,
+        "heldSupport": 41,
+        "coveredBins": 3
+      }
+    },
+    {
+      "unitIds": [
+        8
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          0.0013004993475972779,
+          0.0010654502931767215,
+          -0.0003987633257362263
+        ],
+        "rollRad": 0.1881042738758121,
+        "pitchRad": 0.0,
+        "yawRad": 0.0,
+        "radiusM": 0.021855191481646042,
+        "sweepRad": 2.5027167792308003,
+        "tailLengthM": 0.0399987499147066,
+        "tailExtentSource": "design",
+        "arcCenterM": [
+          6.352170024528433,
+          -2.0853135203752804,
+          0.0596507076986285
+        ],
+        "arcNormal": [
+          0.002278504958749227,
+          -0.9823588418702167,
+          -0.18699174905476318
+        ],
+        "arcTangent": [
+          0.9999718050338249,
+          0.0009002789984041584,
+          0.007455107988418953
+        ]
+      },
+      "validation": null
+    },
+    {
+      "unitIds": [
+        9
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.002943812356369104,
+          0.0012052102409861854,
+          -7.91109147572398e-05
+        ],
+        "rollRad": -0.026497699997897188,
+        "pitchRad": 0.0,
+        "yawRad": 0.0,
+        "radiusM": 0.022172097879244006,
+        "sweepRad": 2.550036467306231,
+        "tailLengthM": 0.039998749914706616,
+        "tailExtentSource": "design",
+        "arcCenterM": [
+          6.347924125061955,
+          -2.1931709410914837,
+          0.060270848316198236
+        ],
+        "arcNormal": [
+          -0.005060433952871114,
+          -0.9996361630206028,
+          0.026494029320878992
+        ],
+        "arcTangent": [
+          0.9999665385001169,
+          -0.0048882559835906145,
+          0.006559484242927566
+        ]
+      },
+      "validation": null
+    },
+    {
+      "unitIds": [
+        10
+      ],
+      "status": "pending",
+      "reason": "unstable-held-out-curve",
+      "inferenceMethod": "scan-guided-parametric-terminal",
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          -0.001188677762344264,
+          -0.001962376856727213,
+          0.001565885644487976
+        ],
+        "rollRad": -0.2672122466677098,
+        "pitchRad": 0.003968013662854692,
+        "yawRad": 0.13311954084866304,
+        "radiusM": 0.02092987059999113,
+        "sweepRad": 2.3458227101339353,
+        "tailLengthM": 0.04934036514187894,
+        "tailExtentSource": "continuous-scan-support",
+        "arcCenterM": [
+          6.346979339053329,
+          -2.2677350326641355,
+          0.05382121459714333
+        ],
+        "arcNormal": [
+          -0.00017832257746000502,
+          -0.9645159753502304,
+          0.2640244335194236
+        ],
+        "arcTangent": [
+          0.9904754311319172,
+          0.03618302711534994,
+          0.13285032507605168
+        ]
+      },
+      "validation": {
+        "observedP90ChangeM": 0.0011755381018333805,
+        "heldSupport": 67,
+        "coveredBins": 8
+      }
+    },
+    {
+      "unitIds": [
+        11
+      ],
+      "status": "fitted",
+      "reason": "parametric-tube-supported",
+      "inferenceMethod": null,
+      "parameters": {
+        "model": "circular-arc-tangent-tail",
+        "offsetM": [
+          0.0016440934598377407,
+          -0.0002008241303308147,
+          -0.0025664650953045017
+        ],
+        "rollRad": 0.8169059148920506,
+        "pitchRad": 0.00260691501011191,
+        "yawRad": 0.14072988013420706,
+        "radiusM": 0.019918563415545626,
+        "sweepRad": 2.318974466183766,
+        "tailLengthM": 0.015590629185108737,
+        "tailExtentSource": "continuous-scan-support",
+        "arcCenterM": [
+          6.349703031304622,
+          -1.7936259950470281,
+          0.048730946057953306
+        ],
+        "arcNormal": [
+          -0.019116883294168285,
+          -0.6842328899591246,
+          -0.7290129608390387
+        ],
+        "arcTangent": [
+          0.9882089297541932,
+          -0.12371815895802821,
+          0.0902049239127693
+        ]
+      },
+      "validation": null
+    }
+  ],
+  "counts": {
+    "input": 9216369,
+    "table": 5315996,
+    "matched": 1777527,
+    "pending": 2122816,
+    "removed": 30,
+    "excluded": 0,
+    "designUnits": 210,
+    "fittedUnits": 210,
+    "designBars": 70,
+    "candidateFittedUnits": 0,
+    "extendedShortUnits": 12,
+    "surfaceRefinedUnits": 5,
+    "lengthReviewUnits": 0
+  },
+  "curves": {
+    "designPieces": 150,
+    "fittedPieces": 124,
+    "pendingPieces": 26,
+    "inferredPieces": 26,
+    "unresolvedPieces": 0,
+    "matchedPoints": 32246,
+    "workers": 8,
+    "elapsedS": 7.338032225030474
+  },
+  "officialTimings": {
+    "readS": 0.18517981003969908,
+    "treeS": 1.8092210679897107,
+    "normalsS": 5.9120221069897525,
+    "preprocessingS": 0.3863828350440599,
+    "controlNetS": 15.424340715981089,
+    "persistS": 4.5802911589853466,
+    "previewS": 0.3592921430245042,
+    "totalS": 28.720626751019154
+  },
+  "pipelineBenchmark": [
+    {
+      "version": "v17",
+      "runDirectory": "/tmp/cloudbim-v18/pipeline-v17/20260914T151851-c95d26bb",
+      "timings": {
+        "readS": 0.19339233200298622,
+        "treeS": 1.8178286360343918,
+        "normalsS": 5.989248954982031,
+        "preprocessingS": 0.3912510119844228,
+        "controlNetS": 15.731703178957105,
+        "persistS": 2.6068558470578864,
+        "previewS": 0.41800674598198384,
+        "totalS": 27.207390057039447
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1775810,
+        "pending": 2124533,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      }
+    },
+    {
+      "version": "v18",
+      "runDirectory": "/tmp/cloudbim-v18/pipeline-v18/20260914T151918-7807d1a8",
+      "timings": {
+        "readS": 0.18908144702436402,
+        "treeS": 1.8406789359869435,
+        "normalsS": 5.965485357039142,
+        "preprocessingS": 0.3971391559462063,
+        "controlNetS": 16.410309459024575,
+        "persistS": 1.7526689589722082,
+        "previewS": 0.3683640400413424,
+        "totalS": 26.98512817104347
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1777527,
+        "pending": 2122816,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "surfaceRefinedUnits": 5,
+        "lengthReviewUnits": 0
+      }
+    }
+  ],
+  "httpLoader": {
+    "runId": "20260914T152022-70f63cad",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 124,
+      "pendingPieces": 26,
+      "inferredPieces": 26,
+      "unresolvedPieces": 0,
+      "matchedPoints": 32246,
+      "workers": 8,
+      "elapsedS": 7.338032225030474
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design": 124,
+      "fit": 210,
+      "curve-fit": 124,
+      "curve-design-inferred": 26
+    },
+    "webglInteraction": "unverified: no CUA browser available"
+  },
+  "las": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1777527,
+    "control-pending.las": 2122816,
+    "control-removed.las": 30,
+    "control-excluded.las": 0
+  },
+  "tests": {
+    "python": 102,
+    "node": 39
+  }
+}

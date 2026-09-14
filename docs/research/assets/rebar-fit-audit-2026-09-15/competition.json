@@ -1,0 +1,23 @@
+[
+  {
+    "kind": "straight",
+    "pendingWithinShellUniquePoints": 1310,
+    "competitionExplained": 1310,
+    "unexplained": 0,
+    "unexplainedById": {}
+  },
+  {
+    "kind": "short",
+    "pendingWithinShellUniquePoints": 0,
+    "competitionExplained": 0,
+    "unexplained": 0,
+    "unexplainedById": {}
+  },
+  {
+    "kind": "web",
+    "pendingWithinShellUniquePoints": 0,
+    "competitionExplained": 0,
+    "unexplained": 0,
+    "unexplainedById": {}
+  }
+]

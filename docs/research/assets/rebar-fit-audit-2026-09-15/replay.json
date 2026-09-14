@@ -1,0 +1,48 @@
+[
+  {
+    "workers": 8,
+    "elapsedS": 15.237087965011597,
+    "counts": {
+      "input": 9216369,
+      "table": 5315996,
+      "matched": 1782728,
+      "pending": 2117615,
+      "removed": 30,
+      "excluded": 0,
+      "designUnits": 210,
+      "fittedUnits": 210,
+      "designBars": 70,
+      "candidateFittedUnits": 0,
+      "extendedShortUnits": 12,
+      "surfaceRefinedUnits": 5,
+      "lengthReviewUnits": 0
+    },
+    "differentPoints": {
+      "control_status": 0,
+      "control_instance": 0
+    }
+  },
+  {
+    "workers": 4,
+    "elapsedS": 22.643491983413696,
+    "counts": {
+      "input": 9216369,
+      "table": 5315996,
+      "matched": 1782728,
+      "pending": 2117615,
+      "removed": 30,
+      "excluded": 0,
+      "designUnits": 210,
+      "fittedUnits": 210,
+      "designBars": 70,
+      "candidateFittedUnits": 0,
+      "extendedShortUnits": 12,
+      "surfaceRefinedUnits": 5,
+      "lengthReviewUnits": 0
+    },
+    "differentPoints": {
+      "control_status": 0,
+      "control_instance": 0
+    }
+  }
+]

@@ -1,0 +1,409 @@
+{
+  "runId": "20260914T111127-14504a62",
+  "sourceAndTableUnchanged": true,
+  "fullOwnershipEqualsIndependentReplay": true,
+  "previewSourceMappingVerified": true,
+  "unchangedStraightAxes": 54,
+  "maxAttachmentGapM": 0,
+  "counts": {
+    "input": 9216369,
+    "table": 5315996,
+    "matched": 1762206,
+    "pending": 2138137,
+    "removed": 30,
+    "excluded": 0,
+    "designUnits": 210,
+    "fittedUnits": 210,
+    "designBars": 70,
+    "candidateFittedUnits": 0,
+    "extendedShortUnits": 12,
+    "lengthReviewUnits": 0
+  },
+  "curves": {
+    "designPieces": 150,
+    "fittedPieces": 123,
+    "pendingPieces": 27,
+    "matchedPoints": 33721,
+    "workers": 8,
+    "elapsedS": 9.204460164008196
+  },
+  "changedCurves": [
+    {
+      "unitIds": [
+        116,
+        117
+      ],
+      "before": "pending",
+      "after": "fitted",
+      "reason": "parametric-tube-supported"
+    },
+    {
+      "unitIds": [
+        134,
+        135
+      ],
+      "before": "pending",
+      "after": "fitted",
+      "reason": "parametric-tube-supported"
+    },
+    {
+      "unitIds": [
+        156,
+        157
+      ],
+      "before": "fitted",
+      "after": "pending",
+      "reason": "unstable-held-out-curve"
+    },
+    {
+      "unitIds": [
+        198,
+        199
+      ],
+      "before": "pending",
+      "after": "fitted",
+      "reason": "parametric-tube-supported"
+    }
+  ],
+  "officialTimings": {
+    "readS": 0.18777381401741877,
+    "treeS": 1.8845305609866045,
+    "normalsS": 8.000893537013326,
+    "preprocessingS": 0.4859608630067669,
+    "controlNetS": 18.517287975992076,
+    "persistS": 0.9539312289562076,
+    "previewS": 0.3726233739871532,
+    "totalS": 30.458164591982495
+  },
+  "shortLengthsMm": [
+    {
+      "id": 49,
+      "design": 280.0000000000002,
+      "fitted": 318.28666703454127
+    },
+    {
+      "id": 50,
+      "design": 280.0000000000002,
+      "fitted": 383.95267670159177
+    },
+    {
+      "id": 51,
+      "design": 280.0000000000002,
+      "fitted": 344.2793707862489
+    },
+    {
+      "id": 52,
+      "design": 280.0000000000002,
+      "fitted": 318.43022314068537
+    },
+    {
+      "id": 53,
+      "design": 280.0000000000002,
+      "fitted": 365.94998431443616
+    },
+    {
+      "id": 54,
+      "design": 280.0000000000002,
+      "fitted": 361.70736452055655
+    },
+    {
+      "id": 55,
+      "design": 280.0000000000002,
+      "fitted": 297.0327713400792
+    },
+    {
+      "id": 56,
+      "design": 280.0000000000002,
+      "fitted": 380.6336269973502
+    },
+    {
+      "id": 57,
+      "design": 280.0000000000002,
+      "fitted": 313.0884786852049
+    },
+    {
+      "id": 58,
+      "design": 280.0000000000002,
+      "fitted": 362.30977929868504
+    },
+    {
+      "id": 59,
+      "design": 280.0000000000002,
+      "fitted": 381.07960765425656
+    },
+    {
+      "id": 60,
+      "design": 280.0000000000002,
+      "fitted": 378.04305989691875
+    }
+  ],
+  "benchmark": [
+    {
+      "version": "v14",
+      "iteration": 0,
+      "elapsedS": 18.20602801203495,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1743286,
+        "pending": 2157057,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "lengthReviewUnits": 4
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 121,
+        "pendingPieces": 29,
+        "matchedPoints": 33781,
+        "workers": 8,
+        "elapsedS": 8.816312062961515
+      },
+      "stages": null
+    },
+    {
+      "version": "v15",
+      "iteration": 0,
+      "elapsedS": 16.895150025957264,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1762206,
+        "pending": 2138137,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "lengthReviewUnits": 0
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 123,
+        "pendingPieces": 27,
+        "matchedPoints": 33721,
+        "workers": 8,
+        "elapsedS": 8.615743811009452
+      },
+      "stages": [
+        {
+          "kind": "straight",
+          "designUnits": 54,
+          "fittedUnits": 54,
+          "lockedPoints": 1489125,
+          "elapsedS": 5.301899521029554
+        },
+        {
+          "kind": "short",
+          "designUnits": 12,
+          "fittedUnits": 12,
+          "lockedPoints": 69968,
+          "elapsedS": 0.7239394939970225
+        },
+        {
+          "kind": "web",
+          "designUnits": 144,
+          "fittedUnits": 144,
+          "lockedPoints": 169392,
+          "elapsedS": 1.2355318009504117
+        }
+      ]
+    },
+    {
+      "version": "v14",
+      "iteration": 1,
+      "elapsedS": 18.64819311600877,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1743286,
+        "pending": 2157057,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "lengthReviewUnits": 4
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 121,
+        "pendingPieces": 29,
+        "matchedPoints": 33781,
+        "workers": 8,
+        "elapsedS": 8.861183768021874
+      },
+      "stages": null
+    },
+    {
+      "version": "v15",
+      "iteration": 1,
+      "elapsedS": 16.764950063021388,
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1762206,
+        "pending": 2138137,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "lengthReviewUnits": 0
+      },
+      "curveSummary": {
+        "designPieces": 150,
+        "fittedPieces": 123,
+        "pendingPieces": 27,
+        "matchedPoints": 33721,
+        "workers": 8,
+        "elapsedS": 8.378457205020823
+      },
+      "stages": [
+        {
+          "kind": "straight",
+          "designUnits": 54,
+          "fittedUnits": 54,
+          "lockedPoints": 1489125,
+          "elapsedS": 5.408755847020075
+        },
+        {
+          "kind": "short",
+          "designUnits": 12,
+          "fittedUnits": 12,
+          "lockedPoints": 69968,
+          "elapsedS": 0.7223205839982256
+        },
+        {
+          "kind": "web",
+          "designUnits": 144,
+          "fittedUnits": 144,
+          "lockedPoints": 169392,
+          "elapsedS": 1.2287682230235077
+        }
+      ]
+    }
+  ],
+  "pipelineBenchmark": [
+    {
+      "version": "v14",
+      "runDirectory": "/tmp/cloudbim-v15/pipeline-v14/20260914T111259-b843d29d",
+      "timings": {
+        "readS": 0.18496761098504066,
+        "treeS": 1.8224135320051573,
+        "normalsS": 5.906806131999474,
+        "preprocessingS": 0.3887659320025705,
+        "controlNetS": 17.75864666805137,
+        "persistS": 0.9801285570138134,
+        "previewS": 0.36443608498666435,
+        "totalS": 27.46151391096646
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1743286,
+        "pending": 2157057,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "lengthReviewUnits": 4
+      }
+    },
+    {
+      "version": "v15",
+      "runDirectory": "/tmp/cloudbim-v15/pipeline-v15/20260914T111326-195fb0c8",
+      "timings": {
+        "readS": 0.19764801900601014,
+        "treeS": 1.8309048960218206,
+        "normalsS": 6.0887762710335664,
+        "preprocessingS": 0.39091570104938,
+        "controlNetS": 17.41324096499011,
+        "persistS": 0.8624282400123775,
+        "previewS": 0.3640976899769157,
+        "totalS": 27.20755905698752
+      },
+      "counts": {
+        "input": 9216369,
+        "table": 5315996,
+        "matched": 1762206,
+        "pending": 2138137,
+        "removed": 30,
+        "excluded": 0,
+        "designUnits": 210,
+        "fittedUnits": 210,
+        "designBars": 70,
+        "candidateFittedUnits": 0,
+        "extendedShortUnits": 12,
+        "lengthReviewUnits": 0
+      }
+    }
+  ],
+  "poolChecks": {
+    "success": {
+      "processes": 8,
+      "nativeThreads": 1,
+      "workersReaped": true,
+      "parentUnchanged": true,
+      "backgroundThreadCompleted": true,
+      "error": "None"
+    },
+    "failure": {
+      "processes": 8,
+      "nativeThreads": 1,
+      "workersReaped": true,
+      "parentUnchanged": true,
+      "backgroundThreadCompleted": true,
+      "error": "intentional recovery-pool failure"
+    }
+  },
+  "httpLoader": {
+    "runId": "20260914T111127-14504a62",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 123,
+      "pendingPieces": 27,
+      "matchedPoints": 33721,
+      "workers": 8,
+      "elapsedS": 9.204460164008196
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design-pending": 27,
+      "curve-design": 123,
+      "fit": 210,
+      "curve-fit": 123
+    },
+    "webglInteraction": "unverified: no CUA browser available"
+  },
+  "lasChecks": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1762206,
+    "control-pending.las": 2138137,
+    "control-removed.las": 30,
+    "control-excluded.las": 0
+  },
+  "tests": {
+    "python": 73,
+    "node": 21,
+    "pythonLog": "/tmp/cloudbim-v15/all-tests-final.log",
+    "nodeLog": "/tmp/cloudbim-v15/node-tests.log"
+  },
+  "sourceHashes": {
+    "services/mesh-service/algorithms/rebar_control_net.py": "2bcad2401ab10c81133b1fd6651554b136940ba52167209a703b1e5df6395193",
+    "scripts/pointcloud-debug/viewer.js": "49aec4f3280603aa1a8b0b14f648e5dcdf07e10355725f7686391e0655fa33ee"
+  }
+}
