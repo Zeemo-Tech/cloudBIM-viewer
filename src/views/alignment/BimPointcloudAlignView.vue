@@ -551,14 +551,12 @@ const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFre
 const comparison = computed(() => canUseC2MResult.value ? c2mResult.value?.diagnostics?.rebarComparison : undefined)
 const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value?.bars ?? [], c2mDistances.value, c2mToleranceMm.value / 1000))
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
-const REPORT_ROWS_PER_PAGE = 8
+// Each report page intentionally owns one steel member. This keeps the
+// deviation row and its three model projections physically together, so the
+// reader never has to cross-reference a separate view sheet.
+const REPORT_ROWS_PER_PAGE = 1
 const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
-const REPORT_VIEWS_PER_PAGE = 1
-const comparisonReportViewPages = computed(() => {
-  const mappedBars = comparisonBars.value.filter((bar) => bar.status === 'matched')
-  return Array.from({ length: Math.ceil(mappedBars.length / REPORT_VIEWS_PER_PAGE) }, (_, page) => mappedBars.slice(page * REPORT_VIEWS_PER_PAGE, (page + 1) * REPORT_VIEWS_PER_PAGE))
-})
-const comparisonReportTotalPages = computed(() => 1 + comparisonReportPages.value.length + comparisonReportViewPages.value.length)
+const comparisonReportTotalPages = computed(() => 1 + comparisonReportPages.value.length)
 const comparisonReportPageIndex = ref(0)
 const comparisonReportPageCount = computed(() => comparisonReportPages.value.length)
 function changeComparisonReportPage(delta: number) {
@@ -1105,20 +1103,6 @@ watch(comparisonReportPages, (pages) => {
     Math.max(pages.length - 1, 0),
   )
 })
-const comparisonReportViewPageIndex = ref(0)
-const comparisonReportViewPageCount = computed(() => comparisonReportViewPages.value.length)
-function changeComparisonReportViewPage(delta: number) {
-  comparisonReportViewPageIndex.value = Math.min(
-    Math.max(comparisonReportViewPageIndex.value + delta, 0),
-    Math.max(comparisonReportViewPageCount.value - 1, 0),
-  )
-}
-watch(comparisonReportViewPages, (pages) => {
-  comparisonReportViewPageIndex.value = Math.min(
-    comparisonReportViewPageIndex.value,
-    Math.max(pages.length - 1, 0),
-  )
-})
 const c2mSceneArtifactAvailable = computed(() => Boolean(
   c2mResult.value?.coloredPlyAvailable ||
   (
@@ -1393,6 +1377,11 @@ function formatReportInstanceIds(instanceIds: readonly number[]) {
 
 type ReportViewProjection = 'top' | 'front' | 'side'
 
+// SVG remains responsive for PDF export while preserving substantially more
+// of each matched rebar's measured point cloud than the previous sparse view.
+const REPORT_POINT_SOURCE_LIMIT = 16000
+const REPORT_POINT_DRAW_LIMIT = 8000
+
 function reportGeometryPointsForBar(bar: RebarComparisonBar, source: 'design' | 'pointcloud') {
   const points: THREE.Vector3[] = []
   const addMeshPoints = (mesh: THREE.Mesh) => {
@@ -1400,7 +1389,7 @@ function reportGeometryPointsForBar(bar: RebarComparisonBar, source: 'design' | 
     if (!positions) return
     const stride = Math.max(1, Math.ceil(positions.count / 300))
     mesh.updateMatrixWorld(true)
-    for (let index = 0; index < positions.count; index += stride) {
+    for (let index = 0; index < positions.count; index += 1) {
       points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(mesh.matrixWorld))
     }
   }
@@ -1421,10 +1410,17 @@ function reportGeometryPointsForBar(bar: RebarComparisonBar, source: 'design' | 
     const instanceIds = new Set(bar.instanceIds)
     denoisePreview?.updateMatrixWorld(true)
     const matrixWorld = denoisePreview?.matrixWorld ?? new THREE.Matrix4()
-    const stride = Math.max(1, Math.ceil(positions.count / 500))
-    for (let index = 0; index < positions.count; index += stride) {
+    let matchingCount = 0
+    for (let index = 0; index < positions.count; index += 1) {
+      if (labels && labels.getX(index) !== 3) continue
+      if (instanceIds.has(Math.round(instances.getX(index)))) matchingCount += 1
+    }
+    const stride = Math.max(1, Math.ceil(matchingCount / REPORT_POINT_SOURCE_LIMIT))
+    let matchingIndex = 0
+    for (let index = 0; index < positions.count; index += 1) {
       if (labels && labels.getX(index) !== 3) continue
       if (!instanceIds.has(Math.round(instances.getX(index)))) continue
+      if (matchingIndex++ % stride !== 0) continue
       points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld))
     }
   }
@@ -1453,6 +1449,8 @@ function reportPrincipalAxis(points: THREE.Vector3[]) {
 }
 
 const reportCanvasRefs = new Map<string, HTMLCanvasElement>()
+const reportSvgMarkup = new Map<string, string>()
+const reportSvgRevision = ref(0)
 const reportViewRenderers = new Map<string, THREE.WebGLRenderer>()
 const reportViewScenes = new Map<string, THREE.Scene>()
 const reportViewCameras = new Map<string, THREE.OrthographicCamera>()
@@ -1532,7 +1530,7 @@ function addReportDesignMeshes(root: THREE.Group, bar: RebarComparisonBar, point
     const material = new THREE.MeshBasicMaterial({
       color: '#3678c9',
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.34,
       side: THREE.DoubleSide,
       depthWrite: false,
       toneMapped: false,
@@ -1542,7 +1540,7 @@ function addReportDesignMeshes(root: THREE.Group, bar: RebarComparisonBar, point
     root.add(copy)
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(geometry, 24),
-      new THREE.LineBasicMaterial({ color: '#3678c9', transparent: true, opacity: 0.9, toneMapped: false }),
+      new THREE.LineBasicMaterial({ color: '#1f5fb8', transparent: true, opacity: 1, toneMapped: false }),
     )
     edges.renderOrder = 2
     root.add(edges)
@@ -1561,7 +1559,7 @@ function addReportDesignMeshes(root: THREE.Group, bar: RebarComparisonBar, point
       const matrixWorld = object.matrixWorld.clone()
       const positions = subset.getAttribute('position')
       const material = new THREE.MeshBasicMaterial({
-        color: '#3678c9', transparent: true, opacity: 0.22,
+        color: '#3678c9', transparent: true, opacity: 0.34,
         side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
       })
       const copy = new THREE.Mesh(subset, material)
@@ -1570,7 +1568,7 @@ function addReportDesignMeshes(root: THREE.Group, bar: RebarComparisonBar, point
       root.add(copy)
       const edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(subset, 24),
-        new THREE.LineBasicMaterial({ color: '#3678c9', transparent: true, opacity: 0.9, toneMapped: false }),
+        new THREE.LineBasicMaterial({ color: '#1f5fb8', transparent: true, opacity: 1, toneMapped: false }),
       )
       edges.applyMatrix4(matrixWorld)
       edges.renderOrder = 2
@@ -1599,10 +1597,17 @@ function addReportPointCloud(root: THREE.Group, bar: RebarComparisonBar, points:
   denoisePreview.updateMatrixWorld(true)
   const matrixWorld = denoisePreview.matrixWorld
   const selected: number[] = []
-  const stride = Math.max(1, Math.ceil(positions.count / 12000))
-  for (let index = 0; index < positions.count; index += stride) {
+  let matchingCount = 0
+  for (let index = 0; index < positions.count; index += 1) {
+    if (labels && labels.getX(index) !== 3) continue
+    if (instanceIds.has(Math.round(instances.getX(index)))) matchingCount += 1
+  }
+  const stride = Math.max(1, Math.ceil(matchingCount / REPORT_POINT_SOURCE_LIMIT))
+  let matchingIndex = 0
+  for (let index = 0; index < positions.count; index += 1) {
     if (labels && labels.getX(index) !== 3) continue
     if (!instanceIds.has(Math.round(instances.getX(index)))) continue
+    if (matchingIndex++ % stride !== 0) continue
     const point = new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld)
     points.push(point)
     selected.push(point.x, point.y, point.z)
@@ -1612,25 +1617,174 @@ function addReportPointCloud(root: THREE.Group, bar: RebarComparisonBar, points:
   pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(selected, 3))
   root.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial({
     color: '#176b43',
-    size: 0.018,
-    sizeAttenuation: true,
+    // Keep measured points legible at every zoom level in the report sheet.
+    // A fixed pixel size avoids the sparse/near-invisible appearance caused
+    // by perspective attenuation in small orthographic canvases.
+    size: 5,
+    sizeAttenuation: false,
     transparent: true,
-    opacity: 0.9,
+    opacity: 1,
+    depthTest: false,
     depthWrite: false,
     toneMapped: false,
   })))
 }
 
 function reportViewLabel(projection: ReportViewProjection) {
-  return projection === 'top' ? '俯视' : projection === 'front' ? '正视' : '侧视'
+  // The report uses a member-local frame: local Y is the design axis and
+  // local X/Z span the rebar cross-section.  Keep the labels tied to the
+  // actual projection semantics so the circular end section is never shown
+  // as the "正视" elevation.
+  return projection === 'front' ? '正视图（从正面）' : projection === 'top' ? '俯视图（从上方）' : '侧视图（沿设计轴）'
 }
 
 function reportViewHint(projection: ReportViewProjection) {
-  return projection === 'top'
-    ? '沿世界 Y 轴观察'
-    : projection === 'front'
-      ? '沿世界 Z 轴观察（端面可能呈圆形）'
-      : '沿构件侧向观察（轴线竖向）'
+  return projection === 'front'
+    ? '设计轴 × 高程'
+    : projection === 'top'
+      ? '设计轴 × 横向'
+      : '局部横向 × 局部高程（截面）'
+}
+
+type ReportPoint2D = { x: number; y: number }
+
+function reportSvgFor(ifcGlobalId: string, projection: ReportViewProjection) {
+  return reportSvgMarkup.get(reportCanvasKey(ifcGlobalId, projection)) ?? '<text x="200" y="380" text-anchor="middle" fill="#78909c" font-size="16">暂无可用构件数据</text>'
+}
+
+function reportConvexHull(points: ReportPoint2D[]) {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y)
+  if (sorted.length <= 2) return sorted
+  const cross = (o: ReportPoint2D, a: ReportPoint2D, b: ReportPoint2D) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+  const lower: ReportPoint2D[] = []
+  sorted.forEach((point) => { while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, point) <= 0) lower.pop(); lower.push(point) })
+  const upper: ReportPoint2D[] = []
+  sorted.slice().reverse().forEach((point) => { while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, point) <= 0) upper.pop(); upper.push(point) })
+  return lower.slice(0, -1).concat(upper.slice(0, -1))
+}
+
+function reportSvgMarkupFor(bar: RebarComparisonBar, projection: ReportViewProjection) {
+  const designPoints: THREE.Vector3[] = []
+  const scanPoints: THREE.Vector3[] = []
+  const root = new THREE.Group()
+  addReportDesignMeshes(root, bar, designPoints)
+  addReportPointCloud(root, bar, scanPoints)
+  root.updateMatrixWorld(true)
+  const all = [...designPoints, ...scanPoints]
+  if (!all.length) return '<text x="200" y="380" text-anchor="middle" fill="#78909c" font-size="16">暂无可用构件数据</text>'
+
+  // The viewer recentres BIM, tiles and preview PLY independently to avoid
+  // float32 precision loss.  Their render-space origins can therefore differ
+  // by metres even though the C2M calculation itself is in one source frame.
+  // Detect that pure-origin jump and remove it for the report drawing only;
+  // never let it become a fake 1–5 m "deviation" arrow.  Real construction
+  // deviations (the table's millimetre values) remain untouched.
+  const centroid3D = (items: THREE.Vector3[]) => items.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / Math.max(items.length, 1))
+  const designOrigin3D = centroid3D(designPoints.length ? designPoints : all)
+  const scanOrigin3D = scanPoints.length ? centroid3D(scanPoints) : designOrigin3D.clone()
+  const originDelta = scanOrigin3D.clone().sub(designOrigin3D)
+  const designBox3D = new THREE.Box3().setFromPoints(designPoints.length ? designPoints : all)
+  const designDiagonal = designBox3D.getSize(new THREE.Vector3()).length()
+  // Anything above half a metre is an origin/normalisation jump for a
+  // millimetre-level rebar inspection.  Keep the diagonal referenced so the
+  // intent is explicit and avoid linting this diagnostic value away.
+  const originJumpThreshold = Math.max(0.5, Math.min(2, designDiagonal * 0.1))
+  const alignedScanPoints = scanPoints.length && originDelta.length() > originJumpThreshold
+    ? scanPoints.map((point) => point.clone().sub(originDelta))
+    : scanPoints
+
+  // Establish a stable local frame per member: local Y follows the design
+  // principal axis; local X/Z span its cross-section. All three projections
+  // use this frame instead of world XY/XZ/YZ, so rotated members remain clear.
+  const axis = reportPrincipalAxis(designPoints.length ? designPoints : all).normalize()
+  const helper = Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1)
+  const localX = new THREE.Vector3().crossVectors(helper, axis).normalize()
+  const localZ = new THREE.Vector3().crossVectors(axis, localX).normalize()
+  const local = (point: THREE.Vector3) => ({ x: point.dot(localX), y: point.dot(axis), z: point.dot(localZ) })
+  // Projection contract:
+  //   front = 正视：设计轴 × 高程 (local Y × local Z)
+  //   top   = 俯视：设计轴 × 横向 (local Y × local X)
+  //   side  = 侧视（沿设计轴）：截面 (local X × local Z)
+  // The names are retained for compatibility with the existing template and
+  // cache keys, but the mapping is intentionally explicit here.
+  const project = (p: { x: number; y: number; z: number }): ReportPoint2D => projection === 'front'
+    ? { x: p.y, y: p.z }
+    : projection === 'top'
+      ? { x: p.y, y: p.x }
+      : { x: p.x, y: p.z }
+  const design2D = designPoints.map(local).map(project)
+  const scan2D = alignedScanPoints.map(local).map(project)
+  const points = [...design2D, ...scan2D]
+  let minX = Math.min(...points.map((p) => p.x)); let maxX = Math.max(...points.map((p) => p.x))
+  let minY = Math.min(...points.map((p) => p.y)); let maxY = Math.max(...points.map((p) => p.y))
+  const spanX = Math.max(maxX - minX, 0.02)
+  const spanY = Math.max(maxY - minY, 0.02)
+  const centerX = (minX + maxX) / 2
+  const centerY = (minY + maxY) / 2
+  // One shared scale for both axes is essential: using independent X/Y
+  // scales turns round bar sections into ellipses. The portrait viewBox lets
+  // the three panels use the page's remaining height without distorting data.
+  const plotWidth = 352
+  const plotHeight = 700
+  const scale = Math.min(plotWidth / spanX, plotHeight / spanY)
+  const sx = (x: number) => 200 + (x - centerX) * scale
+  const sy = (y: number) => 380 - (y - centerY) * scale
+  const designHull = reportConvexHull(design2D)
+  const centroid = (items: ReportPoint2D[]) => items.reduce((sum, p) => ({ x: sum.x + p.x, y: sum.y + p.y }), { x: 0, y: 0 })
+  // A real rebar is often thousands of millimetres long but only a few
+  // millimetres thick.  Keep one uniform geometric scale (so circles never
+  // become ellipses), then use a fixed-pixel outline/centreline for print
+  // readability.  This changes only the drawing stroke, never the source
+  // coordinates or deviation values.
+  const projectedThickness = Math.max(0, maxY - minY)
+  const designStroke = Math.max(8, Math.min(14, projectedThickness * scale * 0.42))
+  const designPath = designHull.length >= 3
+    ? `<polygon points="${designHull.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')}" fill="#3678c9" fill-opacity=".2" stroke="#1f5fb8" stroke-width="${designStroke.toFixed(1)}" stroke-linejoin="round"/>`
+    : design2D.map((p) => `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="${Math.max(4, designStroke / 2).toFixed(1)}" fill="#3678c9"/>`).join('')
+  const designCenter = design2D.length ? centroid(design2D) : { x: 0, y: 0 }
+  if (design2D.length) {
+    designCenter.x /= design2D.length
+    designCenter.y /= design2D.length
+  }
+  const designCenterline = projection === 'side' || design2D.length < 2
+    ? ''
+    : (() => {
+        const axisPoints = design2D.filter((point) => Number.isFinite(point.x))
+        if (axisPoints.length < 2) return ''
+        const axisMin = Math.min(...axisPoints.map((point) => point.x))
+        const axisMax = Math.max(...axisPoints.map((point) => point.x))
+        const y = sy(designCenter.y).toFixed(1)
+        return `<line x1="${sx(axisMin).toFixed(1)}" y1="${y}" x2="${sx(axisMax).toFixed(1)}" y2="${y}" stroke="#1f5fb8" stroke-width="5" stroke-linecap="round" opacity=".92"/>`
+      })()
+  const designAxisLine = projection === 'side' || design2D.length < 2
+    ? ''
+    : (() => {
+        const axisPoints = design2D.filter((point) => Number.isFinite(point.x))
+        if (axisPoints.length < 2) return ''
+        const axisMin = Math.min(...axisPoints.map((point) => point.x))
+        const axisMax = Math.max(...axisPoints.map((point) => point.x))
+        const y = sy(designCenter.y).toFixed(1)
+        return `<line x1="${sx(axisMin).toFixed(1)}" y1="${y}" x2="${sx(axisMax).toFixed(1)}" y2="${y}" stroke="#d97706" stroke-width="4" stroke-dasharray="14 9" stroke-linecap="round" opacity="1"/>`
+      })()
+  const scanDots = scan2D
+    .filter((_, index) => index % Math.max(1, Math.ceil(scan2D.length / REPORT_POINT_DRAW_LIMIT)) === 0)
+    .map((p) => `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.8" fill="#0b8f5b" fill-opacity=".86"/>`)
+    .join('')
+  const scanCenter = scan2D.length ? centroid(scan2D) : { ...designCenter }
+  if (scan2D.length) {
+    scanCenter.x /= scan2D.length
+    scanCenter.y /= scan2D.length
+  }
+  const dx = scanCenter.x - designCenter.x; const dy = scanCenter.y - designCenter.y
+  const deviationMm = Math.hypot(dx, dy) * 1000
+  const deviationColor = deviationMm > (c2mToleranceMm.value || 10) ? '#dc2626' : '#e8790c'
+  // This arrow is a visual displacement between the design and measured
+  // centroids. The authoritative C2M mean/RMSE/P95 values remain in the table;
+  // label the diagram explicitly so it is not mistaken for meanAbs.
+  const arrow = Math.hypot(dx, dy) > 1e-6 ? `<line x1="${sx(designCenter.x).toFixed(1)}" y1="${sy(designCenter.y).toFixed(1)}" x2="${sx(scanCenter.x).toFixed(1)}" y2="${sy(scanCenter.y).toFixed(1)}" stroke="${deviationColor}" stroke-width="3" marker-end="url(#report-arrow)"/><text x="${((sx(designCenter.x) + sx(scanCenter.x)) / 2).toFixed(1)}" y="${((sy(designCenter.y) + sy(scanCenter.y)) / 2 - 8).toFixed(1)}" text-anchor="middle" fill="${deviationColor}" font-size="14" font-weight="700">质心偏移 ${deviationMm.toFixed(1)} mm</text>` : ''
+  const grid = [0, 1, 2, 3, 4, 5, 6].map((i) => `<line x1="${(24 + i * 58.67).toFixed(1)}" y1="30" x2="${(24 + i * 58.67).toFixed(1)}" y2="730" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 7"/><line x1="24" y1="${(30 + i * 116.67).toFixed(1)}" x2="376" y2="${(30 + i * 116.67).toFixed(1)}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 7"/>`).join('')
+  root.traverse((object) => { const geometry = (object as THREE.Object3D & { geometry?: THREE.BufferGeometry }).geometry; geometry?.dispose?.(); const material = (object as THREE.Object3D & { material?: THREE.Material | THREE.Material[] }).material; (Array.isArray(material) ? material : material ? [material] : []).forEach((item) => item.dispose()) })
+  return `<defs><marker id="report-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="${deviationColor}"/></marker></defs><rect x="0" y="0" width="400" height="760" fill="#f8fafc"/>${grid}<line x1="24" y1="730" x2="376" y2="730" stroke="#94a3b8"/><line x1="24" y1="30" x2="24" y2="730" stroke="#94a3b8"/>${designPath}${designCenterline}${designAxisLine}${scanDots}${arrow}<circle cx="${sx(designCenter.x).toFixed(1)}" cy="${sy(designCenter.y).toFixed(1)}" r="6" fill="#fff" stroke="#1f5fb8" stroke-width="2.5"/>`
 }
 
 function reportViewCorners(box: THREE.Box3) {
@@ -1660,13 +1814,13 @@ function renderReportModelView(bar: RebarComparisonBar, projection: ReportViewPr
   const size = bounds.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z, 0.001)
   const axis = reportPrincipalAxis(designPoints.length ? designPoints : scanPoints)
-  const viewDirection = projection === 'top'
-    ? new THREE.Vector3(0, 1, 0)
-    : projection === 'front'
-      ? new THREE.Vector3(0, 0, 1)
-      : new THREE.Vector3().crossVectors(axis, Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1)).normalize()
+  const viewDirection = projection === 'front'
+    ? new THREE.Vector3(0, 0, 1)
+    : projection === 'top'
+      ? new THREE.Vector3(0, 1, 0)
+      : axis.clone().normalize()
   if (viewDirection.lengthSq() < 1e-8) viewDirection.set(1, 0, 0)
-  const viewUp = projection === 'top' ? new THREE.Vector3(0, 0, -1) : projection === 'front' ? new THREE.Vector3(0, 1, 0) : axis.clone().normalize()
+  const viewUp = projection === 'front' ? new THREE.Vector3(0, 1, 0) : projection === 'top' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0)
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.001, maxDim * 20)
   camera.position.copy(center).addScaledVector(viewDirection, maxDim * 4)
   camera.up.copy(viewUp)
@@ -1688,7 +1842,7 @@ function renderReportModelView(bar: RebarComparisonBar, projection: ReportViewPr
   camera.bottom = -halfHeight
   camera.updateProjectionMatrix()
 
-  if (projection === 'side' && designPoints.length > 1) {
+  if (projection === 'front' && designPoints.length > 1) {
     const designCenter = designPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / designPoints.length)
     const axisOffsets = designPoints.map((point) => point.clone().sub(designCenter).dot(axis))
     const axisStart = designCenter.clone().addScaledVector(axis, Math.min(...axisOffsets))
@@ -1718,14 +1872,18 @@ function renderReportModelView(bar: RebarComparisonBar, projection: ReportViewPr
 async function renderReportModelViews() {
   await nextTick()
   disposeReportModelViews()
-  const bars = comparisonReportViewPages.value[comparisonReportViewPageIndex.value] ?? []
+  reportSvgMarkup.clear()
+  const bars = comparisonReportPages.value[comparisonReportPageIndex.value] ?? []
   bars.forEach((bar) => {
-    ;(['top', 'front', 'side'] as ReportViewProjection[]).forEach((projection) => renderReportModelView(bar, projection))
+    ;(['front', 'top', 'side'] as ReportViewProjection[]).forEach((projection) => {
+      reportSvgMarkup.set(reportCanvasKey(bar.ifcGlobalId, projection), reportSvgMarkupFor(bar, projection))
+    })
   })
+  reportSvgRevision.value += 1
 }
 
 watch(
-  [activeWorkflowStep, comparisonReportViewPageIndex, comparisonReportViewPages, reportGeometryRevision],
+  [activeWorkflowStep, comparisonReportPageIndex, comparisonReportPages, reportGeometryRevision],
   () => {
     if (activeWorkflowStep.value === 4) void renderReportModelViews()
   },
@@ -8019,7 +8177,6 @@ onBeforeUnmount(() => {
               <div>
                 <h2>逐钢筋偏差明细</h2>
               </div>
-              <div class="rebar-report-count"><strong>{{ bars.length }}</strong><span>本页钢筋</span></div>
             </div>
             <div class="rebar-report-meta">
               <span>容差 <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
@@ -8039,62 +8196,22 @@ onBeforeUnmount(() => {
                 <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
               </tr></tbody>
             </table>
-            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差报告</span><span>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
-          </article>
-        </div>
-        <div v-for="(bars, page) in comparisonReportViewPages" :key="`views-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportViewPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
-          <nav v-if="comparisonReportViewPageCount > 1" class="rebar-report-page-nav" aria-label="构件三视图翻页">
-            <button type="button" aria-label="上一组三视图" title="上一组三视图" :disabled="page === 0" @click="changeComparisonReportViewPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
-            <span class="rebar-report-page-nav-label"><strong>构件三视图 · 第 {{ page + 1 }} / {{ comparisonReportViewPageCount }} 页</strong><small>每页 {{ bars.length }} 个已映射构件</small></span>
-            <button type="button" aria-label="下一组三视图" title="下一组三视图" :disabled="page >= comparisonReportViewPageCount - 1" @click="changeComparisonReportViewPage(1)"><el-icon><ArrowRight /></el-icon></button>
-          </nav>
-          <article class="report-preview-page rebar-report-page rebar-report-views-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <header class="report-preview-page__header">
-              <div class="report-preview-mark"><img src="/favicon.ico" alt="系统标识" /></div>
-              <div><strong>{{ reportTitle }}</strong><span>{{ reportProjectName }}</span></div>
-              <small>REPORT / 001 · {{ comparisonReportPages.length + page + 2 }} / {{ comparisonReportTotalPages }}</small>
-            </header>
-            <div class="rebar-report-heading">
-              <div>
-                <h2>钢筋构件三视图</h2>
+            <div v-if="bars[0]?.status === 'matched'" class="rebar-report-inline-views" aria-label="对应钢筋构件三视图">
+              <div class="rebar-report-view-guide" aria-label="三视图图例">
+                <span><i class="rebar-report-view-guide__swatch is-design"></i><b>蓝色实体/轮廓</b> BIM 设计模型</span>
+                <span><i class="rebar-report-view-guide__swatch is-scan"></i><b>绿色离散点</b> 当前钢筋实测点云</span>
+                <span><i class="rebar-report-view-guide__swatch is-axis"></i><b>橙色虚线</b> 设计轴（正视/俯视）</span>
               </div>
-              <div class="rebar-report-count"><strong>{{ bars.length }}</strong><span>个已映射构件</span></div>
-            </div>
-            <div class="rebar-report-view-guide" aria-label="三视图图例">
-              <span><i class="rebar-report-view-guide__swatch is-design"></i>BIM 设计模型</span>
-              <span><i class="rebar-report-view-guide__swatch is-scan"></i>实测点云</span>
-              <span><i class="rebar-report-view-guide__swatch is-axis"></i>设计轴</span>
-            </div>
-            <div class="rebar-report-view-grid">
-              <section v-for="bar in bars" :key="bar.ifcGlobalId" class="rebar-report-view-card">
-                <header>
-                  <div class="rebar-report-view-card__title">
-                    <strong>{{ bar.name || bar.designBarId }}</strong>
-                    <span class="rebar-report-status" :class="`is-${bar.status}`">{{ rebarStatusLabel(bar.status) }}</span>
-                  </div>
-                  <span class="rebar-report-view-card__id">构件编号 {{ bar.ifcGlobalId }}</span>
-                  <div class="rebar-report-view-card__summary">
-                    <span>设计顶点 <b>{{ bar.vertexCount.toLocaleString() }}</b></span>
-                    <span>映射点 <b>{{ bar.pointCount.toLocaleString() }}</b></span>
-                    <span>映射实例 <b>{{ bar.instanceIds.length }}</b></span>
-                    <span>覆盖率 <b>{{ formatC2MPercentage(bar.vertexCount ? bar.knownCount / bar.vertexCount : undefined) }}</b></span>
-                    <span>平均偏差 <b>{{ bar.stats?.meanAbs === undefined ? '--' : `${(bar.stats.meanAbs * 1000).toFixed(2)} mm` }}</b></span>
-                  </div>
-                </header>
+              <section v-for="bar in bars" :key="`inline-view-${bar.ifcGlobalId}`" class="rebar-report-inline-card">
                 <div class="rebar-report-views" aria-label="钢筋构件三视图">
-                  <div v-for="projection in (['top', 'front', 'side'] as ReportViewProjection[])" :key="projection" class="rebar-report-view">
-                    <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}<small>{{ reportViewHint(projection) }}</small></strong>
-                    <canvas
-                      :ref="(element) => setReportCanvasRef(bar.ifcGlobalId, projection, element as Element | null)"
-                      class="rebar-report-model-canvas"
-                      role="img"
-                      :aria-label="`${reportViewLabel(projection)}真实模型视图`"
-                    ></canvas>
+                  <div v-for="projection in (['front', 'top', 'side'] as ReportViewProjection[])" :key="projection" class="rebar-report-view">
+                    <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}</strong>
+                    <svg :key="reportSvgRevision" class="rebar-report-model-svg" viewBox="0 0 400 760" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`${reportViewLabel(projection)}设计与实测偏差视图`" v-html="reportSvgFor(bar.ifcGlobalId, projection)"></svg>
                   </div>
                 </div>
               </section>
             </div>
-            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 构件三视图报告</span><span>第 {{ comparisonReportPages.length + page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
+            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差与构件三视图报告</span><span>钢筋 {{ page + 1 }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
           </article>
         </div>
       </section>
