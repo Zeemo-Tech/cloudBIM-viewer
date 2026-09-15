@@ -3,7 +3,7 @@ import { readListState, writeListState } from '@/features/workspace/listState'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, CirclePlus, Delete, Edit, Folder, Refresh, Search, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowRight, CirclePlus, Delete, Edit, Folder, Monitor, Refresh, Search, Setting, Share, SwitchButton } from '@element-plus/icons-vue'
 import { createProject, deleteProject, listProjects, updateProject, type ProjectSummary } from '@/api/backend-project'
 import type { AuthSession } from '@/features/auth/auth.service'
 import NeumorphicPagination from '@/components/NeumorphicPagination.vue'
@@ -60,6 +60,11 @@ function enterProject(project: ProjectSummary) {
     path: '/design/overview',
     query: { projectId: project.id, projectName: project.name },
   })
+}
+
+function goTopTab(tab: 'projects' | 'devices' | 'system') {
+  if (tab === 'projects') return
+  void router.push(tab === 'devices' ? '/devices' : '/system')
 }
 
 function openCreate() {
@@ -137,9 +142,21 @@ watch([filters, currentPage, pageSize], () => {
 
 <template>
   <main class="project-entry-page">
-    <header class="entry-header">
-      <div class="entry-brand"><span class="brand-mark"><el-icon><Folder /></el-icon></span><div><strong>CloudBIM</strong><small>选择要进入的项目</small></div></div><h1 class="header-page-title">项目列表</h1>
-      <div class="entry-user"><span class="user-avatar">{{ (props.session.username || 'U').slice(0, 1).toUpperCase() }}</span><span>{{ props.session.username }}</span><button type="button" title="退出登录" @click="emit('logout')"><el-icon><SwitchButton /></el-icon></button></div>
+    <header class="entry-header app-header">
+      <div class="header-left">
+        <button class="entry-brand header-brand" type="button" title="CloudBIM" aria-label="CloudBIM">
+          <span class="brand-mark"><el-icon :size="21"><Share /></el-icon></span><span class="brand-name">CloudBIM</span>
+        </button>
+        <nav class="top-tabs" aria-label="主导航">
+          <button class="top-tab is-active" type="button" aria-current="page"><el-icon><Folder /></el-icon><span>项目</span></button>
+          <button class="top-tab" type="button" @click="goTopTab('devices')"><el-icon><Monitor /></el-icon><span>设备中心</span></button>
+          <button class="top-tab" type="button" @click="goTopTab('system')"><el-icon><Setting /></el-icon><span>系统管理</span></button>
+        </nav>
+      </div>
+      <div class="entry-user header-user">
+        <span class="user-avatar">{{ (props.session.username || 'U').slice(0, 1).toUpperCase() }}</span><span class="user-name">{{ props.session.username }}</span>
+        <button class="logout-button" type="button" title="退出登录" aria-label="退出登录" @click="emit('logout')"><el-icon><SwitchButton /></el-icon></button>
+      </div>
     </header>
 
     <section class="entry-content">
@@ -485,4 +502,41 @@ watch([filters, currentPage, pageSize], () => {
 .toolbar-button { @include controls.action; } .toolbar-button.is-primary { @include controls.primary; } .project-toolbar { @include controls.filters; }
 .entry-brand .brand-mark { background: var(--brand-sapphire); box-shadow: none; }
 .project-entry-page { background: var(--bg-page); }
+</style>
+
+<style scoped>
+.app-header { display: flex; align-items: center; justify-content: space-between; height: var(--header-height); padding: 0 var(--spacing-lg); border-bottom: 1px solid var(--border-color-light); background: var(--bg-card); }
+.header-left, .header-brand, .top-tabs, .header-user, .logout-button { display: flex; align-items: center; }
+.header-left { height: 100%; min-width: 0; }
+.header-brand { gap: var(--spacing-sm); flex: 0 0 auto; height: 100%; padding: 0 var(--spacing-md) 0 0; border: 0; border-right: 1px solid var(--border-color-light); color: var(--brand-sapphire); background: transparent; cursor: pointer; }
+.header-brand .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; margin-right: 0; border-radius: var(--radius-sm); color: #fff; background: var(--brand-sapphire); }
+.header-brand .brand-name { font-size: var(--font-size-lg); font-weight: 700; letter-spacing: .04em; }
+.top-tabs { align-self: stretch; gap: var(--spacing-xs); margin-left: var(--spacing-lg); }
+.top-tab { position: relative; display: inline-flex; align-items: center; gap: var(--spacing-sm); height: 100%; padding: 0 var(--spacing-md); border: 0; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.top-tab::after { position: absolute; right: var(--spacing-md); bottom: 0; left: var(--spacing-md); height: 3px; border-radius: var(--radius-pill) var(--radius-pill) 0 0; background: transparent; content: ''; }
+.top-tab:hover, .top-tab.is-active { color: var(--color-primary); }
+.top-tab.is-active { font-weight: 600; }
+.top-tab.is-active::after { background: var(--color-primary); }
+.header-user { gap: var(--spacing-sm); flex: 0 0 auto; color: var(--text-secondary); }
+.header-user .user-avatar { width: 34px; height: 34px; }
+.header-user .user-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-user .logout-button { display: grid; place-items: center; width: var(--control-height); gap: var(--spacing-xs); height: var(--control-height); margin-left: var(--spacing-sm); padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary); background: transparent; cursor: pointer; }
+.header-user .logout-button:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+
+@media (max-width: 800px) {
+  .app-header { padding-inline: var(--spacing-md); }
+  .header-brand .brand-name { display: none; }
+  .top-tabs { margin-left: var(--spacing-sm); }
+  .top-tab { gap: var(--spacing-xs); padding-inline: var(--spacing-sm); }
+  .top-tab::after { right: var(--spacing-sm); left: var(--spacing-sm); }
+  .header-user .user-name { display: none; }
+}
+
+@media (max-width: 520px) {
+  .app-header { padding-inline: var(--spacing-sm); }
+  .top-tabs { margin-left: var(--spacing-xs); }
+  .top-tab { font-size: var(--font-size-xs); }
+  .top-tab .el-icon { display: none; }
+  .header-user .logout-button { margin-left: 0; }
+}
 </style>

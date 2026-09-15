@@ -16,6 +16,8 @@ const ProjectSurveyView = defineAsyncComponent(() => import('@/views/project/Pro
 const DesignView = defineAsyncComponent(() => import('@/views/design/DesignView.vue'))
 const AssetPreviewView = defineAsyncComponent(() => import('@/views/preview/AssetPreviewView.vue'))
 const SplitPreviewView = defineAsyncComponent(() => import('@/views/preview/SplitPreviewView.vue'))
+const SystemManagementView = defineAsyncComponent(() => import('@/views/system/SystemManagementView.vue'))
+const DeviceCenterView = defineAsyncComponent(() => import('@/views/devices/DeviceCenterView.vue'))
 const BimPointcloudAlignView = defineAsyncComponent(
   () => import('@/views/alignment/BimPointcloudAlignView.vue'),
 )
@@ -54,6 +56,14 @@ const currentView = computed(() => {
 
   if (routeState.value.path.startsWith('/survey')) {
     return routeState.value.projectId ? 'survey' : 'project-selection'
+  }
+
+  if (routeState.value.path.startsWith('/devices')) {
+    return 'devices'
+  }
+
+  if (routeState.value.path.startsWith('/system')) {
+    return 'system'
   }
 
   if (routeState.value.path.startsWith('/design/bim')) {
@@ -132,7 +142,7 @@ async function handleLogout() {
     :preview-type="routeState.previewType === 'pointcloud' ? 'pointcloud' : 'bim'"
     :asset-id="routeState.assetId"
     :display-name="routeState.displayName"
-    :project-id="routeState.projectId"
+    :project-id="routeState.projectId || 0"
     :project-name="routeState.projectName"
   />
   <SplitPreviewView
@@ -152,10 +162,11 @@ async function handleLogout() {
     :pointcloud-display-name="routeState.pointcloudDisplayName"
   />
   <AppLayout
-    v-else-if="session && routeState.projectId"
+    v-else-if="session && (routeState.projectId || currentView === 'devices' || currentView === 'system')"
     :session="session"
-    :project-id="routeState.projectId"
-    :project-name="routeState.projectName || `项目 ${routeState.projectId}`"
+    :project-id="routeState.projectId || 0"
+    :project-name="routeState.projectName || (routeState.projectId ? `项目 ${routeState.projectId}` : '工作区')"
+    :show-sidebar="currentView !== 'devices' && currentView !== 'system'"
     @logout="handleLogout"
   >
     <DesignView
@@ -163,7 +174,7 @@ async function handleLogout() {
       :key="routeKey"
       mode="bim"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
     />
     <DesignView
@@ -171,7 +182,7 @@ async function handleLogout() {
       :key="routeKey"
       mode="cad"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
     />
     <DesignView
@@ -179,21 +190,29 @@ async function handleLogout() {
       :key="routeKey"
       mode="overview"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
     />
     <ProjectSurveyView
       v-else-if="currentView === 'survey'"
       :key="routeKey"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
+    />
+    <DeviceCenterView
+      v-else-if="currentView === 'devices'"
+      :key="routeKey"
+    />
+    <SystemManagementView
+      v-else-if="currentView === 'system' && session"
+      :key="routeKey"
     />
     <UploadView
       v-else
       :key="routeKey"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
       @logout="handleLogout"
     />
