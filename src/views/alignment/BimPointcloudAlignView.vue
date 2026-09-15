@@ -2032,10 +2032,9 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
   group.name = 'c2m-analysis-result'
   group.add(normalized)
   if (bimPivot) {
-    bimPivot.updateMatrixWorld(true)
-    bimPivot.getWorldPosition(group.position)
-    bimPivot.getWorldQuaternion(group.quaternion)
-    bimPivot.getWorldScale(group.scale)
+    group.position.copy(bimPivot.position)
+    group.quaternion.copy(bimPivot.quaternion)
+    group.scale.copy(bimPivot.scale)
   }
 
   c2mTileset = nextTileset
@@ -2047,7 +2046,7 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
     c2mAnalysisStatsByComponent.set(component.ifcGlobalId, component.stats)
   })
   c2mSceneGroup = group
-  scene.add(group)
+  ;(engineeringRoot ?? contentGroup ?? scene).add(group)
 
   nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
     if (!tileScene || requestId !== c2mSceneLoadRequestId || c2mTileset !== nextTileset) return
@@ -2207,10 +2206,11 @@ async function loadC2MToScene() {
       const group = new THREE.Group()
       group.name = 'c2m-colored-result'
       if (bimPivot) {
-        bimPivot.updateMatrixWorld(true)
-        bimPivot.getWorldPosition(group.position)
-        bimPivot.getWorldQuaternion(group.quaternion)
-        bimPivot.getWorldScale(group.scale)
+        // C2M and BIM now share the engineering root; copy the BIM local pose
+        // instead of a world pose (which would apply the root transform twice).
+        group.position.copy(bimPivot.position)
+        group.quaternion.copy(bimPivot.quaternion)
+        group.scale.copy(bimPivot.scale)
       }
       const material = new THREE.MeshBasicMaterial({
         vertexColors: Boolean(geometry.attributes.color),
@@ -2223,7 +2223,7 @@ async function loadC2MToScene() {
       const mesh = new THREE.Mesh(geometry, material)
       mesh.renderOrder = 1
       group.add(mesh)
-      scene.add(group)
+      ;(engineeringRoot ?? contentGroup ?? scene).add(group)
       c2mSceneGroup = group
       c2mSceneLoaded.value = true
       applyComparisonSelection()
@@ -2259,7 +2259,7 @@ function clearC2MScene(invalidateLoad = true) {
   c2mAnalysisMaterial = null
   c2mAnalysisDistances.clear()
   c2mAnalysisStatsByComponent.clear()
-  if (c2mSceneGroup && scene) scene.remove(c2mSceneGroup)
+  c2mSceneGroup?.removeFromParent()
   if (c2mSceneGroup && !usedAnalysisTiles) disposeObject3D(c2mSceneGroup)
   c2mSceneGroup = null
   c2mSceneLoaded.value = false
@@ -2468,7 +2468,7 @@ function clearLoadedRemeshMesh() {
     remeshMeshLoaded.value = false
     return
   }
-  if (scene) scene.remove(remeshSceneGroup)
+  remeshSceneGroup.removeFromParent()
   disposeObject3D(remeshSceneGroup)
   remeshSceneGroup = null
   remeshMeshLoaded.value = false
@@ -2548,9 +2548,9 @@ async function loadRemeshResult() {
       const quaternion = new THREE.Quaternion()
       const scale = new THREE.Vector3(1, 1, 1)
       if (bimPivot) {
-        bimPivot.getWorldPosition(position)
-        bimPivot.getWorldQuaternion(quaternion)
-        bimPivot.getWorldScale(scale)
+        position.copy(bimPivot.position)
+        quaternion.copy(bimPivot.quaternion)
+        scale.copy(bimPivot.scale)
       }
       group.position.copy(position)
       group.quaternion.copy(quaternion)
@@ -2577,7 +2577,7 @@ async function loadRemeshResult() {
         remeshWireAvailable.value = false
       }
       remeshSceneGroup = group
-      scene.add(group)
+      ;(engineeringRoot ?? contentGroup ?? scene).add(group)
       remeshMeshLoaded.value = true
       remeshRestoreAvailable.value = Boolean(remeshSceneSnapshot)
       remeshSolidHidden.value = false
@@ -2756,6 +2756,10 @@ const edlEnabled = ref(true)
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
 let contentGroup: THREE.Group | null = null
+// All engineering (N,E,Z) geometry is mounted below this single conversion
+// node.  The viewport itself remains Three.js Y-up, matching the calibration
+// workspace used by the analysis editor.
+let engineeringRoot: THREE.Group | null = null
 let clippingGroup: ClippingGroup | null = null
 let gridHelper: THREE.GridHelper | null = null
 let transformControls: ViewerTransformControls | null = null
@@ -4844,6 +4848,11 @@ async function initScene() {
 
     scene = new THREE.Scene()
     contentGroup = new THREE.Group()
+    contentGroup.name = 'Calibration content'
+    engineeringRoot = new THREE.Group()
+    engineeringRoot.name = 'Engineering (N,E,Z) to viewport Y-up'
+    engineeringRoot.rotation.x = -Math.PI / 2
+    contentGroup.add(engineeringRoot)
     raycaster = new THREE.Raycaster()
 
     const width = viewportEl.value.clientWidth || 1
@@ -7373,14 +7382,14 @@ async function handleLoadBimFromApi(silent = false) {
           dracoLoader.dispose()
 
           if (bimPivot) {
-            nextContentGroup.remove(bimPivot)
+            bimPivot.removeFromParent()
             disposeObject3D(bimPivot)
           }
 
           const root = gltf.scene
           flattenStaticMeshesToRoot(root)
           const pivot = createCenteredPivot(root)
-          nextContentGroup.add(pivot)
+          ;(engineeringRoot ?? nextContentGroup).add(pivot)
 
           bimRoot = root
           bimPivot = pivot
@@ -7465,7 +7474,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
 
   try {
     if (pointcloudWrapper) {
-      nextContentGroup.remove(pointcloudWrapper)
+      pointcloudWrapper.removeFromParent()
       pointcloudWrapper = null
       pointcloudGroup = null
       pointcloudLoaded.value = false
@@ -7536,9 +7545,8 @@ async function handleLoadPointCloudFromApi(silent = false) {
     updateTilesetResolution()
 
     const wrapper = new THREE.Group()
-    wrapper.rotation.x = -Math.PI / 2
-    wrapper.add(nextTileset.group)
-    nextContentGroup.add(wrapper)
+  wrapper.add(nextTileset.group)
+  ;(engineeringRoot ?? nextContentGroup).add(wrapper)
 
     pointcloudWrapper = wrapper
     pointcloudGroup = nextTileset.group
