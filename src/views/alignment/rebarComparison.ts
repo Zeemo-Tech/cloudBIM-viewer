@@ -4,6 +4,11 @@ import type { C2MResult, RebarComparisonBar } from '../../api/backend-c2m'
 const originalIndices = new WeakMap<BufferGeometry, BufferAttribute | null>()
 const originalColors = new WeakMap<BufferGeometry, BufferAttribute | null>()
 
+/** Refresh the deviation-color baseline after the user changes C2M coloring. */
+export function rememberComparisonGeometryColors(geometry: BufferGeometry) {
+  originalColors.set(geometry, (geometry.getAttribute('color') as BufferAttribute | undefined)?.clone() ?? null)
+}
+
 /** Keep the original vertex stream so distances and report ranges remain bound. */
 export function filterComparisonGeometry(geometry: BufferGeometry, selection?: RebarComparisonBar | readonly RebarComparisonBar[]) {
   if (!originalIndices.has(geometry)) originalIndices.set(geometry, geometry.index)
@@ -23,7 +28,7 @@ export function filterComparisonGeometry(geometry: BufferGeometry, selection?: R
 /** Keep every comparison mesh visible while dimming vertices outside the inspected bar. */
 export function dimComparisonGeometry(geometry: BufferGeometry, bar?: RebarComparisonBar, dimColor = '#8b97a8') {
   if (!originalColors.has(geometry)) {
-    originalColors.set(geometry, (geometry.getAttribute('color') as BufferAttribute | undefined)?.clone() ?? null)
+    rememberComparisonGeometryColors(geometry)
   }
   const original = originalColors.get(geometry)
   if (!bar) {

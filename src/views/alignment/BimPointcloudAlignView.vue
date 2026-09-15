@@ -142,7 +142,7 @@ import { PointCloudEdlPipeline } from '@/components/preview/edlPipeline'
 import { bindTransformChangeEvents } from './transformChangeEvents'
 import { parseDenoisePreview, applyDenoisePreviewAppearance, type DenoiseColorMode } from './denoisePreview'
 import DenoisePanel from './DenoisePanel.vue'
-import { dimComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
+import { dimComparisonGeometry, rememberComparisonGeometryColors, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
@@ -597,6 +597,7 @@ async function prepareRebarComparisonScene() {
 
 function applyComparisonSelection() {
   const bar = selectedComparisonBar.value
+  const comparisonResult = comparison.value
   const inspectionSelected = rebarInspectionActive.value
   const visibleInstanceIds = inspectionSelected ? (bar?.instanceIds ?? []) : undefined
   if (denoisePreview && activeWorkflowStep.value >= 3) {
@@ -607,12 +608,10 @@ function applyComparisonSelection() {
       visibleInstanceIds,
       {
         dimUnselected: inspectionSelected,
-        highlightInstanceIds: inspectionSelected ? visibleInstanceIds : undefined,
-        highlightColor: '#ffffff',
       },
     )
   }
-  if (c2mSceneGroup && comparison.value) c2mSceneGroup.traverse(object => {
+  if (c2mSceneGroup && comparisonResult) c2mSceneGroup.traverse(object => {
     if (object instanceof THREE.Mesh && c2mAnalysisSession) {
       const colors = object.geometry.getAttribute('color')
       if (colors) {
@@ -620,10 +619,10 @@ function applyComparisonSelection() {
         const original = c2mOriginalVertexColors.get(object.geometry)!
         const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
         const next = new Float32Array(original)
-        const isComparisonRebar = comparison.value.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
-        if (inspectionSelected && isComparisonRebar) {
-          const color = new THREE.Color(matched ? '#ffffff' : '#8b97a8')
-          for (let index = 0; index < colors.count; index += 1) color.toArray(next, index * 3)
+        const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+        if (inspectionSelected && isComparisonRebar && !matched) {
+          const dimColor = new THREE.Color('#8b97a8')
+          for (let index = 0; index < colors.count; index += 1) dimColor.toArray(next, index * 3)
         }
         colors.array.set(next)
         colors.needsUpdate = true
@@ -639,16 +638,16 @@ function applyComparisonSelection() {
       })
     }
   })
-  if (c2mAnalysisSession && comparison.value) {
-    comparison.value.bars.forEach(item => {
+  if (c2mAnalysisSession && comparisonResult) {
+    comparisonResult.bars.forEach(item => {
       c2mAnalysisSession?.setComponentVisible(item.ifcGlobalId, true)
     })
   }
-  if (bimPivot && comparison.value && activeWorkflowStep.value >= 3) {
+  if (bimPivot && comparisonResult && activeWorkflowStep.value >= 3) {
     bimPivot.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return
       const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
-      const isComparisonRebar = comparison.value.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+      const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
       // Clone per-mesh materials before changing their color. GLTF loaders
       // commonly share one material across many rebar meshes.
       if (!object.userData.__rebarInspectionMaterialsCloned) {
@@ -670,7 +669,7 @@ function applyComparisonSelection() {
           })
         }
         const original = rebarInspectionMaterialState.get(material)
-        if (inspectionSelected && isComparisonRebar) material.color.set(matched ? '#ffffff' : '#8b97a8')
+        if (inspectionSelected && isComparisonRebar && !matched) material.color.set('#8b97a8')
         else if (original?.color) material.color.copy(original.color)
         material.opacity = original?.opacity ?? 1
         material.transparent = original?.transparent ?? false
@@ -773,7 +772,7 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
   const framingMargin = isManualFocus ? 1.1 : 1.3
   const focusDim = Math.max(maxDim * framingMargin, 0.08)
 
-  //巡检序列固定使用顶视方向，避免每个构件根据自身包围盒改变为侧视。
+  //巡检序列固定使用斜俯视方向，避免每个构件根据自身包围盒改变为侧视。
   //相机只平移、缩放到当前构件，连续巡检时阅读方向保持不变。
   // Keep the top-oriented reading direction, but expose a little depth so
   // the inspected member is not rendered as a perfectly flat plan view.
@@ -886,6 +885,11 @@ function resetRebarInspection() {
   rebarInspectionManualSelect.value = false
   selectedComparisonBarId.value = ''
   applyComparisonSelection()
+}
+
+function exitRebarInspection() {
+  resetRebarInspection()
+  ElMessage.info('已退出巡检模式')
 }
 
 function toggleRebarManualSelection() {
@@ -1316,6 +1320,8 @@ function previewC2MVisualization() {
     c2mRequestedVisualization.value.toleranceLimit,
     c2mColorMode.value === 'discrete', c2mBandCount.value,
   )
+  rememberComparisonGeometryColors(mesh.geometry)
+  applyComparisonSelection()
   requestRender()
 }
 
@@ -1338,9 +1344,12 @@ function recolorAnalysisC2MScene() {
     const distances = mesh.geometry.getAttribute('distance')?.array
     if (!(distances instanceof Float32Array)) return
     applyAnalysisC2MVertexColors(mesh.geometry, distances)
+    const colors = mesh.geometry.getAttribute('color')
+    if (colors) c2mOriginalVertexColors.set(mesh.geometry, new Float32Array(colors.array as ArrayLike<number>))
     if (Array.isArray(mesh.material)) mesh.material.forEach((material) => { material.needsUpdate = true })
     else mesh.material.needsUpdate = true
   })
+  applyComparisonSelection()
   requestRender()
 }
 
@@ -2092,6 +2101,9 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
           ) return
           mesh.geometry.setAttribute('distance', new THREE.BufferAttribute(distances, 1))
           applyAnalysisC2MVertexColors(mesh.geometry, distances)
+          const colors = mesh.geometry.getAttribute('color')
+          if (colors) c2mOriginalVertexColors.set(mesh.geometry, new Float32Array(colors.array as ArrayLike<number>))
+          applyComparisonSelection()
           requestRender()
       }
       void attachDistances().catch((error) => {
@@ -8751,6 +8763,14 @@ onBeforeUnmount(() => {
                   :icon="ArrowRight"
                   :disabled="!rebarInspectionBars.length || rebarInspectionIndex >= rebarInspectionBars.length - 1"
                   @click="stepRebarInspection(1)"
+                />
+                <el-button
+                  class="rebar-inspection__exit"
+                  aria-label="退出巡检模式"
+                  title="退出巡检模式"
+                  :icon="Close"
+                  :disabled="!rebarInspectionActive && !rebarInspectionManualSelect"
+                  @click="exitRebarInspection"
                 />
               </div>
               <p v-if="rebarInspectionAbnormalOnly && !rebarInspectionBars.length" class="rebar-inspection__empty">当前容差下没有异常钢筋。</p>
