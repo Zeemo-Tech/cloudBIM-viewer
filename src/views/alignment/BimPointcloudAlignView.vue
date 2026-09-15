@@ -142,7 +142,7 @@ import { PointCloudEdlPipeline } from '@/components/preview/edlPipeline'
 import { bindTransformChangeEvents } from './transformChangeEvents'
 import { parseDenoisePreview, applyDenoisePreviewAppearance, type DenoiseColorMode } from './denoisePreview'
 import DenoisePanel from './DenoisePanel.vue'
-import { filterComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
+import { dimComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
@@ -597,15 +597,17 @@ async function prepareRebarComparisonScene() {
 
 function applyComparisonSelection() {
   const bar = selectedComparisonBar.value
-  const visibleInstanceIds = bar?.instanceIds
+  const inspectionSelected = rebarInspectionActive.value
+  const visibleInstanceIds = inspectionSelected ? (bar?.instanceIds ?? []) : undefined
   if (denoisePreview && activeWorkflowStep.value >= 3) {
     denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(
       denoisePreview.geometry,
       'cleaned',
       [3],
-      undefined,
+      visibleInstanceIds,
       {
-        highlightInstanceIds: rebarInspectionActive.value ? visibleInstanceIds : undefined,
+        dimUnselected: inspectionSelected,
+        highlightInstanceIds: inspectionSelected ? visibleInstanceIds : undefined,
         highlightColor: '#ffffff',
       },
     )
@@ -618,25 +620,22 @@ function applyComparisonSelection() {
         const original = c2mOriginalVertexColors.get(object.geometry)!
         const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
         const next = new Float32Array(original)
-        if (rebarInspectionActive.value && matched) {
-          const white = new THREE.Color('#ffffff')
-          for (let index = 0; index < colors.count; index += 1) white.toArray(next, index * 3)
+        const isComparisonRebar = comparison.value.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+        if (inspectionSelected && isComparisonRebar) {
+          const color = new THREE.Color(matched ? '#ffffff' : '#8b97a8')
+          for (let index = 0; index < colors.count; index += 1) color.toArray(next, index * 3)
         }
         colors.array.set(next)
         colors.needsUpdate = true
       }
     } else if (object instanceof THREE.Mesh && !c2mAnalysisSession) {
-      filterComparisonGeometry(object.geometry, undefined)
+      // The compatibility PLY keeps all bars in one vertex stream. Preserve
+      // the selected bar's deviation colors while dimming the rest.
+      dimComparisonGeometry(object.geometry, inspectionSelected ? bar : undefined)
       const material = object.material as THREE.Material | THREE.Material[]
       const materials = Array.isArray(material) ? material : [material]
       materials.forEach(item => {
-        const current = item as THREE.MeshBasicMaterial
-        if ('color' in current && current.color?.isColor) {
-          current.color.set('#ffffff')
-          current.opacity = 1
-          current.transparent = false
-          current.needsUpdate = true
-        }
+        item.needsUpdate = true
       })
     }
   })
@@ -649,6 +648,7 @@ function applyComparisonSelection() {
     bimPivot.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return
       const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
+      const isComparisonRebar = comparison.value.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
       // Clone per-mesh materials before changing their color. GLTF loaders
       // commonly share one material across many rebar meshes.
       if (!object.userData.__rebarInspectionMaterialsCloned) {
@@ -670,7 +670,7 @@ function applyComparisonSelection() {
           })
         }
         const original = rebarInspectionMaterialState.get(material)
-        if (rebarInspectionActive.value && matched) material.color.set('#ffffff')
+        if (inspectionSelected && isComparisonRebar) material.color.set(matched ? '#ffffff' : '#8b97a8')
         else if (original?.color) material.color.copy(original.color)
         material.opacity = original?.opacity ?? 1
         material.transparent = original?.transparent ?? false
@@ -775,9 +775,14 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
 
   //巡检序列固定使用顶视方向，避免每个构件根据自身包围盒改变为侧视。
   //相机只平移、缩放到当前构件，连续巡检时阅读方向保持不变。
-  const viewDirection = new THREE.Vector3(0, 1, 0)
+  // Keep the top-oriented reading direction, but expose a little depth so
+  // the inspected member is not rendered as a perfectly flat plan view.
+  const tilt = THREE.MathUtils.degToRad(18)
+  const viewDirection = new THREE.Vector3(0, Math.cos(tilt), Math.sin(tilt)).normalize()
   const cameraDirection = viewDirection.clone().multiplyScalar(-1)
   const cameraUp = new THREE.Vector3(0, 0, -1)
+    .addScaledVector(cameraDirection, -cameraDirection.dot(new THREE.Vector3(0, 0, -1)))
+    .normalize()
   const cameraRight = cameraDirection.clone().cross(cameraUp).normalize()
   const projectedWidth = Math.max(
     Math.abs(cameraRight.x) * size.x + Math.abs(cameraRight.y) * size.y + Math.abs(cameraRight.z) * size.z,
