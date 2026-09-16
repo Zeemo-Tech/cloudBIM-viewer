@@ -1,0 +1,87 @@
+TAP version 13
+# (node:798819) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: same-asset concurrent loads share work; explicit preprocessing can reload
+ok 1 - same-asset concurrent loads share work; explicit preprocessing can reload
+  ---
+  duration_ms: 15.524912
+  ...
+# Subtest: returning to a recreated host reuses canvas and observes the new dimensions
+ok 2 - returning to a recreated host reuses canvas and observes the new dimensions
+  ---
+  duration_ms: 2.53201
+  ...
+# Subtest: preview requests coalesce while switching back to source keeps source selected
+ok 3 - preview requests coalesce while switching back to source keeps source selected
+  ---
+  duration_ms: 4.193782
+  ...
+# Subtest: late instance maps cannot repopulate an invalidated workflow
+ok 4 - late instance maps cannot repopulate an invalidated workflow
+  ---
+  duration_ms: 3.136589
+  ...
+# Subtest: deviation computation uses full retained points and automatically displays a fresh result
+ok 5 - deviation computation uses full retained points and automatically displays a fresh result
+  ---
+  duration_ms: 4.617277
+  ...
+# Subtest: result polling: empty ready scene
+ok 6 - result polling: empty ready scene
+  ---
+  duration_ms: 2.753713
+  ...
+# Subtest: result polling: already loaded scene
+ok 7 - result polling: already loaded scene
+  ---
+  duration_ms: 4.737793
+  ...
+# Subtest: result polling: scene loading
+ok 8 - result polling: scene loading
+  ---
+  duration_ms: 4.088066
+  ...
+# Subtest: result polling: left deviation step
+ok 9 - result polling: left deviation step
+  ---
+  duration_ms: 5.65873
+  ...
+# Subtest: result polling: stale result
+ok 10 - result polling: stale result
+  ---
+  duration_ms: 4.50961
+  ...
+# Subtest: completion delegates one success notice and blocks a second in-flight save
+ok 11 - completion delegates one success notice and blocks a second in-flight save
+  ---
+  duration_ms: 1.844605
+  ...
+# Subtest: completion releases saving state after failure and respects readiness
+ok 12 - completion releases saving state after failure and respects readiness
+  ---
+  duration_ms: 1.826845
+  ...
+# Subtest: gizmo visibility is independent of numeric edits and obeys clipping/workflow gates
+ok 13 - gizmo visibility is independent of numeric edits and obeys clipping/workflow gates
+  ---
+  duration_ms: 2.52726
+  ...
+# Subtest: clip arrows retain pixel size and geometry across box resize and camera zoom: perspective
+ok 14 - clip arrows retain pixel size and geometry across box resize and camera zoom: perspective
+  ---
+  duration_ms: 11.673189
+  ...
+# Subtest: clip arrows retain pixel size and geometry across box resize and camera zoom: orthographic
+ok 15 - clip arrows retain pixel size and geometry across box resize and camera zoom: orthographic
+  ---
+  duration_ms: 6.729452
+  ...
+1..15
+# tests 15
+# suites 0
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 474.23609

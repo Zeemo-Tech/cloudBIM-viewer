@@ -1,0 +1,12 @@
+{
+  "runId": "20260913T124743-1f4446a9",
+  "createdAt": "2026-09-13T12:48:35.200382+00:00",
+  "completed": true,
+  "priorMode": "topology",
+  "throughStep": 7,
+  "source": {
+    "name": "source.las",
+    "pointCount": 9216369
+  },
+  "manifestUrl": "/runs/20260913T124743-1f4446a9/manifest.json"
+}

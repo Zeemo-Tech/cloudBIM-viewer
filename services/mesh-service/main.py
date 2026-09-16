@@ -236,15 +236,20 @@ class C2MParams(BaseModel):
     # 保留字段是为了与 Go 代理兼容；在定义可复核 benchmark 前不开放平滑。
     smoothing_iterations: Literal[0] = 0
     smoothing_strength: Literal[0.5] = 0.5
-    # 法向约束的符号语义尚未完成 benchmark，因此仅保留兼容字段与安全默认。
-    knn_k: int = Field(default=8, ge=1, le=64)
-    normal_constraint_enabled: Literal[False] = False
-    normal_half_space_only: bool = True
-    normal_max_angle_deg: FiniteFloat = Field(default=75.0, gt=0.0, le=180.0)
-    normal_fallback_mode: Literal["nearest"] = "nearest"
+    knn_k: int = Field(default=32, ge=1, le=64)
+    normal_constraint_enabled: bool = False
+    normal_half_space_only: bool = False
+    normal_max_angle_deg: FiniteFloat = Field(default=30.0, gt=0.0, le=90.0)
+    max_search_distance: FiniteFloat = Field(default=0.2, ge=0.0001, le=0.2)
+    normal_fallback_mode: Literal["nearest", "unknown"] = "nearest"
 
     @model_validator(mode="after")
     def validate_visualization_ranges(self):
+        if self.normal_constraint_enabled:
+            if "normal_fallback_mode" not in self.model_fields_set:
+                self.normal_fallback_mode = "unknown"
+            if self.normal_half_space_only or self.normal_fallback_mode != "unknown":
+                raise ValueError("normal constraint requires bidirectional search and unknown fallback")
         if self.tolerance_limit > self.max_colormap_distance:
             raise ValueError("tolerance_limit 不能大于 max_colormap_distance")
         return self
@@ -264,12 +269,16 @@ class C2MRequest(BaseModel):
     def validate_instance_inputs(self):
         if (self.analysis_mesh_path is None) != (self.instance_map_path is None):
             raise ValueError("analysis_mesh_path 与 instance_map_path 必须同时提供")
+        if self.params.normal_constraint_enabled and self.analysis_mesh_path is None:
+            raise ValueError("normal_constraint_enabled requires instance-constrained rebar inputs")
+        if self.params.max_search_distance != 0.2 and self.analysis_mesh_path is None:
+            raise ValueError("custom max_search_distance requires instance-constrained rebar inputs")
         return self
 
 
 C2M_OUTPUT_DIR = "/storage/c2m_results"
 C2M_QUICK_ALGORITHM_VERSION = "c2m-quick-v3"
-C2M_REBAR_ALGORITHM_VERSION = "c2m-rebar-instance-v1"
+C2M_REBAR_ALGORITHM_VERSION = "c2m-rebar-instance-v4"
 
 
 def _is_c2m_artifact_name(name: str) -> bool:
@@ -561,6 +570,8 @@ def _c2m_compute_rebar_instances(req: C2MRequest):
     from analysis_c2m.core import C2MContractError
     from rebar_comparison import colorize_with_unknown, compute_instance_comparison
 
+    from time import perf_counter
+    service_started = perf_counter()
     p = req.params
     created_outputs: list[str] = []
     try:
@@ -570,9 +581,14 @@ def _c2m_compute_rebar_instances(req: C2MRequest):
             downsample_enabled=p.downsample_enabled,
             max_histogram_distance=p.max_histogram_distance,
             histogram_bins=p.histogram_bins, tolerance=p.tolerance_limit,
+            knn_k=p.knn_k, normal_constraint_enabled=p.normal_constraint_enabled,
+            normal_half_space_only=p.normal_half_space_only,
+            normal_max_angle_deg=p.normal_max_angle_deg, normal_fallback_mode=p.normal_fallback_mode,
+            max_search_distance=p.max_search_distance,
         )
         mesh = result.pop("mesh")
         distances = result.pop("distances")
+        write_started = perf_counter()
         output_token = uuid.uuid4().hex
         distances_float32 = np.asarray(distances, dtype="<f4")
         dist_path, dist_size = _write_c2m_output_atomically(
@@ -591,8 +607,10 @@ def _c2m_compute_rebar_instances(req: C2MRequest):
             result["meshBbox"]["min"], result["meshBbox"]["max"],
         )
         comparison = result.pop("rebarComparison")
+        comparison["timings"]["artifactWrite"] = round(perf_counter() - write_started, 6)
+        comparison["timings"]["total"] = round(perf_counter() - service_started, 6)
         return {
-            "profile": "quick", "algorithmVersion": C2M_REBAR_ALGORITHM_VERSION,
+            "profile": "quick", "algorithmVersion": comparison.get("algorithmVersion", C2M_REBAR_ALGORITHM_VERSION),
             "approximation": {"voxelSize": p.voxel_size, "downsampleEnabled": p.downsample_enabled},
             "metricDirection": "mesh-vertices-to-instance-scan-points",
             "pointsBefore": result.pop("pointsBefore"), "pointsAfter": result.pop("pointsAfter"),

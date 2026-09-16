@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CloudBIM · Scan-vs-BIM 练武场</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<div id="preloadOverlay" role="dialog" aria-modal="true" aria-labelledby="preloadTitle">
+  <div class="preloadCard"><h2 id="preloadTitle">一次加载，连续查看</h2>
+    <p id="preloadMessage" role="status">正在连接练武场…</p>
+    <progress id="preloadProgress" value="0" max="1" aria-label="全部钢筋加载进度"></progress>
+    <p id="preloadCount">0 / 0 根</p>
+    <p class="muted">准备全部钢筋的结果与三维显示，完成后即可直接切换。</p>
+    <button id="preloadRetry" hidden>重试加载</button>
+  </div>
+</div>
+<div id="app" inert>
+<aside>
+  <header><h1>Scan-vs-BIM 练武场</h1><p id="sourceName" class="muted">正在读取输入快照…</p></header>
+  <label for="barSearch">钢筋名称 / IFC ID</label><input id="barSearch" type="search" placeholder="筛选钢筋">
+  <label for="barSelect" class="sr-only">当前钢筋</label><select id="barSelect"></select>
+  <div class="row"><button id="prevBar" aria-label="上一根钢筋">上一根</button><button id="nextBar" aria-label="下一根钢筋">下一根</button></div>
+  <p id="barInfo" class="muted"></p>
+  <p id="preloadSummary" class="muted">正在加载全部钢筋</p><button id="reloadAll">重新加载全部</button>
+  <label for="unitSelect">设计段 ↔ 点云簇</label><select id="unitSelect"><option value="all">全部设计段</option></select>
+  <div id="unitNavigation" hidden><div class="row"><button id="prevUnit" aria-label="上一个设计段">上一段</button><button id="nextUnit" aria-label="下一个设计段">下一段</button><button id="allUnits">整根概览</button></div></div>
+  <p id="unitInfo" class="muted">每个设计段与对应点云簇独立检查。</p>
+  <nav aria-label="算法检查步骤" id="steps">
+    <button data-step="input" aria-current="step"><span>01</span> 输入与实例归属</button>
+    <button data-step="design"><span>02</span> 设计网格与外法向</button>
+    <button data-step="sections"><span>03</span> 连续中心线与截面</button>
+    <button data-step="normals"><span>04</span> 扫描点径向法向</button>
+    <button data-step="matches"><span>05</span> 同侧对应点</button>
+    <button data-step="deviation"><span>06</span> 偏差与缺测</button>
+  </nav>
+  <form id="parameters"><h2>计算参数</h2>
+    <div class="fields"><label>朝向容差 °<input id="normalMaxAngleDeg" type="number" min="1" max="90" step="1" required></label><label>搜索距离 mm<input id="maxSearchDistanceMm" type="number" min="0.1" max="200" step="0.1" required></label><label>首批候选数<input id="knnK" type="number" min="1" max="64" step="1" required></label><label>中心线显示采样数<input id="maxSamples" type="number" min="4" max="128" step="1" required></label></div>
+    <div class="fields extra"><label>截面窗口倍率<input id="windowScale" type="number" min="0.25" max="4" step="0.25" value="1" required></label><label hidden>旧版最小弧覆盖 °<input id="minArcCoverageDeg" type="number" min="30" max="300" step="5" value="160" required></label></div><p class="muted">每个点云簇独立拟合位置、方向与观测范围，仅辅助采用设计直径。放偏不会导致轴拟合失败；搜索距离仅限制表面对应点。</p>
+    <p id="dirty" class="notice" hidden>参数已修改，重新运行后生效。</p>
+    <button type="submit" id="run" class="primary">重新运行当前钢筋</button><button type="button" id="defaults">恢复输入参数</button>
+  </form>
+  <h2>调试批次</h2><label for="history" class="sr-only">调试批次</label><select id="history"><option value="">本地调试历史</option></select>
+  <div class="row"><button id="pinBaseline" disabled>设为对照</button><button id="export" disabled>导出 JSON</button></div>
+  <p id="baselineInfo" class="muted">调试结果独立保存，不替换主界面报告。</p>
+  <footer><a id="pointcloudLink" href="http://127.0.0.1:8766/" target="_blank" rel="noopener">点云分类练武场</a></footer>
+</aside>
+<main>
+  <div class="topbar"><div><h2 id="stageTitle">输入与实例归属</h2><p id="stageHelp">加载一根钢筋，核对设计单元与扫描实例。</p></div><div class="row views"><button data-view="fit">适配</button><button data-view="section">聚焦截面</button><button data-view="top">俯视</button><button data-view="side">侧视</button><button data-view="end">端视</button><button id="png">截图</button></div></div>
+  <div id="status" role="status" aria-live="polite">正在连接…</div><div id="error" role="alert" hidden></div>
+  <div id="viewport">
+    <div id="view" aria-label="钢筋与扫描三维视图"></div>
+    <div id="empty">选择钢筋后运行，查看真实计算中间结果。</div>
+    <div class="layers" aria-label="显示图层">
+      <label><input id="showDesign" type="checkbox" checked>设计网格</label><label><input id="showScan" type="checkbox" checked>扫描点</label><label><input id="showAxes" type="checkbox" checked>中心线</label><label><input id="showDesignNormals" type="checkbox">设计法向</label><label><input id="showScanNormals" type="checkbox">扫描径向</label><label><input id="showMatches" type="checkbox">匹配连线</label><label><input id="sectionOnly" type="checkbox">仅当前截面</label>
+      <label>箭头 mm<input id="arrowLength" type="number" min="0.1" max="100" step="0.5" value="5"></label><label>显示上限<input id="displayLimit" type="number" min="20" max="20000" step="20" value="1000"></label><label>点大小<input id="pointSize" type="range" min="1" max="6" step="0.5" value="2"></label>
+    </div>
+    <div id="legend" class="legend">蓝：设计 · 橙：实测 · 灰：无可靠支撑</div>
+    <div class="vertexControl"><label>设计顶点<input id="vertexIndex" type="number" min="0" step="1" value="0"></label><button id="inspectVertex">检查</button><label for="reasonFilter" class="sr-only">缺测原因筛选</label><select id="reasonFilter"><option value="all">全部顶点</option></select></div>
+  </div>
+  <section id="details" aria-label="逐截面与逐顶点诊断">
+    <div class="sectionPanel"><div class="panelHead"><h3>截面检查</h3><label for="sectionSelect" class="sr-only">当前截面</label><select id="sectionSelect"><option>尚无截面</option></select></div><canvas id="sectionCanvas" aria-label="实际扫描截面与设计半径约束圆，坐标单位毫米"></canvas><p id="sectionInfo" class="muted">圆心来自整根联合拟合；遮挡处保留推断轴，表面仍可缺测。</p></div>
+    <div class="inspectPanel"><div class="panelHead"><h3>顶点与匹配证据</h3><span class="muted">点击设计顶点检查</span></div><dl id="inspection"><dt>尚未计算</dt><dd>—</dd></dl><p id="sampling" class="muted"></p></div>
+    <div class="summaryPanel"><h3 id="summaryTitle">本次结果</h3><dl id="summary"><dt>等待运行</dt><dd>—</dd></dl><div id="reasons"></div></div>
+  </section>
+</main>
+</div>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js","three/addons/":"/vendor/addons/"}}</script>
+<script type="module" src="/viewer.js"></script>
+</body></html>

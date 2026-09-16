@@ -9,7 +9,7 @@ import (
 )
 
 func TestRebarComparisonRejectsBorrowedInstancesAndInvalidCoverage(t *testing.T) {
-	base := rebarComparison{Schema: rebarComparisonSchema, InstanceMapHash: strings.Repeat("a", 64), KnownVertexCount: 2, UnknownVertexCount: 4,
+	base := rebarComparison{Schema: rebarComparisonSchema, AlgorithmVersion: rebarC2MAlgorithm, InstanceMapHash: strings.Repeat("a", 64), KnownVertexCount: 2, UnknownVertexCount: 4,
 		Bars: []rebarComparisonBar{
 			{IFCGlobalID: "bar1", DesignBarID: "d1", InstanceIDs: []int{1}, VertexCount: 3, KnownCount: 2, UnknownCount: 1, Status: "matched", Stats: &c2mStats{}},
 			{IFCGlobalID: "bar2", DesignBarID: "d2", VertexStart: 3, VertexCount: 3, UnknownCount: 3, Status: "missing"},

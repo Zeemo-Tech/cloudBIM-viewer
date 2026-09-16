@@ -52,6 +52,40 @@ class LocalCurveSupportTests(unittest.TestCase):
         keep=np.isin(np.arange(len(self.points))//24,[20,40,80,120,160,200])
         selected, _, _ = self.support(self.points[keep],self.normals[keep])
         self.assertFalse(selected.any())
+
+    def test_bracketed_observed_shell_survives_local_validation_pose_drift(self):
+        x = np.linspace(0, .12, 121)
+        offset = .0026*np.maximum(0, 1-np.abs(x-.06)/.018)
+        check = np.c_[x, offset, np.zeros(len(x))]
+        selected, intervals, change = self.support(check=check)
+        middle = (self.points[:, 0] > .052) & (self.points[:, 0] < .068)
+        self.assertGreater(selected[middle].mean(), .98)
+        self.assertGreater(change, .002)
+        self.assertEqual(len(intervals), 1)
+
+        # The same validation drift must not fill a genuinely unobserved gap.
+        keep = ~middle
+        selected, intervals, _ = self.support(self.points[keep], self.normals[keep], check)
+        self.assertEqual(len(intervals), 2)
+        self.assertLess(intervals[0][1], .052)
+        self.assertGreater(intervals[1][0], .068)
+
+    def test_fractional_last_band_keeps_observed_endpoint_samples(self):
+        keep = self.points[:, 0] < .117
+        selected, _, _ = self.support(self.points[keep], self.normals[keep])
+        end = self.points[keep, 0] > .115
+        self.assertTrue(selected[end].all())
+
+    def test_boundary_completion_cannot_bypass_uncertified_middle_plane(self):
+        keep = (self.points[:, 0] < .045) | (self.points[:, 0] > .075)
+        x, y = np.meshgrid(np.linspace(.045, .075, 100), np.linspace(-.0004, .0004, 12))
+        plane = np.c_[x.ravel(), y.ravel(), np.full(x.size, .004)]
+        points = np.vstack((self.points[keep], plane))
+        normals = np.vstack((self.normals[keep], np.tile([0., 0., 1.], (len(plane), 1))))
+        selected, intervals, _ = self.support(points, normals)
+        middle = (points[:, 0] > .052) & (points[:, 0] < .068)
+        self.assertFalse(selected[middle].any())
+        self.assertEqual(len(intervals), 2)
         selected, _, _ = self.support(self.points+[.13,0.,0.],self.normals)
         self.assertFalse(selected.any())
 

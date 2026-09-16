@@ -1,0 +1,6213 @@
+{
+  "baselineRun": "20260913T123033-c6bb90c1",
+  "sourceSha256": "eb229b7c514e918c03534184eb56ceabdfd850c57b1b3503172bd8f290ebab52",
+  "sourcePointCount": 9216369,
+  "instanceCountBefore": 210,
+  "instanceCountAfter": 210,
+  "auditedInstances": 214,
+  "auditedRetainedInstances": 210,
+  "additionalRemovedPoints": 194,
+  "changedOwners": [
+    49
+  ],
+  "preservedOtherLabels": true,
+  "preservedClusterIds": true,
+  "removedInternalPoints": 0,
+  "beforeFilter": {
+    "version": "overlength-tails-v1",
+    "enabled": true,
+    "parameters": {
+      "relative_allowance": 0.15,
+      "absolute_allowance": 0.02,
+      "bin_size": 0.005,
+      "minimum_gap": 0.03,
+      "diameter_gap_factor": 3.0,
+      "spacing_gap_factor": 6.0,
+      "maximum_candidate_cost": 2.0,
+      "candidate_margin": 0.12,
+      "length_consensus_ratio": 1.05,
+      "maximum_angle_degrees": 12.0,
+      "maximum_bins": 100000,
+      "maximum_blocks": 128,
+      "maximum_instance_points": 1000000
+    },
+    "newDesignQueryCount": 0,
+    "candidateInstanceCount": 9,
+    "reviewedPointCount": 58997,
+    "measuredPointCount": 1570468,
+    "reclaimedInstanceCount": 1,
+    "removedPointCount": 208,
+    "highScoreRemovedPointCount": 11,
+    "decisions": [
+      {
+        "instanceId": 2,
+        "status": "skipped",
+        "reason": "ambiguous_length"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.41646249425009274,
+        "afterLengthM": 0.41646249425009274,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.41646249425009274,
+        "coreIntervalM": [
+          -0.2728424521240914,
+          0.1436200421260013
+        ],
+        "allowableUnionM": [
+          -0.198379957873999,
+          0.06915754787590889
+        ],
+        "instanceId": 14,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvFS:representation0/item0:1005/unit0",
+          "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.38455929559752233,
+        "afterLengthM": 0.38455929559752233,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38455929559752233,
+        "coreIntervalM": [
+          -0.19237412004322935,
+          0.19218517555429296
+        ],
+        "allowableUnionM": [
+          -0.14981482444570735,
+          0.14962587995677096
+        ],
+        "instanceId": 19,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021/unit0",
+          "1b9YNqdvPA1AzGxyF9pvCq:representation0/item0:1053/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "instanceId": 26,
+        "status": "skipped",
+        "reason": "ambiguous_length"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.3820729599068746,
+        "afterLengthM": 0.3820729599068746,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3820729599068746,
+        "coreIntervalM": [
+          -0.1910255682834853,
+          0.19104739162338935
+        ],
+        "allowableUnionM": [
+          -0.15095260837661095,
+          0.150974431716515
+        ],
+        "instanceId": 34,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.38877053677473594,
+        "afterLengthM": 0.38877053677473594,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38877053677473594,
+        "coreIntervalM": [
+          -0.19420562630628557,
+          0.19456491046845037
+        ],
+        "allowableUnionM": [
+          -0.14743508953154993,
+          0.14779437369371473
+        ],
+        "instanceId": 35,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.3754768469677947,
+        "afterLengthM": 0.3754768469677947,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3754768469677947,
+        "coreIntervalM": [
+          -0.1876157355849647,
+          0.18786111138283
+        ],
+        "allowableUnionM": [
+          -0.15413888861717032,
+          0.1543842644150356
+        ],
+        "instanceId": 51,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.383826955059353,
+        "afterLengthM": 0.383826955059353,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.383826955059353,
+        "coreIntervalM": [
+          -0.19189216455670458,
+          0.19193479050264842
+        ],
+        "allowableUnionM": [
+          -0.1500652094973519,
+          0.15010783544329573
+        ],
+        "instanceId": 52,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.38506027105104634,
+        "afterLengthM": 0.38506027105104634,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38506027105104634,
+        "coreIntervalM": [
+          -0.19241021697138885,
+          0.19265005407965752
+        ],
+        "allowableUnionM": [
+          -0.14934994592034279,
+          0.14958978302861145
+        ],
+        "instanceId": 72,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "core_already_overlong",
+        "tails": [],
+        "beforeLengthM": 0.37030804673280726,
+        "afterLengthM": 0.37030804673280726,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.37030804673280726,
+        "coreIntervalM": [
+          -0.18562966715934365,
+          0.18467837957346359
+        ],
+        "allowableUnionM": [
+          -0.15732162042653672,
+          0.15637033284065666
+        ],
+        "instanceId": 74,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "reclaimed",
+        "reason": "detached_extension_outside_core_length_envelope",
+        "tails": [
+          {
+            "side": "end",
+            "gapM": 0.13837111023010218,
+            "intervalM": [
+              0.29967800262814565,
+              0.3380198080138031
+            ],
+            "pointCount": 208
+          }
+        ],
+        "beforeLengthM": 0.49938003874067705,
+        "afterLengthM": 0.3226671231249174,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3226671231249174,
+        "coreIntervalM": [
+          -0.16136023072687394,
+          0.16130689239804347
+        ],
+        "allowableUnionM": [
+          -0.18069310760195684,
+          0.18063976927312636
+        ],
+        "axialSpacingM": 0.005,
+        "minimumGapM": 0.03,
+        "instanceId": 78,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDO:representation0/item0:1149/unit0"
+        ],
+        "lengthSource": "length_consensus",
+        "removedPointCount": 208,
+        "directExtensionPointCount": 208,
+        "clusterCarryPointCount": 0
+      }
+    ],
+    "skippedReasons": {
+      "within_length_allowance": 68,
+      "ambiguous_length": 2,
+      "core_already_overlong": 8,
+      "no_reliable_internal_core": 135
+    },
+    "designEvidenceS": 0.0009134950232692063,
+    "measurementS": 0.048957340099150315,
+    "decisionS": 0.0010064018715638667,
+    "updateS": 0.0002391680027358234,
+    "groupingS": 0.03434161399491131,
+    "elapsedS": 0.08637675200589001
+  },
+  "afterFilter": {
+    "version": "overlength-tails-v2-design-length-guard",
+    "enabled": true,
+    "parameters": {
+      "relative_allowance": 0.15,
+      "absolute_allowance": 0.02,
+      "bin_size": 0.005,
+      "minimum_gap": 0.03,
+      "diameter_gap_factor": 3.0,
+      "spacing_gap_factor": 6.0,
+      "maximum_candidate_cost": 2.0,
+      "candidate_margin": 0.12,
+      "length_consensus_ratio": 1.05,
+      "maximum_angle_degrees": 12.0,
+      "maximum_bins": 100000,
+      "maximum_blocks": 128,
+      "maximum_instance_points": 1000000,
+      "satellite_maximum_diameters": 2.0,
+      "satellite_maximum_core_fraction": 0.1,
+      "satellite_maximum_gap_fraction": 0.5
+    },
+    "newDesignQueryCount": 0,
+    "candidateInstanceCount": 11,
+    "reviewedPointCount": 174938,
+    "measuredPointCount": 1570468,
+    "reclaimedInstanceCount": 2,
+    "removedPointCount": 402,
+    "highScoreRemovedPointCount": 69,
+    "decisions": [
+      {
+        "instanceId": 2,
+        "status": "skipped",
+        "reason": "ambiguous_length"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.41646249425009274,
+        "afterLengthM": 0.41646249425009274,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.41646249425009274,
+        "coreIntervalM": [
+          -0.2728424521240914,
+          0.1436200421260013
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.2728424521240914,
+          0.14362004212600132
+        ],
+        "instanceId": 14,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvFS:representation0/item0:1005/unit0",
+          "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.38455929559752233,
+        "afterLengthM": 0.38455929559752233,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38455929559752233,
+        "coreIntervalM": [
+          -0.19237412004322935,
+          0.19218517555429296
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.19237412004322937,
+          0.192185175554293
+        ],
+        "instanceId": 19,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021/unit0",
+          "1b9YNqdvPA1AzGxyF9pvCq:representation0/item0:1053/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "instanceId": 26,
+        "status": "skipped",
+        "reason": "ambiguous_length"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.3820729599068746,
+        "afterLengthM": 0.3820729599068746,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3820729599068746,
+        "coreIntervalM": [
+          -0.1910255682834853,
+          0.19104739162338935
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.19102556828348527,
+          0.19104739162338932
+        ],
+        "instanceId": 34,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.38877053677473594,
+        "afterLengthM": 0.38877053677473594,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38877053677473594,
+        "coreIntervalM": [
+          -0.19420562630628557,
+          0.19456491046845037
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.19420562630628557,
+          0.19456491046845037
+        ],
+        "instanceId": 35,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "would_shorten_below_design_length",
+        "tails": [],
+        "beforeLengthM": 3.7071558948851315,
+        "afterLengthM": 3.7071558948851315,
+        "allowedLengthM": 4.160000000000005,
+        "coreLengthM": 3.5827584963196997,
+        "coreIntervalM": [
+          -1.7906785020299487,
+          1.792079994289751
+        ],
+        "coreOverlong": false,
+        "allowableUnionM": [
+          -2.3679200057102534,
+          2.3693214979700556
+        ],
+        "axialSpacingM": 0.005,
+        "minimumGapM": 0.03,
+        "retainedTails": [
+          {
+            "side": "end",
+            "pointCount": 10,
+            "wouldRetainLengthM": 3.5827584963196997,
+            "designLengthM": 3.600000000000005,
+            "reason": "would_shorten_below_design_length"
+          }
+        ],
+        "instanceId": 36,
+        "designLengthM": 3.600000000000005,
+        "diameterM": 0.008,
+        "designUnitId": "2o97Tbskf2JPl1QtzNqS0a:representation0/item0:2126/unit0",
+        "candidateUnitIds": [
+          "2o97Tbskf2JPl1QtzNqS0a:representation0/item0:2126/unit0"
+        ],
+        "lengthSource": "matched_core"
+      },
+      {
+        "status": "reclaimed",
+        "reason": "detached_external_tail",
+        "tails": [
+          {
+            "side": "end",
+            "gapM": 0.04734493824578356,
+            "intervalM": [
+              1.85168387006437,
+              1.8662211430210316
+            ],
+            "pointCount": 194,
+            "reason": "small_detached_extension"
+          }
+        ],
+        "beforeLengthM": 3.6702981905913212,
+        "afterLengthM": 3.6084159793888757,
+        "allowedLengthM": 4.160000000000005,
+        "coreLengthM": 3.6084159793888757,
+        "coreIntervalM": [
+          -1.8040770475702894,
+          1.8043389318185865
+        ],
+        "coreOverlong": false,
+        "allowableUnionM": [
+          -2.3556610681814183,
+          2.355922952429715
+        ],
+        "axialSpacingM": 0.005,
+        "minimumGapM": 0.03,
+        "instanceId": 49,
+        "designLengthM": 3.600000000000005,
+        "diameterM": 0.008,
+        "designUnitId": "1b9YNqdvPA1AzGxyF9pvG1:representation0/item0:1197/unit0",
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvG1:representation0/item0:1197/unit0"
+        ],
+        "lengthSource": "matched_core",
+        "removedPointCount": 194,
+        "directExtensionPointCount": 194,
+        "clusterCarryPointCount": 0
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.3754768469677947,
+        "afterLengthM": 0.3754768469677947,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3754768469677947,
+        "coreIntervalM": [
+          -0.1876157355849647,
+          0.18786111138283
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.18761573558496472,
+          0.18786111138283001
+        ],
+        "instanceId": 51,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.383826955059353,
+        "afterLengthM": 0.383826955059353,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.383826955059353,
+        "coreIntervalM": [
+          -0.19189216455670458,
+          0.19193479050264842
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.19189216455670458,
+          0.19193479050264842
+        ],
+        "instanceId": 52,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.38506027105104634,
+        "afterLengthM": 0.38506027105104634,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.38506027105104634,
+        "coreIntervalM": [
+          -0.19241021697138885,
+          0.19265005407965752
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.19241021697138883,
+          0.1926500540796575
+        ],
+        "instanceId": 72,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "review",
+        "reason": "no_external_extension",
+        "tails": [],
+        "beforeLengthM": 0.37030804673280726,
+        "afterLengthM": 0.37030804673280726,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.37030804673280726,
+        "coreIntervalM": [
+          -0.18562966715934365,
+          0.18467837957346359
+        ],
+        "coreOverlong": true,
+        "allowableUnionM": [
+          -0.18562966715934368,
+          0.1846783795734636
+        ],
+        "instanceId": 74,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0"
+        ],
+        "lengthSource": "length_consensus"
+      },
+      {
+        "status": "reclaimed",
+        "reason": "detached_external_tail",
+        "tails": [
+          {
+            "side": "end",
+            "gapM": 0.13837111023010218,
+            "intervalM": [
+              0.29967800262814565,
+              0.3380198080138031
+            ],
+            "pointCount": 208,
+            "reason": "outside_core_length_envelope"
+          }
+        ],
+        "beforeLengthM": 0.49938003874067705,
+        "afterLengthM": 0.3226671231249174,
+        "allowedLengthM": 0.3420000000000003,
+        "coreLengthM": 0.3226671231249174,
+        "coreIntervalM": [
+          -0.16136023072687394,
+          0.16130689239804347
+        ],
+        "coreOverlong": false,
+        "allowableUnionM": [
+          -0.18069310760195684,
+          0.18063976927312636
+        ],
+        "axialSpacingM": 0.005,
+        "minimumGapM": 0.03,
+        "instanceId": 78,
+        "designLengthM": 0.28000000000000025,
+        "diameterM": 0.008,
+        "designUnitId": null,
+        "candidateUnitIds": [
+          "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133/unit0",
+          "1b9YNqdvPA1AzGxyF9pvDO:representation0/item0:1149/unit0"
+        ],
+        "lengthSource": "length_consensus",
+        "removedPointCount": 208,
+        "directExtensionPointCount": 208,
+        "clusterCarryPointCount": 0
+      }
+    ],
+    "skippedReasons": {
+      "no_unprotected_external_tail": 38,
+      "ambiguous_length": 2,
+      "no_external_extension": 26,
+      "would_shorten_below_design_length": 1,
+      "protected_hook": 10,
+      "no_reliable_internal_core": 135
+    },
+    "designEvidenceS": 0.0009869721252471209,
+    "measurementS": 0.049226731120143086,
+    "decisionS": 0.012210167129524052,
+    "updateS": 0.001842594996560365,
+    "groupingS": 0.031064262002473697,
+    "elapsedS": 0.09630216000368819
+  },
+  "stage6BeforeS": 7.877014411991695,
+  "stage6AfterS": 8.618521319003776,
+  "instances": [
+    {
+      "instanceId": 1,
+      "designName": "钢筋:8 HRB400 : 形状 01:554573: 1",
+      "inputPoints": 14640,
+      "retainedPoints": 14640,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 13970,
+          "internalPoints": 13754,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4967275765199578,
+            0.4269576738983451
+          ]
+        },
+        {
+          "points": 670,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4709226193115017,
+            0.5246045482428031
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 2,
+      "designName": "钢筋:8 HRB400 : 形状 01:559235: 1",
+      "inputPoints": 60834,
+      "retainedPoints": 60834,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 60755,
+          "internalPoints": 60711,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.7275746306478272,
+            1.856516208001647
+          ]
+        },
+        {
+          "points": 79,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            1.9367298442772518,
+            1.9476106888323081
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 3,
+      "designName": "钢筋:8 HRB400 : 形状 01:555577: 1",
+      "inputPoints": 15445,
+      "retainedPoints": 15445,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1434,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5525299643243247,
+            -0.4606468240639732
+          ]
+        },
+        {
+          "points": 13776,
+          "internalPoints": 13424,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4152558956895195,
+            0.5024202783482992
+          ]
+        },
+        {
+          "points": 235,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5689899394286175,
+            0.5950148631671464
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 4,
+      "designName": null,
+      "inputPoints": 1539,
+      "retainedPoints": 0,
+      "removedPoints": 1539,
+      "removedInternalPoints": 1514,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 25,
+          "internalPoints": 0,
+          "removedPoints": 25,
+          "axialIntervalM": [
+            -0.6441935178288303,
+            -0.6404709221657436
+          ]
+        },
+        {
+          "points": 1005,
+          "internalPoints": 1005,
+          "removedPoints": 1005,
+          "axialIntervalM": [
+            -0.3448814989083894,
+            0.030352973013917435
+          ]
+        },
+        {
+          "points": 26,
+          "internalPoints": 26,
+          "removedPoints": 26,
+          "axialIntervalM": [
+            0.06327329705637175,
+            0.07205647062382828
+          ]
+        },
+        {
+          "points": 235,
+          "internalPoints": 235,
+          "removedPoints": 235,
+          "axialIntervalM": [
+            0.18611539267253935,
+            0.2260139965769158
+          ]
+        },
+        {
+          "points": 248,
+          "internalPoints": 248,
+          "removedPoints": 248,
+          "axialIntervalM": [
+            0.3840051551938234,
+            0.4190367414582191
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 6,
+      "designName": "钢筋:8 HRB400 : 形状 01:555584: 1",
+      "inputPoints": 13758,
+      "retainedPoints": 13758,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 687,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.58036821906729,
+            -0.5359104356277882
+          ]
+        },
+        {
+          "points": 11421,
+          "internalPoints": 11053,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.48742768607995884,
+            0.4366960772401629
+          ]
+        },
+        {
+          "points": 1650,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4740462796082823,
+            0.5743264966484475
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 8,
+      "designName": "钢筋:8 HRB400 : 形状 01:555593: 1",
+      "inputPoints": 13335,
+      "retainedPoints": 13335,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1569,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5591115189471613,
+            -0.46429044903678146
+          ]
+        },
+        {
+          "points": 11130,
+          "internalPoints": 11061,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.41741892985075635,
+            0.49332577403146666
+          ]
+        },
+        {
+          "points": 636,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5453722557827528,
+            0.5870908377997562
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 11,
+      "designName": "钢筋:8 HRB400 : 形状 01:555602: 1",
+      "inputPoints": 13872,
+      "retainedPoints": 13872,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1567,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5760140175427172,
+            -0.47556586755924046
+          ]
+        },
+        {
+          "points": 11613,
+          "internalPoints": 11397,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4226461178095894,
+            0.48804191127696545
+          ]
+        },
+        {
+          "points": 692,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5335589909489309,
+            0.5781275507613008
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 12,
+      "designName": "钢筋:8 HRB400 : 形状 01:555611: 1",
+      "inputPoints": 14073,
+      "retainedPoints": 14073,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1396,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5726304899626917,
+            -0.4764043949307853
+          ]
+        },
+        {
+          "points": 12118,
+          "internalPoints": 12118,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.42056799603940404,
+            0.48297996064437154
+          ]
+        },
+        {
+          "points": 559,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5323925954530948,
+            0.5774742363381042
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 13,
+      "designName": "钢筋:8 HRB400 : 形状 01:555954: 1",
+      "inputPoints": 5015,
+      "retainedPoints": 5015,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 5015,
+          "internalPoints": 5015,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.16167953788064984,
+            0.16210287816187405
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 14,
+      "designName": "钢筋:8 HRB400 : 形状 01:555867: 1",
+      "inputPoints": 6416,
+      "retainedPoints": 6416,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 6416,
+          "internalPoints": 6416,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.20285997066337974,
+            0.21360236372091504
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 15,
+      "designName": "钢筋:8 HRB400 : 形状 01:555648: 1",
+      "inputPoints": 13456,
+      "retainedPoints": 13456,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 982,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5561300119157698,
+            -0.4632645525780491
+          ]
+        },
+        {
+          "points": 12474,
+          "internalPoints": 12356,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4173218476927679,
+            0.4968253558018254
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 17,
+      "designName": "钢筋:8 HRB400 : 形状 01:555649: 1",
+      "inputPoints": 14355,
+      "retainedPoints": 14355,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1146,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5736451286182934,
+            -0.48288985191643286
+          ]
+        },
+        {
+          "points": 12583,
+          "internalPoints": 12570,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4218736057565508,
+            0.4801627332172155
+          ]
+        },
+        {
+          "points": 626,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5265266742409742,
+            0.5808493144169313
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 18,
+      "designName": "钢筋:8 HRB400 : 形状 01:555928: 1",
+      "inputPoints": 5585,
+      "retainedPoints": 5585,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 5585,
+          "internalPoints": 5585,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.17157653205397677,
+            0.15292839033566397
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 19,
+      "designName": "钢筋:8 HRB400 : 形状 01:555955: 1",
+      "inputPoints": 6024,
+      "retainedPoints": 6024,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 6024,
+          "internalPoints": 6024,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.18735569929166412,
+            0.1972036996587678
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 20,
+      "designName": "钢筋:8 HRB400 : 形状 01:555650: 1",
+      "inputPoints": 14507,
+      "retainedPoints": 14507,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 785,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5896365758985942,
+            -0.5338764570706728
+          ]
+        },
+        {
+          "points": 12210,
+          "internalPoints": 12085,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.48777252180064784,
+            0.416774401901326
+          ]
+        },
+        {
+          "points": 1512,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.46633526965162786,
+            0.5547688061237313
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 21,
+      "designName": "钢筋:8 HRB400 : 形状 01:555659: 1",
+      "inputPoints": 13586,
+      "retainedPoints": 13586,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 659,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5712584706316748,
+            -0.5202880830175795
+          ]
+        },
+        {
+          "points": 12093,
+          "internalPoints": 11865,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.48023287628355804,
+            0.4371015343303291
+          ]
+        },
+        {
+          "points": 834,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4806959576332267,
+            0.5841027051389858
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 24,
+      "designName": "钢筋:8 HRB400 : 形状 01:555660: 1",
+      "inputPoints": 14186,
+      "retainedPoints": 14186,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1545,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5430666382431335,
+            -0.4511435652043677
+          ]
+        },
+        {
+          "points": 11969,
+          "internalPoints": 11699,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4170157436321771,
+            0.507118406076852
+          ]
+        },
+        {
+          "points": 672,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.553068834116261,
+            0.6036512853890001
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 25,
+      "designName": "钢筋:8 HRB400 : 形状 01:555661: 1",
+      "inputPoints": 13524,
+      "retainedPoints": 13524,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 711,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.6182561939066077,
+            -0.5671466978413228
+          ]
+        },
+        {
+          "points": 11383,
+          "internalPoints": 11277,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.48748258436931313,
+            0.3995646933291261
+          ]
+        },
+        {
+          "points": 1430,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4482536264431505,
+            0.5384493240122653
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 26,
+      "designName": "钢筋:8 HRB400 : 形状 01:556295: 1",
+      "inputPoints": 62690,
+      "retainedPoints": 62690,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 62,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8987378416313678,
+            -1.8908243885532576
+          ]
+        },
+        {
+          "points": 62628,
+          "internalPoints": 62628,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8205196309926293,
+            1.767636956778843
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 27,
+      "designName": "钢筋:8 HRB400 : 形状 01:555670: 1",
+      "inputPoints": 12983,
+      "retainedPoints": 12983,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 659,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5855463338780601,
+            -0.5329843226746346
+          ]
+        },
+        {
+          "points": 11025,
+          "internalPoints": 10897,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4897991608259964,
+            0.42836971782325634
+          ]
+        },
+        {
+          "points": 1299,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.47690923826279114,
+            0.5641214178739158
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 28,
+      "designName": "钢筋:8 HRB400 : 形状 01:555671: 1",
+      "inputPoints": 13916,
+      "retainedPoints": 13916,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1130,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.586822038750218,
+            -0.50164188948411
+          ]
+        },
+        {
+          "points": 11949,
+          "internalPoints": 11849,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4524736642412131,
+            0.4643958225227737
+          ]
+        },
+        {
+          "points": 837,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5081205826156994,
+            0.5589634531239142
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 30,
+      "designName": "钢筋:8 HRB400 : 形状 01:555672: 1",
+      "inputPoints": 14827,
+      "retainedPoints": 14827,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1266,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5972624479022671,
+            -0.5072227813676574
+          ]
+        },
+        {
+          "points": 12587,
+          "internalPoints": 12243,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.46149141831958124,
+            0.4559489939263694
+          ]
+        },
+        {
+          "points": 974,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4989457295018857,
+            0.5591572066448861
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 31,
+      "designName": "钢筋:8 HRB400 : 形状 01:555679: 1",
+      "inputPoints": 13999,
+      "retainedPoints": 13999,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 12696,
+          "internalPoints": 12638,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.49689608988253986,
+            0.41895476273703014
+          ]
+        },
+        {
+          "points": 1303,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4775135384479109,
+            0.5637230838718961
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 32,
+      "designName": "钢筋:8 HRB400 : 形状 01:555680: 1",
+      "inputPoints": 15042,
+      "retainedPoints": 15042,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1413,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5756517161102929,
+            -0.4865379779872183
+          ]
+        },
+        {
+          "points": 12929,
+          "internalPoints": 12890,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4312332921344947,
+            0.4767444028005455
+          ]
+        },
+        {
+          "points": 700,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5277730584474273,
+            0.5743002892479813
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 33,
+      "designName": "钢筋:8 HRB400 : 形状 01:555681: 1",
+      "inputPoints": 14396,
+      "retainedPoints": 14396,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1285,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5692836129935125,
+            -0.48199327013290744
+          ]
+        },
+        {
+          "points": 12505,
+          "internalPoints": 12409,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.426717496306766,
+            0.4919991898229828
+          ]
+        },
+        {
+          "points": 606,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5324595971618025,
+            0.5772397656589839
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 34,
+      "designName": "钢筋:8 HRB400 : 形状 01:555968: 1",
+      "inputPoints": 6154,
+      "retainedPoints": 6154,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 6154,
+          "internalPoints": 6154,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.18219357312470316,
+            0.19988040792973139
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 35,
+      "designName": "钢筋:8 HRB400 : 形状 01:556014: 1",
+      "inputPoints": 7018,
+      "retainedPoints": 7018,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 7018,
+          "internalPoints": 7018,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.18904457120556045,
+            0.19972154403759218
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 36,
+      "designName": "钢筋:8 HRB400 : 形状 01:559233: 1",
+      "inputPoints": 57366,
+      "retainedPoints": 57366,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 10,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.9197161332250752,
+            -1.9184121746894232
+          ]
+        },
+        {
+          "points": 57356,
+          "internalPoints": 57356,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.795319107421586,
+            1.7874395982704354
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 37,
+      "designName": "钢筋:8 HRB400 : 形状 01:555690: 1",
+      "inputPoints": 14319,
+      "retainedPoints": 14319,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 608,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5965888760730396,
+            -0.5504559059341594
+          ]
+        },
+        {
+          "points": 12210,
+          "internalPoints": 12136,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5102153509384808,
+            0.40862328044475316
+          ]
+        },
+        {
+          "points": 1501,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4636283461680553,
+            0.560816396001987
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 39,
+      "designName": "钢筋:8 HRB400 : 形状 23:555491: 1",
+      "inputPoints": 63052,
+      "retainedPoints": 63052,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 5111,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.047604453709424,
+            -1.796549510432963
+          ]
+        },
+        {
+          "points": 56725,
+          "internalPoints": 56577,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.7452498630749675,
+            2.000684821151882
+          ]
+        },
+        {
+          "points": 1216,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.0463933292011625,
+            2.1456583433727494
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 40,
+      "designName": "钢筋:8 HRB400 : 形状 23:555546: 1",
+      "inputPoints": 65181,
+      "retainedPoints": 65181,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 3869,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.9952132984416853,
+            -1.7487633580490511
+          ]
+        },
+        {
+          "points": 59719,
+          "internalPoints": 59458,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.707332524387992,
+            2.0442161422911984
+          ]
+        },
+        {
+          "points": 1593,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.096358669971125,
+            2.193355933282634
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 41,
+      "designName": "钢筋:8 HRB400 : 形状 23:555460: 1",
+      "inputPoints": 68005,
+      "retainedPoints": 68005,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 3275,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.1040557058485914,
+            -1.9534123810595978
+          ]
+        },
+        {
+          "points": 63010,
+          "internalPoints": 62700,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.812928380985721,
+            1.943844999600941
+          ]
+        },
+        {
+          "points": 1720,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            1.99161202936133,
+            2.0878395819884408
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 42,
+      "designName": "钢筋:8 HRB400 : 形状 23:555480: 1",
+      "inputPoints": 62372,
+      "retainedPoints": 62372,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 4021,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.066074856161948,
+            -1.8357868618735473
+          ]
+        },
+        {
+          "points": 57170,
+          "internalPoints": 56867,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.7994973046029223,
+            1.9586306391912829
+          ]
+        },
+        {
+          "points": 1181,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.0081204817227616,
+            2.1076853099901056
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 43,
+      "designName": "钢筋:8 HRB400 : 形状 23:555513: 1",
+      "inputPoints": 70955,
+      "retainedPoints": 70955,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 4092,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.024459521482929,
+            -1.7775599118146017
+          ]
+        },
+        {
+          "points": 65283,
+          "internalPoints": 65163,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.7349937137542177,
+            2.007376402317468
+          ]
+        },
+        {
+          "points": 1580,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.0588839219897777,
+            2.162605227887108
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 44,
+      "designName": "钢筋:8 HRB400 : 形状 23:555440: 1",
+      "inputPoints": 63194,
+      "retainedPoints": 63194,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 3026,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.1495413190070876,
+            -1.8980631219858677
+          ]
+        },
+        {
+          "points": 58539,
+          "internalPoints": 58176,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8668308026770672,
+            1.895105199526102
+          ]
+        },
+        {
+          "points": 1629,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            1.9461874424155483,
+            2.0430875725140005
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 45,
+      "designName": "钢筋:8 HRB400 : 形状 23:555471: 1",
+      "inputPoints": 62790,
+      "retainedPoints": 62790,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 3851,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.0714343675167783,
+            -1.833354002819465
+          ]
+        },
+        {
+          "points": 57554,
+          "internalPoints": 57180,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.79726901949096,
+            1.9604815655947767
+          ]
+        },
+        {
+          "points": 1385,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.0187465775122893,
+            2.115589715139504
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 46,
+      "designName": "钢筋:8 HRB400 : 形状 23:555502: 1",
+      "inputPoints": 65846,
+      "retainedPoints": 65846,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 3770,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.026286048201936,
+            -1.8028933500348754
+          ]
+        },
+        {
+          "points": 61083,
+          "internalPoints": 61009,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.731778520056672,
+            2.007309192689465
+          ]
+        },
+        {
+          "points": 993,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.0592397156782223,
+            2.162599914420133
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 47,
+      "designName": "钢筋:8 HRB400 : 形状 23:554929: 1",
+      "inputPoints": 70240,
+      "retainedPoints": 70240,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 421,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.1744282738381546,
+            -2.138215689068804
+          ]
+        },
+        {
+          "points": 528,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.053575581267289,
+            -1.9253107652597932
+          ]
+        },
+        {
+          "points": 67649,
+          "internalPoints": 67429,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8795059445170617,
+            1.869710072404937
+          ]
+        },
+        {
+          "points": 1642,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            1.917674170884798,
+            2.0162947744876365
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 48,
+      "designName": "钢筋:8 HRB400 : 形状 01:555691: 1",
+      "inputPoints": 14699,
+      "retainedPoints": 14699,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1701,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.559668642912938,
+            -0.46950339667985636
+          ]
+        },
+        {
+          "points": 12418,
+          "internalPoints": 12359,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.41135744109147754,
+            0.4989635467597684
+          ]
+        },
+        {
+          "points": 580,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5423577560333982,
+            0.5922110748790678
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 49,
+      "designName": "钢筋:8 HRB400 : 形状 01:556166: 1",
+      "inputPoints": 58575,
+      "retainedPoints": 58381,
+      "removedPoints": 194,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 194,
+      "axialBlocks": [
+        {
+          "points": 194,
+          "internalPoints": 0,
+          "removedPoints": 194,
+          "axialIntervalM": [
+            -1.896040690622439,
+            -1.8815031828754865
+          ]
+        },
+        {
+          "points": 58381,
+          "internalPoints": 58380,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8341584958832065,
+            1.7742577608136423
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 50,
+      "designName": "钢筋:8 HRB400 : 形状 23:555449: 1",
+      "inputPoints": 66175,
+      "retainedPoints": 66175,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 4511,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -2.071999145872376,
+            -1.8332774938401444
+          ]
+        },
+        {
+          "points": 59939,
+          "internalPoints": 59620,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.7899891903901448,
+            1.9697187678422077
+          ]
+        },
+        {
+          "points": 1725,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            2.0219010419428067,
+            2.1187308730896315
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 51,
+      "designName": "钢筋:8 HRB400 : 形状 01:555969: 1",
+      "inputPoints": 8461,
+      "retainedPoints": 8461,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 8461,
+          "internalPoints": 8461,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.1888246574053037,
+            0.18665071910766345
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 52,
+      "designName": "钢筋:8 HRB400 : 形状 01:556015: 1",
+      "inputPoints": 6478,
+      "retainedPoints": 6478,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 6478,
+          "internalPoints": 6478,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.18865673222846835,
+            0.195170352758552
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 53,
+      "designName": "钢筋:8 HRB400 : 形状 01:555692: 1",
+      "inputPoints": 14054,
+      "retainedPoints": 14054,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1534,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5742991047949331,
+            -0.48046211146169837
+          ]
+        },
+        {
+          "points": 11974,
+          "internalPoints": 11904,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.42488327940169873,
+            0.48544271807775635
+          ]
+        },
+        {
+          "points": 546,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5261105064862421,
+            0.5782783102527645
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 55,
+      "designName": "钢筋:8 HRB400 : 形状 01:555701: 1",
+      "inputPoints": 13316,
+      "retainedPoints": 13316,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1338,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5848943530636954,
+            -0.49089520659349656
+          ]
+        },
+        {
+          "points": 11319,
+          "internalPoints": 11255,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4373024625559943,
+            0.4702097362705496
+          ]
+        },
+        {
+          "points": 659,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5174625707183629,
+            0.5686224936934325
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 56,
+      "designName": "钢筋:8 HRB400 : 形状 01:555702: 1",
+      "inputPoints": 12888,
+      "retainedPoints": 12888,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 697,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5583084179208752,
+            -0.5067332919608311
+          ]
+        },
+        {
+          "points": 11213,
+          "internalPoints": 11154,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.46106355570465796,
+            0.446692594217352
+          ]
+        },
+        {
+          "points": 978,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.49862304852846695,
+            0.6004412604422918
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 57,
+      "designName": "钢筋:8 HRB400 : 形状 01:555703: 1",
+      "inputPoints": 13629,
+      "retainedPoints": 13629,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1304,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.578930730539035,
+            -0.4839080317488625
+          ]
+        },
+        {
+          "points": 11676,
+          "internalPoints": 11617,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.42828472748887864,
+            0.4792852859587228
+          ]
+        },
+        {
+          "points": 649,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5261259133226676,
+            0.5718133425802756
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 61,
+      "designName": "钢筋:8 HRB400 : 形状 01:555710: 1",
+      "inputPoints": 13925,
+      "retainedPoints": 13925,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 654,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5638326105534172,
+            -0.5179513506846862
+          ]
+        },
+        {
+          "points": 11882,
+          "internalPoints": 11836,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.47114484879653373,
+            0.4363620207340101
+          ]
+        },
+        {
+          "points": 1389,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4918879583545377,
+            0.5900950694722182
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 62,
+      "designName": "钢筋:8 HRB400 : 形状 01:555711: 1",
+      "inputPoints": 13889,
+      "retainedPoints": 13889,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1294,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5880772760026726,
+            -0.49949027766742665
+          ]
+        },
+        {
+          "points": 11884,
+          "internalPoints": 11812,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4504579008381818,
+            0.4637999942542048
+          ]
+        },
+        {
+          "points": 711,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5149065280907813,
+            0.5638732565230706
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 65,
+      "designName": "钢筋:8 HRB400 : 形状 01:555712: 1",
+      "inputPoints": 13889,
+      "retainedPoints": 13889,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 565,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5707713187063372,
+            -0.524931949823118
+          ]
+        },
+        {
+          "points": 11996,
+          "internalPoints": 11931,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4737488500253282,
+            0.43869947005698817
+          ]
+        },
+        {
+          "points": 1328,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4895148328694399,
+            0.573131968758198
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 66,
+      "designName": "钢筋:8 HRB400 : 形状 01:555721: 1",
+      "inputPoints": 15250,
+      "retainedPoints": 15250,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1662,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5730725170012873,
+            -0.47616542489250185
+          ]
+        },
+        {
+          "points": 12903,
+          "internalPoints": 12818,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.429390781800273,
+            0.48233840773840353
+          ]
+        },
+        {
+          "points": 685,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5337865024652146,
+            0.5813038119536621
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 70,
+      "designName": "钢筋:8 HRB400 : 形状 01:555722: 1",
+      "inputPoints": 14559,
+      "retainedPoints": 14559,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1732,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5497939804314865,
+            -0.4499002691306705
+          ]
+        },
+        {
+          "points": 12827,
+          "internalPoints": 12725,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4040821004056016,
+            0.5104263417053005
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 71,
+      "designName": "钢筋:8 HRB400 : 形状 01:555723: 1",
+      "inputPoints": 14987,
+      "retainedPoints": 14987,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1548,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5679843271070363,
+            -0.47627669025689207
+          ]
+        },
+        {
+          "points": 12872,
+          "internalPoints": 12758,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.431040403516167,
+            0.4838372283858854
+          ]
+        },
+        {
+          "points": 567,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5296669014024575,
+            0.5750991816250057
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 72,
+      "designName": "钢筋:8 HRB400 : 形状 01:555986: 1",
+      "inputPoints": 6710,
+      "retainedPoints": 6710,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 6710,
+          "internalPoints": 6710,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.19949841482694428,
+            0.1855600397507075
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 74,
+      "designName": "钢筋:8 HRB400 : 形状 01:555998: 1",
+      "inputPoints": 5986,
+      "retainedPoints": 5986,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 5986,
+          "internalPoints": 5986,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.19132175529730344,
+            0.17898546330650364
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_long"
+      ]
+    },
+    {
+      "instanceId": 75,
+      "designName": "钢筋:8 HRB400 : 形状 01:555732: 1",
+      "inputPoints": 15262,
+      "retainedPoints": 15262,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1633,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.580401973017041,
+            -0.47826380521407497
+          ]
+        },
+        {
+          "points": 12964,
+          "internalPoints": 12847,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.4346829688721076,
+            0.48010408282382183
+          ]
+        },
+        {
+          "points": 665,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5255382052656924,
+            0.577810847223073
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 77,
+      "designName": "钢筋:8 HRB400 : 形状 01:555733: 1",
+      "inputPoints": 14046,
+      "retainedPoints": 14046,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 571,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5522488040556168,
+            -0.5040751592818415
+          ]
+        },
+        {
+          "points": 12419,
+          "internalPoints": 12318,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.462408244219533,
+            0.45151604531779393
+          ]
+        },
+        {
+          "points": 1056,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.49675546059233683,
+            0.5961036318006439
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 78,
+      "designName": "钢筋:8 HRB400 : 形状 01:555999: 1",
+      "inputPoints": 5750,
+      "retainedPoints": 5542,
+      "removedPoints": 208,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 208,
+          "internalPoints": 0,
+          "removedPoints": 208,
+          "axialIntervalM": [
+            -0.32770355766328446,
+            -0.28938157032941414
+          ]
+        },
+        {
+          "points": 5542,
+          "internalPoints": 5542,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.15095464644828963,
+            0.17169783743520237
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 79,
+      "designName": "钢筋:8 HRB400 : 形状 01:555987: 1",
+      "inputPoints": 5334,
+      "retainedPoints": 5334,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 5334,
+          "internalPoints": 5334,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.15216861135433357,
+            0.1511013620903317
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 81,
+      "designName": "钢筋:8 HRB400 : 形状 01:555734: 1",
+      "inputPoints": 14098,
+      "retainedPoints": 14098,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1633,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5708335876595252,
+            -0.46725930385112424
+          ]
+        },
+        {
+          "points": 11972,
+          "internalPoints": 11819,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.425478722533186,
+            0.5009411188024271
+          ]
+        },
+        {
+          "points": 493,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.5379450596731262,
+            0.5819180993736487
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 82,
+      "designName": "钢筋:8 HRB400 : 形状 01:555743: 1",
+      "inputPoints": 13615,
+      "retainedPoints": 13615,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 510,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5903450270660066,
+            -0.552337672626838
+          ]
+        },
+        {
+          "points": 11473,
+          "internalPoints": 11356,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5019085694852607,
+            0.41333725323597065
+          ]
+        },
+        {
+          "points": 1632,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4556087160981794,
+            0.5559304513234009
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 84,
+      "designName": "钢筋:8 HRB400 : 形状 01:555744: 1",
+      "inputPoints": 13871,
+      "retainedPoints": 13871,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 516,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5977937905101436,
+            -0.5601947142387511
+          ]
+        },
+        {
+          "points": 11713,
+          "internalPoints": 11635,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5078693054965961,
+            0.4094480039605284
+          ]
+        },
+        {
+          "points": 1642,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.44876998055072886,
+            0.5480363607557762
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 85,
+      "designName": "钢筋:8 HRB400 : 形状 01:555745: 1",
+      "inputPoints": 14795,
+      "retainedPoints": 14795,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 663,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.612834309505051,
+            -0.566946635510958
+          ]
+        },
+        {
+          "points": 12351,
+          "internalPoints": 12288,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5145663477089801,
+            0.40727997813593225
+          ]
+        },
+        {
+          "points": 1781,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.43960789267235373,
+            0.5438377312162718
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 86,
+      "designName": "钢筋:8 HRB400 : 形状 01:555775: 1",
+      "inputPoints": 15757,
+      "retainedPoints": 15757,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 704,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.6072990948037664,
+            -0.5564658492047085
+          ]
+        },
+        {
+          "points": 13119,
+          "internalPoints": 13080,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5145491409984058,
+            0.40292444456048543
+          ]
+        },
+        {
+          "points": 1934,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.4459944141782359,
+            0.5456883024554756
+          ]
+        }
+      ],
+      "shapeFlags": [
+        "too_wide"
+      ]
+    },
+    {
+      "instanceId": 87,
+      "designName": "钢筋:8 HRB400 : 形状 01:555776: 1",
+      "inputPoints": 14658,
+      "retainedPoints": 14658,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 734,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.5625843376464748,
+            -0.5127762752295806
+          ]
+        },
+        {
+          "points": 13156,
+          "internalPoints": 12980,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.47819663944019847,
+            0.4476761184862217
+          ]
+        },
+        {
+          "points": 768,
+          "internalPoints": 0,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            0.48758567639063566,
+            0.5905073744314514
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 88,
+      "designName": "钢筋:8 HRB400 : 形状 01:556284: 1",
+      "inputPoints": 85517,
+      "retainedPoints": 85517,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 85517,
+          "internalPoints": 85517,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8007246438790978,
+            1.7880244275477812
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 89,
+      "designName": "钢筋:8 HRB400 : 形状 01:559234: 1",
+      "inputPoints": 79250,
+      "retainedPoints": 79250,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 79250,
+          "internalPoints": 79250,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -1.8015345498743847,
+            1.7808232351099085
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 91,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 943,
+      "retainedPoints": 943,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 943,
+          "internalPoints": 943,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04525816210933461,
+            0.0465720057304294
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 92,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 862,
+      "retainedPoints": 862,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 862,
+          "internalPoints": 862,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0521160197363879,
+            0.04959580862560832
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 93,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1330,
+      "retainedPoints": 1330,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1330,
+          "internalPoints": 1330,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04884792261630341,
+            0.05189572264043446
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 94,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1261,
+      "retainedPoints": 1261,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1261,
+          "internalPoints": 1261,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.053710861907617445,
+            0.054279512031545823
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 95,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1056,
+      "retainedPoints": 1056,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1056,
+          "internalPoints": 1056,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.055084984615112666,
+            0.0597248005083354
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 96,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1454,
+      "retainedPoints": 1454,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1454,
+          "internalPoints": 1454,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.060911753531525954,
+            0.056063710952219174
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 97,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1403,
+      "retainedPoints": 1403,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1403,
+          "internalPoints": 1403,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06265375361176967,
+            0.06130084480439407
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 99,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1114,
+      "retainedPoints": 1114,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1114,
+          "internalPoints": 1114,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.053127725941317545,
+            0.052359533985797034
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 100,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1322,
+      "retainedPoints": 1322,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1322,
+          "internalPoints": 1322,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04929987357041725,
+            0.05592733597152997
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 101,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 983,
+      "retainedPoints": 983,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 983,
+          "internalPoints": 983,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05233791332568789,
+            0.06123124920799293
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 102,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1211,
+      "retainedPoints": 1211,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1211,
+          "internalPoints": 1211,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05520431839175014,
+            0.05719091437555137
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 103,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1206,
+      "retainedPoints": 1206,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1206,
+          "internalPoints": 1206,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06072053661900717,
+            0.06493659587068021
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 104,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1147,
+      "retainedPoints": 1147,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1147,
+          "internalPoints": 1147,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05519840311027901,
+            0.058344644676783915
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 105,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1418,
+      "retainedPoints": 1418,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1418,
+          "internalPoints": 1418,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06019920247306525,
+            0.05849392346564803
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 106,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1310,
+      "retainedPoints": 1310,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1310,
+          "internalPoints": 1310,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06252609871094972,
+            0.05922112810864174
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 108,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1128,
+      "retainedPoints": 1128,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1128,
+          "internalPoints": 1128,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.051096481802827005,
+            0.052668719557728186
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 109,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1291,
+      "retainedPoints": 1291,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1291,
+          "internalPoints": 1291,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05467161125914201,
+            0.05120055073498121
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 110,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1390,
+      "retainedPoints": 1390,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1390,
+          "internalPoints": 1390,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.057036347005993734,
+            0.05140680542344055
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 111,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 840,
+      "retainedPoints": 840,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 840,
+          "internalPoints": 840,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.061560970638253935,
+            0.047780872523540976
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 112,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1185,
+      "retainedPoints": 1185,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1185,
+          "internalPoints": 1185,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.060349646416417,
+            0.05682535733938906
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 113,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1274,
+      "retainedPoints": 1274,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1274,
+          "internalPoints": 1274,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.062421980282603054,
+            0.060082864890016345
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 114,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1448,
+      "retainedPoints": 1448,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1448,
+          "internalPoints": 1448,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05922393791743264,
+            0.056356613197072095
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 115,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1365,
+      "retainedPoints": 1365,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1365,
+          "internalPoints": 1365,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05866056134373,
+            0.05766571696277959
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 116,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1046,
+      "retainedPoints": 1046,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1046,
+          "internalPoints": 1046,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05296527424892367,
+            0.049442975606473455
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 117,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1156,
+      "retainedPoints": 1156,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1156,
+          "internalPoints": 1156,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05157149272775091,
+            0.0551822209455803
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 118,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1154,
+      "retainedPoints": 1154,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1154,
+          "internalPoints": 1154,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05355813686103835,
+            0.053428827082337586
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 119,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1451,
+      "retainedPoints": 1451,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1451,
+          "internalPoints": 1451,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0538445594034139,
+            0.05444061217465029
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 121,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1137,
+      "retainedPoints": 1137,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1137,
+          "internalPoints": 1137,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.056991200555115605,
+            0.056228800979851265
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 122,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1262,
+      "retainedPoints": 1262,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1262,
+          "internalPoints": 1262,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05941347727209651,
+            0.06087548606800216
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 123,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1461,
+      "retainedPoints": 1461,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1461,
+          "internalPoints": 1461,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0572993287862739,
+            0.05569324939804564
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 124,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1442,
+      "retainedPoints": 1442,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1442,
+          "internalPoints": 1442,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.059421868451894,
+            0.058869534580997425
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 125,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 897,
+      "retainedPoints": 897,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 897,
+          "internalPoints": 897,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.049841712199181085,
+            0.054749668592430356
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 126,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1309,
+      "retainedPoints": 1309,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1309,
+          "internalPoints": 1309,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05531628838821958,
+            0.05587642006655079
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 127,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1408,
+      "retainedPoints": 1408,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1408,
+          "internalPoints": 1408,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.055382263006949074,
+            0.054512261773522946
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 128,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1530,
+      "retainedPoints": 1530,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1530,
+          "internalPoints": 1530,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05589363410877454,
+            0.053677795251070345
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 129,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1134,
+      "retainedPoints": 1134,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1134,
+          "internalPoints": 1134,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.049962324380116864,
+            0.07310563180113731
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 130,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1022,
+      "retainedPoints": 1022,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1022,
+          "internalPoints": 1022,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05672543033676049,
+            0.05887365047694664
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 131,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1578,
+      "retainedPoints": 1578,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1578,
+          "internalPoints": 1578,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.062392848848563255,
+            0.05960348884496793
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 132,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1481,
+      "retainedPoints": 1481,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1481,
+          "internalPoints": 1481,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06117836536317407,
+            0.056867947476634505
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 133,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 906,
+      "retainedPoints": 906,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 906,
+          "internalPoints": 906,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.056092494679083345,
+            0.052237704707294184
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 134,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1289,
+      "retainedPoints": 1289,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1289,
+          "internalPoints": 1289,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05524124904333348,
+            0.05588927088993806
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 135,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 547,
+      "retainedPoints": 547,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 25,
+          "internalPoints": 25,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.07538208594769548,
+            -0.06954204832596991
+          ]
+        },
+        {
+          "points": 522,
+          "internalPoints": 522,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.035494370801198216,
+            0.03632423681864977
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 136,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1528,
+      "retainedPoints": 1528,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1528,
+          "internalPoints": 1528,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04981396677432421,
+            0.054863881732853545
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 137,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1243,
+      "retainedPoints": 1243,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1243,
+          "internalPoints": 1243,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.061714155303924066,
+            0.05916862811734546
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 138,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1457,
+      "retainedPoints": 1457,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1457,
+          "internalPoints": 1457,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05834548667325114,
+            0.06408208002972156
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 139,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1512,
+      "retainedPoints": 1512,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1512,
+          "internalPoints": 1512,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06028636665337038,
+            0.059296263288759365
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 140,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1531,
+      "retainedPoints": 1531,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1531,
+          "internalPoints": 1531,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05995015565213006,
+            0.05389717961826372
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 141,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1217,
+      "retainedPoints": 1217,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1217,
+          "internalPoints": 1217,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.054814793567276886,
+            0.05632087261788718
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 142,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1205,
+      "retainedPoints": 1205,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1205,
+          "internalPoints": 1205,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.055188728327118304,
+            0.051943203087502686
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 143,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1435,
+      "retainedPoints": 1435,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1435,
+          "internalPoints": 1435,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05678406469208379,
+            0.04966956717298692
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 144,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1335,
+      "retainedPoints": 1335,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1335,
+          "internalPoints": 1335,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05057982560871366,
+            0.05299105712082121
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 145,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1297,
+      "retainedPoints": 1297,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1297,
+          "internalPoints": 1297,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05921829548372268,
+            0.06204726583559308
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 146,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1393,
+      "retainedPoints": 1393,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1393,
+          "internalPoints": 1393,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05609036566071789,
+            0.058375859118524706
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 147,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1313,
+      "retainedPoints": 1313,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1313,
+          "internalPoints": 1313,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0602079033204679,
+            0.0597697873648267
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 148,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1214,
+      "retainedPoints": 1214,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1214,
+          "internalPoints": 1214,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06184906529066517,
+            0.050857103120615525
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 149,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1105,
+      "retainedPoints": 1105,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1105,
+          "internalPoints": 1105,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05725677039481891,
+            0.05186207776825599
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 150,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1326,
+      "retainedPoints": 1326,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1326,
+          "internalPoints": 1326,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05399229935398056,
+            0.054558310846167385
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 151,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1178,
+      "retainedPoints": 1178,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1178,
+          "internalPoints": 1178,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05267113805293779,
+            0.05455193435915026
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 152,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1249,
+      "retainedPoints": 1249,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1249,
+          "internalPoints": 1249,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04971929381118493,
+            0.055532569664650526
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 153,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1262,
+      "retainedPoints": 1262,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1262,
+          "internalPoints": 1262,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.059569915658214775,
+            0.06104374105132819
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 154,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1307,
+      "retainedPoints": 1307,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1307,
+          "internalPoints": 1307,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05646813368660144,
+            0.05700101545987368
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 155,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1384,
+      "retainedPoints": 1384,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1384,
+          "internalPoints": 1384,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.058233096161619834,
+            0.058511203978306385
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 156,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1399,
+      "retainedPoints": 1399,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1399,
+          "internalPoints": 1399,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06004927964082817,
+            0.0604683711621794
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 157,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1259,
+      "retainedPoints": 1259,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1259,
+          "internalPoints": 1259,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05422184518943128,
+            0.05448282831473078
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 158,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1278,
+      "retainedPoints": 1278,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1278,
+          "internalPoints": 1278,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05397534456391293,
+            0.052124449451353715
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 159,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1215,
+      "retainedPoints": 1215,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1215,
+          "internalPoints": 1215,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05208951953709953,
+            0.0516687701565684
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 160,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1299,
+      "retainedPoints": 1299,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1299,
+          "internalPoints": 1299,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05251546241683396,
+            0.04953102905452468
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 161,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1365,
+      "retainedPoints": 1365,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1365,
+          "internalPoints": 1365,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.057108405791479154,
+            0.06025418958651951
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 162,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1397,
+      "retainedPoints": 1397,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1397,
+          "internalPoints": 1397,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0579609051585093,
+            0.05799314684806007
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 163,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1296,
+      "retainedPoints": 1296,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1296,
+          "internalPoints": 1296,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0540072206722197,
+            0.059453464179003414
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 164,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1228,
+      "retainedPoints": 1228,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1228,
+          "internalPoints": 1228,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06089431688433712,
+            0.05407189494890004
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 165,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1227,
+      "retainedPoints": 1227,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1227,
+          "internalPoints": 1227,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0512927506614752,
+            0.055557468422633725
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 166,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1209,
+      "retainedPoints": 1209,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1209,
+          "internalPoints": 1209,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0572729046185011,
+            0.0532168457366173
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 167,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1282,
+      "retainedPoints": 1282,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1282,
+          "internalPoints": 1282,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05326346899769992,
+            0.05097097894652815
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 168,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1277,
+      "retainedPoints": 1277,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1277,
+          "internalPoints": 1277,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05039224008191758,
+            0.05683174815285061
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 169,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1261,
+      "retainedPoints": 1261,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1261,
+          "internalPoints": 1261,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05731060825978185,
+            0.060480275461140307
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 170,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1345,
+      "retainedPoints": 1345,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1345,
+          "internalPoints": 1345,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05964603519592415,
+            0.05343385111148875
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 171,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1326,
+      "retainedPoints": 1326,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1326,
+          "internalPoints": 1326,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.060554453546188984,
+            0.05521786405518632
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 172,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1185,
+      "retainedPoints": 1185,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1185,
+          "internalPoints": 1185,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05682511740672252,
+            0.06239480164281929
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 173,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1084,
+      "retainedPoints": 1084,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1084,
+          "internalPoints": 1084,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05454908814549798,
+            0.05094086566997364
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 174,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1187,
+      "retainedPoints": 1187,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1187,
+          "internalPoints": 1187,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05412438443155334,
+            0.05251412700962363
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 175,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1397,
+      "retainedPoints": 1397,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1397,
+          "internalPoints": 1397,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05709444878846591,
+            0.056314027652317
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 176,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1146,
+      "retainedPoints": 1146,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1146,
+          "internalPoints": 1146,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.049455083608483594,
+            0.05258778644101618
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 177,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1153,
+      "retainedPoints": 1153,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1153,
+          "internalPoints": 1153,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05173704119181773,
+            0.061117437487797355
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 178,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1197,
+      "retainedPoints": 1197,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1197,
+          "internalPoints": 1197,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.058368416417356885,
+            0.053904560950945514
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 179,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1341,
+      "retainedPoints": 1341,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1341,
+          "internalPoints": 1341,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0585439643967493,
+            0.061407143315344206
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 180,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1396,
+      "retainedPoints": 1396,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1396,
+          "internalPoints": 1396,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06322791708339406,
+            0.060077339137173655
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 181,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1085,
+      "retainedPoints": 1085,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1085,
+          "internalPoints": 1085,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06045978879721876,
+            0.051442819841071664
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 182,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1268,
+      "retainedPoints": 1268,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1268,
+          "internalPoints": 1268,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05309111159596081,
+            0.05734300119273067
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 183,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1357,
+      "retainedPoints": 1357,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1357,
+          "internalPoints": 1357,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05641369764728697,
+            0.057230928386241296
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 184,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1168,
+      "retainedPoints": 1168,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1168,
+          "internalPoints": 1168,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04928142964165485,
+            0.052813972527353065
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 185,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1490,
+      "retainedPoints": 1490,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1490,
+          "internalPoints": 1490,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.058927896309369086,
+            0.06272207750925617
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 186,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1447,
+      "retainedPoints": 1447,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1447,
+          "internalPoints": 1447,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05330509858991211,
+            0.058630010348088665
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 187,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1244,
+      "retainedPoints": 1244,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1244,
+          "internalPoints": 1244,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06020028473151101,
+            0.06362586112921702
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 188,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1533,
+      "retainedPoints": 1533,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1533,
+          "internalPoints": 1533,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06313658692685802,
+            0.060748669373267734
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 189,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1205,
+      "retainedPoints": 1205,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1205,
+          "internalPoints": 1205,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.054309430920997034,
+            0.056079201916418374
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 190,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1293,
+      "retainedPoints": 1293,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1293,
+          "internalPoints": 1293,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05483517156782303,
+            0.055323759468443076
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 191,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1322,
+      "retainedPoints": 1322,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1322,
+          "internalPoints": 1322,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.052357068160769675,
+            0.049617792954981504
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 192,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1280,
+      "retainedPoints": 1280,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1280,
+          "internalPoints": 1280,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.053548658974167655,
+            0.057209801394774544
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 193,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1483,
+      "retainedPoints": 1483,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1483,
+          "internalPoints": 1483,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06370817029275874,
+            0.059499889156143314
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 194,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1342,
+      "retainedPoints": 1342,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1342,
+          "internalPoints": 1342,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06126234332928344,
+            0.06001402930511286
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 195,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1195,
+      "retainedPoints": 1195,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1195,
+          "internalPoints": 1195,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05173365268291611,
+            0.05890059757305594
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 196,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1438,
+      "retainedPoints": 1438,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1438,
+          "internalPoints": 1438,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06310456253759611,
+            0.059077655627015356
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 197,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1330,
+      "retainedPoints": 1330,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1330,
+          "internalPoints": 1330,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05509828744056563,
+            0.05631251353428422
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 198,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1281,
+      "retainedPoints": 1281,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1281,
+          "internalPoints": 1281,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.054875628936338294,
+            0.05409247101958112
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 199,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1255,
+      "retainedPoints": 1255,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1255,
+          "internalPoints": 1255,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05416153084494522,
+            0.05185920611756589
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 200,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1315,
+      "retainedPoints": 1315,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1315,
+          "internalPoints": 1315,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.054873482513611176,
+            0.05556070312117584
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 201,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1346,
+      "retainedPoints": 1346,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1346,
+          "internalPoints": 1346,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06446397263798805,
+            0.05849727467906876
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 202,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1404,
+      "retainedPoints": 1404,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1404,
+          "internalPoints": 1404,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05655955202981927,
+            0.0593798083464358
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 203,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1522,
+      "retainedPoints": 1522,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1522,
+          "internalPoints": 1522,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0626235794155012,
+            0.06186485599422618
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 204,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 997,
+      "retainedPoints": 997,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 997,
+          "internalPoints": 997,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05250551880792604,
+            0.05951590321044616
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 205,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 502,
+      "retainedPoints": 502,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 502,
+          "internalPoints": 476,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.021983750577196478,
+            0.050700908560839385
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 206,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1316,
+      "retainedPoints": 1316,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1316,
+          "internalPoints": 1316,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05495429109360472,
+            0.05635318816478775
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 207,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1393,
+      "retainedPoints": 1393,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1393,
+          "internalPoints": 1393,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05567874842300178,
+            0.055424974744076004
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 208,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1383,
+      "retainedPoints": 1383,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1383,
+          "internalPoints": 1383,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05538228638932694,
+            0.04660701609916016
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 210,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1438,
+      "retainedPoints": 1438,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1438,
+          "internalPoints": 1438,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.058208508759195955,
+            0.06379848952539614
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 211,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1318,
+      "retainedPoints": 1318,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1318,
+          "internalPoints": 1310,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.07261649471159252,
+            0.05381844495290358
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 212,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1090,
+      "retainedPoints": 1090,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1090,
+          "internalPoints": 1090,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05064727342721746,
+            0.06498258374634003
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 213,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1472,
+      "retainedPoints": 1472,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1472,
+          "internalPoints": 1472,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06119463647044712,
+            0.059752562090194264
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 214,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1019,
+      "retainedPoints": 1019,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1019,
+          "internalPoints": 1019,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.049839710088631306,
+            0.05598395615189865
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 215,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1329,
+      "retainedPoints": 1329,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1329,
+          "internalPoints": 1329,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05256271972434219,
+            0.05812617344436522
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 216,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1411,
+      "retainedPoints": 1411,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1411,
+          "internalPoints": 1411,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05457142596864457,
+            0.05720674106265682
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 217,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1236,
+      "retainedPoints": 1236,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1236,
+          "internalPoints": 1236,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06186848828361706,
+            0.04857235199487625
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 218,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1010,
+      "retainedPoints": 1010,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1010,
+          "internalPoints": 1010,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.059123303656095104,
+            0.06810064317451754
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 219,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1296,
+      "retainedPoints": 1296,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1296,
+          "internalPoints": 1296,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05624555067235926,
+            0.06466189522413565
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 220,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1330,
+      "retainedPoints": 1330,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1330,
+          "internalPoints": 1330,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05366942672852601,
+            0.06705058109181619
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 221,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1399,
+      "retainedPoints": 1399,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1399,
+          "internalPoints": 1399,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06181489859470306,
+            0.06181740225788422
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 223,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1199,
+      "retainedPoints": 1199,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1199,
+          "internalPoints": 1199,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05440373334340706,
+            0.05295202483341016
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 224,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1345,
+      "retainedPoints": 1345,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1345,
+          "internalPoints": 1345,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05268357907829566,
+            0.05721301792847527
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 225,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1302,
+      "retainedPoints": 1302,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1302,
+          "internalPoints": 1302,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.055398748365919306,
+            0.0505655554860639
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 226,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 723,
+      "retainedPoints": 723,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 723,
+          "internalPoints": 722,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05462577087073289,
+            0.055092003414639976
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 227,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1246,
+      "retainedPoints": 1246,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1246,
+          "internalPoints": 1246,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06424650120756745,
+            0.058569912987204875
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 228,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1638,
+      "retainedPoints": 1638,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1638,
+          "internalPoints": 1638,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06534625621300222,
+            0.0606377473735381
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 229,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1313,
+      "retainedPoints": 1313,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1313,
+          "internalPoints": 1313,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0589421137256806,
+            0.06318484628449429
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 230,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1583,
+      "retainedPoints": 1583,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1583,
+          "internalPoints": 1583,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05843610651736111,
+            0.05487204773553063
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 231,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1459,
+      "retainedPoints": 1459,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1459,
+          "internalPoints": 1459,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.054698303430755914,
+            0.05059724598224886
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 232,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 811,
+      "retainedPoints": 811,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 811,
+          "internalPoints": 811,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04707855554097792,
+            0.06345954079736325
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 233,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1389,
+      "retainedPoints": 1389,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1389,
+          "internalPoints": 1389,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05353711032278553,
+            0.04838817475158942
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 234,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1046,
+      "retainedPoints": 1046,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1046,
+          "internalPoints": 1046,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.051688788013855,
+            0.05645179818052828
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 235,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+      "inputPoints": 1114,
+      "retainedPoints": 1114,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1114,
+          "internalPoints": 1114,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.06654469695148639,
+            0.053424986695628174
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 236,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+      "inputPoints": 1735,
+      "retainedPoints": 1735,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1735,
+          "internalPoints": 1735,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.057023758750311355,
+            0.05933056605288481
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 237,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 1113,
+      "retainedPoints": 1113,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1113,
+          "internalPoints": 1113,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.05626429840128544,
+            0.05866246540950884
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 238,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+      "inputPoints": 1646,
+      "retainedPoints": 1646,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 1646,
+          "internalPoints": 1646,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.0577387284076396,
+            0.05819256940405517
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 242,
+      "designName": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+      "inputPoints": 470,
+      "retainedPoints": 470,
+      "removedPoints": 0,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 470,
+          "internalPoints": 94,
+          "removedPoints": 0,
+          "axialIntervalM": [
+            -0.04390011141703912,
+            0.06338540949615717
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 244,
+      "designName": null,
+      "inputPoints": 3325,
+      "retainedPoints": 0,
+      "removedPoints": 3325,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 835,
+          "internalPoints": 0,
+          "removedPoints": 835,
+          "axialIntervalM": [
+            -0.30181922281468293,
+            -0.204066869100972
+          ]
+        },
+        {
+          "points": 2067,
+          "internalPoints": 0,
+          "removedPoints": 2067,
+          "axialIntervalM": [
+            -0.062035590677902264,
+            0.10076505283827944
+          ]
+        },
+        {
+          "points": 203,
+          "internalPoints": 0,
+          "removedPoints": 203,
+          "axialIntervalM": [
+            0.2840013929621773,
+            0.32857447653433425
+          ]
+        },
+        {
+          "points": 154,
+          "internalPoints": 0,
+          "removedPoints": 154,
+          "axialIntervalM": [
+            0.3858661984227061,
+            0.40885201376642755
+          ]
+        },
+        {
+          "points": 66,
+          "internalPoints": 0,
+          "removedPoints": 66,
+          "axialIntervalM": [
+            0.4905236706921776,
+            0.5128681396467623
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 254,
+      "designName": null,
+      "inputPoints": 890,
+      "retainedPoints": 0,
+      "removedPoints": 890,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 890,
+          "internalPoints": 0,
+          "removedPoints": 890,
+          "axialIntervalM": [
+            -0.048578538320697834,
+            0.04353441558151493
+          ]
+        }
+      ],
+      "shapeFlags": []
+    },
+    {
+      "instanceId": 258,
+      "designName": null,
+      "inputPoints": 2854,
+      "retainedPoints": 0,
+      "removedPoints": 2854,
+      "removedInternalPoints": 0,
+      "additionalRemovedPoints": 0,
+      "axialBlocks": [
+        {
+          "points": 2854,
+          "internalPoints": 0,
+          "removedPoints": 2854,
+          "axialIntervalM": [
+            -0.15303326094470776,
+            0.15624688720637606
+          ]
+        }
+      ],
+      "shapeFlags": []
+    }
+  ]
+}

@@ -1,0 +1,497 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cloudbim:schema:rebar-inspection-v1",
+  "title": "CloudBIM rebar inspection v1",
+  "description": "Project JSON contract, not an external engineering certification standard. Coordinates in BIM frame, lengths in metres; absent observations remain null.",
+  "type": "object",
+  "required": [
+    "schema",
+    "coordinateFrame",
+    "lengthUnit",
+    "method",
+    "provenance",
+    "bars",
+    "spacing",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rebar-inspection-v1"
+    },
+    "coordinateFrame": {
+      "const": "bim"
+    },
+    "lengthUnit": {
+      "const": "m"
+    },
+    "method": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "instanceMapHash",
+        "controlNetAlgorithmVersion",
+        "alignmentMatrix"
+      ],
+      "properties": {
+        "instanceMapHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "controlNetAlgorithmVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alignmentMatrix": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 16,
+          "maxItems": 16
+        }
+      }
+    },
+    "bars": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bar"
+      }
+    },
+    "spacing": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/spacing"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "barCount",
+        "spacingPairCount",
+        "toleranceM",
+        "toleranceBasis"
+      ],
+      "properties": {
+        "barCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spacingPairCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toleranceM": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "toleranceBasis": {
+          "const": "request.toleranceLimit"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "segment": {
+      "type": "object",
+      "required": [
+        "designUnitId",
+        "kind",
+        "evidence",
+        "centerline",
+        "supportedIntervalsM",
+        "pointCount",
+        "radiusM",
+        "radiusSource"
+      ],
+      "properties": {
+        "designUnitId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "body",
+            "curve"
+          ]
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "centerline": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/vector3"
+          }
+        },
+        "supportedIntervalsM": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "pointCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "radiusM": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "radiusSource": {
+          "const": "design-prior"
+        }
+      }
+    },
+    "bar": {
+      "type": "object",
+      "required": [
+        "designBarId",
+        "ifcGlobalId",
+        "status",
+        "unitIds",
+        "observedSegments",
+        "knownVertexCount",
+        "unknownVertexCount",
+        "toleranceM",
+        "withinToleranceRatio",
+        "quality"
+      ],
+      "properties": {
+        "designBarId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ifcGlobalId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "partial",
+            "missing",
+            "review",
+            "unavailable"
+          ]
+        },
+        "unitIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "observedSegments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/segment"
+          }
+        },
+        "knownVertexCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknownVertexCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toleranceM": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "withinToleranceRatio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "quality": {
+          "type": "object",
+          "required": [
+            "supportedUnitCount",
+            "designUnitCount",
+            "reason"
+          ],
+          "properties": {
+            "supportedUnitCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "designUnitCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "required": [
+        "stationM",
+        "status",
+        "centerA",
+        "centerB",
+        "actualCenterDistanceM",
+        "signedDifferenceM",
+        "netClearanceM",
+        "withinTolerance"
+      ],
+      "properties": {
+        "stationM": {
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "unknown"
+          ]
+        },
+        "centerA": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/vector3"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "centerB": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/vector3"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actualCenterDistanceM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "signedDifferenceM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "netClearanceM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "withinTolerance": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actualCenterDistanceM": {
+                "type": "null"
+              },
+              "signedDifferenceM": {
+                "type": "null"
+              },
+              "netClearanceM": {
+                "type": "null"
+              },
+              "withinTolerance": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "spacing": {
+      "type": "object",
+      "required": [
+        "pairId",
+        "designBarIds",
+        "ifcGlobalIds",
+        "designUnitIds",
+        "familyId",
+        "layerId",
+        "designDirection",
+        "spacingDirection",
+        "designCenterDistanceM",
+        "radiusSource",
+        "designRadiiM",
+        "samples",
+        "actualCenterDistanceM",
+        "signedDifferenceM",
+        "netClearanceM",
+        "toleranceM",
+        "withinTolerance",
+        "coverage"
+      ],
+      "properties": {
+        "pairId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "designBarIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "ifcGlobalIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "designUnitIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "familyId": {
+          "type": "string"
+        },
+        "layerId": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "designDirection": {
+          "$ref": "#/$defs/vector3"
+        },
+        "spacingDirection": {
+          "$ref": "#/$defs/vector3"
+        },
+        "designCenterDistanceM": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "radiusSource": {
+          "const": "design-prior"
+        },
+        "designRadiiM": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "samples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sample"
+          }
+        },
+        "actualCenterDistanceM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "signedDifferenceM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "netClearanceM": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "toleranceM": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "withinTolerance": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": "object",
+          "required": [
+            "status",
+            "sampleCount",
+            "sharedSpanM",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "supported",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "sampleCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sharedSpanM": {
+              "type": "number",
+              "minimum": 0
+            },
+            "supportedSpanM": {
+              "type": "number",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

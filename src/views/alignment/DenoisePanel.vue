@@ -42,10 +42,10 @@ function showAll(includeNoise: boolean) {
   <div class="denoise-workspace" aria-label="点云分类与去噪控制">
     <section class="denoise-card denoise-run-card">
       <div class="denoise-heading">
-        <h2>设计辅助去噪</h2>
+        <h2>钢筋实例分割与去噪</h2>
         <span class="denoise-status" :class="{ 'is-ready': canInspect, 'is-stale': result && !result.fresh }" role="status">{{ status }}</span>
       </div>
-      <p class="denoise-copy">根据 BIM 设计识别钢筋、夹具与噪声，保留钢筋点用于后续偏差分析。</p>
+      <p class="denoise-copy">结合设计钢筋与扫描形状识别每根钢筋，保留原始钢筋点用于偏差和间距计算。证据不足的点保留为待定。</p>
       <el-button class="denoise-primary-action" type="primary" :loading="running" :disabled="!canRun || loading" @click="emit('run')">
         {{ result ? '重新分类与去噪' : '开始分类与去噪' }}
       </el-button>
@@ -103,31 +103,30 @@ function showAll(includeNoise: boolean) {
         </p>
         <p class="denoise-copy denoise-display-hint">{{ colorMode === 'cleaned' ? '同一根钢筋保持同色，浅灰钢筋点表示归属未定。' : '按类别统一着色，颜色与上方图例一致。' }}类别点数为全量统计，预览最多采样 50 万点。</p>
       </section>
-      <el-button class="denoise-download" :disabled="!canInspect" @click="emit('download')">下载去噪点云（LAS）</el-button>
-      <p class="denoise-copy denoise-export-hint">显隐与配色仅影响预览；下载和偏差计算使用全量保留钢筋点。</p>
+      <p class="denoise-copy denoise-export-hint">显隐与配色仅影响预览；偏差计算使用全量保留钢筋点。</p>
     </template>
-    <p v-else-if="!running && !loading" class="denoise-copy denoise-empty-hint">处理完成后，可在这里切换配色、单独查看类别并下载去噪点云。</p>
+    <p v-else-if="!running && !loading" class="denoise-copy denoise-empty-hint">处理完成后，可在这里切换配色、单独查看类别。</p>
   </div>
 </template>
 
 <style scoped>
-.denoise-workspace { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 12px; color: var(--text-primary); background: var(--bg-page, #f8fafc); }
-.denoise-card { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: var(--bg-card, #fff); border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 10px; }
+.denoise-workspace { display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 0; color: var(--text-primary); background: var(--bg-page, #f8fafc); }
+.denoise-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--bg-card); border: 0; border-bottom: 1px solid var(--border-color-light); border-radius: 0; }
 .denoise-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .denoise-heading h2, .denoise-heading h3 { margin: 0; font-size: 14px; line-height: 1.5; font-weight: 650; color: var(--text-primary); }
-.denoise-status { padding: 3px 8px; border-radius: 6px; color: var(--text-secondary); background: var(--color-info-soft); font-size: 11px; }
+.denoise-status { padding: 3px 8px; border-radius: 6px; color: var(--text-secondary); background: var(--color-info-soft); font-size: 12px; }
 .denoise-status.is-ready { color: var(--color-success); background: var(--color-success-soft); }
 .denoise-status.is-stale { color: var(--color-warning); background: var(--color-warning-soft); }
 .denoise-copy { margin: 0; color: var(--text-secondary, #64748b); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .denoise-primary-action { width: 100%; min-height: 36px; }
-.denoise-caption { color: var(--text-secondary); font-size: 11px; }
+.denoise-caption { color: var(--text-secondary); font-size: 12px; }
 .denoise-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.denoise-metrics > div { padding: 12px 10px; background: var(--bg-page, #f8fafc); border-radius: 8px; }
-.denoise-metrics span { display: block; color: var(--text-secondary); font-size: 11px; }
-.denoise-metrics strong { display: block; margin-top: 6px; font-size: clamp(15px, 1.2vw, 20px); font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.denoise-metrics .denoise-metric-kept { background: var(--color-success-soft); }
+.denoise-metrics > div { padding: 8px 0; background: transparent; }
+.denoise-metrics span { display: block; color: var(--text-secondary); font-size: 12px; }
+.denoise-metrics strong { display: block; margin-top: 6px; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.denoise-metrics .denoise-metric-kept { background: transparent; }
 .denoise-metric-kept strong { color: var(--color-success); }
-.denoise-result-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 11px; }
+.denoise-result-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 12px; }
 .denoise-result-meta b { color: var(--text-primary); font-weight: 600; }
 .denoise-segments { display: flex; min-width: 0; padding: 3px; gap: 3px; background: var(--bg-page, #f1f5f9); border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 8px; }
 .denoise-segments button { flex: 1; min-width: 0; min-height: 30px; padding: 5px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
@@ -136,7 +135,7 @@ function showAll(includeNoise: boolean) {
 .denoise-color-control .denoise-segments { flex: 0 1 180px; }
 .denoise-filter-toolbar { margin-top: 4px; }
 .denoise-filter-toolbar > div { display: flex; gap: 2px; }
-.denoise-filter-toolbar button, .denoise-only-button { padding: 5px 6px; min-height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--color-primary, #2563eb); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.denoise-filter-toolbar button, .denoise-only-button { padding: 5px 6px; min-height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--color-primary, #2563eb); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .denoise-class-list { border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 8px; overflow: hidden; }
 .denoise-class-row { display: flex; align-items: center; gap: 6px; min-height: 43px; padding: 4px 8px; }
 .denoise-class-row + .denoise-class-row { border-top: 1px solid var(--border-color-light, #e2e8f0); }
@@ -146,15 +145,14 @@ function showAll(includeNoise: boolean) {
 .denoise-switch i { width: 11px; height: 11px; border-radius: 50%; background: white; transform: translateX(11px); transition: transform 120ms ease; }
 .denoise-swatch { width: 8px; height: 8px; flex-shrink: 0; border-radius: 2px; }
 .denoise-swatch.is-instances { background-image: linear-gradient(135deg, #38bdf8 0% 33%, #f472b6 33% 66%, #facc15 66%); }
-.denoise-class-count { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.denoise-class-count { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
 .is-hidden .denoise-switch { background: #94a3b8; }
 .is-hidden .denoise-switch i { transform: translateX(0); }
 .is-hidden .denoise-swatch { opacity: .4; }
 .is-hidden .denoise-class-toggle { color: var(--text-secondary); }
-.denoise-visible-count { margin: 0; color: var(--color-primary, #2563eb); font-size: 11px; line-height: 1.6; }
-.denoise-display-hint { padding-top: 10px; border-top: 1px solid var(--border-color-light, #e2e8f0); font-size: 11px; }
-.denoise-download { width: 100%; margin: 0; min-height: 36px; }
-.denoise-export-hint, .denoise-empty-hint { padding: 0 4px; font-size: 11px; }
+.denoise-visible-count { margin: 0; color: var(--color-primary, #2563eb); font-size: 12px; line-height: 1.6; }
+.denoise-display-hint { padding-top: 10px; border-top: 1px solid var(--border-color-light, #e2e8f0); font-size: 12px; }
+.denoise-export-hint, .denoise-empty-hint { padding: 16px; font-size: 12px; }
 .denoise-workspace button:disabled { opacity: .45; cursor: not-allowed; }
 .denoise-workspace button:focus-visible { outline: 2px solid var(--color-primary, #2563eb); outline-offset: -2px; }
 .denoise-filter-toolbar button:hover:not(:disabled), .denoise-only-button:hover:not(:disabled) { background: var(--color-primary-soft); }

@@ -1,0 +1,8 @@
+{
+  "method": "independent-float64-Moller-Trumbore",
+  "barsSampled": 54,
+  "inwardMatchesChecked": 1044,
+  "violations": [],
+  "seed": 13092026,
+  "toleranceM": 2e-07
+}

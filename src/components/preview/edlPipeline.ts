@@ -66,6 +66,9 @@ void main() {
   // 背景 / 清空像素不做 EDL
   if (fragCoordZ >= 0.999999) {
     gl_FragColor = color;
+    // The grid does not write depth, so it shares this background branch.
+    // Skipping EDL shading must not skip the linear-to-display conversion.
+    #include <colorspace_fragment>
     return;
   }
 
@@ -87,6 +90,7 @@ void main() {
   float shade = exp(-response * 220.0 * edlStrength);
   shade = max(shade, 0.22);
   gl_FragColor = vec4(color.rgb * shade, color.a);
+  #include <colorspace_fragment>
 }
 `;
 
@@ -134,7 +138,7 @@ export class PointCloudEdlPipeline {
       fragmentShader: edlFragmentShader,
       depthTest: false,
       depthWrite: false,
-      // 场景以线性写入 RT；最终 blit 交给 renderer 做 tone mapping / sRGB。
+      // 场景以线性写入 RT；最终 shader 显式转回输出色彩空间。
       toneMapped: true,
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
@@ -196,7 +200,7 @@ export class PointCloudEdlPipeline {
       const previousToneMapping = this.renderer.toneMapping;
       const previousOutputColorSpace = this.renderer.outputColorSpace;
 
-      // 线性场景色进 RT，EDL 在线性空间做邻域明暗，最后再 tone map。
+      // 线性场景色进 RT，EDL 在线性空间做邻域明暗，最后转回输出色彩空间。
       this.renderer.setRenderTarget(this.renderTarget);
       this.renderer.toneMapping = THREE.NoToneMapping;
       this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;

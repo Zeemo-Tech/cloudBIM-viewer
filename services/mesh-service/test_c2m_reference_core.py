@@ -162,7 +162,7 @@ class VisualizationContractTests(unittest.TestCase):
         self.assertEqual(C2MParams(voxel_size=0.001).voxel_size, 0.001)
         self.assertEqual(params.smoothing_iterations, 0)
         self.assertFalse(params.normal_constraint_enabled)
-        self.assertTrue(params.normal_half_space_only)
+        self.assertFalse(params.normal_half_space_only)
         self.assertEqual(_c2m_visualization(params), {
             "maxColormapDistance": 0.03,
             "maxHistogramDistance": 0.03,
@@ -256,7 +256,7 @@ class VisualizationContractTests(unittest.TestCase):
             {"voxel_size": np.nan},
             {"max_colormap_distance": np.inf},
             {"smoothing_iterations": 1},
-            {"normal_constraint_enabled": True},
+            {"normal_constraint_enabled": True, "normal_fallback_mode": "nearest"},
         ):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValidationError):
                 C2MParams(**kwargs)

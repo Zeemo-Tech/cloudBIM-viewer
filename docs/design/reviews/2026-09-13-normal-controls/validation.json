@@ -1,0 +1,184 @@
+[
+  {
+    "viewport": {
+      "width": 2560,
+      "height": 1440
+    },
+    "metrics": [
+      {
+        "text": "法向约束 · 垂直轴向",
+        "row": {
+          "x": 2217,
+          "y": 241.484375,
+          "width": 327,
+          "height": 46,
+          "right": 2544
+        },
+        "label": {
+          "x": 2217,
+          "y": 253.484375,
+          "width": 211,
+          "height": 21,
+          "right": 2428
+        },
+        "control": {
+          "x": 2504,
+          "y": 247.984375,
+          "width": 40,
+          "height": 32,
+          "right": 2544
+        },
+        "columns": "211px 104px"
+      },
+      {
+        "text": "法向搜索半角 °",
+        "row": {
+          "x": 2217,
+          "y": 287.484375,
+          "width": 327,
+          "height": 46,
+          "right": 2544
+        },
+        "label": {
+          "x": 2217,
+          "y": 299.484375,
+          "width": 211,
+          "height": 21,
+          "right": 2428
+        },
+        "control": {
+          "x": 2440,
+          "y": 294.984375,
+          "width": 104,
+          "height": 30,
+          "right": 2544
+        },
+        "columns": "211px 104px"
+      }
+    ],
+    "horizontalOverflow": false
+  },
+  {
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    },
+    "metrics": [
+      {
+        "text": "法向约束 · 垂直轴向",
+        "row": {
+          "x": 1577,
+          "y": 241.484375,
+          "width": 327,
+          "height": 46,
+          "right": 1904
+        },
+        "label": {
+          "x": 1577,
+          "y": 253.484375,
+          "width": 211,
+          "height": 21,
+          "right": 1788
+        },
+        "control": {
+          "x": 1864,
+          "y": 247.984375,
+          "width": 40,
+          "height": 32,
+          "right": 1904
+        },
+        "columns": "211px 104px"
+      },
+      {
+        "text": "法向搜索半角 °",
+        "row": {
+          "x": 1577,
+          "y": 287.484375,
+          "width": 327,
+          "height": 46,
+          "right": 1904
+        },
+        "label": {
+          "x": 1577,
+          "y": 299.484375,
+          "width": 211,
+          "height": 21,
+          "right": 1788
+        },
+        "control": {
+          "x": 1800,
+          "y": 294.984375,
+          "width": 104,
+          "height": 30,
+          "right": 1904
+        },
+        "columns": "211px 104px"
+      }
+    ],
+    "horizontalOverflow": false
+  },
+  {
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
+    "metrics": [
+      {
+        "text": "法向约束 · 垂直轴向",
+        "row": {
+          "x": 937,
+          "y": 241.484375,
+          "width": 327,
+          "height": 46,
+          "right": 1264
+        },
+        "label": {
+          "x": 937,
+          "y": 253.484375,
+          "width": 211,
+          "height": 21,
+          "right": 1148
+        },
+        "control": {
+          "x": 1224,
+          "y": 247.984375,
+          "width": 40,
+          "height": 32,
+          "right": 1264
+        },
+        "columns": "211px 104px"
+      },
+      {
+        "text": "法向搜索半角 °",
+        "row": {
+          "x": 937,
+          "y": 287.484375,
+          "width": 327,
+          "height": 46,
+          "right": 1264
+        },
+        "label": {
+          "x": 937,
+          "y": 299.484375,
+          "width": 211,
+          "height": 21,
+          "right": 1148
+        },
+        "control": {
+          "x": 1160,
+          "y": 294.984375,
+          "width": 104,
+          "height": 30,
+          "right": 1264
+        },
+        "columns": "211px 104px"
+      }
+    ],
+    "horizontalOverflow": false
+  },
+  {
+    "interaction": "switch off, keyboard Space on, angle 30 → 35 → 30",
+    "passed": true,
+    "pageErrors": []
+  }
+]

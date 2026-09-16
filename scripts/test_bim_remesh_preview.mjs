@@ -12,6 +12,7 @@ import * as TilePlugins from '3d-tiles-renderer/three/plugins'
 import * as tableVisibility from '../src/features/pointcloud/tableVisibility.ts'
 import { buildInstancePalette } from '../src/features/rebar-visualization/instancePalette.js'
 import { useBimRemeshDisplay } from '../src/views/preview/bimRemeshDisplay.ts'
+import * as groundGrid from '../src/components/preview/InfiniteGroundGrid.ts'
 
 const require = createRequire(import.meta.url)
 // Execute the real component setup/watchers in Node. Only mounting a WebGL
@@ -33,9 +34,10 @@ function setupComponent(path, input, dependencies = {}) {
       if (name.endsWith('/tableVisibility')) return tableVisibility
       if (name.endsWith('/instancePalette.js')) return { buildInstancePalette }
       if (name === './bimRemeshDisplay') return { useBimRemeshDisplay }
+      if (name === './InfiniteGroundGrid') return groundGrid
       if (name === '@/api/backend-mesh') return { REBAR_SWEEP_ALGORITHM: 'rebar_sweep', DEFAULT_REBAR_SWEEP_PARAMS: { cross_section_sides: 16, axial_spacing: 0.01, max_chord_error: 0.0001 }, ...dependencies[name] }
       if (name in dependencies) return dependencies[name]
-      if (name === 'vue-router') return { useRouter: () => ({}) }
+      if (name === 'vue-router') return { useRouter: () => ({}), useRoute: () => ({ path: '/preview/asset', query: {} }) }
       if (name === 'element-plus') return { ElMessage: {} }
       if (name.endsWith('.vue') || name.startsWith('@/') || name.startsWith('./')) return {}
       return require(name)
@@ -87,6 +89,92 @@ function makeViewer(download = async () => ply()) {
 }
 
 const settleDisplay = () => new Promise(resolve => setImmediate(resolve))
+
+test('preview ground follows asset bottom and scale without moving the asset or following the camera', () => {
+  const v = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'bim' })
+  const b = v.bindings
+  b.gridHelper = new groundGrid.InfiniteGroundGrid()
+  b.camera = new THREE.PerspectiveCamera(50, 1.6)
+  b.controls = { target: new THREE.Vector3(), update() { b.camera.lookAt(this.target) } }
+  try {
+    for (const scale of [0.001, 1, 1000]) {
+      const box = new THREE.Box3(new THREE.Vector3(7, 12, -4), new THREE.Vector3(9, 13, -1))
+      box.min.multiplyScalar(scale)
+      box.max.multiplyScalar(scale)
+      const original = box.clone()
+      b.setSectionState({ box })
+      const ground = b.gridHelper.position.clone()
+      assert.ok(Math.abs(box.min.y - ground.y - 3 * scale * 0.002) < scale * 1e-9)
+      assert.ok(Math.abs(b.gridHelper.material.uniforms.cellSize.value - 3 * scale / 20) < scale * 1e-9)
+      assert.equal(b.gridHelper.material.uniforms.gridOrigin.value.x, box.getCenter(new THREE.Vector3()).x)
+      assert.ok(box.equals(original))
+      b.fitCameraToBox(box)
+      b.fitCameraToBox(new THREE.Box3(box.min.clone(), box.getCenter(new THREE.Vector3())))
+      assert.ok(b.gridHelper.position.equals(ground), 'inspection focus must not move the floor')
+    }
+    b.setShowGrid(false)
+    b.setSectionState({ box: new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1)) })
+    assert.equal(b.gridHelper.visible, false)
+  } finally {
+    b.gridHelper.dispose()
+    v.stop()
+  }
+})
+
+test('preview framing contains every corner on wide and narrow viewports at different asset scales', () => {
+  const v = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'bim' })
+  const b = v.bindings
+  try {
+    for (const aspect of [0.35, 1, 2.5]) for (const scale of [0.001, 1, 1000]) {
+      const box = new THREE.Box3(new THREE.Vector3(-2, -0.5, -1), new THREE.Vector3(2, 0.5, 1))
+      box.min.multiplyScalar(scale)
+      box.max.multiplyScalar(scale)
+      b.camera = new THREE.PerspectiveCamera(50, aspect)
+      b.camera.up.set(0, 0, -1) // Reset after a top view must restore the vertical axis.
+      b.controls = { target: new THREE.Vector3(), update() { b.camera.lookAt(this.target) } }
+      b.fitCameraToBox(box)
+      b.camera.updateMatrixWorld(true)
+      assert.ok(b.camera.up.equals(new THREE.Vector3(0, 1, 0)))
+      assert.ok(b.controls.target.equals(box.getCenter(new THREE.Vector3())))
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        const projected = new THREE.Vector3(x, y, z).project(b.camera)
+        assert.ok(Math.abs(projected.x) < 1 && Math.abs(projected.y) < 1 && Math.abs(projected.z) < 1)
+      }
+      if (aspect >= 1) assert.ok(b.getCameraDistance() < 8 * scale, 'initial view should not be excessively distant')
+      const distance = b.getCameraDistance()
+      b.setStandardView('top')
+      assert.ok(Math.abs(b.getCameraDistance() - distance) < scale * 1e-9)
+      b.setViewDirection([1, 1, 1])
+      assert.ok(Math.abs(b.getCameraDistance() - distance) < scale * 1e-9, 'view cube must not zoom small assets out')
+    }
+  } finally { v.stop() }
+})
+
+test('tileset ground bounds include parent rotation/translation/scale and do not use sphere bottom', () => {
+  const v = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'pointcloud' })
+  const wrapper = new THREE.Group()
+  wrapper.rotation.x = -Math.PI / 2
+  wrapper.position.set(10, 20, 30)
+  wrapper.scale.setScalar(2)
+  const group = new THREE.Group()
+  wrapper.add(group)
+  const sourceBox = new THREE.Box3(new THREE.Vector3(-5, -4, 2), new THREE.Vector3(5, 4, 3))
+  try {
+    const actual = groundGrid.getTilesetWorldBounds({
+      group,
+      getBoundingBox(box) { box.copy(sourceBox); return true },
+      getBoundingSphere() { throw new Error('must prefer asset box over bounding sphere') },
+    })
+    assert.ok(Math.abs(actual.min.y - 24) < 1e-9)
+    assert.ok(Math.abs(actual.max.y - 26) < 1e-9)
+    assert.ok(actual.equals(sourceBox.clone().applyMatrix4(group.matrixWorld)))
+    const fallback = groundGrid.getTilesetWorldBounds({
+      group, getBoundingBox() { return false },
+      getBoundingSphere(sphere) { sphere.set(new THREE.Vector3(), 3); return true },
+    })
+    assert.equal(fallback.getSize(new THREE.Vector3()).x, 12)
+  } finally { v.stop() }
+})
 
 test('preview automatically displays real PLY, preserves coordinates/camera and can restore original BIM', async () => {
   const v = makeViewer()

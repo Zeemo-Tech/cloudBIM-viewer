@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import { InfiniteGroundGrid, getTilesetWorldBounds } from './InfiniteGroundGrid'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
@@ -351,7 +352,7 @@ let pointcloudSourceFallbackActive = false
 
 // 辅助对象
 let axesHelper: THREE.AxesHelper | null = null
-let gridHelper: THREE.GridHelper | null = null
+let gridHelper: InfiniteGroundGrid | null = null
 let raycaster: THREE.Raycaster | null = null
 
 let wireframeEnabled = false
@@ -453,6 +454,7 @@ function requestRender() {
     animationId = requestAnimationFrame(renderFrame)
 
     if (!renderer || !scene || !camera) return
+    if (gridHelper?.visible) gridHelper.updateForCamera(camera)
 
     if (tileset) {
       camera.updateMatrixWorld()
@@ -613,6 +615,7 @@ function setSectionState(state: { enabled?: boolean; ratio?: number; box?: THREE
   }
   if (state.box) {
     clipState.baseBox.copy(state.box)
+    syncGroundGrid(state.box)
     const diagonal = state.box.getSize(new THREE.Vector3()).length()
     if (Number.isFinite(diagonal) && diagonal > 0) measurementModelDiagonal = diagonal
     clipState.offsets = { xMin: 0, xMax: 0, yMin: 0, yMax: 0, zMin: 0, zMax: 0 }
@@ -1454,6 +1457,7 @@ function cancelActiveAnalysis() {
 // 资源加载：BIM / 点云 / C2M
 // ---------------------------
 function cleanCurrentSceneModels() {
+  if (gridHelper) gridHelper.visible = false
   clearBimRemesh()
   disposeRebarOverlay(rebarOverlay)
   rebarOverlay = null
@@ -1645,26 +1649,17 @@ async function loadPointcloudModel(assetId: number, expectedToken: number) {
     collectPointcloudColorStats(tileScene)
   })
 
-  // 完全对齐校准页的视錐与包围球聚焦定位
+  // Use the transformed asset bounds, not a sphere's artificially low bottom.
   nextTileset.addEventListener('load-root-tileset', () => {
     if (tileset !== nextTileset || !camera || !controls) return
+    const box = getTilesetWorldBounds(nextTileset)
+    if (box) setSectionState({ box })
     if (pendingPointcloudCameraPose) {
       setCameraPose(pendingPointcloudCameraPose)
       pendingPointcloudCameraPose = null
       return
     }
-    const sphere = new THREE.Sphere()
-    if (nextTileset.getBoundingSphere?.(sphere)) {
-      nextTileset.group.updateMatrixWorld(true)
-      const worldSphere = sphere.clone()
-      worldSphere.center.applyMatrix4(nextTileset.group.matrixWorld)
-      fitCameraToRadius(worldSphere.radius, worldSphere.center)
-      const box = new THREE.Box3().setFromCenterAndSize(
-        worldSphere.center,
-        new THREE.Vector3(worldSphere.radius * 2, worldSphere.radius * 2, worldSphere.radius * 2),
-      )
-      setSectionState({ box })
-    }
+    if (box) fitCameraToBox(box)
   })
 }
 
@@ -2273,18 +2268,10 @@ async function loadAnalysisC2MModel(result: C2MResult, expectedToken: number) {
   })
   nextTileset.addEventListener('load-root-tileset', () => {
     if (!camera || !controls || tileset !== nextTileset) return
-    const sphere = new THREE.Sphere()
-    if (nextTileset.getBoundingSphere(sphere)) {
-      wrapper.updateMatrixWorld(true)
-      nextTileset.group.updateMatrixWorld(true)
-      sphere.center.applyMatrix4(nextTileset.group.matrixWorld)
-      fitCameraToRadius(sphere.radius, sphere.center)
-      setSectionState({
-        box: new THREE.Box3().setFromCenterAndSize(
-          sphere.center,
-          new THREE.Vector3(sphere.radius * 2, sphere.radius * 2, sphere.radius * 2),
-        ),
-      })
+    const box = getTilesetWorldBounds(nextTileset)
+    if (box) {
+      fitCameraToBox(box)
+      setSectionState({ box })
     }
   })
   nextTileset.addEventListener('load-error', ({ error }: any) => {
@@ -2463,35 +2450,30 @@ function applyCalibrationToBim(refitCamera = false): boolean {
   return true
 }
 
-function fitCameraToBox(box: THREE.Box3) {
-  if (!camera || !controls || box.isEmpty()) return
-  const size = box.getSize(new THREE.Vector3())
-  const center = box.getCenter(new THREE.Vector3())
-  const maxDim = Math.max(size.x, size.y, size.z)
-  const fov = THREE.MathUtils.degToRad(camera.fov)
-  const distance = maxDim / 2 / Math.tan(fov / 2)
-
-  controls.target.copy(center)
-  camera.position.set(center.x, center.y + maxDim * 0.15, center.z + distance * 2.2)
-  camera.near = Math.max(0.01, distance / 100)
-  camera.far = Math.max(5000, distance * 200)
-  camera.updateProjectionMatrix()
-  controls.update()
-  emitCameraPose()
+function syncGroundGrid(box: THREE.Box3) {
+  if (!gridHelper || box.isEmpty()) return
+  gridHelper.setBounds(box)
+  gridHelper.visible = showGridEnabled
 }
 
-// 对齐校准页的全局包围球视点定位算法
+function fitCameraToBox(box: THREE.Box3) {
+  if (box.isEmpty()) return
+  const sphere = box.getBoundingSphere(new THREE.Sphere())
+  fitCameraToRadius(sphere.radius, sphere.center)
+}
+
 function fitCameraToRadius(radius: number, center = new THREE.Vector3()) {
   if (!camera || !controls) return
-  const safeRadius = Math.max(radius, 1)
-  const maxDim = safeRadius * 2
-  const fov = THREE.MathUtils.degToRad(camera.fov)
-  const distance = maxDim / 2 / Math.tan(fov / 2)
+  const safeRadius = Math.max(radius, 0.001)
+  const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2)
+  const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect)
+  const distance = safeRadius / Math.sin(Math.min(verticalHalfFov, horizontalHalfFov)) * 1.15
 
   controls.target.copy(center)
-  camera.position.set(center.x, center.y + maxDim * 0.15, center.z + distance * 2.2)
-  camera.near = Math.max(0.01, distance / 100)
-  camera.far = Math.max(5000, distance * 200)
+  camera.up.set(0, 1, 0)
+  camera.position.copy(center).addScaledVector(new THREE.Vector3(0, 0.45, 1).normalize(), distance)
+  camera.near = safeRadius / 1000
+  camera.far = Math.max(10, distance + safeRadius * 100)
   camera.updateProjectionMatrix()
   controls.update()
   emitCameraPose()
@@ -2565,6 +2547,8 @@ function initViewer() {
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = false
+  controls.rotateSpeed = 0.75
+  controls.zoomSpeed = 0.8
   controls.addEventListener('change', () => {
     emitCameraPose()
     syncMeasurementBadges()
@@ -2584,12 +2568,8 @@ function initViewer() {
   axesHelper.visible = showAxesEnabled
   scene.add(axesHelper)
 
-  // 完全对齐校准页网格参数
-  gridHelper = new THREE.GridHelper(10000, 2000, gridColor, gridColor)
-  ;(gridHelper.material as THREE.LineBasicMaterial).transparent = true
-  ;(gridHelper.material as THREE.LineBasicMaterial).opacity = 0.62
-  gridHelper.position.set(0, -10.01, 0)
-  gridHelper.visible = showGridEnabled
+  gridHelper = new InfiniteGroundGrid(gridColor)
+  gridHelper.visible = false
   scene.add(gridHelper)
 
   buildClipHandles()
@@ -2622,6 +2602,11 @@ function cleanup() {
 
   edlPipeline?.dispose()
   edlPipeline = null
+  controls?.dispose()
+  gridHelper?.dispose()
+  gridHelper = null
+  axesHelper?.dispose()
+  axesHelper = null
 
   if (renderer) {
     renderer.domElement.removeEventListener('pointerdown', handleAnalysisPointerDown)
@@ -2670,16 +2655,7 @@ function setShowGrid(show: boolean) {
 
 function setGridColor(color: string) {
   gridColor = color
-  if (!gridHelper) return
-
-  const rgb = new THREE.Color(color)
-  const colors = gridHelper.geometry.getAttribute('color')
-  if (colors) {
-    for (let index = 0; index < colors.count; index += 1) {
-      colors.setXYZ(index, rgb.r, rgb.g, rgb.b)
-    }
-    colors.needsUpdate = true
-  }
+  gridHelper?.setColor(color)
 }
 
 function setWireframe(wireframe: boolean) {
@@ -2732,7 +2708,7 @@ function setPointSize(size: number) {
 function setStandardView(view: StandardView) {
   if (!camera || !controls) return
 
-  const distance = Math.max(camera.position.distanceTo(controls.target), 1)
+  const distance = Math.max(camera.position.distanceTo(controls.target), 0.001)
   const directions: Record<StandardView, THREE.Vector3> = {
     front: new THREE.Vector3(0, 0, 1),
     back: new THREE.Vector3(0, 0, -1),
@@ -2753,7 +2729,7 @@ function setViewDirection(direction: [number, number, number]) {
   if (!camera || !controls) return
   const next = new THREE.Vector3(...direction)
   if (next.lengthSq() < 1e-8) return
-  const distance = Math.max(camera.position.distanceTo(controls.target), 1)
+  const distance = Math.max(camera.position.distanceTo(controls.target), 0.001)
   next.normalize()
   camera.up.set(0, Math.abs(next.y) > 0.98 ? 0 : 1, next.y > 0.98 ? -1 : next.y < -0.98 ? 1 : 0)
   camera.position.copy(controls.target).addScaledVector(next, distance)
@@ -2774,21 +2750,15 @@ function rollView(direction: -1 | 1) {
 }
 
 function resetView() {
+  const targetBox = new THREE.Box3()
   if (tileset) {
-    const sphere = new THREE.Sphere()
-    if (tileset.getBoundingSphere?.(sphere)) {
-      tileset.group.updateMatrixWorld(true)
-      const worldSphere = sphere.clone()
-      worldSphere.center.applyMatrix4(tileset.group.matrixWorld)
-      fitCameraToRadius(worldSphere.radius, worldSphere.center)
-      return
-    }
+    const box = getTilesetWorldBounds(tileset)
+    if (box) targetBox.union(box)
   }
-  let targetBox = new THREE.Box3()
   if (bimRoot) targetBox.union(new THREE.Box3().setFromObject(bimRoot))
-  if (pointcloudWrapper) targetBox.union(new THREE.Box3().setFromObject(pointcloudWrapper))
-  if (c2mMeshRoot) targetBox.union(new THREE.Box3().setFromObject(c2mMeshRoot))
+  if (c2mMeshRoot && !c2mUsesAnalysisTiles) targetBox.union(new THREE.Box3().setFromObject(c2mMeshRoot))
   if (!targetBox.isEmpty()) {
+    syncGroundGrid(targetBox)
     fitCameraToBox(targetBox)
   }
 }

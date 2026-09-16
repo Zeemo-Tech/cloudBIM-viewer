@@ -294,3 +294,17 @@ test('locally confirmed tubes render only the declared physical intervals', asyn
   }
   group.traverse(o => {o.geometry?.dispose();o.material?.dispose()});
 });
+
+test('v22 accepts locally certified gaps without relaxing older pose certificates', async () => {
+  const manifest = partialTerminalFixture(), r = manifest.controlNet;
+  r.version = 'design-control-net-v22';
+  const local = r.curvedPieces[0].localSupport;
+  local.method = 'independent-continuous-surface-intervals-v2';
+  local.validationMaxChangeM = r.curvedPieces[0].diameterM*.4;
+  await loadControlNet(manifest, async url => buffers[url]);
+  r.version = 'design-control-net-v21';
+  await assert.rejects(() => loadControlNet(manifest, async url => buffers[url]));
+  r.version = 'design-control-net-v22';
+  local.validationMaxChangeM = r.curvedPieces[0].diameterM;
+  await assert.rejects(() => loadControlNet(manifest, async url => buffers[url]));
+});

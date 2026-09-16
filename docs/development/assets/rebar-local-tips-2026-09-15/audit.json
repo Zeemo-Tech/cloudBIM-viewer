@@ -1,0 +1,266 @@
+{
+  "oldCounts": {
+    "input": 9216369,
+    "table": 5315996,
+    "matched": 1829803,
+    "pending": 2070541,
+    "removed": 29,
+    "excluded": 0,
+    "designUnits": 210,
+    "fittedUnits": 210,
+    "designBars": 70,
+    "endFaceMatchedPoints": 685,
+    "candidateFittedUnits": 0,
+    "extendedShortUnits": 12,
+    "surfaceRefinedUnits": 9,
+    "surfaceResampledUnits": 6,
+    "longBodyRefinedUnits": 1,
+    "lengthReviewUnits": 0
+  },
+  "newCounts": {
+    "input": 9216369,
+    "table": 5315996,
+    "matched": 1836747,
+    "pending": 2063597,
+    "removed": 29,
+    "excluded": 0,
+    "designUnits": 210,
+    "fittedUnits": 210,
+    "designBars": 70,
+    "endFaceMatchedPoints": 687,
+    "candidateFittedUnits": 0,
+    "extendedShortUnits": 12,
+    "surfaceRefinedUnits": 22,
+    "surfaceResampledUnits": 6,
+    "longBodyRefinedUnits": 1,
+    "lengthReviewUnits": 0
+  },
+  "newlyAssigned": 8101,
+  "returnedPending": 1157,
+  "changedIdentity": 155,
+  "changedBodies": [
+    3,
+    4,
+    7,
+    9,
+    10,
+    14,
+    29,
+    33,
+    38,
+    42,
+    43,
+    46,
+    47,
+    49,
+    51,
+    56,
+    58,
+    61,
+    63,
+    98,
+    99,
+    100,
+    101,
+    134,
+    135,
+    136,
+    137,
+    139,
+    140,
+    141,
+    172,
+    173,
+    174,
+    175,
+    176,
+    208,
+    209,
+    210
+  ],
+  "curveChanges": [
+    {
+      "id": "1b9YNqdvPA1AzGxyF9pv4t:representation0/item0:181/curve/terminal-start/1b9YNqdvPA1AzGxyF9pv4t:representation0/item0:181/unit1",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 2009,
+      "newPoints": 2012
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/curve/join/2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit1--2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit2",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 266,
+      "newPoints": 266
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/curve/join/2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit33--2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit34",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 263,
+      "newPoints": 263
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/curve/join/2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit34--2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665/unit35",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 221,
+      "newPoints": 210
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/curve/join/2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit0--2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit1",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 202,
+      "newPoints": 187
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/curve/join/2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit1--2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit2",
+      "oldStatus": "pending",
+      "newStatus": "pending",
+      "oldPoints": 0,
+      "newPoints": 0
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/curve/join/2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit33--2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit34",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 171,
+      "newPoints": 171
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/curve/join/2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit34--2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110/unit35",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 198,
+      "newPoints": 229
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/curve/join/2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit0--2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit1",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 177,
+      "newPoints": 177
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/curve/join/2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit1--2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit2",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 212,
+      "newPoints": 216
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/curve/join/2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit2--2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit3",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 195,
+      "newPoints": 195
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/curve/join/2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit32--2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit33",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 215,
+      "newPoints": 215
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/curve/join/2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit33--2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit34",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 251,
+      "newPoints": 250
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/curve/join/2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit34--2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594/unit35",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 173,
+      "newPoints": 173
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/curve/join/2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit0--2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit1",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 157,
+      "newPoints": 157
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/curve/join/2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit1--2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit2",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 165,
+      "newPoints": 165
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/curve/join/2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit32--2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit33",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 178,
+      "newPoints": 178
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/curve/join/2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit33--2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit34",
+      "oldStatus": "fitted",
+      "newStatus": "fitted",
+      "oldPoints": 179,
+      "newPoints": 181
+    },
+    {
+      "id": "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/curve/join/2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit34--2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030/unit35",
+      "oldStatus": "pending",
+      "newStatus": "pending",
+      "oldPoints": 0,
+      "newPoints": 0
+    }
+  ],
+  "maxLengthErrorM": 8.881784197001252e-16,
+  "local": [
+    {
+      "id": 42,
+      "side": "start",
+      "points": 2135,
+      "beforeMedianMm": 1.3181955920480801,
+      "afterMedianMm": 0.4752103497601412,
+      "beforeMatched": 1140,
+      "afterMatched": 1592,
+      "tipShiftMm": [
+        4.013191931999671,
+        -0.12114201618640408,
+        3.950158787520256
+      ]
+    },
+    {
+      "id": 46,
+      "side": "end",
+      "points": 2184,
+      "beforeMedianMm": 0.5628399243622342,
+      "afterMedianMm": 0.12138029003028226,
+      "beforeMatched": 1728,
+      "afterMatched": 2014,
+      "tipShiftMm": [
+        0.6102568738342029,
+        0.01911773755747248,
+        2.605024475160797
+      ]
+    },
+    {
+      "id": 47,
+      "side": "end",
+      "points": 2426,
+      "beforeMedianMm": 0.481544356736416,
+      "afterMedianMm": 0.14222916392811763,
+      "beforeMatched": 2010,
+      "afterMatched": 2203,
+      "tipShiftMm": [
+        0.3808115779486698,
+        0.032185750494129195,
+        2.0390242045037166
+      ]
+    }
+  ],
+  "validation": {
+    "pythonTestsPassed": 115,
+    "nodeTestsPassed": 35,
+    "baselineShortTipFailures": 4
+  }
+}

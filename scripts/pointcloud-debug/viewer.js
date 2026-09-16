@@ -1362,11 +1362,13 @@ function validateControlNetCurvedPieces(report) {
     const validLocal = local == null || (reportVersion >= 20
       && piece.status === 'pending' && piece.connectionStatus === 'design-inferred'
       && piece.inferenceMethod === 'scan-guided-parametric-terminal'
-      && local.method === 'independent-continuous-surface-intervals'
+      && (local.method === 'independent-continuous-surface-intervals'
+        || (reportVersion >= 22 && local.method === 'independent-continuous-surface-intervals-v2'))
       && Number.isSafeInteger(local.pointCount) && local.pointCount >= 12
       && local.pointCount <= referencedUnits.reduce((sum, unit) => sum + (unit?.pointCount || 0), 0)
       && Number.isFinite(local.validationMaxChangeM) && local.validationMaxChangeM >= 0
-      && local.validationMaxChangeM <= Math.max(.001, .25*piece.diameterM)
+      && local.validationMaxChangeM <= (local.method === 'independent-continuous-surface-intervals-v2'
+        ? Math.max(.002, .5*piece.diameterM) : Math.max(.001, .25*piece.diameterM))
       && Array.isArray(local.intervalsM) && local.intervalsM.length > 0
       && local.intervalsM.every((range, i) => Array.isArray(range) && range.length === 2
         && range.every(Number.isFinite) && range[0] >= 0 && range[1] > range[0]

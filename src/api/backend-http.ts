@@ -71,6 +71,23 @@ function createApiError(error: unknown) {
   return error instanceof Error ? error : new Error('请求失败，请稍后重试')
 }
 
+async function decodeApiError(error: unknown) {
+  // Axios keeps JSON errors in the requested download format (Blob/ArrayBuffer).
+  // Decode only small error payloads; never parse a large failed model as JSON.
+  if (axios.isAxiosError(error) && error.response) {
+    const data = error.response.data
+    try {
+      const text = data instanceof Blob && data.size <= 65536 ? await data.text()
+        : data instanceof ArrayBuffer && data.byteLength <= 65536 ? new TextDecoder().decode(data) : null
+      if (text !== null) {
+        const decoded: unknown = JSON.parse(text)
+        if (extractErrorMessage(decoded)) error.response.data = decoded
+      }
+    } catch { /* Keep the original HTTP status and fallback message. */ }
+  }
+  return createApiError(error)
+}
+
 function extractErrorMessage(data: unknown) {
   if (!data || typeof data !== 'object') {
     return null
@@ -154,7 +171,7 @@ backendClient.interceptors.request.use((config) => {
 
 backendClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => Promise.reject(createApiError(error)),
+  async (error: AxiosError) => Promise.reject(await decodeApiError(error)),
 )
 
 export async function backendRequestRaw<T = unknown>(

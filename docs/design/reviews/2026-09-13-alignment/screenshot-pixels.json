@@ -1,0 +1,164 @@
+[
+  {
+    "file": "after-step1-1280x720.png",
+    "dimensions": [
+      1280,
+      720
+    ],
+    "assetRegionNonBlackPixels": 34715,
+    "passed": true
+  },
+  {
+    "file": "after-step1-1280x800.png",
+    "dimensions": [
+      1280,
+      800
+    ],
+    "assetRegionNonBlackPixels": 31126,
+    "passed": true
+  },
+  {
+    "file": "after-step1-1440x900.png",
+    "dimensions": [
+      1440,
+      900
+    ],
+    "assetRegionNonBlackPixels": 55581,
+    "passed": true
+  },
+  {
+    "file": "after-step1-1512x982.png",
+    "dimensions": [
+      1512,
+      982
+    ],
+    "assetRegionNonBlackPixels": 47094,
+    "passed": true
+  },
+  {
+    "file": "after-step1-1920x1080.png",
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "assetRegionNonBlackPixels": 80217,
+    "passed": true
+  },
+  {
+    "file": "after-step1-2560x1440.png",
+    "dimensions": [
+      2560,
+      1440
+    ],
+    "assetRegionNonBlackPixels": 141687,
+    "passed": true
+  },
+  {
+    "file": "after-step2-1280x720.png",
+    "dimensions": [
+      1280,
+      720
+    ],
+    "assetRegionNonBlackPixels": 32569,
+    "passed": true
+  },
+  {
+    "file": "after-step2-1280x800.png",
+    "dimensions": [
+      1280,
+      800
+    ],
+    "assetRegionNonBlackPixels": 29751,
+    "passed": true
+  },
+  {
+    "file": "after-step2-1440x900.png",
+    "dimensions": [
+      1440,
+      900
+    ],
+    "assetRegionNonBlackPixels": 42148,
+    "passed": true
+  },
+  {
+    "file": "after-step2-1512x982.png",
+    "dimensions": [
+      1512,
+      982
+    ],
+    "assetRegionNonBlackPixels": 46145,
+    "passed": true
+  },
+  {
+    "file": "after-step2-1920x1080.png",
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "assetRegionNonBlackPixels": 70142,
+    "passed": true
+  },
+  {
+    "file": "after-step2-2560x1440.png",
+    "dimensions": [
+      2560,
+      1440
+    ],
+    "assetRegionNonBlackPixels": 118553,
+    "passed": true
+  },
+  {
+    "file": "after-step3-1280x720.png",
+    "dimensions": [
+      1280,
+      720
+    ],
+    "assetRegionNonBlackPixels": 28515,
+    "passed": true
+  },
+  {
+    "file": "after-step3-1280x800.png",
+    "dimensions": [
+      1280,
+      800
+    ],
+    "assetRegionNonBlackPixels": 25334,
+    "passed": true
+  },
+  {
+    "file": "after-step3-1440x900.png",
+    "dimensions": [
+      1440,
+      900
+    ],
+    "assetRegionNonBlackPixels": 37877,
+    "passed": true
+  },
+  {
+    "file": "after-step3-1512x982.png",
+    "dimensions": [
+      1512,
+      982
+    ],
+    "assetRegionNonBlackPixels": 39958,
+    "passed": true
+  },
+  {
+    "file": "after-step3-1920x1080.png",
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "assetRegionNonBlackPixels": 59428,
+    "passed": true
+  },
+  {
+    "file": "after-step3-2560x1440.png",
+    "dimensions": [
+      2560,
+      1440
+    ],
+    "assetRegionNonBlackPixels": 99007,
+    "passed": true
+  }
+]

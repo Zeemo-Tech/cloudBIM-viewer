@@ -23,7 +23,7 @@ from scipy.optimize import least_squares
 from rebar_prior_axis import fit_prior_axis
 
 
-VERSION = "design-control-net-v21"
+VERSION = "design-control-net-v24"
 _MAX_TREE_QUERIES = 256
 _NEIGHBOURS_PER_QUERY = 192
 _MAX_UNIT_CANDIDATES = 30_000
@@ -512,7 +512,34 @@ def _exact_length(curve, length):
 
 
 def _refine_straight_ends(points, normals, tree, source_ids, owner, model):
-    """Use held-out tube evidence to correct unsupported spline extrapolation.
+    """Keep supported broad corrections, then review unresolved tips locally."""
+    _refine_straight_ends_at_scale(points, normals, tree, source_ids, owner, model)
+    existing = model.get('axisRefinement', {}).get('ends', [])
+    for side in ('start', 'end'):
+        if side in model['unit'].get('curveAttachedEnds', ()):
+            continue
+        if any(event['side'] == side for event in existing):
+            continue
+        # A normal inner body must not dilute a bend confined to the last few
+        # centimetres. Prefer the broadest passing local window, with only
+        # three bounded attempts and the same independent acceptance checks.
+        for span in (.25, .20, .15):
+            candidate = dict(model)
+            candidate.pop('axisRefinement', None)
+            _refine_straight_ends_at_scale(points, normals, tree, source_ids, owner,
+                                         candidate, local_span=span, only_side=side)
+            review = candidate.get('axisRefinement')
+            if review is None:
+                continue
+            existing = existing + review['ends']
+            review['ends'] = existing
+            model.update(candidate)
+            break
+
+
+def _refine_straight_ends_at_scale(points, normals, tree, source_ids, owner, model,
+                                 *, local_span=None, only_side=None):
+    """Use held-out tube evidence to correct locally biased straight-bar ends.
 
     Two transverse basis functions per end vanish with zero slope inside the
     supported body. Only four parameters and at most 2400 samples are solved;
@@ -520,15 +547,20 @@ def _refine_straight_ends(points, normals, tree, source_ids, owner, model):
     """
     curve, unit = model['curve'], model['unit']
     evidence = model.get('axisEvidenceRangeM')
-    if unit['kind'] != 'straight' or unit['length'] < 2. or len(curve) < 5 or evidence is None:
+    if unit['kind'] != 'straight' or unit['length'] < .8 or len(curve) < 5 or evidence is None:
         return
     radius, tolerance = unit['radius'], model['tolerance']
     tangent = curve[-1]-curve[0]
     length = float(np.linalg.norm(tangent))
     gaps = (float(evidence[0]), length-float(evidence[1]))
-    # Small end gaps do not justify another fit; very long gaps have no nearby
-    # reliable anchor and must remain extrapolated rather than guessed.
-    sides = [(side, gap) for side, gap in zip(('start', 'end'), gaps) if .15 < gap < .75]
+    # Evidence reaching the end does not mean the smoothed axis follows a small
+    # local lift. Review those ends too; actual held-out surface improvement is
+    # still required. Long missing spans have no reliable nearby anchor.
+    sides = [(side, gap) for side, gap in zip(('start', 'end'), gaps) if -.01 < gap < .75]
+    if only_side is not None:
+        sides = [(side, gap) for side, gap in sides if side == only_side]
+    if local_span is not None and local_span > .4*unit['length']:
+        return
     if not sides:
         return
     tangent /= length
@@ -537,6 +569,18 @@ def _refine_straight_ends(points, normals, tree, source_ids, owner, model):
     stations = (curve-origin)@tangent
     if np.any(np.diff(stations) <= 0):
         return
+    if local_span is not None:
+        # Long bars have coarse display vertices. Insert collinear samples only
+        # inside this tip window so its boundary and fade are represented
+        # exactly; the unchanged interior gains no bending parameters.
+        extra = np.linspace(0., local_span, 7)
+        if only_side == 'end':
+            extra = length-extra
+        extra = extra[(extra > stations[0]+1e-9) & (extra < stations[-1]-1e-9)]
+        extra = extra[np.all(np.abs(extra[:, None]-stations) > 1e-9, axis=1)]
+        refined_stations = np.unique(np.r_[stations, extra])
+        curve = np.column_stack([np.interp(refined_stations, stations, curve[:, j]) for j in range(3)])
+        stations = refined_stations
     axis_xy = np.column_stack(((curve-origin)@u, (curve-origin)@v))
     ids = model['candidateIds']
     available = owner[ids] == 0
@@ -545,14 +589,20 @@ def _refine_straight_ends(points, normals, tree, source_ids, owner, model):
     along = delta@tangent
     xy = np.column_stack((delta@u, delta@v))
     base = np.column_stack([np.interp(along, stations, axis_xy[:, j]) for j in (0, 1)])
-    valid = np.linalg.norm(xy-base, axis=1) < max(.02, 4*radius)
+    # A local tip has a 1.5-radius displacement budget. Keep its fitting crop
+    # within the corresponding radius + displacement corridor; more distant
+    # crossings/fixtures cannot explain this correction. Full source records
+    # still participate in final classification after the fit.
+    crop = 2.5*radius if local_span is not None else max(.02, 4*radius)
+    valid = np.linalg.norm(xy-base, axis=1) < crop
     if normals is not None:
         normal = normals[ids]
         norm = np.linalg.norm(normal, axis=1)
         valid &= (norm < .5) | (np.abs(normal@tangent) < .45*norm)
     proposed, events = curve.copy(), []
     for side, gap in sides:
-        extent = min(.9, max(.5, gap+.15))
+        # Keep the two corrections disjoint, including on ordinary 1 m bars.
+        extent = local_span if local_span is not None else min(.4*unit['length'], .9, max(.5, gap+.15))
         position = along if side == 'start' else length-along
         keep = valid & (position > .015) & (position < extent)
         if keep.sum() < 192:
@@ -589,7 +639,15 @@ def _refine_straight_ends(points, normals, tree, source_ids, owner, model):
         # Avoid perturbing already-adherent ends (or paying for a solve) for
         # sub-millimetre fluctuations within the scanner's local surface spread.
         if np.median(before[held]) < max(.0005, .12*radius):
-            continue
+            if local_span is None:
+                continue
+            # A pair of adjacent failing tip bands can be significant even
+            # when most of the window already adheres. This is only a trigger;
+            # held-out improvement and curved-section checks still decide.
+            bad = np.array([reliable[b] and np.count_nonzero(bins == b) >= 12
+                            and np.median(before[bins == b]) > tolerance for b in range(8)])
+            if not np.any(bad[:-1] & bad[1:]):
+                continue
         checked = solve(train, np.zeros(4))
         after = np.abs(residual(checked.x))
         old_score, new_score = float(np.median(before[held])), float(np.median(after[held]))
@@ -614,23 +672,34 @@ def _refine_straight_ends(points, normals, tree, source_ids, owner, model):
         change = float(np.linalg.norm(offsets, axis=1).max())
         stability = float(np.linalg.norm(vertex_basis@(fitted.x-checked.x).reshape(2, 2), axis=1).max())
         envelope = max(.02, 4*radius)
-        if (not fitted.success or change > min(3*radius, envelope-radius-tolerance-.001)
+        # Newly reviewed observed ends get a small displacement budget. Retain
+        # the existing budget for long-bar unsupported extrapolation repairs.
+        limit = (3*radius if local_span is None and unit['length'] >= 2. and gap > .15 else 1.5*radius)
+        limit = min(limit, envelope-radius-tolerance-.001)
+        if (not fitted.success or change > limit
                 or stability > max(.001, .4*radius)):
             continue
         proposed += offsets@np.array([u, v])
         events.append({'side': side, 'correctionSpanM': extent,
             'validationMedianBeforeM': old_score, 'validationMedianAfterM': new_score,
-            'maxShiftM': change, 'improvedValidationBands': int(improving)})
+            'maxShiftM': change, 'improvedValidationBands': int(improving),
+            'displacementLimitM': limit,
+            'trigger': 'observed-end-surface' if gap <= .15 else 'unsupported-extrapolation'})
+        if local_span is not None:
+            events[-1]['windowSelection'] = 'bounded-local-tip-review'
     if not events:
         return
-    # Correct only the two terminal segments to retain design arc length exactly;
-    # rescaling the entire curve would needlessly move its reliable interior.
+    # Retain arc length at the corrected tip only for local reviews, so the
+    # opposite hook attachment cannot move. Broad reviews keep their old rule.
     difference = unit['length']-float(np.linalg.norm(np.diff(proposed, axis=0), axis=1).sum())
     if abs(difference) > .5*radius:
         return
-    for end, neighbour in ((0, 1), (-1, -2)):
+    adjusted_ends = ((0, 1), (-1, -2))
+    if local_span is not None:
+        adjusted_ends = ((0, 1),) if only_side == 'start' else ((-1, -2),)
+    for end, neighbour in adjusted_ends:
         direction = proposed[end]-proposed[neighbour]
-        proposed[end] += .5*difference*direction/np.linalg.norm(direction)
+        proposed[end] += difference/len(adjusted_ends)*direction/np.linalg.norm(direction)
     model['curve'] = proposed
     model['axisRefinement'] = {'method': 'held-out-full-surface-end-correction', 'ends': events}
     direction = proposed[-1]-proposed[0]
@@ -1398,6 +1467,11 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
         if not np.issubdtype(layer_ids.dtype, np.integer):
             raise ValueError("layer_ids must be an integer array")
     units = _unit_rows(inventory)
+    from algorithms.rebar_shape_templates import build_unit_shape_templates
+    templates = build_unit_shape_templates(inventory)
+    for unit in units:
+        template = templates.get(unit['source'].get('designUnitId'), {})
+        unit['curveAttachedEnds'] = [side for side in ('start', 'end') if template.get(side+'TailM')]
     candidate_class = ~table_mask if not post_fusion else (~table_mask & (fused_classes == 3))
     usable = candidate_class & np.isfinite(points).all(axis=1)
     source_ids = np.flatnonzero(usable)
@@ -1883,6 +1957,9 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
             points, normals, registered_inventory, instance_rows, status, owner,
             tree=tree, source_ids=source_ids, progress=progress, workers=curve_workers,
             executor=executor)
+    from algorithms.rebar_control_endpoints import complete_end_faces
+    end_face_count = complete_end_faces(points, normals, instance_rows, curved_pieces,
+        owner, status, tree, source_ids)
     fitted = sum(row["status"] == "fitted" for row in instance_rows)
     physical_bars = (len((inventory or {}).get("bars", []))
                      if "bars" in (inventory or {})
@@ -1897,6 +1974,7 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
               "designBars": physical_bars}
     if layer_ids is not None:
         counts["fallbackLayerPoints"] = int(np.count_nonzero(usable & (layer_ids == 0)))
+    counts['endFaceMatchedPoints'] = end_face_count
     counts['candidateFittedUnits'] = sum(bool(row.get('candidateCenterlineM')) for row in instance_rows)
     counts['extendedShortUnits'] = sum(row.get('lengthCheck') == 'extended-observed-span' for row in instance_rows)
     counts['surfaceRefinedUnits'] = sum('axisRefinement' in row for row in instance_rows)

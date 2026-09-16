@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "runs": [
+    {
+      "maxSearchDistanceMm": 5,
+      "known": 119202,
+      "maxAbsMm": 4.9997190944850445,
+      "resultVersion": "ba0dfc6d753d8a56ceaa4b96aa3d208d905a1f87f3512ee79c7fb142ff1e541f"
+    },
+    {
+      "maxSearchDistanceMm": 200.0,
+      "known": 175122,
+      "resultVersion": "a5c3beb69dd1eaf322c479a354078958a78deb0c3524a260e36f2f289ff910b7"
+    }
+  ],
+  "originalSettingsRestored": true,
+  "savedAndReloaded": true
+}

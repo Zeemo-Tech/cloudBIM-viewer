@@ -38,7 +38,7 @@ export function rebarStatusLabel(status: RebarComparisonBar['status']) {
 }
 
 export function rebarReportCSV(result: C2MResult, bars: RebarComparisonBar[], toleranceMm: number) {
-  const numeric = (value: number | undefined, scale = 1) => typeof value === 'number' && Number.isFinite(value) ? +(value * scale).toFixed(4) : ''
+  const numeric = (value: number | null | undefined, scale = 1) => typeof value === 'number' && Number.isFinite(value) ? +(value * scale).toFixed(4) : ''
   const cell = (value: unknown) => {
     const text = String(value ?? '')
     const safe = /^[=+@\-\t\r]/.test(text) ? `'${text}` : text
@@ -48,6 +48,8 @@ export function rebarReportCSV(result: C2MResult, bars: RebarComparisonBar[], to
     'IFC GlobalId', '设计钢筋ID', '名称', '点云实例ID', '待复核实例ID', '待复核点数', '对应状态', '扫描点数', '参与计算点数',
     '已覆盖顶点', '未覆盖顶点', '覆盖率', '平均绝对偏差(mm)', 'RMSE(mm)', 'P95绝对偏差(mm)', '容差(mm)', '容差内比例(已覆盖)',
     '结果版本', '实例映射SHA256', '点云资产ID', 'BIM资产ID', '测量方向',
+    '最大表面偏差(mm)', '中心线最大偏移(mm)', '残余弓高估计(mm)', '弯曲证据', '法向约束', '法向半角(度)', '单根耗时(s)', '计算耗时(s)',
+    '算法版本', '测量方法', '截面半径最大变化(mm)', '可靠截面数', '总截面数',
   ]]
   for (const bar of bars) rows.push([
     bar.ifcGlobalId, bar.designBarId, bar.name, bar.instanceIds.join(';'), (bar.reviewInstanceIds ?? []).join(';'), bar.reviewPointCount ?? 0, rebarStatusLabel(bar.status), bar.pointCount, bar.pointsAfter,
@@ -55,6 +57,13 @@ export function rebarReportCSV(result: C2MResult, bars: RebarComparisonBar[], to
     numeric(bar.stats?.meanAbs, 1000), numeric(bar.stats?.rmse, 1000), numeric(bar.stats?.p95Abs, 1000), toleranceMm,
     numeric(bar.stats?.withinToleranceRatio), result.resultVersion, result.diagnostics?.rebarComparison?.instanceMapHash,
     result.modelScanFileId, result.modelBimFileId, result.metricDirection,
+    numeric(bar.measurement?.surface.maxAbs ?? (bar.stats ? Math.max(Math.abs(bar.stats.min), Math.abs(bar.stats.max)) : null), 1000),
+    numeric(bar.measurement?.bending.maxCentrelineDepartureM, 1000), numeric(bar.measurement?.bending.residualBowM, 1000),
+    bar.measurement?.bending.quality ?? '未记录', result.diagnostics?.rebarComparison?.effective?.normalConstraintEnabled ?? false,
+    result.diagnostics?.rebarComparison?.effective?.normalMaxAngleDeg, numeric(bar.timingSeconds?.total), numeric(result.diagnostics?.rebarComparison?.timings?.total),
+    result.algorithmVersion, result.diagnostics?.rebarComparison?.measurement?.method,
+    numeric(bar.measurement?.crossSection?.maxAbsRadiusDeltaM, 1000),
+    bar.measurement?.crossSection?.supportedSectionCount, bar.measurement?.crossSection?.sectionCount,
   ])
   return '\uFEFF' + rows.map(row => row.map(cell).join(',')).join('\r\n')
 }

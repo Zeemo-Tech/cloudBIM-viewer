@@ -96,7 +96,7 @@ class SharedProductionTests(unittest.TestCase):
             with patch('algorithms.rebar_dimension_priors.load_dimension_priors',return_value=marker) as loader:
                 result=compute_rebar_artifact(**kwargs)
             loader.assert_called_once_with(ifc_path=str(prior_ifc.resolve()))
-            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'12'})
+            self.assertEqual(result['algorithm'],{'id':'geometric-v6','version':'14'})
             self.assertEqual(result['summary']['diagnostics']['dimensionPriors'],marker)
             self.assertEqual(result['summary']['rawSource']['finitePointCount'],len(xyz))
             self.assertEqual(result['summary']['display']['totalPointCount'],len(xyz))

@@ -671,12 +671,72 @@ def _fit_piece(points, normals, piece, rows, *, articulated=False, candidate_out
             'scanGuidedInference':partial_reason is not None},partial_reason or 'parametric-tube-supported'
 
 
+def _bridge_local_support(station, bins, good, local_normal, seed, radius):
+    """Fill observed shell gaps between certified patches, never empty space.
+
+    The global held-out pose can drift on a partly hidden hook. A bracketed
+    patch instead needs distributed normals in *both* alternating axial strips,
+    as well as continuous observations and the unchanged tube residual gate.
+    """
+    selected = seed.copy()
+    if not seed.any():
+        return selected
+    width = max(.006, 2*radius)
+    gap = max(.0015, .65*radius)
+    certified = good.copy()
+    stripes = np.floor(station/max(.001, radius*.4)).astype(int) % 2
+    for band in np.unique(bins[good]):
+        mask = good & (bins == band)
+        valid = True
+        for half in (0, 1):
+            take = mask & (stripes == half)
+            directions = local_normal[take]
+            if (take.sum() < 6 or np.ptp(station[take]) < width*.3
+                    or np.linalg.eigvalsh(directions.T@directions/len(directions))[0] < .005):
+                valid = False
+                break
+        if not valid:
+            certified[mask] = False
+    # Include existing seeds even if a narrow boundary strip has insufficient
+    # points to independently certify a new cross-section.
+    ids = np.flatnonzero(certified | seed)
+    ids = ids[np.argsort(station[ids], kind='stable')]
+    for part in np.split(ids, np.flatnonzero(np.diff(station[ids]) > gap)+1):
+        anchors = part[seed[part]]
+        if not len(anchors):
+            continue
+        lo, hi = station[anchors[0]], station[anchors[-1]]
+        # Every new interior run must have confirmed support on both ends.
+        missing = part[~seed[part]]
+        for run in np.split(missing, np.flatnonzero(np.diff(station[missing]) > gap)+1):
+            if not len(run):
+                continue
+            a, b = station[run[0]], station[run[-1]]
+            if a >= lo and b <= hi and b-a <= 12*radius:
+                selected[run] = True
+    # Fractional boundary bins otherwise discard valid last surface samples.
+    # This one-hop completion cannot grow through an unobserved gap or beyond
+    # the finite centreline; the original good/side gate still applies.
+    ids = np.flatnonzero(good)
+    ids = ids[np.argsort(station[ids], kind='stable')]
+    for part in np.split(ids, np.flatnonzero(np.diff(station[ids]) > gap)+1):
+        anchors = part[selected[part]]
+        if len(anchors):
+            observed = station[anchors]
+            at = np.searchsorted(observed, station[part])
+            distance = np.minimum(
+                np.abs(station[part]-observed[np.clip(at, 0, len(observed)-1)]),
+                np.abs(station[part]-observed[np.clip(at-1, 0, len(observed)-1)]))
+            selected[part[distance <= gap]] = True
+    return selected
+
+
 def _local_curve_support(points, normals, curve, check_curve, radius, normal_axis):
     """Confirm continuous local surfaces shared by independently fitted shapes.
 
     Geometry outside these observed intervals remains inference. A point must
-    agree with both shapes, including side normals, and belong to a distributed
-    curved cross-section; proximity to a design completion alone never suffices.
+    establish stable seed intervals from both shapes. Bracketed gaps additionally
+    need independent local surface bands; proximity to design alone never suffices.
     """
     empty = np.zeros(len(points), bool)
     if normals is None or len(points) < 48:
@@ -727,6 +787,18 @@ def _local_curve_support(points, normals, curve, check_curve, radius, normal_axi
             lo, hi = float(part[0]), float(part[-1])
             selected |= mask & (station >= lo) & (station <= hi)
             intervals.append([lo, hi])
+    # Retain the independent-pose seeds. Locally continuous shell observations
+    # may complete a bracketed gap when the second whole-hook pose drifts.
+    local_good = (side & vside & (nlen > .5) & np.isfinite(normals).all(axis=1)
+                  & (np.abs(d-radius) <= tolerance)
+                  & (np.abs(np.einsum('ij,ij->i', n, radial)) >= .75)
+                  & (stability <= max(.002, radius)))
+    selected = _bridge_local_support(station, bins, local_good, local_normal,
+                                     selected, radius)
+    observed = np.sort(station[selected])
+    intervals = [[float(part[0]), float(part[-1])] for part in
+                 np.split(observed, np.flatnonzero(np.diff(observed) > max(.0015, .65*radius))+1)
+                 if len(part)]
     return selected, intervals, float(np.max(stability[selected])) if selected.any() else 0.
 
 
@@ -1162,7 +1234,7 @@ def fit_curved_pieces(points,normals,inventory,instance_rows,status,owner,*,tree
         if len(selected)<12:
             continue
         owner[selected]=report['unitIds'][0];status[selected]=1
-        report['localSupport']={'method':'independent-continuous-surface-intervals',
+        report['localSupport']={'method':'independent-continuous-surface-intervals-v2',
             'pointCount':len(selected),'intervalsM':intervals,'validationMaxChangeM':change}
     for uid,changes in display_changes.items():
         display=_clip_display(rows[uid],changes)

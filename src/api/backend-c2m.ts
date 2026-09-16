@@ -99,6 +99,39 @@ export interface RebarComparisonBar {
   unknownCount: number
   status: 'matched' | 'missing' | 'review'
   stats: C2MStats | null
+  measurement?: RebarMeasurement
+  scanSurface?: { method: string; supportedPointCount: number; rejectedPointCount: number; supportedSectionCount: number; sectionCount: number } | null
+  constraint?: { enabled: boolean; topologyAvailable: boolean; constrainedKnownCount: number; fallbackKnownCount: number }
+  timingSeconds?: Record<string, number>
+}
+
+export interface RebarProfileSample {
+  designUnitId: string
+  stationM: number
+  designCenterM: [number, number, number]
+  observedCenterM: [number, number, number] | null
+  transverseOffsetM: number | null
+  offsetVectorM?: [number, number, number] | null
+  radiusM?: number | null
+  radiusDeltaM?: number | null
+  fitRmseM?: number | null
+  arcCoverageDeg?: number | null
+  centerUncertaintyM?: number | null
+  inlierCount?: number
+  quality?: string
+}
+
+export interface RebarMeasurement {
+  surface: { maxAbs: number | null; maxLocationM: [number, number, number] | null }
+  longitudinalProfile: RebarProfileSample[]
+  crossSection?: { maxAbsRadiusDeltaM: number | null; supportedSectionCount: number; sectionCount: number }
+  bending: {
+    maxCentrelineDepartureM: number | null
+    residualBowM: number | null
+    curvatureMInv: number | null
+    method: string
+    quality: string
+  }
 }
 
 export interface RebarComparison {
@@ -109,6 +142,113 @@ export interface RebarComparison {
   knownVertexCount: number
   unknownVertexCount: number
   instanceMapHash: string
+  measurement?: { schema: string; coordinateFrame: string; method?: string }
+  effective?: { knnK: number; normalConstraintEnabled: boolean; normalHalfSpaceOnly: boolean; normalMaxAngleDeg: number; normalFallbackMode: string; maxSearchDistance?: number }
+  timings?: Record<string, number>
+  algorithmVersion?: string
+  inspection?: RebarInspection
+}
+
+export interface RebarSpacingSample {
+  stationM: number
+  status: 'supported' | 'unknown'
+  centerA: [number, number, number] | null
+  centerB: [number, number, number] | null
+  actualCenterDistanceM: number | null
+  signedDifferenceM: number | null
+  netClearanceM: number | null
+  withinTolerance: boolean | null
+}
+
+export interface RebarSpacingInspection {
+  pairId: string
+  designBarIds: [string, string]
+  ifcGlobalIds: [string, string]
+  designUnitIds: [string, string]
+  familyId: string
+  layerId: string | number
+  designDirection: [number, number, number]
+  spacingDirection: [number, number, number]
+  designCenterDistanceM: number
+  radiusSource: 'design-prior'
+  designRadiiM: [number, number]
+  samples: RebarSpacingSample[]
+  actualCenterDistanceM: number | null
+  signedDifferenceM: number | null
+  netClearanceM: number | null
+  toleranceM: number
+  withinTolerance: boolean | null
+  coverage: { status: 'supported' | 'partial' | 'unavailable'; sampleCount: number; sharedSpanM: number; supportedSpanM?: number; reason: string }
+}
+
+export interface RebarInspection {
+  schema: 'rebar-inspection-v1'
+  coordinateFrame: 'bim'
+  lengthUnit: 'm'
+  method: string
+  provenance: { instanceMapHash: string; controlNetAlgorithmVersion: string; alignmentMatrix: number[] }
+  bars: Array<{
+    designBarId: string
+    ifcGlobalId: string
+    status: 'supported' | 'partial' | 'missing' | 'review' | 'unavailable'
+    unitIds: string[]
+    observedSegments: Array<{
+      designUnitId: string
+      kind: 'body' | 'curve'
+      evidence: string
+      centerline: [number, number, number][]
+      supportedIntervalsM: [number, number][]
+      pointCount: number
+      radiusM: number
+      radiusSource: 'design-prior'
+    }>
+    knownVertexCount: number
+    unknownVertexCount: number
+    toleranceM: number
+    withinToleranceRatio: number | null
+    quality: { supportedUnitCount: number; designUnitCount: number; reason: string }
+  }>
+  spacing: RebarSpacingInspection[]
+  summary: {
+    barCount: number
+    supportedBarCount: number
+    partialBarCount: number
+    unavailableBarCount: number
+    spacingPairCount: number
+    supportedSpacingPairCount: number
+    partialSpacingPairCount: number
+    unavailableSpacingPairCount: number
+    toleranceM: number
+    toleranceBasis: string
+  }
+}
+
+export interface C2MReportRun {
+  resultVersion: string
+  scanId: number
+  bimId: number
+  createdAt: string
+  paramsJson: string
+  timingsJson: string
+}
+
+export function listC2MReports(scanId: number, bimId: number, page = 1) {
+  return backendRequest<BackendResult<{ items: C2MReportRun[]; total: number }>>('/alignments/bim/c2m/reports', {
+    method: 'GET', params: { modelScanFileId: scanId, modelBimFileId: bimId, page, pageSize: 20 },
+  })
+}
+
+/** Download the immutable server snapshot, including all bars and spacing rows. */
+export function downloadC2MReportJSON(version: string) {
+  return backendRequest<Blob>(`/alignments/bim/c2m/reports/${encodeURIComponent(version)}/json`, {
+    responseType: 'blob',
+  })
+}
+
+export function getC2MReport(version: string, page = 1, ifcGlobalId?: string) {
+  return backendRequest<BackendResult<{ run: C2MReportRun; bars: { rawJson: string }[]; total: number }>>(`/alignments/bim/c2m/reports/${encodeURIComponent(version)}`, {
+    method: 'GET', params: { page, pageSize: 100, ifcGlobalId },
+  })
 }
 
 export interface C2MParams {
@@ -126,6 +266,8 @@ export interface C2MParams {
   normalConstraintEnabled?: boolean
   normalHalfSpaceOnly?: boolean
   normalMaxAngleDeg?: number
+  /** Maximum candidate distance in metres; 0.0001–0.2, default 0.2. */
+  maxSearchDistance?: number
   normalFallbackMode?: string
 }
 
