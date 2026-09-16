@@ -2,6 +2,7 @@
 import { Aim, Delete, Fold, FullScreen, LocationInformation } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import type { AnalysisMode } from './ViewerAnalysisOverlay.vue'
+import ViewportToolGlyph from '@/components/analysis/ViewportToolGlyph.vue'
 
 type MeasurementAction = {
   mode: Exclude<AnalysisMode, 'none'>
@@ -17,7 +18,7 @@ const props = withDefaults(
     placement?: 'left' | 'right'
     position?: 'fixed' | 'absolute' | 'static'
     orientation?: 'horizontal' | 'vertical'
-    toggleIcon?: 'fold' | 'ruler'
+    toggleIcon?: 'fold' | 'ruler' | 'fixed'
     clearOnToggleOff?: boolean
     defaultModeOnOpen?: Exclude<AnalysisMode, 'none'>
   }>(),
@@ -83,7 +84,8 @@ function toggleToolbar() {
       :title="collapsed ? '展开测量工具' : '收起测量工具'"
       @click="toggleToolbar"
     >
-      <img v-if="props.toggleIcon === 'ruler' || collapsed" class="measurement-toggle-icon" src="/celiang.svg" alt="" />
+      <ViewportToolGlyph v-if="props.toggleIcon === 'fixed'" name="measure" />
+      <img v-else-if="props.toggleIcon === 'ruler' || collapsed" class="measurement-toggle-icon" src="/celiang.svg" alt="" />
       <el-icon v-else><Fold /></el-icon>
     </button>
 

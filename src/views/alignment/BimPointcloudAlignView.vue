@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Aim,
   Brush,
   Check,
   CircleCheck,
@@ -22,11 +23,9 @@ import {
   Edit,
   FullScreen,
   Grid,
-  Hide,
   Histogram,
   Promotion,
   RefreshLeft,
-  Setting,
   Moon,
   Sunny,
   View,
@@ -111,10 +110,8 @@ import {
   type TileRendererEvents,
 } from '@/features/analysis-mesh'
 import { createUploadHeaders } from '@/config/upload-backend'
-import wanggeIcon from '@/assets/images/wangge.png'
-import toushiIcon from '@/assets/images/toushi.png'
-import zhengjiaoIcon from '@/assets/images/zhengjiao.png'
 import MeasurementToolbar from '@/components/preview/MeasurementToolbar.vue'
+import ViewportToolGlyph from '@/components/analysis/ViewportToolGlyph.vue'
 import ViewerMeasurementBadge, {
   type ViewerMeasurementBadgeOverlay,
 } from '@/components/preview/ViewerMeasurementBadge.vue'
@@ -5233,6 +5230,10 @@ function setProjectionMode(nextMode: ProjectionMode) {
     }
   }
 
+function toggleProjectionMode() {
+  setProjectionMode(projectionMode.value === 'perspective' ? 'orthographic' : 'perspective')
+}
+
 function getMaterialClone(
   source: THREE.Material,
   mode: MaterialMode,
@@ -7910,36 +7911,24 @@ onBeforeUnmount(() => {
       <aside v-if="activeWorkflowStep !== 4" class="left-toolbar view-toolbar" aria-label="视图工具">
         <el-tooltip content="重置视角" placement="right">
           <div class="tool-item">
-            <el-button class="tool-btn" circle text :icon="RefreshLeft" aria-label="重置视角" :disabled="!hasModel" @click="resetView" />
-          </div>
-        </el-tooltip>
-
-        <el-tooltip content="透视" placement="right">
-          <div class="tool-item">
-            <el-button
-              class="tool-btn tool-btn--img"
-              :class="{ 'is-on': projectionMode === 'perspective' }"
-              :aria-pressed="projectionMode === 'perspective'"
-              circle
-              text
-              @click="setProjectionMode('perspective')"
-            >
-              <img class="tool-btn__img1" :src="toushiIcon" alt="透视" />
+            <el-button class="tool-btn" circle text aria-label="重置视角" :disabled="!hasModel" @click="resetView">
+              <el-icon><Aim /></el-icon>
             </el-button>
           </div>
         </el-tooltip>
 
-        <el-tooltip content="正交" placement="right">
+        <el-tooltip :content="projectionMode === 'perspective' ? '切换正交投影' : '切换透视投影'" placement="right">
           <div class="tool-item">
             <el-button
-              class="tool-btn tool-btn--img tool-btn--orthographic"
+              class="tool-btn tool-btn--img"
               :class="{ 'is-on': projectionMode === 'orthographic' }"
+              :aria-label="projectionMode === 'perspective' ? '切换正交投影' : '切换透视投影'"
               :aria-pressed="projectionMode === 'orthographic'"
               circle
               text
-              @click="setProjectionMode('orthographic')"
+              @click="toggleProjectionMode"
             >
-              <img class="tool-btn__img1" :src="zhengjiaoIcon" alt="正交" />
+              <ViewportToolGlyph :name="projectionMode === 'orthographic' ? 'projectionOrthographic' : 'projectionPerspective'" />
             </el-button>
           </div>
         </el-tooltip>
@@ -7954,7 +7943,7 @@ onBeforeUnmount(() => {
               text
               @click="showGrid = !showGrid"
             >
-              <img class="tool-btn__img" :src="wanggeIcon" alt="网格" />
+              <ViewportToolGlyph name="grid" />
             </el-button>
           </div>
         </el-tooltip>
@@ -7985,14 +7974,7 @@ onBeforeUnmount(() => {
               :disabled="!hasModel"
               @click="toggleMeshWireframe"
             >
-              <svg class="tool-btn__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="9" width="12" height="12" />
-                <rect x="9" y="3" width="12" height="12" />
-                <line x1="3" y1="9" x2="9" y2="3" />
-                <line x1="15" y1="9" x2="21" y2="3" />
-                <line x1="15" y1="21" x2="21" y2="15" />
-                <line x1="3" y1="21" x2="9" y2="15" />
-              </svg>
+              <ViewportToolGlyph name="wireframe" />
             </el-button>
           </div>
         </el-tooltip>
@@ -8032,39 +8014,25 @@ onBeforeUnmount(() => {
               :aria-label="clipBoundsTooltip"
               :aria-pressed="enableClipping && showBounds"
             >
-              <svg
-                class="tool-btn__svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M3 7 L12 3 L21 7 L21 17 L12 21 L3 17 Z" />
-                <line x1="3" y1="7" x2="21" y2="7" />
-                <line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 2" />
-                <line x1="12" y1="3" x2="12" y2="7" />
-              </svg>
+              <ViewportToolGlyph name="clipping" />
             </el-button>
           </div>
         </el-tooltip>
 
         <div class="tool-item measurement-tool-item">
-          <MeasurementToolbar
+            <MeasurementToolbar
             v-model:collapsed="analysisToolbarCollapsed"
             class="alignment-measurement-toolbar"
             :mode="analysisMode"
             :disabled="!hasModel"
             clear-on-toggle-off
             default-mode-on-open="distance"
-            toggle-icon="ruler"
+            toggle-icon="fixed"
             placement="left"
             position="static"
             @update:mode="selectAnalysisMode"
-            @clear="clearAllMeasurements"
-          />
+              @clear="clearAllMeasurements"
+            />
         </div>
 
         <el-divider />
@@ -8076,12 +8044,13 @@ onBeforeUnmount(() => {
               :class="{ 'is-on': hasModel && bimVisible }"
               circle
               text
-              :icon="bimVisible ? Hide : View"
               :aria-label="bimVisibilityLabel"
               :aria-pressed="bimVisible"
               :disabled="!hasModel"
               @click="toggleBimVisibility"
-            />
+            >
+              <ViewportToolGlyph name="solidModel" :hidden="!bimVisible" />
+            </el-button>
             <span class="tool-label">{{ bimVisibilityLabel }}</span>
           </div>
         </el-tooltip>
@@ -8098,20 +8067,7 @@ onBeforeUnmount(() => {
               :aria-label="pointcloudVisibilityLabel"
               :aria-pressed="pointcloudVisible"
             >
-              <svg class="tool-btn__svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="5" cy="17" r="1.3" />
-                <circle cx="9" cy="8" r="1.5" />
-                <circle cx="14" cy="14" r="1.1" />
-                <circle cx="18" cy="6" r="1.4" />
-                <circle cx="7" cy="13" r="0.9" />
-                <circle cx="16" cy="10" r="1.1" />
-                <circle cx="12" cy="19" r="1.2" />
-                <circle cx="20" cy="15" r="1" />
-                <circle cx="4" cy="10" r="0.8" />
-                <circle cx="11" cy="5" r="0.9" />
-                <circle cx="19" cy="19" r="0.8" />
-                <circle cx="3" cy="5" r="1" />
-              </svg>
+              <ViewportToolGlyph name="pointCloud" :hidden="!pointcloudVisible" />
             </el-button>
           </div>
         </el-tooltip>

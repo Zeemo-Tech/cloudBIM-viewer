@@ -5,6 +5,31 @@ interface LoginResponse {
   token?: string
 }
 
+export interface AccountProfile extends AuthUser {
+  displayName: string
+  email: string
+  phone: string
+  role: 'admin' | 'member'
+  status: 'active' | 'disabled'
+  createdAt: string
+  updatedAt: string
+  lastLoginAt: string | null
+  projectCount: number
+  assetCount: number
+  alignmentCount: number
+}
+
+export interface PasswordChangeResult {
+  changedAt: string
+  token?: string
+  revokedOtherSessions?: boolean
+}
+
+export interface SessionRevokeResult {
+  revokedAt: string
+  token?: string
+}
+
 export function healthCheck() {
   return backendRequest<BackendResult<Record<string, never>>>('/health', {
     method: 'GET',
@@ -29,7 +54,7 @@ export function login(payload: LoginPayload) {
 }
 
 export function getCurrentUser(token?: string) {
-  return backendRequest<BackendResult<AuthUser>>('/auth/me', {
+  return backendRequest<BackendResult<AccountProfile>>('/auth/me', {
     method: 'GET',
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   })
@@ -38,5 +63,26 @@ export function getCurrentUser(token?: string) {
 export function logout() {
   return backendRequest<BackendResult<Record<string, never>>>('/auth/logout', {
     method: 'POST',
+  })
+}
+
+export function updateAccountProfile(payload: { displayName: string; email: string; phone: string }) {
+  return backendRequest<BackendResult<AccountProfile>>('/auth/profile', {
+    method: 'PATCH',
+    data: payload,
+  })
+}
+
+export function changeAccountPassword(payload: { currentPassword: string; newPassword: string }) {
+  return backendRequest<BackendResult<PasswordChangeResult>>('/auth/password', {
+    method: 'POST',
+    data: payload,
+  })
+}
+
+export function revokeOtherSessions(payload: { currentPassword: string }) {
+  return backendRequest<BackendResult<SessionRevokeResult>>('/auth/sessions/revoke', {
+    method: 'POST',
+    data: payload,
   })
 }

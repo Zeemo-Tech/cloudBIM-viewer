@@ -38,6 +38,8 @@ const activeTopTab = computed(() => {
   return 'projects'
 })
 
+const roleLabel = computed(() => (props.session.role === 'admin' ? '管理员' : '项目成员'))
+
 function withProject(path: string) {
   return { path, query: { projectId: props.projectId, projectName: props.projectName } }
 }
@@ -78,8 +80,8 @@ function goTopTab(tab: 'projects' | 'devices' | 'system') {
       </div>
 
       <div class="header-user">
-        <div class="user-avatar">{{ (props.session.username || 'U').slice(0, 1).toUpperCase() }}</div>
-        <div class="user-info"><div class="user-name">{{ props.session.username }}</div><div class="user-role">项目成员</div></div>
+        <div class="user-avatar">{{ (props.session.displayName || props.session.username || 'U').slice(0, 1).toUpperCase() }}</div>
+        <div class="user-info"><div class="user-name">{{ props.session.displayName || props.session.username }}</div><div class="user-role">{{ roleLabel }}</div></div>
         <button class="logout-button" type="button" title="退出登录" aria-label="退出登录" @click="emit('logout')"><el-icon><SwitchButton /></el-icon></button>
       </div>
     </header>

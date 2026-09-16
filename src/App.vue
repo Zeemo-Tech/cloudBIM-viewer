@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   logoutCurrentSession,
+  refreshCurrentSession,
   type AuthSession,
   validateStoredSession,
 } from '@/features/auth/auth.service'
@@ -118,6 +119,16 @@ async function handleLogout() {
   session.value = null
   void router.replace('/')
 }
+
+// Profile and role changes made in the system page are reflected in the header
+// without forcing a reload.
+async function handleSessionUpdated() {
+  try {
+    session.value = await refreshCurrentSession()
+  } catch {
+    // Keep the current session when the server cannot be reached.
+  }
+}
 </script>
 
 <template>
@@ -207,6 +218,7 @@ async function handleLogout() {
     <SystemManagementView
       v-else-if="currentView === 'system' && session"
       :key="routeKey"
+      @session-updated="handleSessionUpdated"
     />
     <UploadView
       v-else

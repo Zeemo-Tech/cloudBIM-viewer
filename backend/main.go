@@ -59,6 +59,8 @@ type User struct {
 	ID           int64     `json:"id"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
+	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 type Asset struct {
@@ -149,7 +151,25 @@ type DBUser struct {
 	ID           int64  `gorm:"primaryKey"`
 	Username     string `gorm:"size:128;uniqueIndex;not null"`
 	PasswordHash string `gorm:"size:255;not null"`
+	DisplayName  string `gorm:"size:128"`
+	Email        string `gorm:"size:160"`
+	Phone        string `gorm:"size:32"`
+	Role         string `gorm:"size:32;index;not null;default:member"`
+	Status       string `gorm:"size:32;index;not null;default:active"`
+	TokenVersion int    `gorm:"not null;default:0"`
+	LastLoginAt  *time.Time
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// DBSystemSetting holds workspace-level configuration that administrators can
+// change at runtime. Values are validated against an allowlist with typed
+// bounds, so a saved row can never widen server limits beyond the env contract.
+type DBSystemSetting struct {
+	Key       string `gorm:"primaryKey;size:64"`
+	Value     string `gorm:"type:text"`
+	UpdatedAt time.Time
+	UpdatedBy int64
 }
 type DBProject struct {
 	ID          int64     `gorm:"primaryKey" json:"id"`
@@ -462,6 +482,9 @@ type app struct {
 	analysisMeshProvider AnalysisMeshProvider
 	analysisC2MProvider  AnalysisC2MProvider
 	meshProviderGate     chan struct{}
+	settingsMu           sync.RWMutex
+	settingsCache        map[string]string
+	startedAt            time.Time
 	db                   *gorm.DB
 	cfg                  config
 	jobs                 chan string
@@ -494,6 +517,8 @@ func newApp(cfg config) *app {
 		jobs:             make(chan string, cfg.WorkerCount*4),
 		meshJobs:         make(chan meshBackgroundJob, cfg.WorkerCount*16),
 		meshProviderGate: make(chan struct{}, 1),
+		settingsCache:    map[string]string{},
+		startedAt:        time.Now(),
 	}
 	a.rebarProvider = MeshServiceRebarComputeProvider{BaseURL: cfg.MeshServiceURL}
 	a.analysisMeshProvider = MeshServiceAnalysisMeshProvider{BaseURL: cfg.MeshServiceURL}
@@ -547,10 +572,13 @@ func (a *app) connectDB() error {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("%s 数据库不可用: %w", a.cfg.DBDriver, err)
 	}
-	if err := db.AutoMigrate(&DBUser{}, &DBProject{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBMeasurement{}); err != nil {
+	if err := db.AutoMigrate(&DBUser{}, &DBProject{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBMeasurement{}, &DBSystemSetting{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	a.db = db
+	if err := a.reloadSettings(); err != nil {
+		return err
+	}
 	if a.cfg.SeedDemo {
 		var count int64
 		if db.Model(&DBUser{}).Where("username = ?", "demo").Count(&count).Error == nil && count == 0 {
@@ -564,6 +592,11 @@ func (a *app) connectDB() error {
 		}
 	}
 	if err := a.reconcileReadyAssets(); err != nil {
+		return err
+	}
+	// The role bootstrap runs after seeding so a freshly created demo user can
+	// still be promoted when the deployment has no administrator yet.
+	if err := a.ensureRoleDefaults(); err != nil {
 		return err
 	}
 	return nil
@@ -736,7 +769,7 @@ func (a *app) authRequired() gin.HandlerFunc {
 		}
 		h := c.GetHeader("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
-			if cookie, err := c.Cookie("cloudbim_session"); err == nil && cookie != "" {
+			if cookie, err := c.Cookie(sessionCookieName); err == nil && cookie != "" {
 				h = "Bearer " + cookie
 			}
 		}
@@ -768,11 +801,60 @@ func (a *app) authRequired() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// The account row is authoritative: token version and status decide
+		// whether a previously issued session is still acceptable.
+		account, err := a.loadAccount(id)
+		if err != nil {
+			fail(c, 401, "账号不存在或已被移除")
+			c.Abort()
+			return
+		}
+		if normalizeUserStatus(account.Status) != userStatusActive {
+			fail(c, 403, "账号已被停用，请联系管理员")
+			c.Abort()
+			return
+		}
+		if tokenVersionClaim(claims) != account.TokenVersion {
+			fail(c, 401, "登录状态已失效，请重新登录")
+			c.Abort()
+			return
+		}
 		c.Set("userID", id)
+		c.Set("userRole", normalizeUserRole(account.Role))
+		if exp, err := claims.GetExpirationTime(); err == nil && exp != nil {
+			c.Set("sessionExpiresAt", exp.Time)
+		}
 		c.Next()
 	}
 }
 func userID(c *gin.Context) int64 { v, _ := c.Get("userID"); id, _ := v.(int64); return id }
+
+// currentRole prefers the role resolved by authRequired. Handlers that are also
+// exercised directly in tests fall back to a database lookup.
+func (a *app) currentRole(c *gin.Context) string {
+	if v, exists := c.Get("userRole"); exists {
+		if role, ok := v.(string); ok && role != "" {
+			return role
+		}
+	}
+	account, err := a.loadAccount(userID(c))
+	if err != nil {
+		return roleMember
+	}
+	return normalizeUserRole(account.Role)
+}
+
+// adminRequired rejects members from workspace administration endpoints.
+func (a *app) adminRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if a.currentRole(c) != roleAdmin {
+			fail(c, 403, "仅管理员可以执行该操作")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
 
 func (a *app) register(c *gin.Context) {
 	var req struct {
@@ -791,6 +873,10 @@ func (a *app) register(c *gin.Context) {
 	name := strings.TrimSpace(req.Username)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if !a.allowRegistration() {
+		fail(c, 403, "当前工作区已关闭自助注册，请联系管理员开通账号")
+		return
+	}
 	var existing DBUser
 	if err := a.db.Where("lower(username) = lower(?)", name).First(&existing).Error; err == nil {
 		fail(c, 409, "用户名已存在")
@@ -804,7 +890,18 @@ func (a *app) register(c *gin.Context) {
 		fail(c, 500, "生成密码摘要失败")
 		return
 	}
-	u := DBUser{Username: name, PasswordHash: string(hash), CreatedAt: time.Now()}
+	// The first account of a workspace becomes its administrator; every later
+	// registration starts as a member and is promoted explicitly.
+	role := roleMember
+	var memberCount int64
+	if err := a.db.Model(&DBUser{}).Count(&memberCount).Error; err != nil {
+		fail(c, 500, "查询账号数量失败")
+		return
+	}
+	if memberCount == 0 {
+		role = roleAdmin
+	}
+	u := DBUser{Username: name, PasswordHash: string(hash), Role: role, Status: userStatusActive, CreatedAt: time.Now()}
 	if err := a.db.Create(&u).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			fail(c, 409, "用户名已存在")
@@ -813,7 +910,7 @@ func (a *app) register(c *gin.Context) {
 		fail(c, 500, "保存用户失败")
 		return
 	}
-	created(c, User{ID: u.ID, Username: u.Username, CreatedAt: u.CreatedAt})
+	created(c, User{ID: u.ID, Username: u.Username, Role: u.Role, Status: u.Status, CreatedAt: u.CreatedAt})
 }
 func (a *app) login(c *gin.Context) {
 	var req struct {
@@ -829,15 +926,39 @@ func (a *app) login(c *gin.Context) {
 		fail(c, 401, "用户名或密码错误")
 		return
 	}
+	if normalizeUserStatus(found.Status) != userStatusActive {
+		fail(c, 403, "账号已被停用，请联系管理员")
+		return
+	}
 	now := time.Now()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": strconv.FormatInt(found.ID, 10), "username": found.Username, "exp": now.Add(a.cfg.JWTExpiresIn).Unix(), "iat": now.Unix()})
-	signed, err := token.SignedString([]byte(a.cfg.JWTSecret))
+	found.LastLoginAt = &now
+	a.db.Model(&DBUser{}).Where("id = ?", found.ID).Updates(map[string]any{"last_login_at": now, "updated_at": now})
+	signed, err := a.issueSession(c, found, now)
 	if err != nil {
 		fail(c, 500, "生成 token 失败")
 		return
 	}
+	ok(c, gin.H{"token": signed, "role": normalizeUserRole(found.Role), "expiresAt": now.Add(a.cfg.JWTExpiresIn)})
+}
+
+// issueSession signs a JWT that pins the account's current token version and
+// writes the session cookie. Bumping DBUser.TokenVersion therefore invalidates
+// every token that was issued earlier.
+func (a *app) issueSession(c *gin.Context, account DBUser, now time.Time) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":      strconv.FormatInt(account.ID, 10),
+		"username": account.Username,
+		"role":     normalizeUserRole(account.Role),
+		"ver":      strconv.Itoa(account.TokenVersion),
+		"exp":      now.Add(a.cfg.JWTExpiresIn).Unix(),
+		"iat":      now.Unix(),
+	})
+	signed, err := token.SignedString([]byte(a.cfg.JWTSecret))
+	if err != nil {
+		return "", err
+	}
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     "cloudbim_session",
+		Name:     sessionCookieName,
 		Value:    signed,
 		Path:     "/",
 		MaxAge:   int(a.cfg.JWTExpiresIn.Seconds()),
@@ -845,12 +966,21 @@ func (a *app) login(c *gin.Context) {
 		Secure:   a.cfg.Environment == "production",
 		SameSite: http.SameSiteLaxMode,
 	})
-	ok(c, gin.H{})
+	return signed, nil
+}
+
+// revokeSessions invalidates every session of an account, including the caller's
+// own token, by advancing the token version.
+func (a *app) revokeSessions(c *gin.Context, accountID int64) error {
+	return a.db.Model(&DBUser{}).Where("id = ?", accountID).Updates(map[string]any{
+		"token_version": gorm.Expr("token_version + 1"),
+		"updated_at":    time.Now(),
+	}).Error
 }
 
 func (a *app) logout(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     "cloudbim_session",
+		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
@@ -866,7 +996,132 @@ func (a *app) me(c *gin.Context) {
 		fail(c, 404, "用户不存在")
 		return
 	}
-	ok(c, gin.H{"id": u.ID, "username": u.Username})
+	var projectCount, assetCount, alignmentCount int64
+	a.db.Model(&DBProject{}).Where("owner_id = ?", u.ID).Count(&projectCount)
+	a.db.Model(&DBAsset{}).Where("owner_id = ?", u.ID).Count(&assetCount)
+	a.db.Model(&DBAlignment{}).Where("owner_id = ?", u.ID).Count(&alignmentCount)
+	ok(c, gin.H{
+		"id": u.ID, "username": u.Username, "displayName": u.DisplayName, "email": u.Email,
+		"phone": u.Phone, "role": normalizeUserRole(u.Role), "status": normalizeUserStatus(u.Status),
+		"createdAt": u.CreatedAt, "updatedAt": u.UpdatedAt,
+		"lastLoginAt": u.LastLoginAt, "projectCount": projectCount, "assetCount": assetCount,
+		"alignmentCount": alignmentCount,
+	})
+}
+
+func (a *app) updateProfile(c *gin.Context) {
+	var req struct {
+		DisplayName string `json:"displayName"`
+		Email       string `json:"email"`
+		Phone       string `json:"phone"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, "资料参数格式不正确")
+		return
+	}
+	displayName := strings.TrimSpace(req.DisplayName)
+	email := strings.TrimSpace(req.Email)
+	phone := strings.TrimSpace(req.Phone)
+	if len([]rune(displayName)) > 128 || len([]rune(email)) > 160 || len([]rune(phone)) > 32 {
+		fail(c, 400, "资料长度超出限制")
+		return
+	}
+	if email != "" && (!strings.Contains(email, "@") || strings.ContainsAny(email, "\\r\\n")) {
+		fail(c, 400, "邮箱格式不正确")
+		return
+	}
+	now := time.Now()
+	updates := map[string]any{"display_name": displayName, "email": email, "phone": phone, "updated_at": now}
+	if err := a.db.Model(&DBUser{}).Where("id = ?", userID(c)).Updates(updates).Error; err != nil {
+		fail(c, 500, "保存账号资料失败")
+		return
+	}
+	a.me(c)
+}
+
+func (a *app) changePassword(c *gin.Context) {
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.NewPassword) < 6 {
+		fail(c, 400, "新密码至少需要 6 位")
+		return
+	}
+	if len(req.NewPassword) > 128 {
+		fail(c, 400, "新密码长度超出限制")
+		return
+	}
+	if req.NewPassword == req.CurrentPassword {
+		fail(c, 400, "新密码不能与当前密码相同")
+		return
+	}
+	var u DBUser
+	if err := a.db.First(&u, userID(c)).Error; err != nil {
+		fail(c, 404, "用户不存在")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.CurrentPassword)) != nil {
+		fail(c, 400, "当前密码不正确")
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		fail(c, 500, "生成新密码失败")
+		return
+	}
+	now := time.Now()
+	// Changing the password ends every other session; the caller receives a
+	// freshly signed token so this browser is not logged out.
+	if err := a.db.Model(&DBUser{}).Where("id = ?", u.ID).Updates(map[string]any{
+		"password_hash": string(hash),
+		"token_version": gorm.Expr("token_version + 1"),
+		"updated_at":    now,
+	}).Error; err != nil {
+		fail(c, 500, "保存新密码失败")
+		return
+	}
+	u.PasswordHash, u.TokenVersion = string(hash), u.TokenVersion+1
+	signed, err := a.issueSession(c, u, now)
+	if err != nil {
+		fail(c, 500, "生成新会话失败")
+		return
+	}
+	ok(c, gin.H{"changedAt": now, "token": signed, "revokedOtherSessions": true})
+}
+
+// revokeOtherSessions keeps the caller signed in while terminating every other
+// session. Confirming with the current password prevents a borrowed session from
+// silently locking the owner out.
+func (a *app) revokeOtherSessions(c *gin.Context) {
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.CurrentPassword) == "" {
+		fail(c, 400, "请输入当前密码以确认操作")
+		return
+	}
+	var u DBUser
+	if err := a.db.First(&u, userID(c)).Error; err != nil {
+		fail(c, 404, "用户不存在")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.CurrentPassword)) != nil {
+		fail(c, 400, "当前密码不正确")
+		return
+	}
+	if err := a.revokeSessions(c, u.ID); err != nil {
+		fail(c, 500, "结束其他会话失败")
+		return
+	}
+	now := time.Now()
+	u.TokenVersion++
+	signed, err := a.issueSession(c, u, now)
+	if err != nil {
+		fail(c, 500, "生成新会话失败")
+		return
+	}
+	ok(c, gin.H{"revokedAt": now, "token": signed})
 }
 
 func (a *app) ensureProject(ownerID int64, projectID int64) (DBProject, error) {
@@ -1039,7 +1294,7 @@ func (a *app) createUpload(c *gin.Context) {
 		fail(c, 400, "Upload-Length 非法")
 		return
 	}
-	if length > a.cfg.UploadFileLimit {
+	if length > a.uploadFileLimit() {
 		fail(c, 413, "文件超过服务器允许的最大大小")
 		return
 	}
@@ -4798,7 +5053,16 @@ func main() {
 	auth.POST("/login", a.login)
 	auth.POST("/logout", a.logout)
 	auth.GET("/me", a.authRequired(), a.me)
+	auth.PATCH("/profile", a.authRequired(), a.updateProfile)
+	auth.POST("/password", a.authRequired(), a.changePassword)
+	auth.POST("/sessions/revoke", a.authRequired(), a.revokeOtherSessions)
 	r.Use(a.authRequired())
+	r.GET("/system/info", a.systemInfo)
+	r.GET("/system/settings", a.adminRequired(), a.getSettings)
+	r.PATCH("/system/settings", a.adminRequired(), a.updateSettings)
+	r.GET("/system/members", a.listMembers)
+	r.PATCH("/system/members/:id", a.adminRequired(), a.updateMember)
+	r.DELETE("/system/members/:id", a.adminRequired(), a.deleteMember)
 	r.GET("/projects", a.listProjects)
 	r.POST("/projects", a.createProject)
 	r.PATCH("/projects/:id", a.updateProject)
