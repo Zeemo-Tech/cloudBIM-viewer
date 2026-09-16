@@ -2791,6 +2791,10 @@ let orthoViewSize = 10
 let bimLoadToken = 0
 let pointcloudLoadToken = 0
 let pointcloudRootReady = false
+// Do not present the intermediate BIM-only camera pose while the point cloud
+// and saved alignment are still being restored. The first visible frame should
+// already represent the final combined scene.
+let initialSceneReady = false
 let loggedSavedAlignmentKey = ''
 let restoredSavedAlignmentKey = ''
 let raycaster: THREE.Raycaster | null = null
@@ -3287,19 +3291,39 @@ function syncGridVisibility() {
   }
 }
 
+function isObjectEffectivelyVisible(object: THREE.Object3D | null) {
+  if (!object) return false
+  let current: THREE.Object3D | null = object
+  while (current && current !== scene) {
+    if (!current.visible) return false
+    current = current.parent
+  }
+  return object.visible
+}
+
+function getVisibleSceneObjects() {
+  const candidates: Array<THREE.Object3D | null> = [
+    bimPivot,
+    pointcloudWrapper,
+    c2mSceneGroup,
+    remeshSceneGroup,
+    denoisePreview,
+  ]
+  return candidates.filter((object): object is THREE.Object3D => isObjectEffectivelyVisible(object))
+}
+
 function updateGridPlacement() {
   if (!gridHelper || !contentGroup) return
 
-  const placementTarget =
-    pointcloudWrapper ?? (contentGroup.children.length ? contentGroup : null)
-
-  if (!placementTarget) {
+  const objects = getVisibleSceneObjects()
+  if (!objects.length) {
     gridHelper.position.set(0, -10.01, 0)
     return
   }
 
-  placementTarget.updateMatrixWorld(true)
-  const box = new THREE.Box3().setFromObject(placementTarget)
+  contentGroup.updateMatrixWorld(true)
+  const box = new THREE.Box3()
+  objects.forEach((object) => box.union(new THREE.Box3().setFromObject(object)))
   if (box.isEmpty()) {
     gridHelper.position.set(0, -10.01, 0)
     return
@@ -3308,6 +3332,9 @@ function updateGridPlacement() {
   const center = box.getCenter(new THREE.Vector3())
   const size = box.getSize(new THREE.Vector3())
   const offset = Math.max(10.5, size.y * 0.01)
+  // Keep the original fixed grid appearance. The helper is only repositioned,
+  // never rebuilt during interaction, so panning/zooming cannot flash an
+  // old/new grid pair.
   gridHelper.position.set(center.x, box.min.y - offset, center.z)
 }
 
@@ -4631,18 +4658,9 @@ function endClipDrag(ev?: PointerEvent) {
 
 function getVisibleContentBox() {
   const box = new THREE.Box3()
-  let hasAny = false
-
-  if (bimPivot?.visible) {
-    box.expandByObject(bimPivot)
-    hasAny = true
-  }
-  if (pointcloudGroup?.visible) {
-    box.expandByObject(pointcloudGroup)
-    hasAny = true
-  }
-
-  return hasAny ? box : null
+  const objects = getVisibleSceneObjects()
+  objects.forEach((object) => box.expandByObject(object))
+  return objects.length && !box.isEmpty() ? box : null
 }
 
 function updateOrthographicFrustum() {
@@ -4734,6 +4752,10 @@ function requestRender() {
         c2mTileset!.setResolutionFromRenderer?.(activeCamera!, renderer! as THREE.WebGLRenderer)
         c2mTileset!.update()
       })
+    }
+
+    if (!initialSceneReady) {
+      return
     }
 
     syncBoundsHelpers()
@@ -6971,6 +6993,16 @@ function buildAlignmentMatrix(alignment: BimAlignmentResult) {
   return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(1, 1, 1))
 }
 
+function revealInitialSceneWhenReady() {
+  if (initialSceneReady || !bimPivot) return
+  const needsPointcloud = Boolean(props.pointcloudAssetId)
+  if (needsPointcloud && (!pointcloudRootReady || !loggedSavedAlignmentKey)) return
+  initialSceneReady = true
+  fitCameraToContent()
+  syncBoundsHelpers()
+  requestRender()
+}
+
 function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
   if (!bimPivot || !pointcloudWrapper || !pointcloudGroup || !pointcloudRootReady) {
     return false
@@ -7070,6 +7102,7 @@ async function fetchAndLogSavedAlignmentIfExists() {
       if (status === 400 || status === 404) {
         hasSavedAlignmentMatrix.value = false
         loggedSavedAlignmentKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
+        revealInitialSceneWhenReady()
         return
       }
 
@@ -7084,6 +7117,7 @@ async function fetchAndLogSavedAlignmentIfExists() {
 
   const logKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
   if (loggedSavedAlignmentKey === logKey) {
+    revealInitialSceneWhenReady()
     return
   }
 
@@ -7092,11 +7126,15 @@ async function fetchAndLogSavedAlignmentIfExists() {
     logBimRelativeTransform()
     if (restored) {
       loggedSavedAlignmentKey = logKey
+      revealInitialSceneWhenReady()
     } else {
       window.setTimeout(() => {
         void fetchAndLogSavedAlignmentIfExists()
       }, 250)
     }
+  } else {
+    loggedSavedAlignmentKey = logKey
+    revealInitialSceneWhenReady()
   }
 }
 
@@ -7330,6 +7368,7 @@ async function handleLoadBimFromApi(silent = false) {
   await initScene()
   if (!scene || !contentGroup) return
   const nextContentGroup = contentGroup
+  initialSceneReady = false
 
   const token = ++bimLoadToken
   loadingBim.value = true
@@ -7405,6 +7444,7 @@ async function handleLoadBimFromApi(silent = false) {
           applyClippingState()
           syncBoundsHelpers()
           fitCameraToObject(bimPivot)
+          revealInitialSceneWhenReady()
           // 粗配准默认选中 BIM 几何载体，视口显示组合平移/旋转 Gizmo。
           if (editMode.value) {
             selectSceneObject('bim', { enableEdit: true })
@@ -7468,6 +7508,7 @@ async function handleLoadPointCloudFromApi(silent = false) {
   await initScene()
   if (!scene || !contentGroup || !activeCamera || !renderer) return
   const nextContentGroup = contentGroup
+  initialSceneReady = false
 
   const token = ++pointcloudLoadToken
   loadingPointcloud.value = true
