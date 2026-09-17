@@ -36,3 +36,8 @@ __pycache__/
 .cloudbim/
 .firecrawl/
 .playwright-mcp/
+
+# Local UI review screenshots and algorithm replay dumps
+docs/design/reviews/**/*.png
+docs/development/assets/**/*.png
+docs/research/assets/**/*.{png,npz}
