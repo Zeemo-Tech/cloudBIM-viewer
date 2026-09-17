@@ -1,6 +1,6 @@
 {
   "name": "@cloudbim/pointcloud-preview",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CloudBIM 扫描点云预览页：3D Tiles 加载、分类着色、EDL 渲染与测量。",
   "type": "module",
   "sideEffects": [
@@ -26,7 +26,7 @@
     "prepack": "vite build"
   },
   "dependencies": {
-    "@cloudbim/viewer-core": "^0.2.0"
+    "@cloudbim/viewer-core": "^0.3.0"
   },
   "peerDependencies": {
     "@element-plus/icons-vue": "^2.3.1",

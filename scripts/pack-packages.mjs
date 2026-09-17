@@ -228,6 +228,10 @@ writeFileSync(join(outputDir, 'manifest.json'), `${JSON.stringify(manifest, null
 /* ------------------------------------------------------- 安装脚本与说明 --- */
 
 copyFileSync(join(root, 'scripts', 'install-cloudbim.mjs'), join(outputDir, 'install.mjs'))
+// 完整接入教程随交付目录一起发出：对方拿到 dist-packages 就有全套说明。
+const tutorialSource = join(root, 'docs', 'development', 'packages-tutorial.md')
+const hasTutorial = statSync(tutorialSource, { throwIfNoEntry: false })?.isFile() ?? false
+if (hasTutorial) copyFileSync(tutorialSource, join(outputDir, 'TUTORIAL.md'))
 writeFileSync(
   join(outputDir, 'install.sh'),
   `#!/bin/sh
@@ -347,12 +351,19 @@ node /path/to/dist-packages/install.mjs
 | --- | --- |
 | \`cloudbim-*.tgz\` | ${packages.length} 个可 \`npm install\` 的 tarball |
 | \`manifest.json\` | 包清单：名称、版本、体积、sha256、peer 范围、接口依赖 |
-| \`install.mjs\` / \`install.sh\` | 宿主侧一键安装脚本 |
+| \`install.mjs\` / \`install.sh\` | 宿主侧一键安装脚本（支持 --features 按功能装） |
+| \`TUTORIAL.md\` | **完整接入教程**：五分钟上手、按需选装、各页面 props、后端接口、排错手册 |
 | \`${dracoPath}/\` | three 的 Draco 解码器（${dracoFiles.length} 个文件） |
 | \`example/\` | 可运行的接入示例：\`cd example && npm install && npm run dev\` |
 | \`README.md\` | 本文件 |
 
 ## 别人怎么用：三步
+
+> 📘 完整教程见 **\`TUTORIAL.md\`**（按需选装、各页面 props/事件表、后端接口清单、排错手册）。
+> 下面是最短路径。
+
+> 📘 完整教程见 **\`TUTORIAL.md\`**（含按需选装、各页面 props/事件表、后端接口清单与排错手册）。
+> 下面是最短路径。
 
 ### 第一步：装进你的项目
 

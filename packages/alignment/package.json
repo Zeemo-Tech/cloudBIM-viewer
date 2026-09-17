@@ -1,6 +1,6 @@
 {
   "name": "@cloudbim/alignment",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CloudBIM 配准与分析工作区：粗配准、精细配准、去噪、C2M 距离分析与钢筋对比。",
   "type": "module",
   "sideEffects": [
@@ -26,8 +26,8 @@
     "prepack": "vite build"
   },
   "dependencies": {
-    "@cloudbim/denoise": "^0.2.0",
-    "@cloudbim/viewer-core": "^0.2.0"
+    "@cloudbim/denoise": "^0.3.0",
+    "@cloudbim/viewer-core": "^0.3.0"
   },
   "peerDependencies": {
     "@element-plus/icons-vue": "^2.3.1",

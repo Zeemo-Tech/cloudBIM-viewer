@@ -1,6 +1,6 @@
 {
   "name": "@cloudbim/bim-preview",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CloudBIM 设计模型预览页：IFC/GLB 加载、剖切、重网格化状态与测量。",
   "type": "module",
   "sideEffects": [
@@ -26,7 +26,7 @@
     "prepack": "vite build"
   },
   "dependencies": {
-    "@cloudbim/viewer-core": "^0.2.0"
+    "@cloudbim/viewer-core": "^0.3.0"
   },
   "peerDependencies": {
     "@element-plus/icons-vue": "^2.3.1",

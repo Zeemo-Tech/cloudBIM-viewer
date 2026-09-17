@@ -1,6 +1,6 @@
 {
   "name": "@cloudbim/viewer-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CloudBIM 查看器内核：Three.js 场景、点云与模型渲染、测量工具、后端 API 客户端与设计令牌。",
   "type": "module",
   "sideEffects": [

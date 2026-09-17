@@ -685,8 +685,10 @@ const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFre
 const comparison = computed(() => canUseC2MResult.value ? c2mResult.value?.diagnostics?.rebarComparison : undefined)
 const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value?.bars ?? [], c2mDistances.value, c2mToleranceMm.value / 1000))
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
-// dev-hong report pagination: 14 bars per report page, configurable detail page size.
-const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / 14) }, (_, page) => comparisonBars.value.slice(page * 14, (page + 1) * 14)))
+// 逐钢筋偏差明细沿用 chen 分支的分页：每页一根钢筋，便于逐根核对；
+// dev-hong 的逐钢筋投影页仍按 reportBarsPerPage 单独分页。
+const REPORT_ROWS_PER_PAGE = 1
+const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
 const reportBarsPerPage = ref(2)
 const comparisonDetailPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / reportBarsPerPage.value) }, (_, page) => comparisonBars.value.slice(page * reportBarsPerPage.value, (page + 1) * reportBarsPerPage.value)))
 const comparisonMeasurementLabel = computed(() => {
@@ -932,18 +934,54 @@ function applyComparisonSelection() {
   const debugging = rebarDebugActive.value
   const bar = debugging ? rebarDebugBar.value : selectedComparisonBar.value
   const resultBar = comparison.value?.bars.find(row => row.ifcGlobalId === bar?.ifcGlobalId)
+  const comparisonResult = comparison.value
+  // 巡检沿用手动巡视的阅读方式：所有钢筋保持可见，只把非选中钢筋变暗；
+  // 逐根对比的高亮过滤只在调试面板里生效。
+  const inspectionSelected = !debugging && rebarInspectionActive.value
+  const visibleInstanceIds = inspectionSelected ? (bar?.instanceIds ?? []) : undefined
   if (denoisePreview && activeWorkflowStep.value >= 3) {
     const ids = debugging ? !bar ? [] : rebarDebugCluster.value === 'review' ? bar.reviewInstanceIds ?? []
-      : rebarDebugCluster.value === 'all' ? [...bar.instanceIds, ...(bar.reviewInstanceIds ?? [])] : bar.instanceIds : bar?.instanceIds
-    denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(denoisePreview.geometry, 'classes', [3], ids)
+      : rebarDebugCluster.value === 'all' ? [...bar.instanceIds, ...(bar.reviewInstanceIds ?? [])] : bar.instanceIds : visibleInstanceIds
+    denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(
+      denoisePreview.geometry,
+      'cleaned',
+      [3],
+      ids,
+      { dimUnselected: inspectionSelected },
+    )
   }
-  if (c2mSceneGroup && comparison.value) c2mSceneGroup.traverse(object => {
+  if (c2mSceneGroup && comparisonResult) c2mSceneGroup.traverse(object => {
     if (!(object instanceof THREE.Mesh)) return
+    if (c2mAnalysisSession) {
+      // 分析网格逐构件加载，直接改顶点色即可在不隐藏任何构件的前提下变暗。
+      const colors = object.geometry.getAttribute('color')
+      if (colors) {
+        if (!c2mOriginalVertexColors.has(object.geometry)) c2mOriginalVertexColors.set(object.geometry, new Float32Array(colors.array as ArrayLike<number>))
+        const original = c2mOriginalVertexColors.get(object.geometry)!
+        const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
+        const next = new Float32Array(original)
+        const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+        if (inspectionSelected && isComparisonRebar && !matched) {
+          const dimColor = new THREE.Color('#8b97a8')
+          for (let index = 0; index < colors.count; index += 1) dimColor.toArray(next, index * 3)
+        }
+        colors.array.set(next)
+        colors.needsUpdate = true
+      }
+    } else {
+      // 兼容 PLY 把所有钢筋放在同一条顶点流里，按顶点区间保留选中钢筋的偏差色。
+      dimComparisonGeometry(object.geometry, inspectionSelected ? bar : undefined)
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      materials.forEach(item => {
+        item.needsUpdate = true
+      })
+    }
+    if (!debugging) return
     filterComparisonGeometry(object.geometry, resultBar)
-    if (debugging && !resultBar) object.geometry.setIndex([])
+    if (!resultBar) object.geometry.setIndex([])
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
       if (!(material instanceof THREE.MeshBasicMaterial)) continue
-      if (debugging && rebarDebugSurface.value === 'mesh') {
+      if (rebarDebugSurface.value === 'mesh') {
         if (!rebarDebugMaterials.has(material)) rebarDebugMaterials.set(material, { vertexColors: material.vertexColors, color: material.color.clone() })
         material.vertexColors = false; material.color.set('#cbd5e1'); material.needsUpdate = true
       } else {
@@ -952,6 +990,45 @@ function applyComparisonSelection() {
       }
     }
   })
+  if (!debugging && c2mAnalysisSession && comparisonResult) {
+    comparisonResult.bars.forEach(item => {
+      c2mAnalysisSession?.setComponentVisible(item.ifcGlobalId, true)
+    })
+  }
+  if (!debugging && bimPivot && comparisonResult && activeWorkflowStep.value >= 3) {
+    bimPivot.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return
+      const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
+      const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+      // GLTF 常把同一份材质共享给多根钢筋，改色前必须逐网格克隆。
+      if (!object.userData.__rebarInspectionMaterialsCloned) {
+        const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material]
+        const clonedMaterials = sourceMaterials.map(material => material.clone())
+        object.material = Array.isArray(object.material) ? clonedMaterials : clonedMaterials[0]
+        object.userData.__rebarInspectionMaterialsCloned = true
+      }
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      materials.forEach(item => {
+        const material = item as THREE.MeshStandardMaterial
+        if (!('color' in material) || !material.color?.isColor) return
+        if (!rebarInspectionMaterialState.has(material)) {
+          rebarInspectionMaterialState.set(material, {
+            color: material.color.clone(),
+            opacity: material.opacity,
+            transparent: material.transparent,
+            depthWrite: material.depthWrite,
+          })
+        }
+        const saved = rebarInspectionMaterialState.get(material)
+        if (inspectionSelected && isComparisonRebar && !matched) material.color.set('#8b97a8')
+        else if (saved?.color) material.color.copy(saved.color)
+        material.opacity = saved?.opacity ?? 1
+        material.transparent = saved?.transparent ?? false
+        material.depthWrite = saved?.depthWrite ?? true
+        material.needsUpdate = true
+      })
+    })
+  }
   updateRebarDebugOverlay()
   if (rebarDebugFocusPending && rebarDebugBounds()) { rebarDebugFocusPending = false; focusRebarDebug() }
   requestRender()
@@ -1624,6 +1701,9 @@ function previewC2MVisualization() {
     c2mColorMode.value === 'discrete', c2mBandCount.value,
   )
   rememberComparisonGeometryColors(mesh.geometry)
+  // 两条着色路径都必须刷新顶点色基线，否则退出巡检时会把偏差色恢复成着色前的原色。
+  const c2mColors = mesh.geometry.getAttribute('color')
+  if (c2mColors) c2mOriginalVertexColors.set(mesh.geometry, new Float32Array(c2mColors.array as ArrayLike<number>))
   applyComparisonSelection()
   requestRender()
 }
@@ -1649,6 +1729,8 @@ function recolorAnalysisC2MScene() {
     applyAnalysisC2MVertexColors(mesh.geometry, distances)
     const colors = mesh.geometry.getAttribute('color')
     if (colors) c2mOriginalVertexColors.set(mesh.geometry, new Float32Array(colors.array as ArrayLike<number>))
+    // dimComparisonGeometry 恢复颜色时依赖这份基线，缺了它会把顶点色整体删掉。
+    rememberComparisonGeometryColors(mesh.geometry)
     if (Array.isArray(mesh.material)) mesh.material.forEach((material) => { material.needsUpdate = true })
     else mesh.material.needsUpdate = true
   })
@@ -2418,6 +2500,8 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
           applyAnalysisC2MVertexColors(mesh.geometry, distances)
           const colors = mesh.geometry.getAttribute('color')
           if (colors) c2mOriginalVertexColors.set(mesh.geometry, new Float32Array(colors.array as ArrayLike<number>))
+          // dimComparisonGeometry 恢复颜色时依赖这份基线，缺了它会把顶点色整体删掉。
+          rememberComparisonGeometryColors(mesh.geometry)
           applyComparisonSelection()
           requestRender()
       }
@@ -6873,11 +6957,12 @@ function applySceneVisibility() {
   if (remeshSceneGroup) remeshSceneGroup.visible = !steelOnly && !c2mSceneActive.value
   if (denoisePreview) {
     denoisePreview.visible = rebarDebugActive.value ? rebarDebugScan.value : pointcloudVisible.value && (steelOnly || denoiseView.value !== 'source')
-    // Keep the cleaned scan neutral so instance colors do not compete with the deviation map.
+    // 偏差对比步骤保留扫描实例配色，便于与偏差色网格逐根对照；
+    // 若强制中性灰（#86898D + vertexColors=false）会让第三步点云看起来「没颜色」。
     const material = denoisePreview.material
-    material.color.set(steelOnly ? '#86898D' : '#ffffff')
-    if (material.vertexColors !== !steelOnly) {
-      material.vertexColors = !steelOnly
+    material.color.set('#ffffff')
+    if (!material.vertexColors) {
+      material.vertexColors = true
       material.needsUpdate = true
     }
   }
@@ -8546,11 +8631,31 @@ onBeforeUnmount(() => {
             <footer>第 2 页 · 分析摘要</footer>
           </article>
         </div>
-        <div v-for="(bars, page) in comparisonReportPages" :key="page" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-for="(bars, page) in comparisonReportPages" :key="`table-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <nav v-if="comparisonReportPageCount > 1 && page === comparisonReportPageIndex" class="rebar-report-page-nav" aria-label="表格翻页">
+            <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonReportPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
+            <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonReportPageCount }} 页</strong><small>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }}</small></span>
+            <button type="button" aria-label="下一页" title="下一页" :disabled="page >= comparisonReportPageCount - 1" @click="changeComparisonReportPage(1)"><el-icon><ArrowRight /></el-icon></button>
+          </nav>
           <article class="report-preview-page rebar-report-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <h2>逐钢筋偏差明细</h2>
-            <p>{{ reportProjectName }} · 容差 ±{{ comparisonReportToleranceMm }} mm · 已排除设计夹具</p>
-            <p>{{ comparisonMeasurementLabel }}。覆盖率与容差内比例分列；缺测、待复核项不出具偏差结论。</p>
+            <header class="report-preview-page__header">
+              <div class="report-preview-mark"><img :src="'/favicon.ico'" alt="系统标识" /></div>
+              <div>
+                <strong>{{ reportTitle }}</strong>
+                <span>{{ reportProjectName }}</span>
+              </div>
+              <small>REPORT / 001 · {{ page + 2 }} / {{ comparisonReportTotalPages }}</small>
+            </header>
+            <div class="rebar-report-heading">
+              <div>
+                <h2>逐钢筋偏差明细</h2>
+              </div>
+            </div>
+            <div class="rebar-report-meta">
+              <span>容差 <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
+              <span>测量方向 <strong>设计顶点 → 对应扫描实例最近点</strong></span>
+              <span>已排除设计夹具</span>
+            </div>
             <table class="rebar-report-table">
               <colgroup><col class="rebar-report-table__member" /><col class="rebar-report-table__status" /><col class="rebar-report-table__coverage" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__tolerance" /></colgroup>
               <thead><tr><th scope="col">钢筋信息</th><th scope="col">状态 / 点数</th><th scope="col">覆盖率</th><th scope="col">平均绝对偏差<br /><small>mm</small></th><th scope="col">RMSE<br /><small>mm</small></th><th scope="col">P95 绝对偏差<br /><small>mm</small></th><th scope="col">容差内<br /><small>已覆盖</small></th></tr></thead>
@@ -8564,8 +8669,22 @@ onBeforeUnmount(() => {
                 <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
               </tr></tbody>
             </table>
-            <p class="rebar-report-provenance">结果版本：{{ c2mResult?.resultVersion }}<br />实例映射：{{ comparison?.instanceMapHash }}</p>
-            <footer>第 {{ page + 3 }} 页 · 钢筋 {{ page * 14 + 1 }}–{{ page * 14 + bars.length }} / {{ comparisonBars.length }}</footer>
+            <div v-if="bars[0]?.status === 'matched'" class="rebar-report-inline-views" aria-label="对应钢筋构件三视图">
+              <div class="rebar-report-view-guide" aria-label="三视图图例">
+                <span><i class="rebar-report-view-guide__swatch is-design"></i><b>蓝色实体/轮廓</b> BIM 设计模型</span>
+                <span><i class="rebar-report-view-guide__swatch is-scan"></i><b>绿色离散点</b> 当前钢筋实测点云</span>
+                <span><i class="rebar-report-view-guide__swatch is-axis"></i><b>橙色虚线</b> 设计轴（正视/俯视）</span>
+              </div>
+              <section v-for="bar in bars" :key="`inline-view-${bar.ifcGlobalId}`" class="rebar-report-inline-card">
+                <div class="rebar-report-views" aria-label="钢筋构件三视图">
+                  <div v-for="projection in (['front', 'top', 'side'] as ReportViewProjection[])" :key="projection" class="rebar-report-view">
+                    <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}</strong>
+                    <svg :key="reportSvgRevision" class="rebar-report-model-svg" viewBox="0 0 400 760" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`${reportViewLabel(projection)}设计与实测偏差视图`" v-html="reportSvgFor(bar.ifcGlobalId, projection)"></svg>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差与构件三视图报告</span><span>钢筋 {{ page + 1 }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
           </article>
         </div>
         <div v-for="(bars, page) in comparisonDetailPages" :key="`detail-${page}`" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">

@@ -1,6 +1,6 @@
 {
   "name": "@cloudbim/denoise",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CloudBIM 设计辅助点云去噪页：基于 BIM 设计识别钢筋、夹具与噪声，按类别或实例查看并导出清洗后的钢筋点云。",
   "type": "module",
   "sideEffects": [
@@ -26,7 +26,7 @@
     "prepack": "vite build"
   },
   "dependencies": {
-    "@cloudbim/viewer-core": "^0.2.0"
+    "@cloudbim/viewer-core": "^0.3.0"
   },
   "peerDependencies": {
     "@element-plus/icons-vue": "^2.3.1",

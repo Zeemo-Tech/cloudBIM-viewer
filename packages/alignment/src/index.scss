@@ -4873,7 +4873,7 @@
 .calibration-page .rebar-report-view { min-width: 0; }
 .calibration-page .rebar-report-view svg { width: 100%; height: auto; display: block; }
 .calibration-page .rebar-report-table__number { text-align: center !important; font-family: var(--font-family-number); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.calibration-page .rebar-report-inline-views { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; margin-top: 14px; padding-top: 10px; border-top: 1px solid #c7d8ed; }
+.calibration-page .rebar-report-inline-views { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; padding-top: 10px;  }
 .calibration-page .rebar-report-view-guide { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 16px; flex: 0 0 auto; margin: 0 0 10px; padding: 7px 10px; border: 1px solid #c7d8ed; border-radius: 4px; color: #526b86; background: #f3f7fc; font-size: 12px; line-height: 1.35; }
 .calibration-page .rebar-report-view-guide > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .calibration-page .rebar-report-view-guide b { color: #315b87; font-weight: 750; }
@@ -4949,3 +4949,411 @@
 .calibration-page .rebar-projection-page__bars > section + section { padding-top: 16px; border-top: 1px solid var(--border-color); }
 .calibration-page .rebar-export-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .calibration-page .rebar-export-actions .el-button + .el-button { margin-left: 0; }
+
+
+/* === 合并自 dev-hong：先前遗漏的样式块（0.3.0 修复）=== */
+.calibration-page .alignment-workflow-step.is-active,
+
+.calibration-page .alignment-workflow-step.is-active:hover:not(:disabled) {
+  z-index: 2;
+  color: #fff;
+  background: var(--color-primary);
+}
+
+
+.calibration-page .report-reader-toolbar button,
+
+.calibration-page .report-reader-toolbar button:hover:not(:disabled),
+
+.calibration-page .report-reader-format {
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  font-size: 12px;
+}
+
+
+.calibration-page .cover-status > span { width: 8px; height: 28px; background: #2ca66f; }
+
+.pointcloud-tools-popover {
+  display: grid;
+  gap: 16px;
+  color: var(--text-primary);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+}
+
+.pointcloud-tools-popover .pointcloud-display-row { display: grid; gap: 8px; }
+
+.pointcloud-tools-popover .pointcloud-segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-page);
+}
+
+.pointcloud-tools-popover .pointcloud-segmented button {
+  flex: 1;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pointcloud-tools-popover .pointcloud-segmented button.on,
+
+.pointcloud-tools-popover .pointcloud-segmented button:hover { background: var(--color-primary-soft); color: var(--color-primary); }
+
+.pointcloud-tools-popover .pointcloud-size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.pointcloud-tools-popover .pointcloud-size-control input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.pointcloud-tools-popover output { min-width: 40px; font-variant-numeric: tabular-nums; }
+
+.pointcloud-tools-popover :is(button, input):focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+
+.calibration-page .rebar-report-page { gap: 14px; }
+
+.calibration-page .rebar-report-page h2 { margin: 0; font-size: 22px; }
+
+.calibration-page .rebar-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  th, td { padding: 7px 4px; border: 1px solid #d7e1ed; text-align: left; }
+  th { background: #eef4fa; }
+  small { display: block; font-size: 9px; overflow-wrap: anywhere; }
+  td:first-child { max-width: 160px; overflow-wrap: anywhere; }
+}
+
+.calibration-page .c2m-setting-row.c2m-setting-row--plain {
+  grid-template-columns: minmax(0, 1fr) 104px;
+  column-gap: 12px;
+}
+
+.calibration-page .c2m-setting-row--plain > :first-child {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.calibration-page .c2m-setting-row--plain > :deep(.el-input-number) { width: 104px; justify-self: end; }
+
+.calibration-page .alignment-workflow-step:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -3px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.calibration-page :is(button, summary, [contenteditable="true"]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.calibration-page .main-content.is-panel-hidden .right-panel-toggle { right: 8px; }
+
+.calibration-page .right-panel-toggle,
+
+.calibration-page .right-panel-toggle:hover,
+
+.calibration-page .pointcloud-view-cube { right: 56px; }
+
+.calibration-page .right-panel.control-panel.is-workflow-panel,
+
+.calibration-page .right-panel.control-panel.is-workflow-panel :deep(.el-button),
+
+.calibration-page .right-panel.control-panel.is-workflow-panel :deep(.el-button:not(.is-circle)),
+
+.calibration-page .registration-edit-panel .step-control-label,
+
+.calibration-page .registration-edit-panel .slider__hint { font-size: 12px; }
+
+.calibration-page .control-panel-header .panel-heading strong { font-size: 14px; }
+
+.calibration-page .control-panel .rebar-comparison-card {
+  padding: 16px 0;
+  border: 0;
+  border-block: 1px solid var(--border-color-light);
+  border-radius: 0;
+  background: transparent;
+}
+
+.calibration-page .report-local-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0 16px;
+}
+
+.calibration-page .report-data-section { display: grid; gap: 12px; }
+
+.calibration-page .report-data-section + .report-data-section { margin-top: 16px; }
+
+.calibration-page .report-data-section h2 { font-size: 18px; }
+
+.calibration-page .report-statistics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.calibration-page .report-statistics dt { color: var(--text-secondary); }
+
+.calibration-page .report-statistics dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+
+.calibration-page .report-reader-toolbar button:disabled { opacity: .5; cursor: not-allowed; }
+
+@media (min-width: 821px) and (max-width: 1360px) {
+  .calibration-page .alignment-title-context { max-width: 220px; }
+  .calibration-page .alignment-workflow-track { min-width: 0; }
+  .calibration-page .alignment-workflow-step { padding-right: 12px; gap: 4px; }
+  .calibration-page .alignment-workflow-step__copy strong { font-size: 12px; }
+}
+
+.calibration-page .report-reader-toolbar-reopen { position: sticky; top: 8px; flex-shrink: 0; }
+
+.calibration-page .report-summary-page { gap: 16px; }
+
+.calibration-page .registration-complete-button.el-button { margin-top: 16px; }
+
+
+.calibration-page .c2m-deviation-workspace .c2m-primary-card {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-run-button { margin: 0; }
+
+.calibration-page .c2m-deviation-workspace .c2m-source-note { margin: 0 0 16px; }
+
+.calibration-page .c2m-scene-status {
+  display: grid;
+  gap: 8px;
+  padding-block: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-advanced-card,
+
+.calibration-page .c2m-deviation-workspace .c2m-result-card {
+  margin-top: 0;
+  border: 0;
+  border-top: 1px solid var(--border-color-light);
+  border-radius: 0;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-advanced-card > summary,
+
+.calibration-page .c2m-deviation-workspace .c2m-result-card > summary { padding-inline: 0; color: var(--text-primary); font-size: 14px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-advanced-card__body,
+
+.calibration-page .c2m-deviation-workspace .c2m-result-card__body { padding: 0 0 16px; border: 0; }
+
+.calibration-page .c2m-deviation-workspace .c2m-secondary-settings { padding: 0; border: 0; background: transparent; }
+
+.calibration-page .c2m-deviation-workspace .c2m-preset-block { margin-top: 16px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-color-controls {
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color-light);
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row--plain {
+  grid-template-columns: minmax(0, 1fr) 144px;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row > :deep(.el-input-number),
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row > :deep(.el-select) {
+  width: 144px;
+  min-width: 0;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row :deep(.el-input-number .el-input__wrapper) {
+  min-height: 36px;
+  padding: 0 36px 0 12px;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row :deep(.el-input__inner),
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row :deep(.el-select__selected-item) {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-run-button,
+
+.calibration-page .c2m-deviation-workspace .c2m-apply-button { margin-top: 12px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-scene-status:empty { display: none; }
+
+.calibration-page .c2m-color-controls :deep(.c2m-histogram) { margin-top: 16px; }
+
+.calibration-page .left-toolbar.view-toolbar { gap: 8px; padding-block: 12px; }
+
+@media (max-height: 760px) {
+  .calibration-page .left-toolbar.view-toolbar { gap: 4px; padding-block: 8px; }
+}
+
+
+.calibration-page .registration-handle-control,
+
+.pointcloud-tools-popover .pointcloud-edl-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.calibration-page .registration-handle-control { margin-top: 16px; }
+
+.calibration-page .registration-handle-hint,
+
+.pointcloud-tools-popover .pointcloud-display-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+
+.calibration-page .control-panel .c2m-deviation-workspace {
+  padding: 12px 16px;
+  container-type: inline-size;
+}
+
+.calibration-page .control-panel .c2m-deviation-workspace .section-title {
+  margin-bottom: 4px;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-compute-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.calibration-page .control-panel .c2m-deviation-workspace .c2m-compute-heading .section-title {
+  margin: 0;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-normal-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-setting-row {
+  min-height: 40px;
+  border-bottom: 0;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-field small {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-field :deep(.el-input-number) {
+  width: 100%;
+  min-width: 0;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-field :deep(.el-input__wrapper) {
+  min-height: 36px;
+  padding: 0 32px 0 8px;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-field :deep(.el-input__inner) {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-hint {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-run-button,
+
+.calibration-page .c2m-deviation-workspace .c2m-apply-button { margin-top: 8px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-scene-status {
+  padding-block: 4px 8px;
+  line-height: 1.5;
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-color-controls { padding-top: 12px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-preset-block { margin-top: 8px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-color-controls :deep(.c2m-histogram) { margin-top: 12px; }
+
+.calibration-page .c2m-deviation-workspace .c2m-search-fields.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.calibration-page .c2m-deviation-workspace .c2m-search-fields.is-single .c2m-search-field {
+  grid-template-columns: minmax(0, 1fr) 144px;
+  align-items: center;
+}
+
+@container (max-width: 280px) {
+  .calibration-page .c2m-deviation-workspace .c2m-search-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .calibration-page .c2m-deviation-workspace .c2m-setting-row--plain,
+  .calibration-page .c2m-deviation-workspace .c2m-search-fields.is-single .c2m-search-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .calibration-page .c2m-deviation-workspace .c2m-setting-row > :deep(.el-input-number),
+  .calibration-page .c2m-deviation-workspace .c2m-setting-row > :deep(.el-select) { width: 100%; }
+}
+

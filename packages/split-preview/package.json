@@ -1,6 +1,6 @@
 {
   "name": "@cloudbim/split-preview",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CloudBIM 双屏对比页：设计模型与扫描点云同屏比对。",
   "type": "module",
   "sideEffects": [
@@ -26,7 +26,7 @@
     "prepack": "vite build"
   },
   "dependencies": {
-    "@cloudbim/viewer-core": "^0.2.0"
+    "@cloudbim/viewer-core": "^0.3.0"
   },
   "peerDependencies": {
     "@element-plus/icons-vue": "^2.3.1",

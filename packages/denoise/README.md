@@ -19,7 +19,7 @@ sh install.sh --features=denoise          # 只装 viewer-core + denoise
 
 ```bash
 npm install vue@^3.5 three@^0.173.0 3d-tiles-renderer@^0.4.19 element-plus @element-plus/icons-vue
-npm install ./cloudbim-viewer-core-0.2.0.tgz ./cloudbim-denoise-0.2.0.tgz
+npm install ./cloudbim-viewer-core-0.3.0.tgz ./cloudbim-denoise-0.3.0.tgz
 ```
 
 样式必须显式引入一次：

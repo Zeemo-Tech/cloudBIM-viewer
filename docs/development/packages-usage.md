@@ -1,5 +1,9 @@
 # 查看器包使用指南（workspace 内部交付）
 
+> 📘 **面向外部集成方的完整教程**见 `docs/development/packages-tutorial.md`
+> （随交付目录一起发出，文件名 `TUTORIAL.md`）：五分钟上手、按需选装、各页面 props/事件表、
+> 后端接口清单与排错手册。本文侧重 workspace 内部的开发与交付流程。
+
 本仓库同时是 **包的源码** 与 **宿主示例应用**。包位于 `packages/`，通过 npm workspaces
 链接；应用（`src/`）是第一个消费者，也是可运行的参考实现。
 
@@ -143,12 +147,12 @@ npm run pack:packages    # 产出可交付的 dist-packages/，见下节
 
 ```
 dist-packages/
-  cloudbim-viewer-core-0.2.0.tgz        6 个可 npm install 的 tarball
-  cloudbim-denoise-0.2.0.tgz
-  cloudbim-bim-preview-0.2.0.tgz
-  cloudbim-pointcloud-preview-0.2.0.tgz
-  cloudbim-split-preview-0.2.0.tgz
-  cloudbim-alignment-0.2.0.tgz
+  cloudbim-viewer-core-0.3.0.tgz        6 个可 npm install 的 tarball
+  cloudbim-denoise-0.3.0.tgz
+  cloudbim-bim-preview-0.3.0.tgz
+  cloudbim-pointcloud-preview-0.3.0.tgz
+  cloudbim-split-preview-0.3.0.tgz
+  cloudbim-alignment-0.3.0.tgz
   manifest.json                         包清单：版本、体积、sha256、peer 范围、接口依赖、功能分组
   install.mjs / install.sh              宿主侧一键安装脚本（支持 --features 按功能装）
   draco/                                three 的 Draco 解码器（安装脚本会部署到宿主静态目录）
@@ -255,15 +259,15 @@ cd example && npm install && npm run dev    # http://localhost:5199
 ```bash
 cd /path/to/other-app
 npm install three@^0.173.0 3d-tiles-renderer@^0.4.19 vue element-plus @element-plus/icons-vue
-npm install /path/to/cloudBIM-viewer/dist-packages/cloudbim-viewer-core-0.2.0.tgz \
-            /path/to/cloudBIM-viewer/dist-packages/cloudbim-denoise-0.2.0.tgz \
-            /path/to/cloudBIM-viewer/dist-packages/cloudbim-bim-preview-0.2.0.tgz \
-            /path/to/cloudBIM-viewer/dist-packages/cloudbim-pointcloud-preview-0.2.0.tgz \
-            /path/to/cloudBIM-viewer/dist-packages/cloudbim-split-preview-0.2.0.tgz \
-            /path/to/cloudBIM-viewer/dist-packages/cloudbim-alignment-0.2.0.tgz
+npm install /path/to/cloudBIM-viewer/dist-packages/cloudbim-viewer-core-0.3.0.tgz \
+            /path/to/cloudBIM-viewer/dist-packages/cloudbim-denoise-0.3.0.tgz \
+            /path/to/cloudBIM-viewer/dist-packages/cloudbim-bim-preview-0.3.0.tgz \
+            /path/to/cloudBIM-viewer/dist-packages/cloudbim-pointcloud-preview-0.3.0.tgz \
+            /path/to/cloudBIM-viewer/dist-packages/cloudbim-split-preview-0.3.0.tgz \
+            /path/to/cloudBIM-viewer/dist-packages/cloudbim-alignment-0.3.0.tgz
 ```
 
-所有 tarball 必须在**同一条命令**里安装：功能包依赖 `@cloudbim/viewer-core@^0.2.0`，
+所有 tarball 必须在**同一条命令**里安装：功能包依赖 `@cloudbim/viewer-core@^0.3.0`，
 而 registry 中没有该包，只能由同批 tarball 满足。
 
 或先用 `npm link` 做开发期联调：

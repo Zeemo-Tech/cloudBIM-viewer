@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { RebarComparisonBar, RebarInspection } from '@cloudbim/viewer-core'
+import type { RebarComparisonBar, C2MRebarInspection } from '@cloudbim/viewer-core'
 
 const props = defineProps<{
-  inspection: RebarInspection
+  inspection: C2MRebarInspection
   bars: RebarComparisonBar[]
   selectedId?: string
 }>()
