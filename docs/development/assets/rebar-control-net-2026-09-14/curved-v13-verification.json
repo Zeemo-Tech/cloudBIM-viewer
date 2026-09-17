@@ -1,0 +1,129 @@
+{
+  "algorithm": {
+    "runId": "20260914T102108-bad40603",
+    "sourcePoints": 9216369,
+    "counts": {
+      "input": 9216369,
+      "table": 5315996,
+      "matched": 1743286,
+      "pending": 2157057,
+      "removed": 30,
+      "excluded": 0,
+      "designUnits": 210,
+      "fittedUnits": 210,
+      "designBars": 70,
+      "candidateFittedUnits": 0,
+      "lengthReviewUnits": 4
+    },
+    "curveSummary": {
+      "designPieces": 150,
+      "fittedPieces": 121,
+      "pendingPieces": 29,
+      "matchedPoints": 33781,
+      "workers": 8,
+      "elapsedS": 8.433678665023763
+    },
+    "byKind": {
+      "join": {
+        "fitted": 115,
+        "pending": 25
+      },
+      "terminal": {
+        "pending": 4,
+        "fitted": 6
+      }
+    },
+    "pendingReasons": {
+      "unstable-held-out-curve": 4,
+      "insufficient-continuous-curved-surface": 21,
+      "unobserved-terminal-leg": 1,
+      "ambiguous-curve-support": 2,
+      "unsupported-or-inconsistent-attachment": 1
+    },
+    "rmseMm": {
+      "min": 0.30964432952427456,
+      "median": 0.5576714973286757,
+      "max": 0.7003166235294875
+    },
+    "maxAttachmentGapM": 0.0,
+    "minDisplayBodyLengthM": 0.08490792459964527,
+    "timings": {
+      "readS": 0.18376693304162472,
+      "treeS": 1.8027645259862766,
+      "normalsS": 5.86383546696743,
+      "preprocessingS": 0.38812183000845835,
+      "controlNetS": 36.84816603898071,
+      "persistS": 0.9806368910358287,
+      "previewS": 0.36427931202342734,
+      "totalS": 46.494171053986065
+    },
+    "oldBodyGeometryAndOwnersUnchanged": true,
+    "tableAndSourceUnchanged": true
+  },
+  "qualityComparison": {
+    "lost": [],
+    "gained": [
+      [
+        180,
+        181
+      ]
+    ],
+    "centerlineChangeMmQuantiles": [
+      9.84135785721987e-07,
+      0.0005765467820243763,
+      0.06760976037869992,
+      0.24032141431235524
+    ]
+  },
+  "parallel4": {
+    "workers": 4,
+    "curvesAndBodiesAndStatusAndOwnersIdentical": true,
+    "elapsedS": 14.628280038014054
+  },
+  "parallel8": {
+    "workers": 8,
+    "curvesAndBodiesAndStatusAndOwnersIdentical": true,
+    "elapsedS": 8.529462788021192
+  },
+  "publishedEquivalence": {
+    "publishedCurvesMatchIndependentReplay": true,
+    "publishedFullStatusAndOwnerMatchIndependentReplay": true,
+    "previewSourceMappingAndPositionsAndOwnerAndStatusAndTableVerified": true,
+    "previewPoints": 1000000,
+    "replayNormalsDtype": "float64 to match fit_control_net input conversion"
+  },
+  "loader": {
+    "runId": "20260914T102108-bad40603",
+    "previewPoints": 1000000,
+    "units": 210,
+    "curves": {
+      "designPieces": 150,
+      "fittedPieces": 121,
+      "pendingPieces": 29,
+      "matchedPoints": 33781,
+      "workers": 8,
+      "elapsedS": 8.433678665023763
+    },
+    "threeGeometryKinds": {
+      "initialization": 210,
+      "curve-design-pending": 29,
+      "curve-design": 121,
+      "fit": 210,
+      "curve-fit": 121
+    },
+    "webglInteraction": "unverified: no CUA browser available"
+  },
+  "las": {
+    "pointcloud-with-control-net.las": 9216369,
+    "control-steel.las": 1743286,
+    "control-pending.las": 2157057,
+    "control-removed.las": 30,
+    "control-excluded.las": 0
+  },
+  "validation": {
+    "algorithmTests": 76,
+    "passed": true,
+    "concurrencyReview": "sol/high: passed background thread, cap8, native thread limit, isolation, success and exception worker cleanup",
+    "reviewArtifact": "/tmp/cloudbim-curves-speed/pool-review/handoff.md"
+  }
+}

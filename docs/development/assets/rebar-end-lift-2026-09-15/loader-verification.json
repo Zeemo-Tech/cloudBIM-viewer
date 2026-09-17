@@ -1,0 +1,26 @@
+{
+  "runId": "20260915T042057-8fa140fa",
+  "previewPoints": 1000000,
+  "units": 210,
+  "curves": {
+    "designPieces": 150,
+    "fittedPieces": 125,
+    "pendingPieces": 25,
+    "inferredPieces": 25,
+    "unresolvedPieces": 0,
+    "locallySupportedPieces": 2,
+    "locallyMatchedPoints": 2328,
+    "matchedPoints": 40004,
+    "workers": 8,
+    "elapsedS": 7.34104623796884
+  },
+  "threeGeometryKinds": {
+    "initialization": 210,
+    "curve-design": 125,
+    "fit": 210,
+    "curve-fit": 125,
+    "curve-design-inferred": 25,
+    "curve-local-supported": 4
+  },
+  "webglInteraction": "unverified: CUA reported no connected browsers"
+}

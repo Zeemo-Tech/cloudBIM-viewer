@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 )
 
 const rebarComparisonSchema = "rebar-comparison-v1"
-const rebarC2MAlgorithm = "c2m-rebar-instance-v1"
+const rebarC2MAlgorithm = "c2m-rebar-instance-v4"
 
 type rebarComparisonBar struct {
 	IFCGlobalID  string    `json:"ifcGlobalId"`
@@ -21,8 +22,48 @@ type rebarComparisonBar struct {
 	Stats        *c2mStats `json:"stats"`
 }
 
+// validateC2MEffectiveSettings prevents an upstream fallback from being silently
+// represented as a constrained measurement. Legacy (disabled) requests do not
+// require the additive effective block.
+func validateC2MEffectiveSettings(diagnostics json.RawMessage, req c2mRequest) error {
+	var payload struct {
+		Comparison struct {
+			Effective struct {
+				KnnK                    int      `json:"knnK"`
+				NormalConstraintEnabled bool     `json:"normalConstraintEnabled"`
+				NormalHalfSpaceOnly     bool     `json:"normalHalfSpaceOnly"`
+				NormalMaxAngleDeg       float64  `json:"normalMaxAngleDeg"`
+				NormalFallbackMode      string   `json:"normalFallbackMode"`
+				MaxSearchDistance       *float64 `json:"maxSearchDistance"`
+			} `json:"effective"`
+		} `json:"rebarComparison"`
+	}
+	if err := json.Unmarshal(diagnostics, &payload); err != nil {
+		return errors.New("C2M 服务未声明有效法向约束设置")
+	}
+	e := payload.Comparison.Effective
+	requestedDistance, returnedDistance := 0.2, 0.2
+	if req.MaxSearchDistance != nil {
+		requestedDistance = *req.MaxSearchDistance
+	}
+	if e.MaxSearchDistance != nil {
+		returnedDistance = *e.MaxSearchDistance
+	}
+	if returnedDistance != requestedDistance {
+		return errors.New("C2M 服务返回的最大搜索距离与请求不一致")
+	}
+	if !req.NormalConstraintEnabled {
+		return nil
+	}
+	if !e.NormalConstraintEnabled || e.NormalHalfSpaceOnly || e.KnnK != req.KnnK || e.NormalMaxAngleDeg != req.NormalMaxAngleDeg || e.NormalFallbackMode != req.NormalFallbackMode {
+		return fmt.Errorf("C2M 服务返回的有效法向约束设置与请求不一致")
+	}
+	return nil
+}
+
 type rebarComparison struct {
 	Schema             string               `json:"schema"`
+	AlgorithmVersion   string               `json:"algorithmVersion"`
 	Bars               []rebarComparisonBar `json:"bars"`
 	KnownVertexCount   int                  `json:"knownVertexCount"`
 	UnknownVertexCount int                  `json:"unknownVertexCount"`
@@ -42,7 +83,7 @@ func rebarComparisonJSON(diagnostics json.RawMessage) json.RawMessage {
 func validateRebarComparison(diagnostics json.RawMessage, vertices int, mapHash string) (int, error) {
 	var result rebarComparison
 	if json.Unmarshal(rebarComparisonJSON(diagnostics), &result) != nil || result.Schema != rebarComparisonSchema ||
-		!hex64(result.InstanceMapHash) || (mapHash != "" && result.InstanceMapHash != mapHash) || len(result.Bars) == 0 {
+		result.AlgorithmVersion != rebarC2MAlgorithm || !hex64(result.InstanceMapHash) || (mapHash != "" && result.InstanceMapHash != mapHash) || len(result.Bars) == 0 {
 		return 0, errors.New("逐钢筋结果缺少有效的实例对应关系")
 	}
 	seen, instances := map[string]bool{}, map[int]bool{}

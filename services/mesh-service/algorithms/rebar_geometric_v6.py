@@ -15,7 +15,7 @@ from .rebar_base import RebarAlgorithm, RebarAlgorithmError, RebarAnalysis, Reba
 from .rebar_v5.contracts import VISUALIZATION
 from .rebar_v5.spatial import SpatialBudgetExceeded
 
-VERSION = '12'
+VERSION = '14'
 CHUNK_SIZE = 262144
 MAX_SOURCE_POINTS = 20_000_000
 SCENE_LOOKUP = np.array([0, 1, 4, 2, 3], np.uint8)

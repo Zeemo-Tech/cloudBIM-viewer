@@ -1,0 +1,100 @@
+{
+  "input": {
+    "scan_path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/fca5fd70084036e2a01d82d2/cleaned.las",
+    "analysis_mesh_path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/88d5ff2f0b10c8507273a309/derivatives/analysis-mesh/am-e38ab53d7057cc9df8f0d0baa8f77f24",
+    "instance_map_path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/fca5fd70084036e2a01d82d2/instance-map.json",
+    "alignment_matrix": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      2.220446049250313e-16,
+      -1,
+      0,
+      0,
+      1,
+      2.220446049250313e-16,
+      0,
+      0.0036891412734982865,
+      -0.006170554220676687,
+      -1.246452331549186e-05,
+      1
+    ],
+    "parameters": {
+      "voxel_size": 0.002,
+      "downsample_enabled": false,
+      "max_histogram_distance": 0.02,
+      "histogram_bins": 60,
+      "knn_k": 32,
+      "normal_constraint_enabled": true,
+      "normal_half_space_only": false,
+      "normal_max_angle_deg": 10,
+      "normal_fallback_mode": "unknown",
+      "tolerance": 0.005
+    }
+  },
+  "runs": {
+    "before": {
+      "wallSeconds": 5.578295644023456,
+      "known": 90054,
+      "unknown": 312758,
+      "stats": {
+        "min": -0.19983313977718353,
+        "max": 0.19884037971496582,
+        "mean": -0.003866395818280859,
+        "std": 0.013362601539318415,
+        "p50": -0.005061965202912688,
+        "p90": 0.003566118679009378,
+        "p95": 0.005470358859747644,
+        "p99": 0.015128183048218492,
+        "meanAbs": 0.006887876235625192,
+        "rmse": 0.013910720201420725,
+        "p95Abs": 0.014251237595453851,
+        "withinToleranceRatio": 0.438292580007551
+      },
+      "solid": {
+        "closedPartCount": 0,
+        "invalidPartCount": 0,
+        "faceCount": 0,
+        "flippedFaceCount": 0,
+        "inwardCandidateCount": 0,
+        "blockedCandidateCount": 0
+      }
+    },
+    "after": {
+      "wallSeconds": 7.434952505980618,
+      "known": 67063,
+      "unknown": 335749,
+      "stats": {
+        "min": -0.010792561806738377,
+        "max": 0.19884037971496582,
+        "mean": -0.0011257648885906193,
+        "std": 0.012061766713257571,
+        "p50": -0.0031811504159122705,
+        "p90": 0.004173970595002177,
+        "p95": 0.006597192399203777,
+        "p99": 0.016950406655669225,
+        "meanAbs": 0.005183227244391339,
+        "rmse": 0.012114188492401454,
+        "p95Abs": 0.007746327482163905,
+        "withinToleranceRatio": 0.5874625352280691
+      },
+      "solid": {
+        "closedPartCount": 70,
+        "invalidPartCount": 0,
+        "faceCount": 805344,
+        "flippedFaceCount": 0,
+        "inwardCandidateCount": 332586,
+        "blockedCandidateCount": 202426
+      }
+    }
+  },
+  "lostCoverage": 22991,
+  "gainedCoverage": 0,
+  "changedFinite": 44,
+  "sha256": {
+    "scan_path": "f675809f4c2720680b0e1782c60b3be4c2ff44f6ce5e2ef7c71d3e5ceec722c5",
+    "instance_map_path": "59a2ad4f9aad5f21e5869aa85a232f6db278b46b19462d08ba64a7790927007a"
+  }
+}

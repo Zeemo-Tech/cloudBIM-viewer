@@ -7,13 +7,15 @@ const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.met
 const html = await readFile(new URL('./pointcloud-debug/index.html', import.meta.url), 'utf8');
 
 const nav = [...html.matchAll(/data-step="([^"]+)"/g)].map(match => match[1]);
-assert.deepEqual(nav.slice(0, 8), ['raw', 'normal', 'tableRemoval', 'partition', 'floatingZones', 'classification', 'projection', 'fusion']);
+assert.deepEqual(nav.slice(0, 9), ['raw', 'normal', 'tableRemoval', 'controlNet', 'partition', 'floatingZones', 'classification', 'projection', 'fusion']);
 assert.match(html, /data-step="tableRemoval"[^>]*disabled><span class="num">01B<\/span>台面结果/);
 assert.match(html, /data-step="partition"[^>]*disabled><span class="num">01C<\/span>分区结果/);
 assert.match(html, /data-step="floatingZones"[^>]*disabled><span class="num">01D<\/span>分层结果/);
+assert.match(html, /data-step="controlNet"[^>]*disabled><span class="num">01B-X<\/span>台面后控制网/);
 assert.match(html, /<span class="num">03<\/span>融合结果/);
 assert.match(html, /id="refinementStep" data-step="refinement" hidden disabled><span class="num">04<\/span>类别整理/);
-assert.deepEqual([...html.matchAll(/<option value="([1-7])"(?: selected)?>/g)].slice(0, 6).map(match => match[1]), ['1','2','3','4','6','7']);
+const throughStepOptions = html.match(/<select id="throughStep">([\s\S]*?)<\/select>/)?.[1] || '';
+assert.deepEqual([...throughStepOptions.matchAll(/<option value="([1-7])"(?: selected)?>/g)].map(match => match[1]), ['1','2','3','4','6','7']);
 assert.match(html, /id="fusionScoreFilter"/);
 assert.match(html, /<option value="low">低分可疑钢筋<\/option>/);
 assert.match(html, /id="pointInspector"/);

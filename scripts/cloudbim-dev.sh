@@ -5,6 +5,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.cloudbim"
 FRONTEND_PID_FILE="$RUNTIME_DIR/frontend.pid"
+REBAR_DEBUG_PID_FILE="$RUNTIME_DIR/rebar-debug.pid"
+REBAR_DEBUG_PORT=5174
+SCAN_BIM_PID_FILE="$RUNTIME_DIR/scan-bim-workbench.pid"
+SCAN_BIM_LOG_FILE="$RUNTIME_DIR/scan-bim-workbench.log"
+SCAN_BIM_PORT=8767
 WORKBENCH_PID_FILE="$RUNTIME_DIR/pointcloud-workbench.pid"
 WORKBENCH_LOG_FILE="$RUNTIME_DIR/pointcloud-workbench.log"
 
@@ -249,6 +254,9 @@ start() {
   fi
 
   start_workbench
+  if [[ -f "${CLOUDBIM_SCAN_BIM_INPUTS:-$RUNTIME_DIR/scan-bim-workbench/inputs.json}" ]]; then
+    start_scan_bim
+  fi
 
   log "Ready: http://127.0.0.1:$FRONTEND_PORT"
   log "Frontend bind: $FRONTEND_HOST:$FRONTEND_PORT"
@@ -256,7 +264,79 @@ start() {
   workbench_is_enabled && log "Point-cloud workbench: http://127.0.0.1:$WORKBENCH_PORT"
 }
 
+start_rebar_debug() {
+  require_command node
+  require_command curl
+  require_command lsof
+  mkdir -p "$RUNTIME_DIR"
+  ensure_env_files
+  load_ports
+  [[ -x "$ROOT_DIR/node_modules/.bin/vite" ]] || fail "Run '$0 start' to install frontend dependencies first"
+  curl -fsS "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null || fail "Start the main stack with '$0 start' before starting the debug frontend"
+  if pid_is_running "$REBAR_DEBUG_PID_FILE"; then
+    log "Rebar debug already running (PID $(<"$REBAR_DEBUG_PID_FILE"), port $REBAR_DEBUG_PORT)"
+    return
+  fi
+  port_is_available "$REBAR_DEBUG_PORT" || fail "Debug port $REBAR_DEBUG_PORT is occupied by an unmanaged process"
+  log "Starting Scan-vs-BIM debug frontend on port $REBAR_DEBUG_PORT"
+  (
+    cd "$ROOT_DIR"
+    if command -v setsid >/dev/null 2>&1; then
+      exec setsid env "VITE_API_PROXY_TARGET=http://127.0.0.1:$BACKEND_PORT" \
+        node "$ROOT_DIR/node_modules/vite/bin/vite.js" --config vite.rebar-debug.config.ts \
+        --mode rebar-debug --host "$FRONTEND_HOST" --port "$REBAR_DEBUG_PORT" --strictPort
+    else
+      exec nohup env "VITE_API_PROXY_TARGET=http://127.0.0.1:$BACKEND_PORT" \
+        node "$ROOT_DIR/node_modules/vite/bin/vite.js" --config vite.rebar-debug.config.ts \
+        --mode rebar-debug --host "$FRONTEND_HOST" --port "$REBAR_DEBUG_PORT" --strictPort
+    fi
+  ) >"$RUNTIME_DIR/rebar-debug.log" 2>&1 < /dev/null &
+  echo $! >"$REBAR_DEBUG_PID_FILE"
+  for _ in {1..30}; do
+    pid_is_running "$REBAR_DEBUG_PID_FILE" || fail "Debug frontend exited; inspect $RUNTIME_DIR/rebar-debug.log"
+    if curl -fsS "http://127.0.0.1:$REBAR_DEBUG_PORT/" >/dev/null 2>&1; then
+      log "Rebar debug ready: http://127.0.0.1:$REBAR_DEBUG_PORT (append the alignment page query to select assets)"
+      return
+    fi
+    sleep 1
+  done
+  stop_process rebar-debug "$REBAR_DEBUG_PID_FILE"
+  fail "Debug frontend did not become ready; inspect $RUNTIME_DIR/rebar-debug.log"
+}
+
+start_scan_bim() {
+  ensure_env_files
+  load_ports
+  mkdir -p "$RUNTIME_DIR"
+  local python="$RUNTIME_DIR/mesh-venv/bin/python"
+  local inputs="${CLOUDBIM_SCAN_BIM_INPUTS:-$RUNTIME_DIR/scan-bim-workbench/inputs.json}"
+  [[ -x "$python" ]] || fail "Scan-vs-BIM workbench requires $python"
+  [[ -f "$inputs" ]] || fail "Missing input snapshot: $inputs (see docs/development/scan-vs-bim-workbench.md)"
+  if ! pid_is_running "$SCAN_BIM_PID_FILE" && ! port_is_available "$SCAN_BIM_PORT"; then
+    fail "Scan-vs-BIM workbench port $SCAN_BIM_PORT is already occupied"
+  fi
+  if ! pid_is_running "$SCAN_BIM_PID_FILE"; then
+    log "Starting independent Scan-vs-BIM algorithm workbench"
+    setsid "$ROOT_DIR/scripts/cloudbim-supervise.sh" \
+      "$python" "$ROOT_DIR/scripts/scan-bim-debug.py" \
+      --inputs "$inputs" --output "$RUNTIME_DIR/scan-bim-workbench/runs" \
+      --host "$WORKBENCH_HOST" --port "$SCAN_BIM_PORT" --allow-host "$WORKBENCH_ALLOW_HOST" \
+      >"$SCAN_BIM_LOG_FILE" 2>&1 < /dev/null &
+    echo $! >"$SCAN_BIM_PID_FILE"
+  fi
+  for _ in {1..30}; do
+    if curl -fsS "http://127.0.0.1:$SCAN_BIM_PORT/api/status" >/dev/null 2>&1; then
+      log "Scan-vs-BIM workbench: http://127.0.0.1:$SCAN_BIM_PORT"
+      return
+    fi
+    sleep 1
+  done
+  fail "Scan-vs-BIM workbench did not become ready; inspect $SCAN_BIM_LOG_FILE"
+}
+
 stop() {
+  stop_process scan-bim-workbench "$SCAN_BIM_PID_FILE"
+  stop_process rebar-debug "$REBAR_DEBUG_PID_FILE"
   stop_process point-cloud-workbench "$WORKBENCH_PID_FILE"
   stop_process frontend "$FRONTEND_PID_FILE"
   log "Stopping PostgreSQL, mesh service, and backend"
@@ -268,12 +348,28 @@ status() {
   load_ports
   log "Docker services:"
   docker compose -f "$ROOT_DIR/docker-compose.yml" ps
+  if pid_is_running "$SCAN_BIM_PID_FILE" && curl -fsS "http://127.0.0.1:$SCAN_BIM_PORT/api/status" >/dev/null 2>&1; then
+    log "Scan-vs-BIM workbench: running and healthy (port $SCAN_BIM_PORT)"
+  elif pid_is_running "$SCAN_BIM_PID_FILE"; then
+    log "Scan-vs-BIM workbench: supervised, currently restarting"
+  elif ! port_is_available "$SCAN_BIM_PORT"; then
+    log "Scan-vs-BIM workbench: unmanaged process on port $SCAN_BIM_PORT"
+  else
+    log "Scan-vs-BIM workbench: stopped (start with '$0 scan-bim-start')"
+  fi
   if pid_is_running "$FRONTEND_PID_FILE"; then
     log "Frontend: running (PID $(<"$FRONTEND_PID_FILE"))"
   elif ! port_is_available "$FRONTEND_PORT"; then
     log "Frontend: running (port $FRONTEND_PORT)"
   else
     log "Frontend: stopped"
+  fi
+  if pid_is_running "$REBAR_DEBUG_PID_FILE"; then
+    log "Rebar debug: running (PID $(<"$REBAR_DEBUG_PID_FILE"), port $REBAR_DEBUG_PORT)"
+  elif ! port_is_available "$REBAR_DEBUG_PORT"; then
+    log "Rebar debug: unmanaged process on port $REBAR_DEBUG_PORT"
+  else
+    log "Rebar debug: stopped (start with '$0 debug-start')"
   fi
   if ! workbench_is_enabled; then
     log "Point-cloud workbench: disabled"
@@ -296,6 +392,14 @@ logs() {
   tail -n 100 -f "$RUNTIME_DIR/frontend.log" &
   local frontend_logs_pid=$!
   local log_pids=("$compose_logs_pid" "$frontend_logs_pid")
+  if [[ -f "$SCAN_BIM_LOG_FILE" ]]; then
+    tail -n 100 -f "$SCAN_BIM_LOG_FILE" &
+    log_pids+=("$!")
+  fi
+  if [[ -f "$RUNTIME_DIR/rebar-debug.log" ]]; then
+    tail -n 100 -f "$RUNTIME_DIR/rebar-debug.log" &
+    log_pids+=("$!")
+  fi
   if workbench_is_enabled && [[ -f "$WORKBENCH_LOG_FILE" ]]; then
     tail -n 100 -f "$WORKBENCH_LOG_FILE" &
     log_pids+=("$!")
@@ -313,6 +417,10 @@ Commands:
   restart  Stop then start the full development stack.
   status   Show process and container status.
   logs     Follow frontend, backend, and workbench logs.
+  debug-start  Start the separate Scan-vs-BIM frontend on 5174 using the running backend.
+  debug-stop   Stop only the Scan-vs-BIM frontend; leave the main stack running.
+  scan-bim-start  Start the independent algorithm workbench on 8767 from a pinned input snapshot.
+  scan-bim-stop   Stop only the algorithm workbench; retain its diagnostic runs.
 EOF
 }
 
@@ -322,5 +430,9 @@ case "${1:-}" in
   restart) stop; start ;;
   status) status ;;
   logs) logs ;;
+  debug-start) start_rebar_debug ;;
+  debug-stop) stop_process rebar-debug "$REBAR_DEBUG_PID_FILE" ;;
+  scan-bim-start) start_scan_bim ;;
+  scan-bim-stop) stop_process scan-bim-workbench "$SCAN_BIM_PID_FILE" ;;
   *) usage; exit 1 ;;
 esac

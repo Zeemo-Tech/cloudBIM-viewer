@@ -460,11 +460,14 @@ func TestC2MValidationRejectsNegativeValues(t *testing.T) {
 	}
 }
 
-func TestC2MValidationRejectsUnsafeNormalConstraint(t *testing.T) {
+func TestC2MValidationEnablesSafeNormalConstraint(t *testing.T) {
 	req := c2mRequest{NormalConstraintEnabled: true}
-	if err := normalizeC2MRequest(&req); err == nil || !strings.Contains(err.Error(), "尚未开放") {
-		t.Fatalf("unsafe normal constraint error = %v", err)
+	if err := normalizeC2MRequest(&req); err != nil || req.KnnK != 32 || req.NormalMaxAngleDeg != 30 || req.NormalFallbackMode != "unknown" {
+		t.Fatalf("normal constraint normalization = %+v, %v", req, err)
 	}
+	halfSpace := true
+	if err := normalizeC2MRequest(&c2mRequest{NormalConstraintEnabled: true, NormalHalfSpaceOnly: &halfSpace}); err == nil { t.Fatal("half-space constraint accepted") }
+	if err := normalizeC2MRequest(&c2mRequest{NormalConstraintEnabled: true, NormalFallbackMode: "nearest"}); err == nil { t.Fatal("nearest fallback accepted") }
 }
 
 func TestC2MResultVersionTracksArtifactsNotTimestampPrecision(t *testing.T) {

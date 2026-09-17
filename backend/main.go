@@ -572,7 +572,7 @@ func (a *app) connectDB() error {
 	if err := sqlDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("%s 数据库不可用: %w", a.cfg.DBDriver, err)
 	}
-	if err := db.AutoMigrate(&DBUser{}, &DBProject{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBMeasurement{}, &DBSystemSetting{}); err != nil {
+	if err := db.AutoMigrate(&DBUser{}, &DBProject{}, &DBAsset{}, &DBAssetDerivative{}, &DBUpload{}, &DBAlignment{}, &DBC2MResult{}, &DBC2MReportRun{}, &DBC2MReportBar{}, &DBMeasurement{}, &DBSystemSetting{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	a.db = db
@@ -1921,6 +1921,12 @@ func (a *app) deleteAsset(c *gin.Context) {
 			return err
 		}
 		if err := tx.Delete(&DBC2MResult{}, "owner_id = ? AND (scan_id = ? OR bim_id = ?)", userID(c), item.ID, item.ID).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("run_id IN (?)", tx.Model(&DBC2MReportRun{}).Select("id").Where("owner_id = ? AND (scan_id = ? OR bim_id = ?)", userID(c), item.ID, item.ID)).Delete(&DBC2MReportBar{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&DBC2MReportRun{}, "owner_id = ? AND (scan_id = ? OR bim_id = ?)", userID(c), item.ID, item.ID).Error; err != nil {
 			return err
 		}
 		if err := tx.Delete(&DBMeasurement{}, "owner_id = ? AND asset_id = ?", userID(c), item.ID).Error; err != nil {
@@ -3628,21 +3634,22 @@ type c2mStats struct {
 }
 
 type c2mRequest struct {
-	DenoiseVersion          string  `json:"denoiseVersion"`
-	ModelScanFileID         int64   `json:"modelScanFileId"`
-	ModelBimFileID          int64   `json:"modelBimFileId"`
-	Profile                 string  `json:"profile"`
-	VoxelSize               float64 `json:"voxelSize"`
-	DownsampleEnabled       *bool   `json:"downsampleEnabled"`
-	MaxColormapDistance     float64 `json:"maxColormapDistance"`
-	MaxHistogramDistance    float64 `json:"maxHistogramDistance"`
-	HistogramBins           int     `json:"histogramBins"`
-	ToleranceLimit          float64 `json:"toleranceLimit"`
-	KnnK                    int     `json:"knnK"`
-	NormalConstraintEnabled bool    `json:"normalConstraintEnabled"`
-	NormalHalfSpaceOnly     *bool   `json:"normalHalfSpaceOnly"`
-	NormalMaxAngleDeg       float64 `json:"normalMaxAngleDeg"`
-	NormalFallbackMode      string  `json:"normalFallbackMode"`
+	DenoiseVersion          string   `json:"denoiseVersion"`
+	ModelScanFileID         int64    `json:"modelScanFileId"`
+	ModelBimFileID          int64    `json:"modelBimFileId"`
+	Profile                 string   `json:"profile"`
+	VoxelSize               float64  `json:"voxelSize"`
+	DownsampleEnabled       *bool    `json:"downsampleEnabled"`
+	MaxColormapDistance     float64  `json:"maxColormapDistance"`
+	MaxHistogramDistance    float64  `json:"maxHistogramDistance"`
+	HistogramBins           int      `json:"histogramBins"`
+	ToleranceLimit          float64  `json:"toleranceLimit"`
+	KnnK                    int      `json:"knnK"`
+	NormalConstraintEnabled bool     `json:"normalConstraintEnabled"`
+	NormalHalfSpaceOnly     *bool    `json:"normalHalfSpaceOnly"`
+	NormalMaxAngleDeg       float64  `json:"normalMaxAngleDeg"`
+	MaxSearchDistance       *float64 `json:"maxSearchDistance"`
+	NormalFallbackMode      string   `json:"normalFallbackMode"`
 }
 
 type c2mServiceResult struct {
@@ -4026,12 +4033,18 @@ func (a *app) replaceC2MResult(next *DBC2MResult, expectedFingerprint string) (*
 			previous = &copy
 			next.ID = current.ID
 			next.CreatedAt = current.CreatedAt
-			return tx.Save(next).Error
+			if err := tx.Save(next).Error; err != nil {
+				return err
+			}
+			return a.createC2MReportSnapshot(tx, next)
 		}
 		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
 			return findErr
 		}
-		return tx.Create(next).Error
+		if err := tx.Create(next).Error; err != nil {
+			return err
+		}
+		return a.createC2MReportSnapshot(tx, next)
 	})
 	return previous, err
 }
@@ -4058,7 +4071,10 @@ func (a *app) replaceRecoloredC2MResult(base, next *DBC2MResult) (*DBC2MResult, 
 		previous = &copy
 		next.ID = current.ID
 		next.CreatedAt = current.CreatedAt
-		return tx.Save(next).Error
+		if err := tx.Save(next).Error; err != nil {
+			return err
+		}
+		return a.createC2MReportSnapshot(tx, next)
 	})
 	return previous, err
 }
@@ -4111,6 +4127,10 @@ func resolveC2MResultProfile(requested, returned string) (string, error) {
 }
 
 func c2mServiceParams(req c2mRequest) map[string]any {
+	maxSearchDistance := 0.2
+	if req.MaxSearchDistance != nil {
+		maxSearchDistance = *req.MaxSearchDistance
+	}
 	downsampleEnabled := true
 	if req.DownsampleEnabled != nil {
 		downsampleEnabled = *req.DownsampleEnabled
@@ -4128,6 +4148,7 @@ func c2mServiceParams(req c2mRequest) map[string]any {
 		"knn_k":                     req.KnnK,
 		"normal_constraint_enabled": req.NormalConstraintEnabled,
 		"normal_max_angle_deg":      req.NormalMaxAngleDeg,
+		"max_search_distance":       maxSearchDistance,
 		"normal_fallback_mode":      req.NormalFallbackMode,
 	}
 	if req.NormalHalfSpaceOnly != nil {
@@ -4151,6 +4172,10 @@ func validateC2MVisualizationRanges(maxColormapDistance, maxHistogramDistance fl
 }
 
 func normalizeC2MRequest(req *c2mRequest) error {
+	if req.MaxSearchDistance == nil {
+		distance := 0.2
+		req.MaxSearchDistance = &distance
+	}
 	if req.DownsampleEnabled == nil {
 		enabled := true
 		req.DownsampleEnabled = &enabled
@@ -4170,30 +4195,46 @@ func normalizeC2MRequest(req *c2mRequest) error {
 	if req.ToleranceLimit == 0 {
 		req.ToleranceLimit = math.Min(0.01, req.MaxColormapDistance)
 	}
-	if req.KnnK == 0 {
-		req.KnnK = 8
-	}
-	if req.NormalMaxAngleDeg == 0 {
-		req.NormalMaxAngleDeg = 75
-	}
-	if req.NormalFallbackMode == "" {
-		req.NormalFallbackMode = "nearest"
+	if req.NormalConstraintEnabled {
+		if req.KnnK == 0 {
+			req.KnnK = 32
+		}
+		if req.NormalMaxAngleDeg == 0 {
+			req.NormalMaxAngleDeg = 30
+		}
+		if req.NormalFallbackMode == "" {
+			req.NormalFallbackMode = "unknown"
+		}
+	} else {
+		if req.KnnK == 0 {
+			req.KnnK = 8
+		}
+		if req.NormalMaxAngleDeg == 0 {
+			req.NormalMaxAngleDeg = 75
+		}
+		if req.NormalFallbackMode == "" {
+			req.NormalFallbackMode = "nearest"
+		}
 	}
 	req.Profile = normalizeC2MProfile(req.Profile)
 
 	switch {
 	case req.Profile != "quick" && req.Profile != "reference":
 		return fmt.Errorf("不支持的 C2M profile: %s", req.Profile)
-	case req.NormalConstraintEnabled:
-		return errors.New("normalConstraintEnabled 尚未开放，当前仅支持 false")
+	case math.IsNaN(*req.MaxSearchDistance) || math.IsInf(*req.MaxSearchDistance, 0) || *req.MaxSearchDistance < 0.0001 || *req.MaxSearchDistance > 0.2:
+		return errors.New("maxSearchDistance 必须在 0.0001 到 0.2 m（0.1 到 200 mm）之间")
 	case math.IsNaN(req.VoxelSize) || math.IsInf(req.VoxelSize, 0) || req.VoxelSize < 0.001 || req.VoxelSize > 5:
 		return errors.New("voxelSize 必须在 0.001 到 5 m 之间")
 	case req.KnnK < 1 || req.KnnK > 64:
 		return errors.New("knnK 必须在 1 到 64 之间")
-	case math.IsNaN(req.NormalMaxAngleDeg) || math.IsInf(req.NormalMaxAngleDeg, 0) || req.NormalMaxAngleDeg <= 0 || req.NormalMaxAngleDeg > 180:
-		return errors.New("normalMaxAngleDeg 必须在 0 到 180 度之间")
-	case req.NormalFallbackMode != "nearest":
-		return errors.New("normalFallbackMode 当前仅支持 nearest")
+	case math.IsNaN(req.NormalMaxAngleDeg) || math.IsInf(req.NormalMaxAngleDeg, 0) || req.NormalMaxAngleDeg <= 0 || req.NormalMaxAngleDeg > 90:
+		return errors.New("normalMaxAngleDeg 必须在 0 到 90 度之间")
+	case req.NormalConstraintEnabled && req.NormalHalfSpaceOnly != nil && *req.NormalHalfSpaceOnly:
+		return errors.New("启用法向约束时 normalHalfSpaceOnly 必须为 false")
+	case req.NormalConstraintEnabled && req.NormalFallbackMode != "unknown":
+		return errors.New("启用法向约束时 normalFallbackMode 必须为 unknown")
+	case !req.NormalConstraintEnabled && req.NormalFallbackMode != "nearest":
+		return errors.New("未启用法向约束时 normalFallbackMode 仅支持 nearest")
 	}
 	return validateC2MVisualizationRanges(req.MaxColormapDistance, req.MaxHistogramDistance, req.HistogramBins, req.ToleranceLimit)
 }
@@ -4497,6 +4538,11 @@ func (a *app) computeC2M(c *gin.Context) {
 		fail(c, 409, err.Error())
 		return
 	}
+	_, denoiseManifest, err := a.denoiseRow(scan, bim.ID)
+	if err != nil {
+		fail(c, 409, "控制网去噪结果不可用，请重新执行第二步分类与去噪")
+		return
+	}
 	_, _, analysisMeshPath, err := a.currentAnalysisMesh(bim)
 	if err != nil {
 		fail(c, 409, "逐钢筋分析网格尚未就绪，请重新执行网格均匀化")
@@ -4504,6 +4550,7 @@ func (a *app) computeC2M(c *gin.Context) {
 	}
 	serviceParams := c2mServiceParams(req)
 	serviceParams["denoiseVersion"] = req.DenoiseVersion
+	serviceParams["alignmentMatrix"] = matrix
 	// Provenance belongs to the saved request, not the mesh-service parameter schema.
 	body, _ := json.Marshal(map[string]any{"scan_path": meshServicePath(a.cfg.DataDir, scanPath, a.cfg.MeshServiceStorageDir), "mesh_path": meshServicePath(a.cfg.DataDir, meshPath, a.cfg.MeshServiceStorageDir), "alignment_matrix": matrix, "params": c2mServiceParams(req), "instance_map_path": meshServicePath(a.cfg.DataDir, instanceMapPath, a.cfg.MeshServiceStorageDir), "analysis_mesh_path": meshServicePath(a.cfg.DataDir, analysisMeshPath, a.cfg.MeshServiceStorageDir)})
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, strings.TrimRight(a.cfg.MeshServiceURL, "/")+"/c2m/compute", bytes.NewReader(body))
@@ -4570,6 +4617,12 @@ func (a *app) computeC2M(c *gin.Context) {
 		return
 	}
 	knownVertices, comparisonErr := validateRebarComparison(result.Diagnostics, result.MeshVertices, instanceMapHash)
+	if comparisonErr == nil {
+		comparisonErr = validateC2MEffectiveSettings(result.Diagnostics, req)
+	}
+	if comparisonErr == nil {
+		comparisonErr = validateRebarInspection(result.Diagnostics, instanceMapHash, denoiseManifest.ControlNetAlgorithmVersion, matrix, visualization.ToleranceLimit)
+	}
 	if result.AlgorithmVersion != rebarC2MAlgorithm || result.MetricDirection != "mesh-vertices-to-instance-scan-points" || comparisonErr != nil || !validRebarStatistics(result.Stats, knownVertices) {
 		a.removeUnreferencedC2MArtifact(coloredPath)
 		a.removeUnreferencedC2MArtifact(distancesPath)
@@ -4748,6 +4801,11 @@ func (a *app) recolorC2M(c *gin.Context) {
 	}
 
 	comparison := rebarComparisonJSON(json.RawMessage(row.DiagnosticsJSON))
+	var previousInspection rebarInspection
+	if row.AlgorithmVersion == rebarC2MAlgorithm && json.Unmarshal(rebarInspectionJSON(json.RawMessage(row.DiagnosticsJSON)), &previousInspection) != nil {
+		fail(c, http.StatusConflict, "当前 C2M 结果缺少有效检验报告，请重新计算")
+		return
+	}
 	if row.AlgorithmVersion == rebarC2MAlgorithm {
 		meshPath, err = a.c2mArtifactPath(row.ColoredPlyPath)
 		if err != nil || !regularFileExists(meshPath) {
@@ -4822,6 +4880,16 @@ func (a *app) recolorC2M(c *gin.Context) {
 		var previous rebarComparison
 		_ = json.Unmarshal(comparison, &previous)
 		knownVertices, err = validateRebarComparison(result.Diagnostics, row.MeshVertexCount, previous.InstanceMapHash)
+		if err == nil {
+			err = validateRebarInspection(result.Diagnostics, previous.InstanceMapHash, previousInspection.Provenance.ControlNetAlgorithmVersion, previousInspection.Provenance.AlignmentMatrix, visualization.ToleranceLimit)
+		}
+		if err == nil {
+			before, beforeErr := inspectionMeasurementSignature(json.RawMessage(row.DiagnosticsJSON))
+			after, afterErr := inspectionMeasurementSignature(result.Diagnostics)
+			if beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+				err = errors.New("C2M 重着色改变了原始检验几何或测量值")
+			}
+		}
 		if err != nil {
 			a.removeUnreferencedC2MArtifact(newColoredPath)
 			fail(c, 502, err.Error())
@@ -5110,6 +5178,9 @@ func main() {
 	r.HEAD("/alignments/bim/analysis-c2m/:scanId/:bimId/:version/*path", a.analysisC2MResource)
 	r.POST("/alignments/bim/c2m/recolor", a.recolorC2M)
 	r.GET("/alignments/bim/c2m/latest", a.getC2MLatest)
+	r.GET("/alignments/bim/c2m/reports", a.listC2MReports)
+	r.GET("/alignments/bim/c2m/reports/:version/json", a.downloadC2MReportJSON)
+	r.GET("/alignments/bim/c2m/reports/:version", a.getC2MReport)
 	r.GET("/alignments/bim/c2m/colored-ply", a.c2mColoredPly)
 	r.GET("/alignments/bim/c2m/distances", a.c2mDistances)
 	server := &http.Server{Addr: cfg.Addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Minute, WriteTimeout: 2 * time.Hour, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}

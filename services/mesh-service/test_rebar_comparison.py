@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
+from pydantic import ValidationError
+
 import laspy
 import numpy as np
 import trimesh
@@ -15,6 +17,8 @@ from rebar_comparison import (
     _validated_directory, compute_instance_comparison, refresh_rebar_comparison,
     statistics_for_finite,
 )
+from rebar_deviation import constrained_nearest, local_tangents
+from scipy.spatial import cKDTree
 from main import C2MParams, C2MRecolorRequest, C2MRequest, _c2m_compute_quick, c2m_recolor
 
 
@@ -27,6 +31,82 @@ def component(gid, x):
 
 
 class RebarComparisonTests(unittest.TestCase):
+    def test_split_inverted_mesh_repairs_normals_but_single_scan_point_is_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mesh = trimesh.creation.cylinder(radius=.01, height=.2, sections=32).subdivide()
+            mesh.invert()
+            build_artifact(ComponentMeshStream([Component("A", [MeshPart("part", "part", mesh, np.eye(4), "source")])], {}),
+                           root / "analysis", {"id": "test"}, face_cap=50)
+            mapping = {"schema": "rebar-instance-map-v1", "inventory": {
+                "bars": [{"designBarId": "A", "ifcGlobalId": "A"}],
+                "units": [{"designBarId": "A", "designUnitId": "u", "startM": [0, 0, -.1], "endM": [0, 0, .1]}]},
+                "instances": [{"id": 1, "designBarId": "A", "designUnitId": "u", "reviewStatus": "matched"}]}
+            (root / "map.json").write_text(json.dumps(mapping))
+            for x in [-.015, .005, .015]:
+                las = laspy.create(point_format=3, file_version="1.2")
+                las.header.scales = np.full(3, 1e-6)
+                las.add_extra_dim(laspy.ExtraBytesParams(name="cloudbim_instance_id", type=np.uint32))
+                las.x, las.y, las.z = [x], [0.], [0.]
+                las["cloudbim_instance_id"] = [1]; las.write(root / "scan.las")
+                result = compute_instance_comparison(str(root / "scan.las"), str(root / "analysis"), str(root / "map.json"),
+                    IDENTITY, voxel_size=.001, downsample_enabled=False, max_histogram_distance=.1,
+                    histogram_bins=20, tolerance=.005, normal_constraint_enabled=True, normal_fallback_mode="unknown")
+                xyz = np.asarray(result["mesh"].vertices)
+                at = np.all(np.isclose(xyz, [.01, 0, 0], atol=1e-8), axis=1)
+                self.assertTrue(at.any())
+                # A lone point has no reliable observed axis/side in v3.
+                self.assertTrue(np.isnan(result["distances"][at]).all())
+                normals = np.asarray(result["mesh"].vertex_normals)
+                self.assertTrue((normals[at, 0] > .99).all())
+                audit = result["rebarComparison"]["bars"][0]["solid"]
+                self.assertEqual(audit["closedPartCount"], 1)
+                self.assertEqual(audit["invalidPartCount"], 0)
+                self.assertEqual(audit["flippedFaceCount"], len(mesh.faces))
+
+    def test_enabled_normal_mode_requires_instance_comparison_inputs(self):
+        with self.assertRaises(ValidationError):
+            C2MRequest(scan_path="scan.las", mesh_path="mesh.ply", alignment_matrix=IDENTITY,
+                       params=C2MParams(normal_constraint_enabled=True))
+
+    def test_normal_constraint_removes_axial_motion_and_preserves_sign(self):
+        vertices = np.array([[0., 0., 0.]])
+        scan = np.array([[.01, 0., 0.], [0., .02, 0.]])
+        tangent = np.array([[1., 0., 0.]])
+        normal = np.array([[0., 1., 0.]])
+        values, indices, axial, accepted = constrained_nearest(
+            cKDTree(scan), scan, vertices, tangent, normal, k=2,
+            max_angle_deg=30, half_space_only=False, fallback_mode="unknown")
+        self.assertTrue(accepted[0]); self.assertEqual(indices[0], 1)
+        self.assertAlmostEqual(values[0], .02, places=8)
+        self.assertAlmostEqual(axial[0], 0., places=8)
+        values, _, _, accepted = constrained_nearest(
+            cKDTree(scan[:1]), scan[:1], vertices, tangent, normal, k=1,
+            max_angle_deg=30, half_space_only=False, fallback_mode="unknown")
+        self.assertFalse(accepted[0]); self.assertTrue(np.isnan(values[0]))
+        negative, _, _, _ = constrained_nearest(
+            cKDTree(np.array([[0., -.02, 0.]])), np.array([[0., -.02, 0.]]), vertices, tangent, normal,
+            k=64, max_angle_deg=30, half_space_only=False, fallback_mode="unknown")
+        self.assertAlmostEqual(negative[0], -.02, places=8)
+
+    def test_curved_topology_uses_the_local_segment_tangent(self):
+        vertices = np.array([[1., .5, 0.]])
+        tangents = local_tangents(vertices, [(np.array([0., 0., 0.]), np.array([1., 0., 0.])),
+                                              (np.array([1., 0., 0.]), np.array([1., 1., 0.]))])
+        np.testing.assert_allclose(tangents, [[0., 1., 0.]])
+        values, _, _, accepted = constrained_nearest(
+            cKDTree(np.array([[1.02, .5, 0.]])), np.array([[1.02, .5, 0.]]), vertices,
+            tangents, np.array([[1., 0., 0.]]), k=1, max_angle_deg=30,
+            half_space_only=False, fallback_mode="unknown")
+        self.assertTrue(accepted[0]); self.assertAlmostEqual(values[0], .02, places=8)
+
+    def test_normal_constraint_missing_topology_is_strict_unknown(self):
+        values, indices, axial, accepted = constrained_nearest(
+            cKDTree(np.array([[0., .01, 0.]])), np.array([[0., .01, 0.]]),
+            np.array([[0., 0., 0.]]), None, np.array([[0., 1., 0.]]), k=1,
+            max_angle_deg=30, half_space_only=False, fallback_mode="unknown")
+        self.assertTrue(np.isnan(values[0])); self.assertEqual(indices[0], -1)
+        self.assertTrue(np.isnan(axial[0])); self.assertFalse(accepted[0])
     def test_matched_instances_must_follow_unique_design_units(self):
         base = {
             "inventory": {
@@ -142,7 +222,7 @@ class RebarComparisonTests(unittest.TestCase):
                                      max_colormap_distance=.1, max_histogram_distance=.1,
                                      histogram_bins=20, tolerance_limit=.01),
                 ))
-                self.assertEqual(response["algorithmVersion"], "c2m-rebar-instance-v1")
+                self.assertEqual(response["algorithmVersion"], "c2m-rebar-instance-v3")
                 saved = np.fromfile(response["distancesPath"], dtype="<f4")
                 self.assertTrue(np.isnan(saved).any())
                 recolored = c2m_recolor(C2MRecolorRequest(

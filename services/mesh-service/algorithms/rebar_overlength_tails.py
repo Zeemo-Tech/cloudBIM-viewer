@@ -10,7 +10,7 @@ import time
 import numpy as np
 
 
-VERSION = 'overlength-tails-v1'
+VERSION = 'overlength-tails-v3-closest-design-length'
 DIRECT_EXTENSION = 1
 CLUSTER_CARRY = 2
 
@@ -30,6 +30,9 @@ class TailParameters:
     maximum_bins: int = 100_000
     maximum_blocks: int = 128
     maximum_instance_points: int = 1_000_000
+    satellite_maximum_diameters: float = 2.
+    satellite_maximum_core_fraction: float = .1
+    satellite_maximum_gap_fraction: float = .5
 
 
 def retained_instance_groups(out):
@@ -95,16 +98,25 @@ def tail_decision(along, core, eligible, protected, length, diameter, params=Non
     if not len(along) or not np.isfinite(along).all() or np.count_nonzero(core) < 12:
         record['reason'] = 'insufficient_core'
         return remove, record
+    if length is None or not np.isfinite(length) or length <= 0:
+        record.update(status='review', reason='no_reliable_design_length')
+        return remove, record
     low, high = float(along.min()), float(along.max())
     allowed = length*(1+params.relative_allowance)+params.absolute_allowance
-    record.update(beforeLengthM=high-low, afterLengthM=high-low, allowedLengthM=allowed)
-    if high-low <= allowed:
-        return remove, record
-    record['status'] = 'review'
+    before_error = abs(high-low-length)
+    record.update(beforeLengthM=high-low, afterLengthM=high-low, allowedLengthM=allowed,
+                  beforeDesignErrorM=before_error, afterDesignErrorM=before_error)
+    overlong = high-low > allowed
+    record['status'] = 'review' if overlong else 'retained'
     a, b = float(along[core].min()), float(along[core].max())
-    record.update(coreLengthM=b-a, coreIntervalM=[a, b], allowableUnionM=[b-allowed, a+allowed])
-    if b-a > allowed:
-        record['reason'] = 'core_already_overlong'
+    # A measured long core is preserved, but cannot exempt later attachments
+    # from continuity checks. Expand the envelope to contain that core instead
+    # of returning before we even look for an exterior tail.
+    envelope_length = max(allowed, b-a)
+    record.update(coreLengthM=b-a, coreIntervalM=[a, b], coreOverlong=b-a > allowed,
+                  allowableUnionM=[b-envelope_length, a+envelope_length])
+    if not np.any(eligible & ~core):
+        record['reason'] = 'no_external_extension'
         return remove, record
     if np.any(protected):
         record['reason'] = 'protected_hook'
@@ -113,7 +125,10 @@ def tail_decision(along, core, eligible, protected, length, diameter, params=Non
     if (high-low)/size >= params.maximum_bins:
         record['reason'] = 'bin_budget'
         return remove, record
-    bins = np.floor((along-low)/size).astype(np.int64)
+    # Keep the grid anchored to retained core points. Removing a left satellite
+    # must not shift the bin phase and change the next invocation's gap test.
+    bins = np.floor((along-a)/size).astype(np.int64)
+    bins -= bins.min()
     occupied = np.flatnonzero(np.bincount(bins))
     core_bins = np.flatnonzero(np.bincount(bins[core]))
     if len(core_bins) < 6:
@@ -123,37 +138,87 @@ def tail_decision(along, core, eligible, protected, length, diameter, params=Non
     gap = max(params.minimum_gap, params.diameter_gap_factor*diameter,
               params.spacing_gap_factor*spacing)
     record.update(axialSpacingM=spacing, minimumGapM=gap)
-    # Count only fully empty bins. A partial bin can never inflate a gap.
-    breaks = np.flatnonzero((np.diff(occupied)-1)*size > gap+1e-12)
+    # Measure the actual edge-to-edge gap between occupied bins. Counting empty
+    # bins alone changes decisions when the same axis is reversed or translated.
+    bin_low = np.full(int(bins.max())+1, np.inf)
+    bin_high = np.full(len(bin_low), -np.inf)
+    np.minimum.at(bin_low, bins, along)
+    np.maximum.at(bin_high, bins, along)
+    breaks = np.flatnonzero(bin_low[occupied[1:]]-bin_high[occupied[:-1]] > gap+1e-12)
     if len(breaks)+1 > params.maximum_blocks:
         record['reason'] = 'block_budget'
         return remove, record
     if not len(breaks):
-        record['reason'] = 'continuous_overlength'
+        record['reason'] = 'continuous_overlength' if overlong else 'within_length_allowance'
         return remove, record
     labels = np.searchsorted(occupied[breaks+1], bins, side='right')
     blocks = []
     for label in range(len(breaks)+1):
         mask = labels == label
         blocks.append((mask, float(along[mask].min()), float(along[mask].max())))
-    for i, (mask, start, end) in enumerate(blocks):
-        side = 'start' if end < b-allowed else 'end' if start > a+allowed else None
-        if side is None or np.any(core[mask]) or not np.all(eligible[mask]):
-            continue
-        inward = i+1 if side == 'start' else i-1
-        if not 0 <= inward < len(blocks):
-            continue
-        measured_gap = blocks[inward][1]-end if side == 'start' else start-blocks[inward][2]
-        if measured_gap <= gap:
-            continue
-        remove |= mask
-        record['tails'].append(dict(side=side, gapM=measured_gap,
-                                    intervalM=[start, end], pointCount=int(mask.sum())))
+    core_count = np.count_nonzero(core)
+    counts = [int(mask.sum()) for mask, _, _ in blocks]
+    external = [not np.any(core[mask]) and np.all(eligible[mask]) for mask, _, _ in blocks]
+
+    def end_choices(side):
+        # Enumerate whole-block end cuts, including no cut. Evaluate gaps to the
+        # actual surviving boundary, so chains are resolved in a single pass.
+        # A retained independent/core block can never be crossed by a cut.
+        indices = (list(range(len(blocks))) if side == 'start'
+                   else list(reversed(range(len(blocks)))))
+        choices = [(low if side == 'start' else high, [], [], 0)]
+        selected = []
+        for i in indices[:-1]:
+            _, start, end = blocks[i]
+            if not external[i] or not (end < a if side == 'start' else start > b):
+                break
+            selected.append(i)
+            boundary = blocks[i+1][1] if side == 'start' else blocks[i-1][2]
+            tails = []
+            for j in selected:
+                _, start, end = blocks[j]
+                measured_gap = boundary-end if side == 'start' else start-boundary
+                outside = overlong and (end < b-envelope_length or start > a+envelope_length)
+                small = (end-start <= min(params.satellite_maximum_diameters*diameter,
+                                          params.satellite_maximum_core_fraction*(b-a),
+                                          params.satellite_maximum_gap_fraction*measured_gap)
+                         and counts[j] <= params.satellite_maximum_core_fraction*core_count)
+                if measured_gap <= gap or not (outside or small):
+                    break
+                tails.append(dict(side=side, gapM=measured_gap, intervalM=[start, end],
+                                  pointCount=counts[j], reason='outside_core_length_envelope'
+                                  if outside else 'small_detached_extension'))
+            else:
+                choices.append((boundary, selected.copy(), tails, sum(counts[j] for j in selected)))
+        return choices
+
+    # Compare all feasible left/right combinations to the unchanged envelope.
+    # A greedy left-first cut can miss a better right-only result. The number
+    # of combinations is bounded by maximum_blocks, independent of point count.
+    left, right = end_choices('start'), end_choices('end')
+    best_error, best_count, best_length = before_error, 0, high-low
+    best_indices, best_tails = [], []
+    for left_edge, left_ids, left_tails, left_count in left:
+        for right_edge, right_ids, right_tails, right_count in right:
+            retained_length = right_edge-left_edge
+            error, count = abs(retained_length-length), left_count+right_count
+            better = error < best_error-1e-9
+            tie = abs(error-best_error) <= 1e-9
+            if better or (tie and (count < best_count or
+                                  (count == best_count and retained_length > best_length+1e-9))):
+                best_error, best_count, best_length = error, count, retained_length
+                best_indices, best_tails = left_ids+right_ids, left_tails+right_tails
+    for i in best_indices:
+        remove |= blocks[i][0]
+    record['tails'] = best_tails
     if remove.any():
-        record.update(status='reclaimed', reason='detached_extension_outside_core_length_envelope',
-                      afterLengthM=float(np.ptp(along[~remove])))
+        record.update(status='reclaimed', reason='detached_external_tail',
+                      afterLengthM=best_length, afterDesignErrorM=best_error)
     else:
-        record['reason'] = 'no_unprotected_external_tail'
+        record['reason'] = ('no_design_length_improvement' if len(left)+len(right) > 2
+                            else 'no_unprotected_external_tail')
+        if len(left)+len(right) > 2:
+            record['status'] = 'review'
     return remove, record
 
 

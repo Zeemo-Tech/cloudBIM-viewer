@@ -4941,3 +4941,11 @@
 .calibration-page .c2m-advanced-card .c2m-setting-row--plain { grid-template-columns: minmax(0, 1fr) 104px; }
 .calibration-page .c2m-advanced-card .c2m-setting-row--plain > :deep(.el-input-number) { width: 104px; }
 .calibration-page .c2m-advanced-card .c2m-setting-row__label { gap: 4px; flex-wrap: wrap; }
+
+/* 合并自 dev-hong（C2M 报告工作流）：报告溯源、投影页与导出操作样式。 */
+.calibration-page .rebar-report-provenance { overflow-wrap: anywhere; color: #64748b; }
+.calibration-page .rebar-report-page footer { margin-top: auto; font-size: 12px; color: #64748b; }
+.calibration-page .rebar-projection-page__bars { display: grid; align-content: start; gap: 16px; }
+.calibration-page .rebar-projection-page__bars > section + section { padding-top: 16px; border-top: 1px solid var(--border-color); }
+.calibration-page .rebar-export-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.calibration-page .rebar-export-actions .el-button + .el-button { margin-left: 0; }

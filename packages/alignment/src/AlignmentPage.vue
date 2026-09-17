@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ArrowDown,
@@ -21,6 +21,7 @@ import {
   Edit,
   FullScreen,
   Grid,
+  Hide,
   Histogram,
   Promotion,
   RefreshLeft,
@@ -31,6 +32,8 @@ import {
   ZoomOut,
 } from '@element-plus/icons-vue'
 import * as THREE from 'three'
+// InfiniteGroundGrid 随 core 发布（dev-hong 侧新增，已归入 viewer-core）。
+import { InfiniteGroundGrid, getTilesetWorldBounds } from '@cloudbim/viewer-core'
 import {
   ClippingGroup,
   MeshBasicNodeMaterial,
@@ -90,6 +93,7 @@ import {
   histogramFromC2MDistances,
   isC2MResultFresh,
   listMeasurements,
+  downloadC2MReportJSON,
   parseAnalysisC2MManifest,
   parseAnalysisMeshDistances,
   parseC2MDistances,
@@ -150,7 +154,62 @@ import {
   parseDenoisePreview,
   type DenoiseColorMode,
 } from '@cloudbim/denoise'
-import { dimComparisonGeometry, rememberComparisonGeometryColors, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
+import { dimComparisonGeometry, rememberComparisonGeometryColors, filterComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
+// dev-hong 侧新增的钢筋巡检、调试与报告组件。
+import RebarDebugPanel from './RebarDebugPanel.vue'
+import { debugInventoryBars, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal, type RebarDebugInventory } from './rebarDebug'
+import RebarDeviationDetail from './RebarDeviationDetail.vue'
+import RebarInspectionSummary from './RebarInspectionSummary.vue'
+import RebarReportHistory from './RebarReportHistory.vue'
+// dev-hong 侧的视口工具按钮图标：随包发布（构建时按 assetsInlineLimit 内联）。
+import toushiIcon from './assets/images/toushi.png'
+import zhengjiaoIcon from './assets/images/zhengjiao.png'
+
+// ---------------------------------------------------------------------------
+// URL 查询参数垫片
+// 包不依赖 vue-router（契约是 props 进、事件出），但 dev-hong 侧的钢筋调试面板需要
+// 可分享的 URL 状态（?debug=rebar&debugBar=<id>）。这里只做「读写当前地址栏 query」
+// 这一件事；步骤流转仍走 props/emit，宿主路由（若有）照常工作。
+// ---------------------------------------------------------------------------
+function readLocationQuery(): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  return Object.fromEntries(new URLSearchParams(window.location.search))
+}
+
+const route = reactive({
+  path: typeof window === 'undefined' ? '' : window.location.pathname,
+  query: readLocationQuery(),
+})
+
+const router = {
+  replace: (payload: { query?: Record<string, unknown> }) => {
+    const search = new URLSearchParams()
+    for (const [key, value] of Object.entries(payload?.query ?? {})) {
+      if (value === null || value === undefined || value === '') continue
+      search.set(key, String(value))
+    }
+    const url = `${window.location.pathname}${search.size ? `?${search.toString()}` : ''}`
+    window.history.replaceState(window.history.state, '', url)
+    route.path = window.location.pathname
+    route.query = readLocationQuery()
+  },
+  resolve: (payload: { path?: string; query?: Record<string, unknown> }) => {
+    const search = new URLSearchParams()
+    for (const [key, value] of Object.entries(payload?.query ?? {})) {
+      if (value === null || value === undefined || value === '') continue
+      search.set(key, String(value))
+    }
+    return {
+      href: `${payload?.path ?? route.path}${search.size ? `?${search.toString()}` : ''}`,
+    }
+  },
+}
+
+/** 包内只需要 query 里的项目名，避免依赖宿主的 navigation helper。 */
+function readNavigationRouteState(_path: string, query: Record<string, unknown>) {
+  const projectName = typeof query?.projectName === 'string' ? query.projectName : ''
+  return { projectName }
+}
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
@@ -202,14 +261,15 @@ const workflowRouteReady = ref(false)
 const reportEditing = ref(false)
 const reportToolbarCollapsed = ref(false)
 const reportZoom = ref(70)
+const reportWorkspaceEl = ref<HTMLElement | null>(null)
 const reportFullscreen = ref(false)
 const reportTitle = ref('BIM 与点云校准报告')
-const reportProjectName = ref('BIM 与点云校准项目')
+const reportProjectName = ref(readNavigationRouteState(route.path, route.query).projectName || '未填写')
 const reportOrganization = ref('未填写')
 const reportInspectors = ref('未填写')
 const reportReviewer = ref('未填写')
 const reportDate = ref(new Date().toLocaleDateString('zh-CN'))
-const reportFormat = ref<'pdf' | 'docx' | 'xls' | 'dxf'>('pdf')
+const reportFormat = ref<'pdf' | 'docx' | 'xls' | 'dxf' | 'json'>('pdf')
 const reportContents = ref([
   { id: 'summary', title: '偏差对比摘要', enabled: true, locked: true, group: '基础信息' },
   { id: 'statistics', title: '偏差统计与分布', enabled: true, locked: false, group: '偏差分析' },
@@ -238,6 +298,7 @@ const pointcloudIntensityHistogram = ref<number[]>([])
 const pointcloudPointSize = ref(2.5)
 const pointcloudShowAxes = ref(true)
 const hasSavedAlignmentMatrix = ref(false)
+const sceneAlignmentReady = ref(false)
 const coarseAlignmentDirty = ref(false)
 const latestAlignmentResult = ref<BimAlignmentResult | null>(null)
 const loadingAlignmentMatrix = ref(false)
@@ -286,7 +347,7 @@ const canSaveCoarseAlignment = computed(() =>
   !!bimLoaded.value && !!pointcloudLoaded.value && registrationStage.value === 'coarse' && !savingCalibration.value,
 )
 const canOpenDenoiseStep = computed(() =>
-  Boolean(props.bimAssetId && props.pointcloudAssetId && pointcloudLoaded.value && !pointcloudPreprocessRequired.value && hasSavedAlignmentMatrix.value && !coarseAlignmentDirty.value),
+  Boolean(props.bimAssetId && props.pointcloudAssetId && pointcloudLoaded.value && !pointcloudPreprocessRequired.value && hasSavedAlignmentMatrix.value && sceneAlignmentReady.value && !coarseAlignmentDirty.value),
 )
 
 const denoiseResult = ref<DenoiseResult | null>(null)
@@ -305,6 +366,9 @@ const pointcloudPreprocessError = ref('')
 const canOpenDeviationStep = computed(() => canOpenDenoiseStep.value && denoiseResult.value?.fresh === true && denoiseResult.value.result.instanceContract === 'rebar-instance-map-v1' && !denoiseRunning.value && !denoiseLoading.value)
 let denoiseRequestId = 0
 let denoisePreviewRequestId = 0
+let denoisePreviewPromise: Promise<void> | null = null
+let denoiseRequestedView: 'source' | DenoiseColorMode = 'source'
+let comparisonInventoryPromise: Promise<void> | null = null
 let denoisePreview: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null
 const reportGeometryRevision = ref(0)
 
@@ -316,28 +380,37 @@ function workflowStepDisabled(step: WorkflowStepId): boolean {
 }
 
 function openWorkflowStep(step: WorkflowStepId) {
+  showPointcloudSettings.value = false
+  showAdvancedSettings.value = false
   if (workflowStepDisabled(step)) {
     ElMessage.warning(step >= 3 ? '请先完成当前配准下的点云去噪' : '请先完成并保存点云与工程坐标配准')
     return
   }
+  if (step === activeWorkflowStep.value) return
   reportEditing.value = false
-  if ((step === 1 || step === 2) && c2mSceneLoaded.value) clearC2MSceneAndOpenCoarseEditor()
+  reportFullscreen.value = false
   activeWorkflowStep.value = step
   showPanel.value = true
   if (step === 1) editMode.value = true
   if (step >= 2) {
     editMode.value = false
-    if (denoiseResult.value?.fresh) void showDenoisePreview('cleaned')
-    if (step >= 3) void prepareRebarComparisonScene()
+    if (step !== 4 && denoiseResult.value?.fresh) void showDenoisePreview(denoiseColorMode.value)
+    if (step === 3) void prepareRebarComparisonScene()
   } else {
-    clearDenoisePreview()
+    void showDenoisePreview('source')
   }
+  if (step < 3) restoreBimVisibilityAfterC2M()
+  else if (c2mSceneLoaded.value) hideBimWhileC2MIsLoaded()
   applySceneVisibility()
+  syncWireframeStateFromCurrentMesh()
 }
 
 function clearDenoisePreview() {
   resetRebarInspection()
   denoisePreviewRequestId++
+  denoisePreviewPromise = null
+  denoiseRequestedView = 'source'
+  comparisonInventoryPromise = null
   denoisePreview?.removeFromParent()
   denoisePreview?.geometry.dispose()
   denoisePreview?.material.dispose()
@@ -394,14 +467,16 @@ async function runDenoise() {
 }
 
 async function showDenoisePreview(mode: 'source' | 'classes' | 'cleaned') {
+  denoiseRequestedView = mode
   if (mode === 'source') {
-    denoisePreviewRequestId++
-    denoisePreviewLoading.value = false
     denoiseView.value = 'source'
     applySceneVisibility()
     requestRender()
     return
   }
+  // A result-only debug view needs no scan payload or instance palette.
+  // Retain the requested mode so showing the scan can load it on demand.
+  if (rebarDebugActive.value && !rebarDebugScan.value) return
   if (!denoiseResult.value?.fresh || !scene || !pointcloudGroup) return
   if (denoisePreview) {
     try {
@@ -415,22 +490,33 @@ async function showDenoisePreview(mode: 'source' | 'classes' | 'cleaned') {
     }
     return
   }
-  const id = ++denoisePreviewRequestId
+  if (denoisePreviewPromise) return denoisePreviewPromise
   const result = denoiseResult.value
+  const id = ++denoisePreviewRequestId
+  const promise = loadDenoisePreview(result, id)
+  denoisePreviewPromise = promise
+  try { await promise } finally {
+    if (denoisePreviewPromise === promise) denoisePreviewPromise = null
+  }
+}
+
+async function loadDenoisePreview(result: DenoiseResult, id: number) {
   denoisePreviewLoading.value = true
   try {
     const buffer = await backendRequest<ArrayBuffer>(denoiseArtifactUrl(props.pointcloudAssetId!, props.bimAssetId!, result.version, 'preview.ply'), { responseType: 'arraybuffer' })
     if (id !== denoisePreviewRequestId || result.version !== denoiseResult.value?.version) return
+    if (!scene || !pointcloudGroup) return
+    const mode = denoiseRequestedView === 'source' ? denoiseColorMode.value : denoiseRequestedView
     const geometry = parseDenoisePreview(buffer, mode)
     denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(geometry, mode, denoiseVisibleClasses.value)
     const material = new THREE.PointsMaterial({ size: pointcloudPointSize.value, sizeAttenuation: false, vertexColors: true })
     denoisePreview = new THREE.Points(geometry, material)
-    pointcloudGroup.updateWorldMatrix(true, false)
-    denoisePreview.matrix.copy(getRawMatrixWorldForCalibration(pointcloudGroup)).multiply(new THREE.Matrix4().makeTranslation(...result.result.previewOrigin))
     denoisePreview.matrixAutoUpdate = false
     scene.add(denoisePreview)
+    // chen 侧的报告几何版本号 + dev-hong 侧的预览变换同步都需要保留。
     reportGeometryRevision.value += 1
-    denoiseView.value = mode
+    syncDenoisePreviewTransform()
+    denoiseView.value = activeWorkflowStep.value === 1 ? 'source' : denoiseRequestedView
     denoiseColorMode.value = mode
     applySceneVisibility()
     requestRender()
@@ -439,6 +525,18 @@ async function showDenoisePreview(mode: 'source' | 'classes' | 'cleaned') {
   } finally {
     if (id === denoisePreviewRequestId) denoisePreviewLoading.value = false
   }
+}
+
+function syncDenoisePreviewTransform() {
+  if (!denoisePreview || !pointcloudGroup || !denoiseResult.value) return
+  // Preview vertices are in scan coordinates, offset by previewOrigin. The
+  // source can move after this preview loads (root tiles / saved alignment).
+  pointcloudGroup.updateWorldMatrix(true, false)
+  denoisePreview.parent?.updateWorldMatrix(true, false)
+  denoisePreview.matrix.copy(denoisePreview.parent?.matrixWorld ?? new THREE.Matrix4()).invert()
+    .multiply(getRawMatrixWorldForCalibration(pointcloudGroup))
+    .multiply(new THREE.Matrix4().makeTranslation(...denoiseResult.value.result.previewOrigin))
+  denoisePreview.updateMatrixWorld(true)
 }
 
 function setDenoiseVisibleClasses(classes: number[]) {
@@ -505,6 +603,8 @@ function reportAction(action: 'export' | 'save' | 'publish') {
 async function exportReport() {
   if (!canUseC2MResult.value) { ElMessage.warning('请先完成当前输入下的逐钢筋对比'); return }
   if (reportFormat.value === 'xls') { downloadRebarReport(); return }
+  if (reportFormat.value === 'json') { await downloadInspectionJSON(); return }
+  if (reportFormat.value !== 'pdf') { ElMessage.info('当前支持 PDF 和 CSV 导出'); return }
   document.body.classList.add('is-printing-alignment-report')
   await nextTick()
   window.setTimeout(() => {
@@ -513,8 +613,17 @@ async function exportReport() {
   }, 0)
 }
 
+function fitReportPage() {
+  const workspace = reportWorkspaceEl.value
+  if (!workspace) return
+  const availableWidth = Math.max(1, workspace.clientWidth - 48)
+  const availableHeight = Math.max(1, workspace.clientHeight - 88)
+  reportZoom.value = Math.max(10, Math.min(140, Math.floor(Math.min(availableWidth / 794, availableHeight / 1123) * 100)))
+  workspace.scrollTo({ top: 0, left: 0 })
+}
+
 function changeReportZoom(delta: number) {
-  reportZoom.value = Math.min(140, Math.max(40, reportZoom.value + delta))
+  reportZoom.value = Math.min(140, Math.max(10, reportZoom.value + delta))
 }
 
 function toggleReportFullscreen() {
@@ -522,7 +631,9 @@ function toggleReportFullscreen() {
 }
 
 function saveReportEdits() {
-  ElMessage.success('报告草稿已保存')
+  reportEditing.value = false
+  showPanel.value = true
+  ElMessage.info('已完成本次编辑；内容仅保留在当前页面，导出后可保存到本地')
 }
 
 function updateReportField(field: 'title' | 'project' | 'organization' | 'inspectors' | 'reviewer' | 'date', event: FocusEvent) {
@@ -540,6 +651,7 @@ const viewportEl = ref<HTMLDivElement | null>(null)
 const statusText = ref('准备就绪')
 const showPanel = ref(true)
 const showAdvancedSettings = ref(false)
+const showPointcloudSettings = ref(false)
 const loadingBim = ref(false)
 const loadingPointcloud = ref(false)
 const savingCalibration = ref(false)
@@ -553,10 +665,19 @@ const meshError = ref('')
 const c2mRunning = ref(false)
 const c2mResult = ref<C2MResult | null>(null)
 const c2mVoxelSize = ref(0.002)
-const c2mDownsampleEnabled = ref(false)
+const c2mNormalConstraintEnabled = ref(true)
+const c2mNormalMaxAngleDeg = ref(30)
+const c2mMaxSearchDistanceMm = ref(200)
+const c2mCalculationSettingsDirty = computed(() => {
+  const effective = c2mResult.value?.diagnostics?.rebarComparison?.effective
+  if (!effective) return false
+  return effective.normalConstraintEnabled !== c2mNormalConstraintEnabled.value ||
+    (c2mNormalConstraintEnabled.value && effective.normalMaxAngleDeg !== c2mNormalMaxAngleDeg.value) ||
+    Math.abs((effective.maxSearchDistance ?? 0.2) * 1000 - c2mMaxSearchDistanceMm.value) > 1e-7
+})
 const c2mError = ref('')
 const selectedComparisonBarId = ref('')
-const comparisonInventory = ref<{ inventory: { bars: { ifcGlobalId: string }[] } } | null>(null)
+const comparisonInventory = ref<RebarDebugInventory | null>(null)
 // Keep these guards above all comparison-derived computed values. Vue may
 // evaluate those values during setup (for example through an eager watcher).
 const c2mResultIsFresh = computed(() => isC2MResultFresh(c2mResult.value))
@@ -564,11 +685,18 @@ const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFre
 const comparison = computed(() => canUseC2MResult.value ? c2mResult.value?.diagnostics?.rebarComparison : undefined)
 const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value?.bars ?? [], c2mDistances.value, c2mToleranceMm.value / 1000))
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
-// Each report page intentionally owns one steel member. This keeps the
-// deviation row and its three model projections physically together, so the
-// reader never has to cross-reference a separate view sheet.
-const REPORT_ROWS_PER_PAGE = 1
-const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
+// dev-hong report pagination: 14 bars per report page, configurable detail page size.
+const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / 14) }, (_, page) => comparisonBars.value.slice(page * 14, (page + 1) * 14)))
+const reportBarsPerPage = ref(2)
+const comparisonDetailPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / reportBarsPerPage.value) }, (_, page) => comparisonBars.value.slice(page * reportBarsPerPage.value, (page + 1) * reportBarsPerPage.value)))
+const comparisonMeasurementLabel = computed(() => {
+  if (!comparison.value?.effective?.normalConstraintEnabled) return '设计钢筋顶点到对应实例的有符号最近点距离'
+  if (comparison.value.inspection?.method === 'control-net-real-point-radial-correspondence-v1') return '控制网辅助的同侧表面法向偏差'
+  return comparison.value.measurement?.method === 'observed-axis-same-side-normal-v3'
+    ? `同侧表面的法向偏差（朝向容差 ${comparison.value.effective.normalMaxAngleDeg}°）`
+    : `法向约束的垂直轴向偏差（双向 ${comparison.value.effective.normalMaxAngleDeg}°）`
+})
+// chen side report paging state stays available for the existing template.
 const comparisonReportTotalPages = computed(() => 1 + comparisonReportPages.value.length)
 const comparisonReportPageIndex = ref(0)
 const comparisonReportPageCount = computed(() => comparisonReportPages.value.length)
@@ -592,105 +720,240 @@ let rebarCameraControlsWasEnabled: boolean | null = null
 const rebarInspectionMaterialState = new WeakMap<THREE.Material, { color?: THREE.Color; opacity: number; transparent: boolean; depthWrite: boolean }>()
 const c2mOriginalVertexColors = new WeakMap<THREE.BufferGeometry, Float32Array>()
 
+const rebarDebugEnabled = ref(route.query.debug === 'rebar' || import.meta.env.MODE === 'rebar-debug')
+const rebarDebugActive = computed(() => rebarDebugEnabled.value && activeWorkflowStep.value === 3)
+const rebarDebugBars = computed(() => comparison.value ? comparisonBars.value : debugInventoryBars(comparisonInventory.value))
+const rebarDebugBar = computed(() => rebarDebugBars.value.find(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
+const rebarDebugSurface = ref('result')
+// Loading the directory first must not overwrite the desired result view.
+const rebarDebugDisplaySurface = computed(() => !comparison.value && (rebarDebugSurface.value === 'result' || rebarDebugSurface.value === 'mesh') ? 'source' : rebarDebugSurface.value)
+const rebarDebugScan = ref(false)
+const rebarDebugCluster = ref('matched')
+const rebarDebugNormals = ref(false)
+const rebarDebugNormalMode = ref<'vertex' | 'face'>('vertex')
+const rebarDebugAllNormals = ref(true)
+const rebarDebugMeshCounts = ref({ vertices: 0, faces: 0 })
+const rebarDebugScanNormals = ref(false)
+const rebarDebugLengthMm = ref(10)
+const rebarDebugLimit = ref(200)
+const rebarDebugNormalCount = ref(0)
+const rebarDebugScanNormalCount = ref(0)
+let rebarDebugOverlay: THREE.Group | null = null
+let rebarDebugFocusPending = false
+const rebarDebugMaterials = new Map<THREE.MeshBasicMaterial, { vertexColors: boolean; color: THREE.Color }>()
+
+function clearRebarDebugOverlay() {
+  if (rebarDebugOverlay) { rebarDebugOverlay.removeFromParent(); disposeObject3D(rebarDebugOverlay) }
+  rebarDebugOverlay = null
+  rebarDebugNormalCount.value = 0
+  rebarDebugMeshCounts.value = { vertices: 0, faces: 0 }
+  rebarDebugScanNormalCount.value = 0
+}
+
+function comparisonMeshMatches(object: THREE.Object3D, ids: Set<string>) {
+  let current: THREE.Object3D | null = object
+  while (current && current !== bimPivot) {
+    const candidates = [current.name, String(current.userData.ifcGlobalId ?? ''), guessIfcId(current.userData)]
+    if (candidates.some(id => id && (ids.has(id) || ids.has(findMetadataElementById(id)?.id ?? '')))) return true
+    current = current.parent
+  }
+  return false
+}
+
+function rebarDebugDesignObjects(): THREE.Mesh[] {
+  const root = rebarDebugDisplaySurface.value === 'source' ? bimPivot : rebarDebugDisplaySurface.value === 'hidden' ? null : c2mSceneGroup
+  const meshes: THREE.Mesh[] = []
+  if (root?.visible) root.traverseVisible(object => { if (object instanceof THREE.Mesh) meshes.push(object) })
+  return meshes
+}
+
+function rebarDebugBounds() {
+  if (!rebarDebugActive.value || !rebarDebugBar.value) return null
+  const box = new THREE.Box3()
+  for (const mesh of rebarDebugDesignObjects()) box.union(debugGeometryBounds(mesh))
+  if (denoisePreview?.visible) box.union(debugGeometryBounds(denoisePreview))
+  return box.isEmpty() ? null : box.expandByScalar(.01)
+}
+
+function focusRebarDebug() {
+  const box = rebarDebugBounds()
+  if (!box) return
+  fitCameraToBox(box)
+  requestRender()
+}
+
+function selectRebarDebugBar(id: string) {
+  rebarDebugFocusPending = true
+  selectedComparisonBarId.value = id
+  if (route.query.debug === 'rebar') void router.replace({ query: { ...route.query, debugBar: id } })
+}
+
+function moveRebarDebugBar(delta: number) {
+  const index = rebarDebugBars.value.findIndex(bar => bar.ifcGlobalId === selectedComparisonBarId.value)
+  const next = rebarDebugBars.value[Math.max(0, Math.min(rebarDebugBars.value.length - 1, index + delta))]
+  if (next) selectRebarDebugBar(next.ifcGlobalId)
+}
+
+function selectRebarDebugResult() {
+  rebarDebugSurface.value = 'result'
+  // Dense scan points can cover the very surface carrying the deviation colors.
+  rebarDebugScan.value = false
+  rebarDebugFocusPending = true
+}
+
+async function showRebarDebugResult() {
+  if (!canUseC2MResult.value) return
+  selectRebarDebugResult()
+  if (!c2mSceneLoaded.value && !c2mSceneLoading.value) await loadC2MToScene()
+  applySceneVisibility()
+}
+
+async function showRebarDebugPair() {
+  rebarDebugSurface.value = comparison.value ? 'mesh' : 'source'
+  rebarDebugScan.value = true
+  rebarDebugFocusPending = true
+  applySceneVisibility()
+  if (canUseC2MResult.value && !c2mSceneLoaded.value && !c2mSceneLoading.value) await loadC2MToScene()
+}
+
+function toggleRebarDebug() {
+  rebarDebugEnabled.value = !rebarDebugEnabled.value
+  const query = { ...route.query }
+  if (rebarDebugEnabled.value) query.debug = 'rebar'
+  else { delete query.debug; delete query.debugBar }
+  void router.replace({ query })
+}
+
+function openRebarDebugWindow() {
+  const url = router.resolve({ path: route.path, query: { ...route.query, step: '3', debug: 'rebar', debugBar: selectedComparisonBarId.value } })
+  const target = new URL(url.href, window.location.origin)
+  if (import.meta.env.DEV) target.port = '5174'
+  window.open(target.href, '_blank', 'noopener,noreferrer')
+}
+
+function exportRebarDebug() {
+  const bar = rebarDebugBar.value
+  if (!bar) return
+  const payload = {
+    schema: 'rebar-viewer-debug-v1', exportedAt: new Date().toISOString(),
+    scanAssetId: props.pointcloudAssetId, bimAssetId: props.bimAssetId,
+    resultVersion: comparison.value ? c2mResult.value?.resultVersion : null,
+    denoiseVersion: denoiseResult.value?.version, instanceMapHash: comparison.value?.instanceMapHash,
+    algorithmVersion: c2mResult.value?.algorithmVersion, effective: comparison.value?.effective,
+    measurement: comparison.value?.measurement, bar,
+    instances: comparisonInventory.value?.instances.filter(row => row.designBarId === bar.designBarId),
+    preview: { surface: rebarDebugSurface.value, cluster: rebarDebugCluster.value, visiblePointCount: denoiseVisiblePointCount.value,
+      normalArrowLengthMm: rebarDebugLengthMm.value, sampleLimit: rebarDebugLimit.value,
+      designNormalMode: rebarDebugNormalMode.value, designMeshCounts: rebarDebugMeshCounts.value,
+      designNormalSampling: rebarDebugAllNormals.value ? 'all' : 'sampled',
+      designNormalArrowCount: rebarDebugNormalCount.value,
+      designMeshSource: rebarDebugDisplaySurface.value === 'source' ? 'original-display-model' : rebarDebugDisplaySurface.value === 'hidden' ? 'hidden' : 'comparison-result',
+      scanNormalSource: 'saved-section radial reconstruction on preview samples; not solver correspondences' },
+  }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url; link.download = `rebar-debug-${bar.ifcGlobalId}.json`; link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function updateRebarDebugOverlay() {
+  clearRebarDebugOverlay()
+  if (!scene || !rebarDebugActive.value || !rebarDebugBar.value) return
+  const group = new THREE.Group()
+  group.name = 'rebar-debug-normals'
+  const meshes = rebarDebugDesignObjects()
+  for (const mesh of meshes) {
+    const counts = debugMeshCounts(mesh.geometry)
+    rebarDebugMeshCounts.value.vertices += counts.vertices
+    rebarDebugMeshCounts.value.faces += counts.faces
+  }
+  if (rebarDebugNormals.value) for (const mesh of meshes) {
+    const makeArrows = rebarDebugNormalMode.value === 'face' ? debugFaceNormalArrows : debugNormalArrows
+    const limit = rebarDebugAllNormals.value ? Infinity : Math.max(1, Math.floor(rebarDebugLimit.value / meshes.length))
+    const arrows = makeArrows(mesh, rebarDebugLengthMm.value / 1000, limit, 0x22d3ee)
+    rebarDebugNormalCount.value += arrows.userData.arrowCount
+    group.add(arrows)
+  }
+  if (rebarDebugScanNormals.value && denoisePreview?.visible && bimPivot && comparison.value?.measurement?.coordinateFrame === 'model') {
+    const profile = rebarDebugBar.value.measurement?.longitudinalProfile ?? []
+    const rowsByUnit = new Map<string, typeof profile>()
+    for (const row of profile) { const rows = rowsByUnit.get(row.designUnitId) ?? []; rows.push(row); rowsByUnit.set(row.designUnitId, rows) }
+    const instanceUnits = new Map((comparisonInventory.value?.instances ?? []).filter(row => row.reviewStatus === 'matched' && row.designBarId === rebarDebugBar.value!.designBarId).map(row => [row.id, row.designUnitId]))
+    bimPivot.updateWorldMatrix(true, false)
+    denoisePreview.updateWorldMatrix(true, false)
+    const modelToWorld = getRawMatrixWorldForCalibration(bimPivot)
+    const scanToModel = modelToWorld.clone().invert().multiply(denoisePreview.matrixWorld)
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(modelToWorld)
+    const instances = denoisePreview.geometry.getAttribute('instance')
+    const arrows = debugNormalArrows(denoisePreview, rebarDebugLengthMm.value / 1000, rebarDebugLimit.value, 0xfb923c, (id, point) => {
+      const unit = instanceUnits.get(instances?.getX(id))
+      const rows = unit ? rowsByUnit.get(unit) : undefined
+      if (!rows) return null
+      return observedRadialNormal(point.clone().applyMatrix4(scanToModel), rows)?.applyMatrix3(normalMatrix).normalize() ?? null
+    })
+    rebarDebugScanNormalCount.value = arrows.userData.arrowCount
+    group.add(arrows)
+  }
+  scene.add(group)
+  rebarDebugOverlay = group
+}
+
 async function prepareRebarComparisonScene() {
   const result = denoiseResult.value
   if (!result?.fresh) return
+  if (!comparisonInventory.value) {
+    if (!comparisonInventoryPromise) {
+      const promise = loadComparisonInventory(result, denoisePreviewRequestId)
+      comparisonInventoryPromise = promise
+      void promise.finally(() => {
+        if (comparisonInventoryPromise === promise) comparisonInventoryPromise = null
+      })
+    }
+    await comparisonInventoryPromise
+  }
+  if (result.version !== denoiseResult.value?.version || activeWorkflowStep.value !== 3) return
+  applySceneVisibility()
+  if (canUseC2MResult.value && !c2mSceneLoaded.value && !c2mSceneLoading.value) await loadC2MToScene()
+}
+
+async function loadComparisonInventory(result: DenoiseResult, requestId: number) {
   try {
     const inventory = await backendRequest<NonNullable<typeof comparisonInventory.value>>(
       denoiseArtifactUrl(props.pointcloudAssetId!, props.bimAssetId!, result.version, 'instance-map.json'),
     )
-    if (result.version !== denoiseResult.value?.version || activeWorkflowStep.value < 3) return
+    if (requestId !== denoisePreviewRequestId || result.version !== denoiseResult.value?.version) return
     comparisonInventory.value = inventory
-    applySceneVisibility()
-    if (canUseC2MResult.value && !c2mSceneLoaded.value && !c2mSceneLoading.value) await loadC2MToScene()
   } catch (error) {
     c2mError.value = error instanceof Error ? error.message : '钢筋对应关系加载失败'
   }
 }
 
 function applyComparisonSelection() {
-  const bar = selectedComparisonBar.value
-  const comparisonResult = comparison.value
-  const inspectionSelected = rebarInspectionActive.value
-  const visibleInstanceIds = inspectionSelected ? (bar?.instanceIds ?? []) : undefined
+  const debugging = rebarDebugActive.value
+  const bar = debugging ? rebarDebugBar.value : selectedComparisonBar.value
+  const resultBar = comparison.value?.bars.find(row => row.ifcGlobalId === bar?.ifcGlobalId)
   if (denoisePreview && activeWorkflowStep.value >= 3) {
-    denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(
-      denoisePreview.geometry,
-      'cleaned',
-      [3],
-      visibleInstanceIds,
-      {
-        dimUnselected: inspectionSelected,
-      },
-    )
+    const ids = debugging ? !bar ? [] : rebarDebugCluster.value === 'review' ? bar.reviewInstanceIds ?? []
+      : rebarDebugCluster.value === 'all' ? [...bar.instanceIds, ...(bar.reviewInstanceIds ?? [])] : bar.instanceIds : bar?.instanceIds
+    denoiseVisiblePointCount.value = applyDenoisePreviewAppearance(denoisePreview.geometry, 'classes', [3], ids)
   }
-  if (c2mSceneGroup && comparisonResult) c2mSceneGroup.traverse(object => {
-    if (object instanceof THREE.Mesh && c2mAnalysisSession) {
-      const colors = object.geometry.getAttribute('color')
-      if (colors) {
-        if (!c2mOriginalVertexColors.has(object.geometry)) c2mOriginalVertexColors.set(object.geometry, new Float32Array(colors.array as ArrayLike<number>))
-        const original = c2mOriginalVertexColors.get(object.geometry)!
-        const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
-        const next = new Float32Array(original)
-        const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
-        if (inspectionSelected && isComparisonRebar && !matched) {
-          const dimColor = new THREE.Color('#8b97a8')
-          for (let index = 0; index < colors.count; index += 1) dimColor.toArray(next, index * 3)
-        }
-        colors.array.set(next)
-        colors.needsUpdate = true
+  if (c2mSceneGroup && comparison.value) c2mSceneGroup.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return
+    filterComparisonGeometry(object.geometry, resultBar)
+    if (debugging && !resultBar) object.geometry.setIndex([])
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      if (!(material instanceof THREE.MeshBasicMaterial)) continue
+      if (debugging && rebarDebugSurface.value === 'mesh') {
+        if (!rebarDebugMaterials.has(material)) rebarDebugMaterials.set(material, { vertexColors: material.vertexColors, color: material.color.clone() })
+        material.vertexColors = false; material.color.set('#cbd5e1'); material.needsUpdate = true
+      } else {
+        const saved = rebarDebugMaterials.get(material)
+        if (saved) { material.vertexColors = saved.vertexColors; material.color.copy(saved.color); material.needsUpdate = true; rebarDebugMaterials.delete(material) }
       }
-    } else if (object instanceof THREE.Mesh && !c2mAnalysisSession) {
-      // The compatibility PLY keeps all bars in one vertex stream. Preserve
-      // the selected bar's deviation colors while dimming the rest.
-      dimComparisonGeometry(object.geometry, inspectionSelected ? bar : undefined)
-      const material = object.material as THREE.Material | THREE.Material[]
-      const materials = Array.isArray(material) ? material : [material]
-      materials.forEach(item => {
-        item.needsUpdate = true
-      })
     }
   })
-  if (c2mAnalysisSession && comparisonResult) {
-    comparisonResult.bars.forEach(item => {
-      c2mAnalysisSession?.setComponentVisible(item.ifcGlobalId, true)
-    })
-  }
-  if (bimPivot && comparisonResult && activeWorkflowStep.value >= 3) {
-    bimPivot.traverse(object => {
-      if (!(object instanceof THREE.Mesh)) return
-      const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
-      const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
-      // Clone per-mesh materials before changing their color. GLTF loaders
-      // commonly share one material across many rebar meshes.
-      if (!object.userData.__rebarInspectionMaterialsCloned) {
-        const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material]
-        const clonedMaterials = sourceMaterials.map(material => material.clone())
-        object.material = Array.isArray(object.material) ? clonedMaterials : clonedMaterials[0]
-        object.userData.__rebarInspectionMaterialsCloned = true
-      }
-      const materials = Array.isArray(object.material) ? object.material : [object.material]
-      materials.forEach(item => {
-        const material = item as THREE.MeshStandardMaterial
-        if (!('color' in material) || !material.color?.isColor) return
-        if (!rebarInspectionMaterialState.has(material)) {
-          rebarInspectionMaterialState.set(material, {
-            color: material.color.clone(),
-            opacity: material.opacity,
-            transparent: material.transparent,
-            depthWrite: material.depthWrite,
-          })
-        }
-        const original = rebarInspectionMaterialState.get(material)
-        if (inspectionSelected && isComparisonRebar && !matched) material.color.set('#8b97a8')
-        else if (original?.color) material.color.copy(original.color)
-        material.opacity = original?.opacity ?? 1
-        material.transparent = original?.transparent ?? false
-        material.depthWrite = original?.depthWrite ?? true
-        material.needsUpdate = true
-      })
-    })
-  }
+  updateRebarDebugOverlay()
+  if (rebarDebugFocusPending && rebarDebugBounds()) { rebarDebugFocusPending = false; focusRebarDebug() }
   requestRender()
 }
 
@@ -707,7 +970,25 @@ function downloadRebarReport(selectedOnly = false) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-watch(selectedComparisonBarId, applyComparisonSelection)
+const inspectionDownloading = ref(false)
+async function downloadInspectionJSON() {
+  const version = c2mResult.value?.resultVersion
+  if (!canUseC2MResult.value || !version || inspectionDownloading.value) return
+  const scanId = props.pointcloudAssetId, bimId = props.bimAssetId
+  inspectionDownloading.value = true
+  try {
+    const blob = await downloadC2MReportJSON(version)
+    if (scanId !== props.pointcloudAssetId || bimId !== props.bimAssetId || version !== c2mResult.value?.resultVersion) return
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url; link.download = `钢筋检测-${version}.json`; link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '检测 JSON 下载失败')
+  } finally { inspectionDownloading.value = false }
+}
+
+watch(selectedComparisonBarId, applySceneVisibility)
 
 function stopRebarCameraAnimation() {
   if (rebarCameraAnimationFrame !== null) {
@@ -1057,6 +1338,7 @@ function handleRebarInspectionPointerDown(event: PointerEvent) {
 }
 
 const c2mSceneLoaded = ref(false)
+const c2mSceneActive = computed(() => c2mSceneLoaded.value && activeWorkflowStep.value >= 3)
 const c2mSceneLoading = ref(false)
 const c2mRecoloring = ref(false)
 const c2mRangeMode = ref<C2MRangeMode>('auto')
@@ -1250,6 +1532,8 @@ function onC2MToleranceChange(value: number | undefined) {
   if (typeof value === 'number' && Number.isFinite(value)) c2mToleranceMm.value = Math.max(0.1, value)
 }
 
+
+
 function onC2MHistogramRangeChange(value: number | undefined) {
   if (typeof value === 'number' && Number.isFinite(value)) c2mHistogramRangeMm.value = Math.max(1, value)
 }
@@ -1258,17 +1542,23 @@ function onC2MHistogramBinsChange(value: number | undefined) {
   if (typeof value === 'number' && Number.isFinite(value)) c2mHistogramBins.value = Math.max(10, Math.min(200, Math.round(value)))
 }
 
-function onC2MBandCountChange(value: number | undefined) {
-  if (typeof value === 'number' && Number.isFinite(value)) c2mBandCount.value = Math.max(2, Math.min(32, Math.round(value)))
-}
-
 function onC2MHistogramFollowChange(follows: string | number | boolean) {
   if (follows) c2mHistogramRangeMm.value = c2mColorRangeMm.value
 }
 
+function onC2MBandCountChange(value: number | undefined) {
+  if (typeof value === 'number' && Number.isFinite(value)) c2mBandCount.value = Math.max(2, Math.min(32, Math.round(value)))
+}
+
+
 function syncC2MControls(result: C2MResult) {
+  const effective = result.diagnostics?.rebarComparison?.effective
+  c2mMaxSearchDistanceMm.value = (effective?.maxSearchDistance ?? 0.2) * 1000
+  if (effective) {
+    c2mNormalConstraintEnabled.value = effective.normalConstraintEnabled
+    c2mNormalMaxAngleDeg.value = effective.normalMaxAngleDeg
+  }
   c2mVoxelSize.value = Math.max(0.001, result.voxelSize || 0.05)
-  c2mDownsampleEnabled.value = result.approximation?.downsampleEnabled !== false
   const visualization = result.visualization
   if (!visualization) {
     return
@@ -1387,6 +1677,7 @@ function createAnalysisC2MMaterial() {
     polygonOffsetUnits: -1,
   })
 }
+
 
 function formatC2MDistance(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(4)} m` : '--'
@@ -1936,7 +2227,13 @@ async function runC2M() {
       profile: 'quick',
       denoiseVersion: denoiseResult.value!.version,
       voxelSize: c2mVoxelSize.value,
-      downsampleEnabled: c2mDownsampleEnabled.value,
+      downsampleEnabled: false,
+      normalConstraintEnabled: c2mNormalConstraintEnabled.value,
+      normalHalfSpaceOnly: false,
+      normalMaxAngleDeg: c2mNormalMaxAngleDeg.value,
+      maxSearchDistance: c2mMaxSearchDistanceMm.value / 1000,
+      normalFallbackMode: c2mNormalConstraintEnabled.value ? 'unknown' : 'nearest',
+      knnK: 32,
       ...c2mRequestedVisualization.value,
     })
     if (resultRequestId !== c2mResultRequestId) return
@@ -1945,7 +2242,10 @@ async function runC2M() {
     await syncC2MDistances(response.data)
     scheduleC2MAnalysisPolling(response.data)
     if (!isC2MResultFresh(response.data)) clearC2MScene()
-    if (isC2MResultFresh(response.data) && activeWorkflowStep.value === 3) await loadC2MToScene()
+    if (isC2MResultFresh(response.data) && activeWorkflowStep.value === 3) {
+      if (rebarDebugActive.value) selectRebarDebugResult()
+      await loadC2MToScene()
+    }
     ElMessage.success('逐钢筋偏差对比完成')
   } catch (error) {
     if (resultRequestId === c2mResultRequestId) {
@@ -1976,12 +2276,15 @@ async function loadLatestC2M() {
     if (requestId !== c2mResultRequestId) return
     c2mResult.value = response.data
     if (previousResultVersion !== response.data.resultVersion) {
+      clearC2MScene()
       syncC2MControls(response.data)
       void syncC2MDistances(response.data)
     }
     scheduleC2MAnalysisPolling(response.data)
     if (!isC2MResultFresh(response.data)) clearC2MScene()
-    else if (upgradeLoadedScene && response.data.analysis?.status === 'ready') void loadC2MToScene()
+    else if (activeWorkflowStep.value === 3 && !c2mSceneLoading.value &&
+      ((!c2mSceneLoaded.value && c2mSceneArtifactAvailable.value) ||
+        (upgradeLoadedScene && response.data.analysis?.status === 'ready'))) void loadC2MToScene()
   } catch {
     if (requestId !== c2mResultRequestId) return
     c2mResult.value = null
@@ -2147,6 +2450,35 @@ async function loadAnalysisC2MToScene(result: C2MResult, requestId: number) {
 }
 
 async function loadC2MToScene() {
+  await loadC2MSceneAttempt(true)
+}
+
+async function recoverC2MSceneVersion(failed: C2MResult, requestId: number) {
+  const scanId = props.pointcloudAssetId!, bimId = props.bimAssetId!
+  const resultRequestId = ++c2mResultRequestId
+  const response = await getLatestC2M(scanId, bimId)
+  const superseded = () => requestId !== c2mSceneLoadRequestId || resultRequestId !== c2mResultRequestId ||
+    props.pointcloudAssetId !== scanId || props.bimAssetId !== bimId
+  if (superseded()) return true
+  const latest = response.data
+  if (!isC2MResultFresh(latest)) {
+    c2mResult.value = latest
+    c2mDistancesRequestId++
+    c2mDistances.value = null
+    clearC2MScene(false)
+    throw new Error(latest.staleReason || '比对输入已变化，请重新计算偏差')
+  }
+  if (latest.resultVersion === failed.resultVersion) return false
+  c2mResult.value = latest
+  clearC2MScene(false)
+  syncC2MControls(latest)
+  scheduleC2MAnalysisPolling(latest)
+  await syncC2MDistances(latest)
+  if (!superseded()) await loadC2MSceneAttempt(false)
+  return true
+}
+
+async function loadC2MSceneAttempt(retryOnConflict: boolean) {
   const result = c2mResult.value
   if (
     !result ||
@@ -2160,8 +2492,10 @@ async function loadC2MToScene() {
   const scanId = props.pointcloudAssetId
   const bimId = props.bimAssetId
   c2mSceneLoading.value = true
+  c2mError.value = ''
   try {
-    if (result.analysis?.status === 'ready') {
+    // Per-bar ranges refer to the combined comparison PLY, never to tile-local vertices.
+    if (result.analysis?.status === 'ready' && !result.diagnostics?.rebarComparison) {
       try {
         if (await loadAnalysisC2MToScene(result, requestId)) {
           if (requestId === c2mSceneLoadRequestId) {
@@ -2244,11 +2578,19 @@ async function loadC2MToScene() {
       setC2MWireframe(false)
       hideBimWhileC2MIsLoaded()
       requestRender()
-      ElMessage.success(comparison.value ? '钢筋比对已加载，可按设计钢筋查看对应点云' : 'C2M 着色结果已加载')
+      ElMessage.success(rebarDebugActive.value && rebarDebugDisplaySurface.value !== 'result'
+        ? '偏差结果已加载，点击“偏差着色”查看' : '偏差结果已自动显示')
     } finally { URL.revokeObjectURL(objectUrl) }
   } catch (error) {
     if (requestId === c2mSceneLoadRequestId) {
-      ElMessage.error(error instanceof Error ? error.message : '加载 C2M 结果失败')
+      if (retryOnConflict && (error as { response?: { status?: number } })?.response?.status === 409) {
+        try {
+          if (await recoverC2MSceneVersion(result, requestId)) return
+        } catch (refreshError) { error = refreshError }
+      }
+      if (requestId !== c2mSceneLoadRequestId) return
+      c2mError.value = error instanceof Error ? error.message : '加载 C2M 结果失败'
+      ElMessage.error(c2mError.value)
     }
   } finally {
     if (requestId === c2mSceneLoadRequestId) {
@@ -2259,6 +2601,8 @@ async function loadC2MToScene() {
 }
 
 function clearC2MScene(invalidateLoad = true) {
+  clearRebarDebugOverlay()
+  rebarDebugMaterials.clear()
   if (invalidateLoad) {
     c2mSceneLoadRequestId += 1
     c2mSceneLoading.value = false
@@ -2303,7 +2647,7 @@ function hideBimWhileC2MIsLoaded() {
   if (bimVisibilityBeforeC2M === null) {
     bimVisibilityBeforeC2M = bimVisible.value
   }
-  bimVisible.value = false
+  if (activeWorkflowStep.value >= 3) bimVisible.value = false
   applySceneVisibility()
 }
 
@@ -2529,7 +2873,7 @@ function restoreRemeshScene(showMessage = true) {
   selectedItemId.value = 'bim'
   transformMode.value = 'translate'
   enableElementPicking.value = false
-  refreshSelectedTransformUi(false)
+  refreshSelectedTransformUi()
   requestRender()
   if (showMessage) ElMessage.success('已恢复原始场景')
 }
@@ -2637,7 +2981,7 @@ const materialMode = ref<MaterialMode>('unlit')
 const showGrid = ref(true)
 const showMeshWireframe = ref(false)
 const meshWireframeLabel = computed(() =>
-  c2mSceneLoaded.value || remeshMeshLoaded.value ? '当前结果线框' : '原 BIM 线框',
+  c2mSceneActive.value || remeshMeshLoaded.value ? '当前结果线框' : '原 BIM 线框',
 )
 const meshWireframeTooltip = computed(() =>
   `${showMeshWireframe.value ? '关闭' : '显示'}${meshWireframeLabel.value}`,
@@ -2657,6 +3001,7 @@ const clipPosition = ref(0)
 const clipRange = ref({ min: -1, max: 1 })
 // 粗配准默认进入几何载体编辑态，模型加载后自动显示组合变换 Gizmo。
 const editMode = ref(true)
+const showTransformHandles = ref(true)
 const selectedItemId = ref<SelectedItemId>('bim')
 const transformMode = ref<TransformMode>('translate')
 const positionOffsetX = ref(0)
@@ -2768,13 +3113,14 @@ let edlPipeline: PointCloudEdlPipeline | null = null
 const edlEnabled = ref(true)
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
+let observedViewportEl: HTMLDivElement | null = null
 let contentGroup: THREE.Group | null = null
 // All engineering (N,E,Z) geometry is mounted below this single conversion
 // node.  The viewport itself remains Three.js Y-up, matching the calibration
 // workspace used by the analysis editor.
 let engineeringRoot: THREE.Group | null = null
 let clippingGroup: ClippingGroup | null = null
-let gridHelper: THREE.GridHelper | null = null
+let gridHelper: InfiniteGroundGrid | null = null
 let transformControls: ViewerTransformControls | null = null
 let transformHelper: THREE.Object3D | null = null
 let rotationControls: ViewerTransformControls | null = null
@@ -2803,6 +3149,8 @@ let clipPointerCaptureId: number | null = null
 let orthoViewSize = 10
 let bimLoadToken = 0
 let pointcloudLoadToken = 0
+let pointcloudLoadPromise: Promise<void> | null = null
+let pointcloudLoadAssetId: number | null = null
 let pointcloudRootReady = false
 // Do not present the intermediate BIM-only camera pose while the point cloud
 // and saved alignment are still being restored. The first visible frame should
@@ -3053,14 +3401,7 @@ function applyEditorTheme() {
   const light = isLightBackground.value
   backgroundColor.value = light ? '#eef3f8' : '#0b1020'
   if (gridHelper) {
-    const materials = Array.isArray(gridHelper.material) ? gridHelper.material : [gridHelper.material]
-    const colors = light ? [0x8aa0b8, 0xb9c7d5] : [0x8be9ff, 0x4b9db5]
-    materials.forEach((material, index) => {
-      if ('color' in material) (material as THREE.LineBasicMaterial).color.setHex(colors[Math.min(index, colors.length - 1)])
-      material.opacity = light ? 0.72 : 0.9
-      material.transparent = true
-      material.needsUpdate = true
-    })
+    gridHelper.setColor(light ? '#6d8399' : '#2a6f82')
   }
   onBackgroundColorChange()
   requestRender()
@@ -3342,28 +3683,11 @@ function getVisibleSceneObjects() {
 
 function updateGridPlacement() {
   if (!gridHelper || !contentGroup) return
-
-  const objects = getVisibleSceneObjects()
-  if (!objects.length) {
-    gridHelper.position.set(0, -10.01, 0)
-    return
-  }
-
-  contentGroup.updateMatrixWorld(true)
-  const box = new THREE.Box3()
-  objects.forEach((object) => box.union(new THREE.Box3().setFromObject(object)))
-  if (box.isEmpty()) {
-    gridHelper.position.set(0, -10.01, 0)
-    return
-  }
-
-  const center = box.getCenter(new THREE.Vector3())
-  const size = box.getSize(new THREE.Vector3())
-  const offset = Math.max(10.5, size.y * 0.01)
-  // Keep the original fixed grid appearance. The helper is only repositioned,
-  // never rebuilt during interaction, so panning/zooming cannot flash an
-  // old/new grid pair.
-  gridHelper.position.set(center.x, box.min.y - offset, center.z)
+  // Root bounds stay stable as point-cloud LODs stream in and out. Keep the
+  // scan as the ground reference while the BIM is moved during alignment.
+  const box = (tileset ? getTilesetWorldBounds(tileset) : null) ?? getContentWorldBox()
+  if (box) gridHelper.setBounds(box)
+  if (activeCamera && gridHelper.visible) gridHelper.updateForCamera(activeCamera)
 }
 
 function updateSelectionHighlight() {
@@ -3814,6 +4138,12 @@ function ensureClipHandlesGroup() {
       activeColor,
     }
 
+    shaft.scale.set(2, 30, 2)
+    shaft.position.y = 15
+    cone.scale.set(5, 18, 5)
+    cone.position.y = 39
+    hitArea.scale.set(9, 48, 9)
+    hitArea.position.y = 24
     handle.add(shaft)
     handle.add(cone)
     handle.add(hitArea)
@@ -3831,59 +4161,43 @@ function ensureClipHandlesGroup() {
   return group
 }
 
+function clipHandleWorldUnitsPerPixel(anchor: THREE.Vector3): number {
+  const height = viewportEl.value?.clientHeight ?? 0
+  if (!activeCamera || height <= 0) return 0
+  activeCamera.updateMatrixWorld()
+  const projectionScale = activeCamera.projectionMatrix.elements[5]!
+  if (isPerspectiveCamera(activeCamera)) {
+    const depth = Math.max(activeCamera.near, -anchor.clone().applyMatrix4(activeCamera.matrixWorldInverse).z)
+    return 2 * depth / (height * projectionScale)
+  }
+  return 2 / (height * projectionScale)
+}
+
 function updateClipHandles(box: THREE.Box3) {
   const group = ensureClipHandlesGroup()
   if (!group) return
-
   const center = box.getCenter(new THREE.Vector3())
-  const size = box.getSize(new THREE.Vector3())
-  const maxDim = Math.max(size.x, size.y, size.z, 1)
-  const offset = Math.max(maxDim * 0.06, 0.12)
-  const handleLength = Math.max(maxDim * 0.12, 0.22)
-  const shaftLength = handleLength * 0.62
-  const coneHeight = handleLength - shaftLength
-  const shaftRadius = Math.max(maxDim * 0.006, 0.012)
-  const coneRadius = shaftRadius * 2.2
-  const hitRadius = Math.max(shaftRadius * 5, 0.06)
-
   group.visible = true
   group.children.forEach((child) => {
     const handle = child as THREE.Group
-    const { axis, invert, normal, shaft, cone, hitArea, idleColor, activeColor } =
-      handle.userData as any
+    const { axis, invert, normal, shaft, cone, idleColor, activeColor } = handle.userData as any
     const isActiveFace = axis === clipAxis.value && invert === clipInvert.value
     const color = isActiveFace ? activeColor : idleColor
-
-    const anchor =
-      axis === 'x'
-        ? new THREE.Vector3(invert ? box.max.x : box.min.x, center.y, center.z)
-        : axis === 'y'
-          ? new THREE.Vector3(center.x, invert ? box.max.y : box.min.y, center.z)
-          : new THREE.Vector3(center.x, center.y, invert ? box.max.z : box.min.z)
-
-    shaft.geometry.dispose?.()
-    shaft.geometry = new THREE.CylinderGeometry(
-      shaftRadius,
-      shaftRadius,
-      shaftLength,
-      12,
-    )
-    shaft.position.y = shaftLength * 0.5
+    const anchor = axis === 'x'
+      ? new THREE.Vector3(invert ? box.max.x : box.min.x, center.y, center.z)
+      : axis === 'y'
+        ? new THREE.Vector3(center.x, invert ? box.max.y : box.min.y, center.z)
+        : new THREE.Vector3(center.x, center.y, invert ? box.max.z : box.min.z)
+    const worldPerPixel = clipHandleWorldUnitsPerPixel(anchor)
+    // 48px arrow + 8px face gap; neither depends on the clipping box dimensions.
+    handle.scale.setScalar(worldPerPixel)
+    handle.position.copy(anchor).addScaledVector(normal, worldPerPixel * 8)
     shaft.material.color.copy(color)
     shaft.material.opacity = isActiveFace ? 0.95 : 0.82
-
-    cone.geometry.dispose?.()
-    cone.geometry = new THREE.ConeGeometry(coneRadius, coneHeight, 16)
-    cone.position.y = shaftLength + coneHeight * 0.5
     cone.material.color.copy(color)
     cone.material.opacity = isActiveFace ? 1 : 0.9
-
-    hitArea.geometry.dispose?.()
-    hitArea.geometry = new THREE.CylinderGeometry(hitRadius, hitRadius, handleLength, 10)
-    hitArea.position.y = handleLength * 0.5
-
-    handle.position.copy(anchor).add((normal as THREE.Vector3).clone().multiplyScalar(offset))
   })
+  group.updateMatrixWorld(true)
 }
 
 function getPointerNdc(ev: PointerEvent) {
@@ -4685,6 +4999,7 @@ function endClipDrag(ev?: PointerEvent) {
 }
 
 function getVisibleContentBox() {
+  if (rebarDebugActive.value) return rebarDebugBounds()
   const box = new THREE.Box3()
   const objects = getVisibleSceneObjects()
   objects.forEach((object) => box.expandByObject(object))
@@ -4707,6 +5022,7 @@ function syncRendererSize() {
   if (!renderer || !activeCamera || !viewportEl.value) return
 
   const rect = viewportEl.value.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return
   const width = Math.max(1, Math.floor(rect.width || 1))
   const height = Math.max(1, Math.floor(rect.height || 1))
   const dpr = Math.min(window.devicePixelRatio || 1, dprCap)
@@ -4728,6 +5044,27 @@ function syncRendererSize() {
 
   updateTilesetResolution()
   syncAnalysisLineResolutions()
+}
+
+function observeViewport() {
+  if (!resizeObserver || !viewportEl.value || observedViewportEl === viewportEl.value) return
+  if (observedViewportEl) resizeObserver.unobserve(observedViewportEl)
+  resizeObserver.observe(viewportEl.value)
+  observedViewportEl = viewportEl.value
+}
+
+async function restoreViewportAfterWorkflowStep() {
+  await nextTick()
+  if (!renderer || !viewportEl.value) return
+
+  // Preserve GPU resources across workflow steps; reconnect defensively if
+  // a future layout change replaces the host.
+  if (renderer.domElement.parentElement !== viewportEl.value) {
+    viewportEl.value.appendChild(renderer.domElement)
+  }
+  observeViewport()
+  syncRendererSize()
+  requestRender()
 }
 
 function updateTilesetResolution() {
@@ -4764,7 +5101,9 @@ function requestRender() {
       return
     }
 
-    if (tileset) {
+    if (activeWorkflowStep.value === 4) return
+
+    if (tileset && pointcloudWrapper?.visible) {
       runWithSuppressedConsoleAssert(() => {
         applyTilesErrorTarget()
         updateTilesetResolution()
@@ -4774,7 +5113,7 @@ function requestRender() {
       })
     }
 
-    if (c2mTileset) {
+    if (c2mTileset && c2mSceneActive.value) {
       runWithSuppressedConsoleAssert(() => {
         c2mTileset!.setCamera(activeCamera!)
         c2mTileset!.setResolutionFromRenderer?.(activeCamera!, renderer! as THREE.WebGLRenderer)
@@ -4782,10 +5121,7 @@ function requestRender() {
       })
     }
 
-    if (!initialSceneReady) {
-      return
-    }
-
+    syncDenoisePreviewTransform()
     syncBoundsHelpers()
     syncAnalysisLineResolutions()
     syncMeasurementBadges()
@@ -4886,6 +5222,8 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
     // manipulator with arrows/planes plus a single green yaw ring.
     transformHelper = configureTransformController(transformControls, 'translate', 1.35)
     rotationHelper = configureTransformController(rotationControls, 'rotate', 1.55)
+    applyTransformSelection()
+    syncAllTransformFixValuesFromSelected()
   }
 }
 
@@ -4951,22 +5289,14 @@ async function initScene() {
       fillLight.position.set(-10, 8, -10)
       scene.add(fillLight)
 
-      gridHelper = new THREE.GridHelper(10000, 2000, 0x8be9ff, 0x4b9db5)
-      const gridMaterial = gridHelper.material as THREE.LineBasicMaterial
-      gridMaterial.transparent = true
-      gridMaterial.opacity = 0.9
-      gridMaterial.depthWrite = false
-      gridMaterial.toneMapped = false
-      gridMaterial.needsUpdate = true
-      gridHelper.renderOrder = 2
-      gridHelper.position.set(0, -10.01, 0)
+      gridHelper = new InfiniteGroundGrid(isLightBackground.value ? '#6d8399' : '#2a6f82')
       scene.add(gridHelper)
       syncGridVisibility()
 
       resizeObserver = new ResizeObserver(() => {
         syncRendererSize()
       })
-      resizeObserver.observe(viewportEl.value)
+      observeViewport()
 
       syncRendererSize()
       requestRender()
@@ -5792,7 +6122,7 @@ function selectSceneObject(
     editMode.value = true
   }
 
-  refreshSelectedTransformUi(true)
+  refreshSelectedTransformUi()
   updateSelectionHighlight()
 
   if (options?.focus) {
@@ -5961,11 +6291,11 @@ function syncOrientationFixFromSelected() {
   const offsetQuat = target.quaternion.clone().multiply(base.clone().invert())
   if (transformMode.value === 'rotate') {
     const offsetEuler = new THREE.Euler().setFromQuaternion(offsetQuat, 'YXZ')
-    orientationDegX.value = 0
+    orientationDegX.value = THREE.MathUtils.radToDeg(offsetEuler.x)
     orientationDegY.value = roundToStep(
       normalizeDegrees(THREE.MathUtils.radToDeg(offsetEuler.y)),
     )
-    orientationDegZ.value = 0
+    orientationDegZ.value = THREE.MathUtils.radToDeg(offsetEuler.z)
     return
   }
 
@@ -5988,9 +6318,9 @@ function syncPositionFixFromSelected() {
   const base = ensurePositionBase(target)
   if (!base) return
   const offset = target.position.clone().sub(base)
-  positionOffsetX.value = roundToStep(offset.x)
-  positionOffsetY.value = roundToStep(offset.z)
-  positionOffsetZ.value = roundToStep(offset.y)
+  positionOffsetX.value = Number(offset.x.toFixed(6))
+  positionOffsetY.value = Number(offset.z.toFixed(6))
+  positionOffsetZ.value = Number(offset.y.toFixed(6))
 }
 
 function syncTransformFixFromSelected() {
@@ -6005,6 +6335,20 @@ function syncTransformFixFromSelected() {
 function syncAllTransformFixValuesFromSelected() {
   syncOrientationFixFromSelected()
   syncPositionFixFromSelected()
+}
+
+function syncTransformHandleVisibility() {
+  const visible = showTransformHandles.value && editMode.value && activeWorkflowStep.value === 1 &&
+    !enableClipping.value && analysisMode.value === 'none' && !!getSelectedObject()
+  for (const controller of [transformControls, rotationControls]) {
+    if (!controller) continue
+    controller.visible = visible
+    controller.enabled = visible
+  }
+  for (const helper of [transformHelper, rotationHelper]) {
+    if (helper) helper.visible = visible
+  }
+  requestRender()
 }
 
 function applyTransformSelection() {
@@ -6043,55 +6387,29 @@ function applyTransformSelection() {
 
     transformControls.attach(target)
     rotationControls.attach(target)
-    transformControls.visible = true
-    transformControls.enabled = true
-    rotationControls.visible = true
-    rotationControls.enabled = true
-    if (transformHelper) {
-      transformHelper.visible = true
-      transformHelper.updateMatrixWorld?.(true)
-    }
-    if (rotationHelper) {
-      rotationHelper.visible = true
-      rotationHelper.updateMatrixWorld?.(true)
-    }
-    resetOrientationFix()
+    syncTransformHandleVisibility()
     ensureOrientationBase(target)
-    resetPositionFix()
     ensurePositionBase(target)
+    syncAllTransformFixValuesFromSelected()
     requestRender()
   }
 
   updateSelectionHighlight()
 }
 
-function refreshSelectedTransformUi(rebaseBase = true) {
+function refreshSelectedTransformUi() {
   syncTransformModeForSelection()
   applyTransformSelection()
   syncBoundsHelpers()
-  resetOrientationFix()
-  resetPositionFix()
-
   const target = getSelectedObject()
   ensureInitialTransformState(target)
-  if (rebaseBase) {
-    if (target?.quaternion) {
-      target.userData = target.userData ?? {}
-      target.userData.__orientationBaseQuat = target.quaternion.clone()
-    }
-    if (target?.position) {
-      target.userData = target.userData ?? {}
-      target.userData.__positionBaseVec3 = target.position.clone()
-    }
-    return
-  }
-
+  // Selection and workflow navigation must not change the numeric origin.
   syncAllTransformFixValuesFromSelected()
 }
 
 function setTransformMode(mode: TransformMode) {
   transformMode.value = mode
-  refreshSelectedTransformUi(false)
+  refreshSelectedTransformUi()
 }
 
 function onEditModeChange() {
@@ -6117,12 +6435,10 @@ function onEditModeChange() {
       rotationControls.enabled = false
     }
     if (rotationHelper) rotationHelper.visible = false
-    resetOrientationFix()
-    resetPositionFix()
     return
   }
 
-  refreshSelectedTransformUi(false)
+  refreshSelectedTransformUi()
   logBimRelativeTransform()
 }
 
@@ -6138,7 +6454,7 @@ function onElementPickingChange() {
 }
 
 function onSelectedItemChange() {
-  refreshSelectedTransformUi(false)
+  refreshSelectedTransformUi()
 }
 
 function resetTransformFixRealtime() {
@@ -6262,7 +6578,7 @@ function handleViewportPointerDown(event: PointerEvent) {
   if (picked) {
     clearPickedElement()
     selectedItemId.value = picked
-    refreshSelectedTransformUi(true)
+    refreshSelectedTransformUi()
     syncBoundsHelpers()
   }
 }
@@ -6390,10 +6706,10 @@ function applyPositionFixRealtime() {
 }
 
 function setPositionOffsetAxis(axis: 'x' | 'y' | 'z', value: unknown) {
+  if (value == null || String(value).trim() === '') return
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return
-  const range = positionSliderRange.value
-  const next = clamp(numeric, range.min, range.max)
+  const next = numeric
   if (axis === 'x') positionOffsetX.value = next
   if (axis === 'y') positionOffsetY.value = next
   if (axis === 'z') positionOffsetZ.value = next
@@ -6420,6 +6736,7 @@ function onPositionNumberKeydown(event: KeyboardEvent, axis: 'x' | 'y' | 'z') {
 }
 
 function setOrientationOffsetAxis(axis: 'x' | 'y' | 'z', value: string) {
+  if (value.trim() === '') return
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return
   const limit = showOnlyVerticalAxis.value ? 180 : 10
@@ -6456,9 +6773,13 @@ function applyOrientationFixRealtime() {
   const base = ensureOrientationBase(target)
   if (!base) return
   const delta = showOnlyVerticalAxis.value
-    ? new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        THREE.MathUtils.degToRad(orientationDegY.value),
+    ? new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(
+          THREE.MathUtils.degToRad(orientationDegX.value),
+          THREE.MathUtils.degToRad(orientationDegY.value),
+          THREE.MathUtils.degToRad(orientationDegZ.value),
+          'YXZ',
+        ),
       )
     : new THREE.Quaternion().setFromEuler(
         new THREE.Euler(
@@ -6546,23 +6867,27 @@ function clearPickedState() {
 }
 
 function applySceneVisibility() {
+  syncDenoisePreviewTransform()
   const steelOnly = activeWorkflowStep.value >= 3
-  if (remeshSceneGroup) remeshSceneGroup.visible = !steelOnly && !c2mSceneLoaded.value
-  if (denoisePreview) denoisePreview.visible = pointcloudVisible.value && (steelOnly || denoiseView.value !== 'source')
+  if (c2mSceneGroup) c2mSceneGroup.visible = c2mSceneActive.value && (!rebarDebugActive.value || (rebarDebugDisplaySurface.value === 'mesh' || rebarDebugDisplaySurface.value === 'result'))
+  if (remeshSceneGroup) remeshSceneGroup.visible = !steelOnly && !c2mSceneActive.value
+  if (denoisePreview) {
+    denoisePreview.visible = rebarDebugActive.value ? rebarDebugScan.value : pointcloudVisible.value && (steelOnly || denoiseView.value !== 'source')
+    // Keep the cleaned scan neutral so instance colors do not compete with the deviation map.
+    const material = denoisePreview.material
+    material.color.set(steelOnly ? '#86898D' : '#ffffff')
+    if (material.vertexColors !== !steelOnly) {
+      material.vertexColors = !steelOnly
+      material.needsUpdate = true
+    }
+  }
   if (bimPivot) {
-    const steelIds = new Set(comparisonInventory.value?.inventory.bars.map(bar => bar.ifcGlobalId) ?? [])
+    const steelIds = new Set(rebarDebugActive.value ? (rebarDebugBar.value ? [rebarDebugBar.value.ifcGlobalId] : []) : comparisonInventory.value?.inventory.bars.map(bar => bar.ifcGlobalId) ?? [])
     bimPivot.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return
       if (steelOnly) {
         if (!comparisonBimVisibility.has(object)) comparisonBimVisibility.set(object, object.visible)
-        let current: THREE.Object3D | null = object
-        let isSteel = false
-        while (current && current !== bimPivot) {
-          const ids = [current.name, String(current.userData.ifcGlobalId ?? ''), guessIfcId(current.userData)]
-          if (ids.some(id => id && (steelIds.has(id) || steelIds.has(findMetadataElementById(id)?.id ?? '')))) { isSteel = true; break }
-          current = current.parent
-        }
-        object.visible = isSteel && comparisonBimVisibility.get(object) !== false
+        object.visible = comparisonMeshMatches(object, steelIds) && (rebarDebugActive.value || comparisonBimVisibility.get(object) !== false)
       } else if (comparisonBimVisibility.has(object)) {
         object.visible = comparisonBimVisibility.get(object)!
         comparisonBimVisibility.delete(object)
@@ -6572,7 +6897,7 @@ function applySceneVisibility() {
   if (bimPivot) {
     // Both result variants occupy the BIM surface. Do not allow a generic
     // visibility action to reintroduce coplanar source geometry and z-fighting.
-    bimPivot.visible = bimVisible.value && !c2mSceneLoaded.value && !remeshMeshLoaded.value
+    bimPivot.visible = rebarDebugActive.value ? rebarDebugDisplaySurface.value === 'source' : bimVisible.value && !c2mSceneActive.value && !remeshMeshLoaded.value
   }
   if (pointcloudWrapper) {
     pointcloudWrapper.visible = !steelOnly && pointcloudVisible.value && denoiseView.value === 'source'
@@ -6587,13 +6912,14 @@ function applySceneVisibility() {
 
   clearPickedElement()
   if (steelOnly) applyComparisonSelection()
+  else clearRebarDebugOverlay()
   syncBoundsHelpers()
   scheduleClipRangeUpdate()
 }
 
 function toggleBimVisibility() {
   if (!bimPivot) return
-  if ((c2mSceneLoaded.value || remeshMeshLoaded.value) && !bimVisible.value) {
+  if ((c2mSceneActive.value || remeshMeshLoaded.value) && !bimVisible.value) {
     ElMessage.warning('当前结果网格与原 BIM 表面重合；请先清空 C2M 结果或复原均匀化场景，再显示原 BIM')
     return
   }
@@ -6615,7 +6941,7 @@ function toggleEdl() {
 
 function toggleMeshWireframe() {
   const next = !showMeshWireframe.value
-  if (c2mSceneLoaded.value) {
+  if (c2mSceneActive.value) {
     setC2MWireframe(next)
   } else if (remeshMeshLoaded.value) {
     setRemeshWireframe(next)
@@ -6665,7 +6991,7 @@ function setRemeshWireframe(enabled: boolean) {
 }
 
 function syncWireframeStateFromCurrentMesh() {
-  if (c2mSceneLoaded.value) return
+  if (c2mSceneActive.value) return
   if (remeshMeshLoaded.value) {
     showMeshWireframe.value = !remeshWireHidden.value && remeshWireAvailable.value
     return
@@ -6684,7 +7010,7 @@ function toggleAllVisibility() {
   const shouldShowAll = !bimVisible.value && !pointcloudVisible.value
 
   if (bimPivot) {
-    bimVisible.value = (c2mSceneLoaded.value || remeshMeshLoaded.value) ? false : shouldShowAll
+    bimVisible.value = (c2mSceneActive.value || remeshMeshLoaded.value) ? false : shouldShowAll
   }
   if (pointcloudWrapper) {
     pointcloudVisible.value = shouldShowAll
@@ -6695,7 +7021,7 @@ function toggleAllVisibility() {
 
 function resetView() {
   if (bimPivot) {
-    bimVisible.value = !c2mSceneLoaded.value && !remeshMeshLoaded.value
+    bimVisible.value = !c2mSceneActive.value && !remeshMeshLoaded.value
   }
   if (pointcloudWrapper) {
     pointcloudVisible.value = true
@@ -6724,8 +7050,9 @@ function recenterLoadedContentAsWhole() {
   }
 
   const center = box.getCenter(new THREE.Vector3())
-  contentGroup.position.copy(previousPosition).sub(center)
+  contentGroup.position.copy(center).negate()
   contentGroup.updateMatrixWorld(true)
+  syncDenoisePreviewTransform()
 }
 
 function flattenStaticMeshesToRoot(root: THREE.Object3D) {
@@ -6976,12 +7303,18 @@ function revealInitialSceneWhenReady() {
   requestRender()
 }
 
+function getAlignmentRestoreKey(alignment: BimAlignmentResult) {
+  return JSON.stringify([bimPivot?.uuid, pointcloudGroup?.uuid,
+    alignment.modelScanFileId, alignment.modelBimFileId, alignment.modelId,
+    alignmentMatrixFromResult(alignment).toArray()])
+}
+
 function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
   if (!bimPivot || !pointcloudWrapper || !pointcloudGroup || !pointcloudRootReady) {
     return false
   }
 
-  const restoreKey = `${alignment.modelScanFileId}:${alignment.modelBimFileId}:${alignment.modelId}`
+  const restoreKey = getAlignmentRestoreKey(alignment)
   if (restoredSavedAlignmentKey === restoreKey) {
     return true
   }
@@ -7026,10 +7359,9 @@ function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
   }
   bimPivot.updateMatrixWorld(true)
   recenterLoadedContentAsWhole()
-  editMode.value = true
-  transformMode.value = 'translate'
+  editMode.value = activeWorkflowStep.value === 1
   selectedItemId.value = 'bim'
-  refreshSelectedTransformUi(false)
+  refreshSelectedTransformUi()
   void nextTick(() => {
     applyTransformSelection()
     syncAllTransformFixValuesFromSelected()
@@ -7039,6 +7371,7 @@ function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
   updateClipRangeFromContent({ preserveT: true })
   applyClippingState()
   restoredSavedAlignmentKey = restoreKey
+  sceneAlignmentReady.value = true
 
   console.info('[BimPointcloudAlign] 已恢复后端校准矩阵到场景', {
     restoreKey,
@@ -7062,7 +7395,7 @@ async function fetchAndLogSavedAlignmentIfExists() {
         modelBimFileId: props.bimAssetId,
       })
 
-      if (response?.data) {
+      if (response?.data && !latestAlignmentResult.value) {
         latestAlignmentResult.value = response.data
         logSavedAlignmentMatrix(response.data)
         hasSavedAlignmentMatrix.value = true
@@ -7070,7 +7403,7 @@ async function fetchAndLogSavedAlignmentIfExists() {
       }
     } catch (error: any) {
       const status = error?.response?.status
-      if (status === 400 || status === 404) {
+      if ((status === 400 || status === 404) && !latestAlignmentResult.value) {
         hasSavedAlignmentMatrix.value = false
         loggedSavedAlignmentKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
         revealInitialSceneWhenReady()
@@ -7087,10 +7420,6 @@ async function fetchAndLogSavedAlignmentIfExists() {
   }
 
   const logKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
-  if (loggedSavedAlignmentKey === logKey) {
-    revealInitialSceneWhenReady()
-    return
-  }
 
   if (latestAlignmentResult.value) {
     const restored = tryRestoreSavedAlignment(latestAlignmentResult.value)
@@ -7149,6 +7478,10 @@ async function handleSaveAlignment() {
     logBimRelativeTransform()
     const response = await createBimAlignment(payload)
     latestAlignmentResult.value = response.data
+    // The saved matrix already describes this scene; a later load callback
+    // must not restore it over subsequent manual edits.
+    restoredSavedAlignmentKey = getAlignmentRestoreKey(response.data)
+    sceneAlignmentReady.value = true
     hasSavedAlignmentMatrix.value = true
     coarseAlignmentDirty.value = false
     invalidateC2MResult('配准矩阵已保存，请重新计算')
@@ -7239,13 +7572,14 @@ async function handleShowAlignmentMatrix() {
 }
 
 async function handleCalibrationComplete() {
-  if (fineAlignLoading.value) return
-  const saved = await handleSaveAlignment()
-  if (!saved || !props.bimAssetId || !props.pointcloudAssetId) return
-
-  hasSavedAlignmentMatrix.value = true
-  coarseAlignmentDirty.value = false
-  ElMessage.success('校准结果已保存')
+  if (!canSaveCalibration.value || savingCalibration.value) return
+  savingCalibration.value = true
+  try {
+    // Saving owns the success/error notice; the completion action must not repeat it.
+    await handleSaveAlignment()
+  } finally {
+    savingCalibration.value = false
+  }
 }
 
 function activateCoarseRegistration() {
@@ -7382,6 +7716,9 @@ async function handleLoadBimFromApi(silent = false) {
 
           bimRoot = root
           bimPivot = pivot
+          sceneAlignmentReady.value = false
+          ensureOrientationBase(pivot)
+          ensurePositionBase(pivot)
           bimLoaded.value = true
           bimVisible.value = true
           reportGeometryRevision.value += 1
@@ -7438,7 +7775,7 @@ async function runPointcloudPreprocess() {
   pointcloudPreprocessError.value = ''
   try {
     pointcloudPreprocessResult.value = (await computePointcloudPreprocess(props.pointcloudAssetId)).data
-    await handleLoadPointCloudFromApi()
+    await handleLoadPointCloudFromApi(false, true)
     if (!pointcloudPreprocessRequired.value) ElMessage.success('台面识别与点云预处理完成')
   } catch (error) {
     pointcloudPreprocessError.value = error instanceof Error ? error.message : '点云预处理失败'
@@ -7447,14 +7784,33 @@ async function runPointcloudPreprocess() {
   }
 }
 
-async function handleLoadPointCloudFromApi(silent = false) {
-  if (!props.pointcloudAssetId) {
+async function handleLoadPointCloudFromApi(silent = false, force = false) {
+  const assetId = props.pointcloudAssetId
+  if (!assetId) {
     if (!silent) {
       ElMessage.warning('缺少点云资产 ID')
     }
     return
   }
 
+  if (!force && pointcloudLoadPromise && pointcloudLoadAssetId === assetId) {
+    return pointcloudLoadPromise
+  }
+  if (!force && pointcloudLoadAssetId === assetId && tileset && pointcloudWrapper && pointcloudLoaded.value) {
+    return
+  }
+
+  const loadPromise = loadPointcloudFromApi(assetId, silent)
+  pointcloudLoadPromise = loadPromise
+  pointcloudLoadAssetId = assetId
+  try {
+    await loadPromise
+  } finally {
+    if (pointcloudLoadPromise === loadPromise) pointcloudLoadPromise = null
+  }
+}
+
+async function loadPointcloudFromApi(assetId: number, silent: boolean) {
   await initScene()
   if (!scene || !contentGroup || !activeCamera || !renderer) return
   const nextContentGroup = contentGroup
@@ -7476,10 +7832,12 @@ async function handleLoadPointCloudFromApi(silent = false) {
     }
     pointcloudMaxDim = 1
     pointcloudRootReady = false
+    sceneAlignmentReady.value = false
+    clearDenoisePreview()
     pointcloudPreprocessRequired.value = false
     pointcloudPreprocessError.value = ''
     pointcloudPreprocessResult.value = null
-    const assetDetailResult = await getAssetDetail(props.pointcloudAssetId)
+    const assetDetailResult = await getAssetDetail(assetId)
     const assetDetail = assetDetailResult.data
     if (
       assetDetail.type !== 'pointcloud' ||
@@ -7489,8 +7847,8 @@ async function handleLoadPointCloudFromApi(silent = false) {
     }
 
     const [representationsResult, preprocessResult] = await Promise.allSettled([
-      getAssetRepresentations(props.pointcloudAssetId),
-      getPointcloudPreprocess(props.pointcloudAssetId),
+      getAssetRepresentations(assetId),
+      getPointcloudPreprocess(assetId),
     ])
     if (preprocessResult.status === 'fulfilled') {
       pointcloudPreprocessResult.value = preprocessResult.value.data
@@ -7622,6 +7980,29 @@ async function preloadFromRoute() {
   await Promise.allSettled(tasks)
 }
 
+// Watch sources are evaluated during registration, so their computed dependencies
+// (including canUseC2MResult) must already be initialized.
+watch([rebarDebugActive, rebarDebugBars], () => {
+  if (rebarDebugActive.value) {
+    if (!rebarDebugBar.value) {
+      const requested = rebarDebugBars.value.find(bar => bar.ifcGlobalId === route.query.debugBar)
+      selectedComparisonBarId.value = requested?.ifcGlobalId ?? rebarDebugBars.value[0]?.ifcGlobalId ?? ''
+      rebarDebugFocusPending = true
+    }
+  } else selectedComparisonBarId.value = ''
+  applySceneVisibility()
+})
+watch([rebarDebugDisplaySurface, rebarDebugScan, rebarDebugCluster, rebarDebugNormals, rebarDebugNormalMode, rebarDebugAllNormals, rebarDebugScanNormals, rebarDebugLengthMm, rebarDebugLimit], applySceneVisibility)
+watch([rebarDebugActive, rebarDebugScan], () => {
+  if (activeWorkflowStep.value === 3 && (!rebarDebugActive.value || rebarDebugScan.value)) {
+    void showDenoisePreview(denoiseColorMode.value)
+  }
+})
+watch(() => route.query.debug, value => { rebarDebugEnabled.value = value === 'rebar' })
+watch(() => route.query.debugBar, value => {
+  if (rebarDebugActive.value && typeof value === 'string' && rebarDebugBars.value.some(bar => bar.ifcGlobalId === value)) selectedComparisonBarId.value = value
+})
+
 watch(backgroundColor, () => {
   onBackgroundColorChange()
 })
@@ -7675,6 +8056,8 @@ watch(selectedItemId, () => {
   onSelectedItemChange()
 })
 
+watch(showTransformHandles, syncTransformHandleVisibility)
+
 watch(editMode, () => {
   onEditModeChange()
 })
@@ -7702,8 +8085,11 @@ watch([c2mColorRangeMm, c2mToleranceMm, c2mColorMode, c2mBandCount], ([colorRang
   recolorAnalysisC2MScene()
 })
 
-watch([workflowRouteReady, bimLoaded, pointcloudLoaded], () => {
+// dev-hong 侧新增 sceneAlignmentReady 守卫（等场景恢复完再跳步）；
+// 步骤来源用 props.initialStep，保持包不依赖 vue-router。
+watch([() => props.initialStep, workflowRouteReady, bimLoaded, pointcloudLoaded, sceneAlignmentReady], () => {
   if (!workflowRouteReady.value || !bimLoaded.value || !pointcloudLoaded.value) return
+  if (hasSavedAlignmentMatrix.value && !sceneAlignmentReady.value) return
   const candidates = allowedWorkflowStepIds.value
   const requested = Number(props.initialStep ?? 1)
   const step: WorkflowStepId = candidates.includes(requested as WorkflowStepId)
@@ -7716,10 +8102,14 @@ watch([workflowRouteReady, bimLoaded, pointcloudLoaded], () => {
   if (activeWorkflowStep.value !== available) openWorkflowStep(available)
   if (step !== available) notifyStepChange(available)
 })
-watch(activeWorkflowStep, (step) => {
-  if (step !== 3) resetRebarInspection()
-  notifyStepChange(step)
-})
+watch([activeWorkflowStep, viewportEl], ([step]) => {
+  if (workflowRouteReady.value && String(route.query.step || 1) !== String(step)) {
+    void router.replace({ query: { ...route.query, step: String(step) } })
+  }
+  if (step !== 4) {
+    void restoreViewportAfterWorkflowStep()
+  }
+}, { flush: 'post' })
 
 onMounted(async () => {
   window.addEventListener('keydown', onAnalysisKeydown)
@@ -7744,6 +8134,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onAnalysisKeydown)
   bimLoadToken++
   pointcloudLoadToken++
+  pointcloudLoadPromise = null
+  pointcloudLoadAssetId = null
   clearAnalysis()
   clearMeshStatusPolling()
   clearPointcloudColorSaveTimer()
@@ -7757,7 +8149,10 @@ onBeforeUnmount(() => {
   endClipDrag()
   stopRenderLoop()
   resizeObserver?.disconnect()
+  observedViewportEl = null
   controls?.dispose()
+  gridHelper?.dispose()
+  gridHelper = null
   if (scene && transformHelper) {
     scene.remove(transformHelper)
   }
@@ -7862,24 +8257,21 @@ onBeforeUnmount(() => {
       <aside v-if="activeWorkflowStep !== 4" class="left-toolbar view-toolbar" aria-label="视图工具">
         <el-tooltip content="重置视角" placement="right">
           <div class="tool-item">
-            <el-button class="tool-btn" circle text aria-label="重置视角" :disabled="!hasModel" @click="resetView">
-              <el-icon><Aim /></el-icon>
-            </el-button>
+            <el-button class="tool-btn" circle text :icon="RefreshLeft" aria-label="重置视角" :disabled="!hasModel" @click="resetView" />
           </div>
         </el-tooltip>
 
-        <el-tooltip :content="projectionMode === 'perspective' ? '切换正交投影' : '切换透视投影'" placement="right">
+        <el-tooltip :content="projectionMode === 'perspective' ? '当前透视 · 切换正交' : '当前正交 · 切换透视'" placement="right">
           <div class="tool-item">
             <el-button
               class="tool-btn tool-btn--img"
-              :class="{ 'is-on': projectionMode === 'orthographic' }"
-              :aria-label="projectionMode === 'perspective' ? '切换正交投影' : '切换透视投影'"
+              :class="{ 'is-on': projectionMode === 'orthographic', 'tool-btn--orthographic': projectionMode === 'orthographic' }"
+              :aria-label="projectionMode === 'perspective' ? '当前透视，切换正交' : '当前正交，切换透视'"
               :aria-pressed="projectionMode === 'orthographic'"
-              circle
-              text
-              @click="toggleProjectionMode"
+              circle text
+              @click="setProjectionMode(projectionMode === 'perspective' ? 'orthographic' : 'perspective')"
             >
-              <ViewportToolGlyph :name="projectionMode === 'orthographic' ? 'projectionOrthographic' : 'projectionPerspective'" />
+              <img class="tool-btn__img1" :src="projectionMode === 'perspective' ? toushiIcon : zhengjiaoIcon" alt="" />
             </el-button>
           </div>
         </el-tooltip>
@@ -7890,6 +8282,7 @@ onBeforeUnmount(() => {
               class="tool-btn tool-btn--img"
               :class="{ 'is-on': showGrid }"
               :aria-pressed="showGrid"
+              aria-label="参考网格"
               circle
               text
               @click="showGrid = !showGrid"
@@ -8023,22 +8416,45 @@ onBeforeUnmount(() => {
           </div>
         </el-tooltip>
 
-        <el-tooltip :content="edlEnabled ? '关闭 EDL 深度边缘增强' : '开启 EDL 深度边缘增强'" placement="right">
-          <div class="tool-item">
-            <el-button
-              class="tool-btn"
-              :class="{ 'is-on': edlEnabled && hasTileset }"
-              circle
-              text
-              :disabled="!hasTileset"
-              @click="toggleEdl"
-              aria-label="点云深度边缘增强"
-              :aria-pressed="edlEnabled"
-            >
-              EDL
-            </el-button>
+        <el-popover v-model:visible="showPointcloudSettings" placement="right-end" :width="304" trigger="click" :teleported="true">
+          <template #reference>
+            <div class="tool-item">
+              <el-button class="tool-btn tool-btn--svg" circle text :disabled="!hasTileset"
+                :class="{ 'is-on': showPointcloudSettings }" aria-label="点云显示（点大小、配色、EDL）"
+                title="点云显示（点大小、配色、EDL）" :aria-expanded="showPointcloudSettings">
+                <svg class="tool-btn__svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="5" cy="12" r="1.5" /><circle cx="11" cy="12" r="2.5" /><circle cx="19" cy="12" r="4" />
+                </svg>
+              </el-button>
+            </div>
+          </template>
+          <div class="pointcloud-tools-popover" @keydown.esc.stop="showPointcloudSettings = false">
+            <strong>点云显示</strong>
+            <div class="pointcloud-edl-control">
+              <span id="alignment-edl-label">EDL 深度增强</span>
+              <el-switch :model-value="edlEnabled" :disabled="!hasTileset || projectionMode === 'orthographic'"
+                aria-label="EDL 深度增强" @change="toggleEdl" />
+            </div>
+            <p v-if="projectionMode === 'orthographic'" class="pointcloud-display-hint">正交视图下暂停 EDL，切回透视后恢复。</p>
+            <label class="pointcloud-size-control">
+              <span>点大小</span>
+              <input v-model.number="pointcloudPointSize" aria-label="点大小" type="range" min="1" max="5" step="0.1" />
+              <output>{{ pointcloudPointSize.toFixed(1) }} px</output>
+            </label>
+            <div v-if="activeWorkflowStep === 1 || (activeWorkflowStep === 2 && denoiseView === 'source')" class="pointcloud-display-row">
+              <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
+                <button type="button" :class="{ on: pointcloudColorMode === 'rgb' }" :aria-pressed="pointcloudColorMode === 'rgb'" @click="pointcloudColorMode = 'rgb'; applyPointcloudDisplay()">真彩</button>
+                <button type="button" :class="{ on: pointcloudColorMode === 'intensity' }" :aria-pressed="pointcloudColorMode === 'intensity'" @click="pointcloudColorMode = 'intensity'; applyPointcloudDisplay()">强度</button>
+              </div>
+              <div v-if="pointcloudColorMode === 'intensity'" class="pointcloud-segmented pointcloud-ramp-modes" role="group" aria-label="强度色带">
+                <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'grayscale' }" :aria-pressed="pointcloudColorRamp === 'grayscale'" @click="pointcloudColorRamp = 'grayscale'; applyPointcloudDisplay()">灰度</button>
+                <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'spectrum' }" :aria-pressed="pointcloudColorRamp === 'spectrum'" @click="pointcloudColorRamp = 'spectrum'; applyPointcloudDisplay()">彩虹</button>
+                <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'viridis' }" :aria-pressed="pointcloudColorRamp === 'viridis'" @click="pointcloudColorRamp = 'viridis'; applyPointcloudDisplay()">紫黄</button>
+              </div>
+            </div>
           </div>
-        </el-tooltip>
+        </el-popover>
+
       </aside>
 
       <div v-if="activeWorkflowStep !== 4 && showAdvancedSettings" class="left-material-popover" role="menu" aria-label="BIM 材质模式">
@@ -8047,30 +8463,7 @@ onBeforeUnmount(() => {
         <button type="button" :class="{ 'is-active': materialMode === 'lambert' }" role="menuitemradio" :aria-checked="materialMode === 'lambert'" @click="materialMode = 'lambert'; showAdvancedSettings = false">漫反射</button>
       </div>
 
-      <div v-if="activeWorkflowStep !== 4" ref="viewportEl" class="viewport viewport-shell three-view-pane">
-        <div class="pointcloud-display-panel alignment-pointcloud-display" role="group" aria-label="点云显示设置">
-          <div class="pointcloud-display-row">
-            <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
-              <button type="button" :class="{ on: pointcloudColorMode === 'rgb' }" :aria-pressed="pointcloudColorMode === 'rgb'" @click="pointcloudColorMode = 'rgb'; applyPointcloudDisplay()">真彩</button>
-              <button type="button" :class="{ on: pointcloudColorMode === 'intensity' }" :aria-pressed="pointcloudColorMode === 'intensity'" @click="pointcloudColorMode = 'intensity'; applyPointcloudDisplay()">强度</button>
-            </div>
-            <div v-if="pointcloudColorMode === 'intensity'" class="pointcloud-segmented pointcloud-ramp-modes" role="group" aria-label="强度色带">
-              <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'grayscale' }" @click="pointcloudColorRamp = 'grayscale'; applyPointcloudDisplay()">灰度</button>
-              <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'spectrum' }" @click="pointcloudColorRamp = 'spectrum'; applyPointcloudDisplay()">彩虹</button>
-              <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'viridis' }" @click="pointcloudColorRamp = 'viridis'; applyPointcloudDisplay()">紫黄</button>
-            </div>
-          </div>
-          <div class="pointcloud-display-row">
-            <div class="pointcloud-segmented" role="group" aria-label="点云增强">
-              <button type="button" :class="{ on: edlEnabled }" :aria-pressed="edlEnabled" @click="toggleEdl">显示增强</button>
-            </div>
-            <label class="pointcloud-size-control" title="点大小">
-              <span>点大小</span>
-              <input v-model.number="pointcloudPointSize" aria-label="点大小" type="range" min="1" max="5" step="0.1" />
-              <output>{{ pointcloudPointSize.toFixed(1) }}</output>
-            </label>
-          </div>
-        </div>
+      <div v-show="activeWorkflowStep !== 4" ref="viewportEl" class="viewport viewport-shell three-view-pane">
         <PointcloudViewCube
           :pose="pointcloudCameraPose"
           @home="resetView"
@@ -8084,7 +8477,7 @@ onBeforeUnmount(() => {
           :pose="pointcloudCameraPose"
         />
         <PointcloudColorRangeBar
-          v-if="pointcloudColorMode === 'intensity'"
+          v-if="pointcloudColorMode === 'intensity' && (activeWorkflowStep === 1 || (activeWorkflowStep === 2 && denoiseView === 'source'))"
           v-model:range="pointcloudColorRange"
           class="pointcloud-bottom-color-bar alignment-pointcloud-bottom-color-bar"
           :ramp="pointcloudColorRamp"
@@ -8097,6 +8490,7 @@ onBeforeUnmount(() => {
         v-if="activeWorkflowStep !== 4"
         type="button"
         class="right-panel-toggle"
+        aria-controls="alignment-control-panel"
         :aria-expanded="showPanel"
         :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
         :title="showPanel ? '收起控制面板' : '展开控制面板'"
@@ -8105,57 +8499,58 @@ onBeforeUnmount(() => {
         <el-icon :size="16"><component :is="showPanel ? DArrowRight : DArrowLeft" /></el-icon>
       </button>
 
-      <section v-if="activeWorkflowStep === 4" class="report-preview-workspace" :class="{ 'is-report-fullscreen': reportFullscreen }" aria-label="报告预览">
+      <section v-if="activeWorkflowStep === 4" ref="reportWorkspaceEl" class="report-preview-workspace" :class="{ 'is-report-fullscreen': reportFullscreen }" aria-label="报告预览">
         <div v-if="!reportToolbarCollapsed" class="report-reader-toolbar" aria-label="报告预览工具栏">
           <button type="button" title="缩小" aria-label="缩小" @click="changeReportZoom(-10)"><el-icon><ZoomOut /></el-icon></button>
           <strong>{{ reportZoom }}%</strong>
           <button type="button" title="放大" aria-label="放大" @click="changeReportZoom(10)"><el-icon><ZoomIn /></el-icon></button>
-          <button type="button" class="report-reader-format" title="当前导出格式">{{ reportFormat.toUpperCase() }}</button>
+          <span class="report-reader-format" title="当前导出格式">{{ reportFormat === 'xls' ? 'CSV' : reportFormat.toUpperCase() }}</span>
+          <button type="button" title="适应页面" aria-label="适应页面" @click="fitReportPage"><el-icon><View /></el-icon></button>
           <span class="report-reader-divider"></span>
-          <button type="button" class="editing-toggle" :class="{ 'is-exit': reportEditing }" :title="reportEditing ? '退出编辑模式' : '编辑报告内容'" @click="reportEditing ? leaveReportEditor() : enterReportEditor()"><el-icon><Close v-if="reportEditing" /><EditPen v-else /></el-icon></button>
-          <button v-if="reportEditing" type="button" title="保存报告草稿" aria-label="保存报告草稿" @click="saveReportEdits"><el-icon><Check /></el-icon></button>
-          <button type="button" title="全屏预览" aria-label="全屏预览" :class="{ active: reportFullscreen }" @click="toggleReportFullscreen"><el-icon><FullScreen /></el-icon></button>
-          <button type="button" title="下载报告" aria-label="下载报告" @click="reportAction('export')"><el-icon><Download /></el-icon></button>
+          <button type="button" :aria-label="reportEditing ? '退出编辑模式' : '编辑报告内容'" class="editing-toggle" :class="{ 'is-exit': reportEditing }" :title="reportEditing ? '退出编辑模式' : '编辑报告内容'" @click="reportEditing ? leaveReportEditor() : enterReportEditor()"><el-icon><Close v-if="reportEditing" /><EditPen v-else /></el-icon></button>
+          <button v-if="reportEditing" type="button" title="完成本次编辑（仅当前页面）" aria-label="完成本次编辑" @click="saveReportEdits"><el-icon><Check /></el-icon></button>
+          <button type="button" :title="reportFullscreen ? '退出全屏预览' : '全屏预览'" :aria-label="reportFullscreen ? '退出全屏预览' : '全屏预览'" :aria-pressed="reportFullscreen" :class="{ active: reportFullscreen }" @click="toggleReportFullscreen"><el-icon><FullScreen /></el-icon></button>
+          <button type="button" title="下载报告" aria-label="下载报告" :disabled="!canUseC2MResult" @click="reportAction('export')"><el-icon><Download /></el-icon></button>
           <button type="button" title="收起工具栏" aria-label="收起工具栏" @click="reportToolbarCollapsed = true"><el-icon><ArrowUp /></el-icon></button>
         </div>
-        <button v-else type="button" class="report-reader-toolbar-reopen" title="展开报告工具栏" @click="reportToolbarCollapsed = false"><el-icon><ArrowDown /></el-icon></button>
+        <button v-else type="button" class="report-reader-toolbar-reopen" title="展开报告工具栏" aria-label="展开报告工具栏" @click="reportToolbarCollapsed = false"><el-icon><ArrowDown /></el-icon></button>
         <div class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
           <div class="report-preview-page cover-paper" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
             <header class="cover-header">
               <div class="cover-brand"><div class="report-preview-mark"><img :src="reportBrandMark" alt="系统标识" /></div><div><span>点云与工程坐标配准</span><strong>BIM 与点云校准系统</strong></div></div>
               <div class="cover-report-number"><small>报告编号</small><strong>REPORT / 001</strong></div>
             </header>
-            <div class="cover-main"><span class="cover-kicker">BIM 与点云校准成果</span><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><i aria-hidden="true"></i></div>
+            <div class="cover-main"><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><p>Scan vs BIM Deviation Report</p><i aria-hidden="true"></i></div>
             <dl class="cover-details"><div><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></div><div><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></div><div><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></div><div><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></div><div><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></div><div><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></div></dl>
             <div class="cover-status"><span></span><div><small>当前检测状态</small><strong>{{ canUseC2MResult ? '逐钢筋偏差结果已生成' : '待生成有效偏差结果' }}</strong></div></div>
             <div class="cover-footer"><span>BIM 与点云校准</span><span>第 01 页</span></div>
           </div>
         </div>
-        <div v-for="(bars, page) in comparisonReportPages" :key="`table-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
-          <nav v-if="comparisonReportPageCount > 1 && page === comparisonReportPageIndex" class="rebar-report-page-nav" aria-label="表格翻页">
-            <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonReportPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
-            <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonReportPageCount }} 页</strong><small>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }}</small></span>
-            <button type="button" aria-label="下一页" title="下一页" :disabled="page >= comparisonReportPageCount - 1" @click="changeComparisonReportPage(1)"><el-icon><ArrowRight /></el-icon></button>
-          </nav>
+        <div v-if="canUseC2MResult" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <article class="report-preview-page rebar-report-page report-summary-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
+            <section v-for="item in reportContents.filter(entry => entry.enabled)" :key="item.id" class="report-data-section">
+              <h2>{{ item.title }}</h2>
+              <template v-if="item.id === 'summary'">
+                <p>{{ reportProjectName }} · {{ pointcloudDisplayName }}</p>
+                <p>共 {{ comparisonBars.length }} 根设计钢筋，工程容差 ±{{ comparisonReportToleranceMm }} mm。测量方式：{{ comparisonMeasurementLabel }}。</p>
+              </template>
+              <dl v-else-if="item.id === 'statistics'" class="report-statistics">
+                <div><dt>平均绝对偏差</dt><dd>{{ ((c2mResult?.stats?.meanAbs ?? 0) * 1000).toFixed(2) }} mm</dd></div>
+                <div><dt>RMSE</dt><dd>{{ ((c2mResult?.stats?.rmse ?? 0) * 1000).toFixed(2) }} mm</dd></div>
+                <div><dt>P95 绝对偏差</dt><dd>{{ ((c2mResult?.stats?.p95Abs ?? 0) * 1000).toFixed(2) }} mm</dd></div>
+                <div><dt>容差内（已覆盖）</dt><dd>{{ formatC2MPercentage(c2mDisplayResult?.stats?.withinToleranceRatio) }}</dd></div>
+              </dl>
+              <C2MHistogramLegend v-else-if="item.id === 'histogram' && c2mDisplayResult" :result="c2mDisplayResult" :color-mode="c2mColorMode" :band-count="c2mBandCount" />
+              <p v-else-if="item.id === 'conclusion'">本报告提供实例约束的偏差预估。缺测与待复核钢筋不出具偏差结论，请结合逐筋明细复核；容差内比例仅统计已覆盖顶点。</p>
+            </section>
+            <footer>第 2 页 · 分析摘要</footer>
+          </article>
+        </div>
+        <div v-for="(bars, page) in comparisonReportPages" :key="page" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
           <article class="report-preview-page rebar-report-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <header class="report-preview-page__header">
-              <div class="report-preview-mark"><img :src="reportBrandMark" alt="系统标识" /></div>
-              <div>
-                <strong>{{ reportTitle }}</strong>
-                <span>{{ reportProjectName }}</span>
-              </div>
-              <small>REPORT / 001 · {{ page + 2 }} / {{ comparisonReportTotalPages }}</small>
-            </header>
-            <div class="rebar-report-heading">
-              <div>
-                <h2>逐钢筋偏差明细</h2>
-              </div>
-            </div>
-            <div class="rebar-report-meta">
-              <span>容差 <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
-              <span>测量方向 <strong>设计顶点 → 对应扫描实例最近点</strong></span>
-              <span>已排除设计夹具</span>
-            </div>
+            <h2>逐钢筋偏差明细</h2>
+            <p>{{ reportProjectName }} · 容差 ±{{ comparisonReportToleranceMm }} mm · 已排除设计夹具</p>
+            <p>{{ comparisonMeasurementLabel }}。覆盖率与容差内比例分列；缺测、待复核项不出具偏差结论。</p>
             <table class="rebar-report-table">
               <colgroup><col class="rebar-report-table__member" /><col class="rebar-report-table__status" /><col class="rebar-report-table__coverage" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__tolerance" /></colgroup>
               <thead><tr><th scope="col">钢筋信息</th><th scope="col">状态 / 点数</th><th scope="col">覆盖率</th><th scope="col">平均绝对偏差<br /><small>mm</small></th><th scope="col">RMSE<br /><small>mm</small></th><th scope="col">P95 绝对偏差<br /><small>mm</small></th><th scope="col">容差内<br /><small>已覆盖</small></th></tr></thead>
@@ -8169,27 +8564,25 @@ onBeforeUnmount(() => {
                 <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
               </tr></tbody>
             </table>
-            <div v-if="bars[0]?.status === 'matched'" class="rebar-report-inline-views" aria-label="对应钢筋构件三视图">
-              <div class="rebar-report-view-guide" aria-label="三视图图例">
-                <span><i class="rebar-report-view-guide__swatch is-design"></i><b>蓝色实体/轮廓</b> BIM 设计模型</span>
-                <span><i class="rebar-report-view-guide__swatch is-scan"></i><b>绿色离散点</b> 当前钢筋实测点云</span>
-                <span><i class="rebar-report-view-guide__swatch is-axis"></i><b>橙色虚线</b> 设计轴（正视/俯视）</span>
-              </div>
-              <section v-for="bar in bars" :key="`inline-view-${bar.ifcGlobalId}`" class="rebar-report-inline-card">
-                <div class="rebar-report-views" aria-label="钢筋构件三视图">
-                  <div v-for="projection in (['front', 'top', 'side'] as ReportViewProjection[])" :key="projection" class="rebar-report-view">
-                    <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}</strong>
-                    <svg :key="reportSvgRevision" class="rebar-report-model-svg" viewBox="0 0 400 760" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`${reportViewLabel(projection)}设计与实测偏差视图`" v-html="reportSvgFor(bar.ifcGlobalId, projection)"></svg>
-                  </div>
-                </div>
-              </section>
+            <p class="rebar-report-provenance">结果版本：{{ c2mResult?.resultVersion }}<br />实例映射：{{ comparison?.instanceMapHash }}</p>
+            <footer>第 {{ page + 3 }} 页 · 钢筋 {{ page * 14 + 1 }}–{{ page * 14 + bars.length }} / {{ comparisonBars.length }}</footer>
+          </article>
+        </div>
+        <div v-for="(bars, page) in comparisonDetailPages" :key="`detail-${page}`" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <article class="report-preview-page rebar-report-page rebar-projection-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
+            <h2>逐钢筋投影与偏差</h2>
+            <p>{{ reportProjectName }} · {{ comparisonMeasurementLabel }} · 图形等比例，尺寸单位 mm</p>
+            <div class="rebar-projection-page__bars">
+              <RebarDeviationDetail v-for="bar in bars" :key="bar.ifcGlobalId" :bar="bar" report />
             </div>
-            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差与构件三视图报告</span><span>钢筋 {{ page + 1 }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
+            <p>灰色虚线：设计中心线；蓝色实线及圆点：实测拟合中心线。断开处为缺测，最大值仅针对已测范围。弯曲为各直线段扣除整体偏移与倾斜后的残余弓高估计，覆盖不足不出具结论。</p>
+            <p class="rebar-report-provenance">结果版本：{{ c2mResult?.resultVersion }}</p>
+            <footer>第 {{ comparisonReportPages.length + page + 3 }} 页 · 钢筋 {{ page * reportBarsPerPage + 1 }}–{{ page * reportBarsPerPage + bars.length }} / {{ comparisonBars.length }}</footer>
           </article>
         </div>
       </section>
 
-      <aside v-if="(showPanel && activeWorkflowStep !== 4) || (activeWorkflowStep === 4 && !reportEditing)" class="right-panel control-panel is-workflow-panel">
+      <aside v-if="(showPanel && activeWorkflowStep !== 4) || (activeWorkflowStep === 4 && !reportEditing)" id="alignment-control-panel" class="right-panel control-panel is-workflow-panel">
         <div class="control-panel-header">
           <div class="panel-heading">
             <strong>{{ activeWorkflowStep === 2 ? '点云分类与去噪' : activeWorkflowStep === 3 ? '偏差对比' : activeWorkflowStep === 4 ? '出报告' : '配准控制' }}</strong>
@@ -8249,38 +8642,30 @@ onBeforeUnmount(() => {
             <div class="report-flow"><span class="done">配置</span><i></i><span class="done">预览</span><i></i><span>导出</span></div>
             <div class="workflow-form">
               <label class="field-block"><span>报告名称</span><el-input v-model="reportTitle" maxlength="40" /></label>
-              <div class="field-block"><span>输出格式</span><el-radio-group v-model="reportFormat" class="compact-segment"><el-radio-button value="pdf">PDF</el-radio-button><el-radio-button value="docx">Word</el-radio-button><el-radio-button value="xls">Excel</el-radio-button><el-radio-button value="dxf">DXF</el-radio-button></el-radio-group></div>
+              <div class="field-block"><span>每页钢筋投影</span><el-radio-group v-model="reportBarsPerPage" aria-label="每页显示的钢筋数量"><el-radio-button :value="1">1 根</el-radio-button><el-radio-button :value="2">2 根</el-radio-button><el-radio-button :value="3">3 根</el-radio-button></el-radio-group></div>
+              <div class="field-block"><span>输出格式</span><el-radio-group v-model="reportFormat" class="compact-segment"><el-radio-button value="pdf">PDF</el-radio-button><el-radio-button value="json">检测 JSON</el-radio-button><el-radio-button value="docx" disabled title="Word 导出尚未开放">Word</el-radio-button><el-radio-button value="xls">CSV · Excel</el-radio-button><el-radio-button value="dxf" disabled title="DXF 导出尚未开放">DXF</el-radio-button></el-radio-group></div>
             </div>
-            <div class="content-config-heading"><div><strong>报告内容配置</strong><span>{{ reportContents.length }} 项 · {{ reportEnabledCount }} 项显示</span></div><button type="button" class="reset-content-button" title="全部开启" @click="reportContents.forEach((item) => item.enabled = true)"><el-icon><RefreshLeft /></el-icon></button></div>
+            <div class="content-config-heading"><div><strong>报告内容配置</strong><span>{{ reportContents.length }} 项 · {{ reportEnabledCount }} 项显示</span></div><button type="button" class="reset-content-button" title="全部开启" aria-label="全部开启报告章节" @click="reportContents.forEach((item) => item.enabled = true)"><el-icon><RefreshLeft /></el-icon></button></div>
             <div class="dynamic-content-list">
               <section v-for="group in [...new Set(reportContents.map((item) => item.group))]" :key="group">
                 <header v-if="group !== '基础信息'"><strong>{{ group }}</strong><span>{{ reportContents.filter((item) => item.group === group).length }}</span></header>
                 <article v-for="item in reportContents.filter((entry) => entry.group === group)" :key="item.id" :class="{ disabled: !item.enabled }">
-                  <el-switch v-model="item.enabled" :disabled="item.locked" aria-label="显示或隐藏章节" />
-                  <el-input v-model="item.title" :disabled="item.locked" />
-                  <div class="content-actions"><button type="button" title="删除章节" :disabled="item.locked" @click="reportContents = reportContents.filter((entry) => entry.id !== item.id)"><el-icon><Delete /></el-icon></button></div>
+                  <el-switch v-model="item.enabled" :disabled="item.locked" :aria-label="`显示或隐藏${item.title}`" />
+                  <el-input v-model="item.title" :disabled="item.locked" :aria-label="`${item.title}章节名称`" maxlength="40" />
+                  <div class="content-actions"><button type="button" :title="`删除${item.title}章节`" :aria-label="`删除${item.title}章节`" :disabled="item.locked" @click="reportContents = reportContents.filter((entry) => entry.id !== item.id)"><el-icon><Delete /></el-icon></button></div>
                   <small v-if="item.locked">模板固定内容</small>
                 </article>
               </section>
             </div>
             <div class="report-source-status"><div><small>偏差项</small><strong>{{ c2mResult?.stats ? '已计算' : '待计算' }}</strong></div><div><small>已显示</small><strong>{{ reportEnabledCount }}</strong></div><div><small>状态</small><strong class="is-alert">草稿</strong></div></div>
-            <el-alert v-if="!c2mResult" class="report-alert" type="info" :closable="false" show-icon title="请先完成 Scan vs BIM 快速预估，再生成正式报告内容" />
-            <div class="report-mode-label">共享草稿与正式归档</div>
-            <div class="panel-action-row report-actions"><el-button :icon="View" :disabled="!c2mResult" @click="reportAction('save')">适应页面</el-button><el-button :icon="EditPen" :disabled="!c2mResult" @click="enterReportEditor">编辑预览</el-button><el-button :icon="Check" :disabled="!c2mResult" @click="reportAction('save')">保存草稿</el-button><el-button type="primary" :icon="DocumentChecked" :disabled="!c2mResult" @click="reportAction('publish')">发布终稿</el-button></div>
+            <el-alert v-if="!canUseC2MResult" class="report-alert" type="info" :closable="false" show-icon title="请先完成有效的逐钢筋对比，再导出报告" />
+            <div class="report-mode-label">预览与编辑</div>
+            <div class="panel-action-row report-actions"><el-button :icon="View" @click="fitReportPage">适应页面</el-button><el-button :icon="EditPen" :disabled="!canUseC2MResult" @click="enterReportEditor">编辑预览</el-button><el-button :icon="Check" disabled title="在线草稿保存尚未开放">保存草稿</el-button><el-button :icon="DocumentChecked" disabled title="正式归档尚未开放">发布终稿</el-button></div>
+            <p class="report-local-note">编辑仅保留在当前页面。在线保存与发布尚未开放，请导出到本地。</p>
             <div class="report-mode-label">浏览器本地导出</div>
-            <div class="panel-action-row report-actions"><el-button :icon="Download" :disabled="!c2mResult" @click="reportAction('export')">导出 {{ reportFormat.toUpperCase() }}</el-button></div>
+            <div class="panel-action-row report-actions"><el-button type="primary" :icon="Download" :disabled="!canUseC2MResult" :loading="inspectionDownloading" @click="reportAction('export')">{{ reportFormat === 'json' ? '导出已保存检测 JSON' : reportFormat === 'xls' ? '导出逐筋明细 CSV' : '打印 / 导出 PDF' }}</el-button></div>
           </div>
          <div v-if="activeWorkflowStep === 1" class="panel-section registration-edit-panel">
-          <el-button
-            class="registration-complete-button"
-            type="primary"
-            :loading="savingCalibration"
-            :disabled="!canSaveCalibration"
-            title="保存当前配准结果"
-            @click="handleCalibrationComplete"
-          >
-            完成校准
-          </el-button>
           <div class="registration-stage-row" role="group" aria-label="配准阶段">
             <button class="registration-stage-btn" :class="{ 'is-active': registrationStage === 'coarse' }" :aria-pressed="registrationStage === 'coarse'" :disabled="!hasModel" @click="activateCoarseRegistration">粗配准</button>
             <button class="registration-stage-btn" :class="{ 'is-active': registrationStage === 'fine' }" :aria-pressed="registrationStage === 'fine'" :disabled="!hasSavedAlignmentMatrix" :title="!hasSavedAlignmentMatrix ? '请先保存粗配准' : undefined" @click="activateFineRegistration">精细配准</button>
@@ -8321,6 +8706,13 @@ onBeforeUnmount(() => {
             </div>
           </template>
 
+          <div class="registration-handle-control">
+            <label for="registration-handles">操作手柄</label>
+            <el-switch id="registration-handles" v-model="showTransformHandles"
+              :disabled="!hasModel || !editMode || fineAlignLoading || savingCalibration"
+              aria-label="显示配准操作手柄" />
+          </div>
+          <p class="registration-handle-hint">{{ enableClipping ? '剖切时暂时隐藏配准手柄。' : '控制画布中的平移与旋转手柄；关闭后仍可输入数值调整。' }}</p>
           <div class="transform-mode" role="tablist" aria-label="变换方式">
             <button type="button" class="transform-mode-button" :class="{ 'is-active': transformMode === 'translate' }" role="tab" :aria-selected="transformMode === 'translate'" :disabled="!editMode || !hasModel" @click="setTransformMode('translate')">移动</button>
             <button type="button" class="transform-mode-button" :class="{ 'is-active': transformMode === 'rotate' }" role="tab" :aria-selected="transformMode === 'rotate'" :disabled="!editMode || !hasModel" @click="setTransformMode('rotate')">旋转</button>
@@ -8386,7 +8778,7 @@ onBeforeUnmount(() => {
                     @input="applyOrientationFixRealtime"
                   />
                   <div class="slider__controls slider__controls--rotation">
-                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-180" max="180" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
+                    <input class="axis-number-input axis-number-input--rotation" aria-label="Y 轴旋转，单位度" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-180" max="180" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
                     <span class="slider__hint">deg</span>
                   </div>
                 </label>
@@ -8404,7 +8796,7 @@ onBeforeUnmount(() => {
                     @input="applyOrientationFixRealtime"
                   />
                   <div class="slider__controls slider__controls--rotation">
-                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegX)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('x', $event)" @blur="onOrientationNumberBlur('x', $event)" @keydown="onOrientationNumberKeydown($event, 'x')" />
+                    <input class="axis-number-input axis-number-input--rotation" aria-label="X 轴旋转，单位度" :value="formatRotationOffset(orientationDegX)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('x', $event)" @blur="onOrientationNumberBlur('x', $event)" @keydown="onOrientationNumberKeydown($event, 'x')" />
                     <span class="slider__hint">deg</span>
                   </div>
                 </label>
@@ -8420,7 +8812,7 @@ onBeforeUnmount(() => {
                     @input="applyOrientationFixRealtime"
                   />
                   <div class="slider__controls slider__controls--rotation">
-                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
+                    <input class="axis-number-input axis-number-input--rotation" aria-label="Y 轴旋转，单位度" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
                     <span class="slider__hint">deg</span>
                   </div>
                 </label>
@@ -8436,7 +8828,7 @@ onBeforeUnmount(() => {
                     @input="applyOrientationFixRealtime"
                   />
                   <div class="slider__controls slider__controls--rotation">
-                    <input class="axis-number-input axis-number-input--rotation" :value="formatRotationOffset(orientationDegZ)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('z', $event)" @blur="onOrientationNumberBlur('z', $event)" @keydown="onOrientationNumberKeydown($event, 'z')" />
+                    <input class="axis-number-input axis-number-input--rotation" aria-label="Z 轴旋转，单位度" :value="formatRotationOffset(orientationDegZ)" type="number" inputmode="decimal" min="-10" max="10" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('z', $event)" @blur="onOrientationNumberBlur('z', $event)" @keydown="onOrientationNumberKeydown($event, 'z')" />
                     <span class="slider__hint">deg</span>
                   </div>
                 </label>
@@ -8497,7 +8889,7 @@ onBeforeUnmount(() => {
                   @input="applyPositionFixRealtime"
                 />
                 <div class="slider__controls">
-                  <input class="axis-number-input" :value="positionOffsetX" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('x', $event)" @blur="onPositionNumberBlur('x', $event)" @keydown="onPositionNumberKeydown($event, 'x')" />
+                  <input class="axis-number-input" aria-label="X 轴位移，单位米" :value="positionOffsetX" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('x', $event)" @blur="onPositionNumberBlur('x', $event)" @keydown="onPositionNumberKeydown($event, 'x')" />
                   <span class="slider__hint">m</span>
                 </div>
               </label>
@@ -8513,7 +8905,7 @@ onBeforeUnmount(() => {
                   @input="applyPositionFixRealtime"
                 />
                 <div class="slider__controls">
-                  <input class="axis-number-input" :value="positionOffsetY" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('y', $event)" @blur="onPositionNumberBlur('y', $event)" @keydown="onPositionNumberKeydown($event, 'y')" />
+                  <input class="axis-number-input" aria-label="Y 轴位移，单位米" :value="positionOffsetY" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('y', $event)" @blur="onPositionNumberBlur('y', $event)" @keydown="onPositionNumberKeydown($event, 'y')" />
                   <span class="slider__hint">m</span>
                 </div>
               </label>
@@ -8529,7 +8921,7 @@ onBeforeUnmount(() => {
                   @input="applyPositionFixRealtime"
                 />
                 <div class="slider__controls">
-                  <input class="axis-number-input" :value="positionOffsetZ" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('z', $event)" @blur="onPositionNumberBlur('z', $event)" @keydown="onPositionNumberKeydown($event, 'z')" />
+                  <input class="axis-number-input" aria-label="Z 轴位移，单位米" :value="positionOffsetZ" type="number" inputmode="decimal" :step="positionAdjustStep" :disabled="!editMode || !selectedItemId" @input="onPositionNumberInput('z', $event)" @blur="onPositionNumberBlur('z', $event)" @keydown="onPositionNumberKeydown($event, 'z')" />
                   <span class="slider__hint">m</span>
                 </div>
               </label>
@@ -8548,128 +8940,58 @@ onBeforeUnmount(() => {
               保存粗配准
             </el-button>
           </div>
-        </div>
-        <div v-if="activeWorkflowStep === 1" class="panel-section mesh-remesh-panel">
-          <div class="section-title">网格均匀化</div>
-          <div class="mesh-remesh-summary" :class="`mesh-remesh-summary--${meshStatus?.status || 'idle'}`">
-            <span class="mesh-remesh-summary__icon" aria-hidden="true">
-              {{ meshReady ? '✓' : meshTaskActive || meshRunning ? '…' : meshStatus?.status === 'failed' ? '!' : '○' }}
-            </span>
-            <div>
-              <strong>{{ meshReady ? 'BIM 网格已自动均匀化' : meshStatusText }}</strong>
-              <span>{{ meshReady ? '上传 BIM 时已由系统处理，可直接用于后续分析。' : meshTaskActive || meshRunning ? '系统正在后台处理，无需停留等待。' : meshStatus?.status === 'failed' ? '自动处理未完成，可在高级操作中重新处理。' : '等待系统生成均匀化网格。' }}</span>
-            </div>
-          </div>
-          <details class="mesh-remesh-advanced">
-            <summary>
-              <span class="mesh-remesh-advanced__title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="4" y1="6" x2="20" y2="6" />
-                  <circle cx="9" cy="6" r="2" fill="white" />
-                  <line x1="4" y1="12" x2="20" y2="12" />
-                  <circle cx="15" cy="12" r="2" fill="white" />
-                  <line x1="4" y1="18" x2="20" y2="18" />
-                  <circle cx="7" cy="18" r="2" fill="white" />
-                </svg>
-                高级操作
-              </span>
-            </summary>
-            <div class="mesh-remesh-advanced__body">
-              <div class="mesh-algorithm-card">
-                <div class="mesh-algorithm-card__content">
-                  <strong>{{ meshAlgorithmDisplayName }}</strong>
-                  <div class="mesh-algorithm-card__tags">
-                    <span>{{ meshAlgorithmVersion }}</span>
-                    <span>{{ meshAlgorithmParameterLabel }}</span>
-                  </div>
-                  <p>沿钢筋中心轴按等弧长重新采样，并生成规则多边形截面；无法可靠识别的非圆构件会原样保留。</p>
-                </div>
-              </div>
-              <div class="mesh-remesh-param-grid">
-                <label class="mesh-remesh-param">
-                  <span>截面边数</span>
-                  <el-input-number v-model="meshCrossSectionSides" :min="8" :max="128" :step="1" :precision="0" size="small" controls-position="right" :disabled="meshControlsDisabled" />
-                </label>
-                <label class="mesh-remesh-param">
-                  <span>轴向间距 (m)</span>
-                  <el-input-number v-model="meshAxialSpacing" :min="0.0001" :max="1" :step="0.001" :precision="4" size="small" controls-position="right" :disabled="meshControlsDisabled" />
-                </label>
-                <label class="mesh-remesh-param">
-                  <span>弦高误差 (m)</span>
-                  <el-input-number v-model="meshMaxChordError" :min="0.000001" :max="0.01" :step="0.00001" :precision="6" size="small" controls-position="right" :disabled="meshControlsDisabled" />
-                </label>
-              </div>
-              <p v-if="meshStatus?.algorithm && meshStatus.algorithm !== REBAR_SWEEP_ALGORITHM" class="denoise-note">当前产物由已停用的旧算法生成，请重新处理后再用于逐钢筋对比。</p>
-              <div class="mesh-remesh-primary-actions">
-                <el-button type="primary" size="small" :loading="meshRunning" :disabled="!bimAssetId || meshTaskActive" @click="runMeshRemesh">
-                  <svg class="mesh-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M5.6 9a7 7 0 0 1 11.6-2.6L20 11M4 13l2.8 4.6A7 7 0 0 0 18.4 15" />
-                  </svg>
-                  {{ meshActionText }}
-                </el-button>
-                <el-button
-                  size="small"
-                  :loading="remeshLoading"
-                  :disabled="!canLoadRemesh"
-                  @click="loadRemeshResult"
-                >
-                  <svg class="mesh-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" />
-                  </svg>
-                  {{ remeshMeshLoaded ? '重新加载' : '查看' }}
-                </el-button>
-              </div>
-              <div v-if="remeshMeshLoaded" class="mesh-remesh-visual-controls">
-                <el-button size="small" @click="toggleRemeshSolid">
-                  {{ remeshSolidHidden ? '显示实体' : '隐藏实体' }}
-                </el-button>
-                <el-button v-if="remeshWireAvailable" size="small" @click="toggleRemeshWire">
-                  {{ remeshWireHidden ? '显示线框' : '隐藏线框' }}
-                </el-button>
-                <el-button v-else size="small" disabled>面数过多，跳过线框</el-button>
-                <el-button
-                  v-if="remeshRestoreAvailable"
-                  size="small"
-                  type="warning"
-                  @click="restoreRemeshScene"
-                >
-                  恢复原始场景
-                </el-button>
-              </div>
-              <div v-if="meshStats" class="mesh-remesh-stats">
-                <div class="mesh-stat-item">
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <circle v-for="index in 9" :key="index" :cx="4 + ((index - 1) % 3) * 7" :cy="4 + Math.floor((index - 1) / 3) * 7" r="1.45" />
-                  </svg>
-                  <div><span>顶点数</span><strong>{{ meshStats.vertexBefore.toLocaleString() }} <em>→ {{ meshStats.vertexAfter.toLocaleString() }}</em></strong></div>
-                </div>
-                <div class="mesh-stat-item">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="4" r="1.6" fill="currentColor" /><circle cx="5" cy="18" r="1.6" fill="currentColor" /><circle cx="19" cy="18" r="1.6" fill="currentColor" /><path d="m11 6-5 10m7-10 5 10M8 18h8" />
-                  </svg>
-                  <div><span>面数</span><strong>{{ meshStats.faceBefore.toLocaleString() }} <em>→ {{ meshStats.faceAfter.toLocaleString() }}</em></strong></div>
-                </div>
-              </div>
-            </div>
-          </details>
-          <div v-if="meshError" class="mesh-remesh-error">{{ meshError }}</div>
+          <el-button
+            class="registration-complete-button"
+            :loading="savingCalibration"
+            :disabled="!canSaveCalibration"
+            title="保存当前配准结果"
+            @click="handleCalibrationComplete"
+          >
+            完成校准
+          </el-button>
         </div>
         <div v-if="activeWorkflowStep === 3" class="panel-section c2m-panel c2m-deviation-workspace">
-          <div class="section-title c2m-panel__title">Scan vs BIM 逐钢筋对比</div>
-
-          <p class="c2m-source-note">使用第二步去噪后的钢筋实例，与对应设计钢筋对比；已排除设计夹具。预览按点数抽样，计算使用完整实例产物。</p>
-          <section class="c2m-primary-card" aria-label="逐钢筋对比主要操作">
-            <div class="c2m-primary-toggle">
-              <span><i aria-hidden="true"></i>实例内降采样</span>
-              <el-switch v-model="c2mDownsampleEnabled" size="small" :disabled="!canRunC2M" aria-label="启用 C2M 点云降采样" />
+          <RebarDebugPanel
+            :bars="rebarDebugBars" :selected-id="selectedComparisonBarId" :active="rebarDebugActive"
+            :surface="rebarDebugDisplaySurface" :scan="rebarDebugScan" :cluster="rebarDebugCluster"
+            :normals="rebarDebugNormals" :scan-normals="rebarDebugScanNormals"
+            :normal-mode="rebarDebugNormalMode" :all-normals="rebarDebugAllNormals" :mesh-counts="rebarDebugMeshCounts"
+            :length-mm="rebarDebugLengthMm" :limit="rebarDebugLimit"
+            :point-count="denoiseVisiblePointCount" :normal-count="rebarDebugNormalCount" :scan-normal-count="rebarDebugScanNormalCount"
+            :has-result="Boolean(comparison)" :result-version="c2mResult?.resultVersion"
+            :effective="comparison?.effective" :algorithm="c2mResult?.algorithmVersion"
+            :loading="denoisePreviewLoading || c2mSceneLoading"
+            :scene-loaded="c2mSceneLoaded" :scene-error="c2mError"
+            @toggle="toggleRebarDebug" @select="selectRebarDebugBar" @move="moveRebarDebugBar" @focus="focusRebarDebug"
+            @open="openRebarDebugWindow" @export="exportRebarDebug"
+            @result="showRebarDebugResult" @pair="showRebarDebugPair"
+            @surface="rebarDebugSurface = $event" @scan="rebarDebugScan = $event" @cluster="rebarDebugCluster = $event"
+            @normals="rebarDebugNormals = $event" @scan-normals="rebarDebugScanNormals = $event"
+            @normal-mode="rebarDebugNormalMode = $event"
+            @all-normals="rebarDebugAllNormals = $event"
+            @length="rebarDebugLengthMm = $event" @limit="rebarDebugLimit = $event"
+          />
+          <section class="c2m-primary-card" aria-label="偏差计算">
+            <div class="c2m-compute-heading">
+              <div class="section-title c2m-panel__title">偏差计算</div>
+              <label class="c2m-normal-toggle">
+                <span>法向约束 · 同侧表面</span>
+                <el-switch v-model="c2mNormalConstraintEnabled" :disabled="c2mRunning" aria-label="启用钢筋同侧表面的法向约束" />
+              </label>
             </div>
-            <label class="c2m-primary-field">
-              <span>降采样距离 <small>单位 m</small></span>
-              <el-input-number v-model="c2mVoxelSize" :min="0.001" :max="1" :step="0.001" :precision="3" size="small" :disabled="!canRunC2M || !c2mDownsampleEnabled" />
-            </label>
+            <div class="c2m-search-fields" :class="{ 'is-single': !c2mNormalConstraintEnabled }">
+              <label v-if="c2mNormalConstraintEnabled" class="c2m-search-field">
+                <span>朝向容差 <small>°</small></span>
+                <el-input-number v-model="c2mNormalMaxAngleDeg" controls-position="right" :min="1" :max="90" :step="5" :precision="0" :value-on-clear="30" :disabled="c2mRunning" aria-label="同侧表面朝向容差，单位度" />
+              </label>
+              <label class="c2m-search-field">
+                <span>最大搜索距离 <small>mm</small></span>
+                <el-input-number v-model="c2mMaxSearchDistanceMm" controls-position="right" :min="0.1" :max="200" :step="1" :precision="1" :value-on-clear="200" :disabled="c2mRunning" aria-label="最大搜索距离，单位毫米" />
+              </label>
+            </div>
+            <p class="c2m-search-hint">{{ c2mNormalConstraintEnabled ? '沿钢筋中心线辨别同侧方向；无可靠扫描支持的位置保留缺测' : '搜索范围限定在同一钢筋实例内' }}</p>
             <el-button class="c2m-run-button" type="primary" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">
-              <el-icon><Promotion /></el-icon>
-              开始逐钢筋对比
+              {{ c2mResult ? '重新计算偏差' : '计算偏差' }}
             </el-button>
           </section>
 
@@ -8747,138 +9069,81 @@ onBeforeUnmount(() => {
               <el-button size="small" @click="downloadRebarReport(false)">导出全部逐筋明细</el-button>
               <el-button size="small" :disabled="!selectedComparisonBar" @click="downloadRebarReport(true)">导出当前钢筋</el-button>
             </div>
+            <div class="c2m-scene-status" role="status" aria-live="polite">
+              <span v-if="!meshReady">{{ meshTaskActive ? '网格处理中…' : '请先完成 BIM 网格均匀化' }}</span>
+              <span v-else-if="c2mRunning">正在计算…</span>
+              <span v-else-if="c2mSceneLoading">正在加载偏差…</span>
+              <span v-else-if="c2mCalculationSettingsDirty">参数已修改，重新计算后生效</span>
+              <span v-else-if="c2mSceneLoaded">{{ rebarDebugActive && rebarDebugDisplaySurface !== 'result' ? '结果已加载，未显示偏差着色' : '偏差已显示' }}<span v-if="comparison?.timings?.total !== undefined"> · 耗时 {{ comparison.timings.total.toFixed(2) }} s</span></span>
+              <span v-else-if="canUseC2MResult && !c2mSceneArtifactAvailable">结果生成中…</span>
+              <el-button v-if="canUseC2MResult && c2mSceneArtifactAvailable && !c2mSceneLoaded && !c2mSceneLoading && !c2mRunning" size="small" @click="loadC2MToScene">重试显示结果</el-button>
+            </div>
           </section>
 
-          <details class="c2m-advanced-card" open>
-            <summary>
-              <span><el-icon><Brush /></el-icon>偏差显示</span>
-              <el-icon class="c2m-advanced-card__arrow"><ArrowDown /></el-icon>
-            </summary>
-            <div class="c2m-advanced-card__body">
-              <div class="c2m-secondary-settings">
-                <div class="c2m-setting-row c2m-setting-row--plain">
-                  <span class="c2m-setting-row__label">工程容差 ± <small>mm</small></span>
-                  <el-input-number :model-value="c2mToleranceMm" :value-on-clear="c2mToleranceMm" :min="0.1" :max="10000" :step="1" :precision="1" size="small" aria-label="工程容差半宽，单位毫米" @change="onC2MToleranceChange" />
-                </div>
-                <p class="c2m-display-help">容差内为绿色；负向超差为青蓝色，正向超差为黄红色。调整显示范围不会改变工程容差。</p>
-              </div>
-              <div class="c2m-preset-block">
-                <span class="c2m-preset-block__label">显示范围 <small>以零为中心</small></span>
-                <div class="c2m-range-presets" role="group" aria-label="偏差显示范围模式">
-                  <el-button size="small" :type="c2mRangeMode === 'auto' ? 'primary' : 'default'" :aria-pressed="c2mRangeMode === 'auto'" @click="selectC2MRangePreset('auto')">自适应</el-button>
-                  <el-button size="small" :type="c2mRangeMode === 'full' ? 'primary' : 'default'" :aria-pressed="c2mRangeMode === 'full'" @click="selectC2MRangePreset('full')">完整范围</el-button>
-                  <el-button size="small" :type="c2mRangeMode === 'manual' ? 'primary' : 'default'" :aria-pressed="c2mRangeMode === 'manual'" @click="selectC2MRangePreset('manual')">手动</el-button>
-                </div>
-                <div class="c2m-range-readout">−{{ c2mColorRangeMm }} <span>至</span> +{{ c2mColorRangeMm }} <small>mm</small></div>
-                <p class="c2m-display-help">{{ c2mRangeMode === 'auto' ? (c2mRangeSummary ? '聚焦主体偏差，自动收起稀疏长尾，让密集区域充分展开。' : '先按结果统计估算；逐顶点数据就绪后自动精调。') : c2mRangeMode === 'full' ? '覆盖全部有效偏差，包含极端值。' : '自定义色标半宽；至少为工程容差的 1.25 倍。' }} 超界保持端点蓝 / 红色并单独计数，不影响容差统计。</p>
-                <div v-if="c2mRangeMode === 'manual'" class="c2m-setting-row c2m-setting-row--plain">
-                  <span class="c2m-setting-row__label">显示半宽 ± <small>mm</small></span>
-                  <el-input-number :model-value="c2mColorRangeMm" :value-on-clear="c2mColorRangeMm" :min="Math.max(1, c2mToleranceMm * 1.25)" :step="1" :precision="2" size="small" aria-label="配色色域半宽，单位毫米" @change="onC2MColorRangeChange" />
-                </div>
-              </div>
-              <C2MHistogramLegend v-if="c2mDisplayResult" :result="c2mDisplayResult" :color-mode="c2mColorMode" :band-count="c2mBandCount" compact />
-              <details class="c2m-chart-options">
-                <summary>图表与色带选项</summary>
-                <div class="c2m-setting-row c2m-follow-row c2m-setting-row--plain">
-                  <span class="c2m-setting-row__label">直方图跟随色标</span>
-                  <el-switch v-model="c2mHistogramFollowsColor" size="small" aria-label="直方图范围跟随配色色域" @change="onC2MHistogramFollowChange" />
-                </div>
-                <div v-if="!c2mHistogramFollowsColor" class="c2m-setting-row c2m-setting-row--plain">
-                  <span class="c2m-setting-row__label">直方图半宽 ± <small>mm</small></span>
-                  <el-input-number :model-value="c2mHistogramRangeMm" :value-on-clear="c2mHistogramRangeMm" :min="1" :max="10000" :step="1" :precision="1" size="small" aria-label="直方图视窗半宽，单位毫米" @change="onC2MHistogramRangeChange" />
-                </div>
-              <div class="c2m-setting-row">
-                <span class="c2m-setting-row__icon"><el-icon><Brush /></el-icon></span>
-                <span class="c2m-setting-row__label">网格配色</span>
-                <el-select
-                  v-model="c2mColorMode"
-                  size="small"
-                  popper-class="bpa-right-popper"
-                  placement="bottom-start"
-                  :fallback-placements="[]"
-                  aria-label="C2M 网格配色模式"
-                >
-                  <el-option label="连续渐变" value="continuous" />
-                  <el-option label="离散分区" value="discrete" />
-                </el-select>
-              </div>
-              <div v-if="c2mColorMode === 'discrete'" class="c2m-setting-row">
-                <span class="c2m-setting-row__icon"><el-icon><Grid /></el-icon></span>
-                <span class="c2m-setting-row__label">每区色阶数</span>
-                <el-input-number
-                  :model-value="c2mBandCount" :value-on-clear="c2mBandCount" @change="onC2MBandCountChange"
-                  :min="2"
-                  :max="32"
-                  :step="1"
-                  :precision="0"
-                  size="small"
-                  aria-label="C2M 离散每区色阶数"
-                />
-              </div>
-              <div class="c2m-setting-row">
-                <span class="c2m-setting-row__icon"><el-icon><Histogram /></el-icon></span>
-                <span class="c2m-setting-row__label">直方图桶数</span>
-                <el-input-number :model-value="c2mHistogramBins" :value-on-clear="c2mHistogramBins" @change="onC2MHistogramBinsChange" :min="10" :max="200" :step="10" :precision="0" size="small" aria-label="直方图桶数" />
-              </div>
-              </details>
-              <p v-if="c2mColorRangeMm > 10000" class="c2m-display-help">当前超大范围仅供预览；保存设置支持最大 ±10,000 mm，可缩小容差或选择手动范围。</p>
-              <p class="c2m-display-help" role="status">{{ c2mDistances ? '调整后即时预览；保存范围与容差后更新结果文件；离散色阶仅用于预览。' : '逐顶点数据未就绪，保存后更新配色与统计。' }}</p>
-              <el-button
-                class="c2m-apply-button"
-                size="small"
-                :loading="c2mRecoloring"
-                :disabled="!canRecolorC2M"
-                @click="applyC2MVisualization"
-              >
-                <el-icon><CircleCheck /></el-icon>
-                {{ c2mSettingsDirty ? '保存显示设置' : '显示设置已保存' }}
-              </el-button>
-              <div class="c2m-actions">
-                <el-button size="small" :disabled="!canUseC2MResult || !c2mSceneArtifactAvailable || c2mRunning || c2mSceneLoading || c2mRecoloring" :loading="c2mSceneLoading" @click="loadC2MToScene">
-                  <el-icon><Download /></el-icon>加载到场景
-                </el-button>
-                <el-button size="small" :disabled="!c2mSceneLoaded" @click="clearC2MSceneAndOpenCoarseEditor">
-                  <el-icon><Delete /></el-icon>清空场景
-                </el-button>
-              </div>
+          <section class="c2m-color-controls" aria-label="配色调整">
+            <div class="section-title">配色调整</div>
+            <div class="c2m-setting-row c2m-setting-row--plain">
+              <span>工程容差 ± <small>mm</small></span>
+              <el-input-number :model-value="c2mToleranceMm" :value-on-clear="c2mToleranceMm" :min="0.1" :max="10000" :step="1" :precision="1" controls-position="right" aria-label="工程容差半宽，单位毫米" @change="onC2MToleranceChange" />
             </div>
-          </details>
+            <div class="c2m-setting-row c2m-setting-row--plain">
+              <span>配色模式</span>
+              <el-select v-model="c2mColorMode" popper-class="bpa-right-popper" aria-label="C2M 网格配色模式">
+                <el-option label="连续渐变" value="continuous" />
+                <el-option label="离散分区" value="discrete" />
+              </el-select>
+            </div>
+            <div v-if="c2mColorMode === 'discrete'" class="c2m-setting-row c2m-setting-row--plain">
+              <span>每区色阶数</span>
+              <el-input-number :model-value="c2mBandCount" :value-on-clear="c2mBandCount" @change="onC2MBandCountChange" :min="2" :max="32" :step="1" :precision="0" controls-position="right" aria-label="C2M 离散每区色阶数" />
+            </div>
+            <div class="c2m-preset-block">
+              <span class="c2m-preset-block__label">显示范围</span>
+              <div class="c2m-range-presets" role="group" aria-label="偏差显示范围模式">
+                <el-button :type="c2mRangeMode === 'auto' ? 'primary' : 'default'" :aria-pressed="c2mRangeMode === 'auto'" @click="selectC2MRangePreset('auto')">自适应</el-button>
+                <el-button :type="c2mRangeMode === 'full' ? 'primary' : 'default'" :aria-pressed="c2mRangeMode === 'full'" @click="selectC2MRangePreset('full')">完整范围</el-button>
+                <el-button :type="c2mRangeMode === 'manual' ? 'primary' : 'default'" :aria-pressed="c2mRangeMode === 'manual'" @click="selectC2MRangePreset('manual')">手动</el-button>
+              </div>
+              <div v-if="c2mRangeMode === 'manual'" class="c2m-setting-row c2m-setting-row--plain">
+                <span>显示半宽 ± <small>mm</small></span>
+                <el-input-number :model-value="c2mColorRangeMm" :value-on-clear="c2mColorRangeMm" :min="Math.max(1, c2mToleranceMm * 1.25)" :step="1" :precision="2" controls-position="right" aria-label="配色色域半宽，单位毫米" @change="onC2MColorRangeChange" />
+              </div>
+              <div v-else class="c2m-range-readout">−{{ c2mColorRangeMm }} <span>至</span> +{{ c2mColorRangeMm }} <small>mm</small></div>
+            </div>
+            <p v-if="c2mColorRangeMm > 10000" class="c2m-display-help" role="status">范围超过 ±10,000 mm，仅支持预览。</p>
+            <el-button class="c2m-apply-button" :loading="c2mRecoloring" :disabled="!canRecolorC2M" @click="applyC2MVisualization">
+              {{ c2mSettingsDirty ? '保存配色设置' : '配色设置已保存' }}
+            </el-button>
+            <C2MHistogramLegend v-if="c2mDisplayResult" :result="c2mDisplayResult" :color-mode="c2mColorMode" :band-count="c2mBandCount" compact />
+            <details class="c2m-chart-options">
+              <summary>直方图设置</summary>
+              <div class="c2m-setting-row c2m-setting-row--plain">
+                <span>范围跟随色标</span>
+                <el-switch v-model="c2mHistogramFollowsColor" aria-label="直方图范围跟随配色色域" @change="onC2MHistogramFollowChange" />
+              </div>
+              <div v-if="!c2mHistogramFollowsColor" class="c2m-setting-row c2m-setting-row--plain">
+                <span>直方图半宽 ± <small>mm</small></span>
+                <el-input-number :model-value="c2mHistogramRangeMm" :value-on-clear="c2mHistogramRangeMm" :min="1" :max="10000" :step="1" :precision="1" controls-position="right" aria-label="直方图视窗半宽，单位毫米" @change="onC2MHistogramRangeChange" />
+              </div>
+              <div class="c2m-setting-row c2m-setting-row--plain">
+                <span>直方图桶数</span>
+                <el-input-number :model-value="c2mHistogramBins" :value-on-clear="c2mHistogramBins" :min="10" :max="200" :step="10" :precision="0" controls-position="right" aria-label="直方图桶数" @change="onC2MHistogramBinsChange" />
+              </div>
+            </details>
+          </section>
 
-          <div v-if="c2mError" class="mesh-remesh-error">{{ c2mError }}</div>
-          <details v-if="c2mResult" class="c2m-result-card" open>
-            <summary>
-              <span><el-icon><Histogram /></el-icon>结果</span>
-              <el-icon class="c2m-result-card__arrow"><ArrowDown /></el-icon>
-            </summary>
-            <div class="c2m-result-card__body">
-              <div v-if="!c2mResultIsFresh" class="c2m-result-warning c2m-result-warning--stale" role="alert">
-                此结果已过期，不能加载或重新着色。{{ c2mResult.staleReason || '配准或网格输入已发生变化，请重新计算。' }}
-              </div>
-              <div v-if="c2mOverlapWarning" class="c2m-result-warning" role="status">
-                BBox 重叠度低于 30%，当前配准可能偏离，请先检查模型位置再判断偏差结果。
-              </div>
-              <div v-if="c2mResult.analysis?.status === 'queued' || c2mResult.analysis?.status === 'processing'" class="c2m-result-warning" role="status">
-                逐构件分析网格偏差正在后台生成；完成后重新打开结果即可优先加载。
-              </div>
-              <div v-else-if="c2mResult.analysis?.status === 'failed'" class="c2m-result-warning" role="alert">
-                逐构件分析结果生成失败，当前仍可使用兼容结果。{{ c2mResult.analysis.error || '' }}
-              </div>
-              <div v-if="c2mResult.stats && (!comparison || comparison.knownVertexCount > 0)" class="c2m-result-summary">
-                <div>结果档位：{{ c2mResult.profile === 'reference' ? 'Reference 高精度' : '实例约束最近点偏差（预估）' }}</div>
-                <div>测量方向：{{ c2mResult.metricDirection === 'scan-points-to-mesh-triangles' ? 'Scan 点 → BIM 三角面' : '设计钢筋顶点 → 对应钢筋实例最近点' }}</div>
-                <div>点云降采样：{{ c2mResult.pointsBefore.toLocaleString() }} → {{ c2mResult.pointsAfter.toLocaleString() }}</div>
-                <div>Min / Max：{{ c2mResult.stats.min.toFixed(4) }} m / {{ c2mResult.stats.max.toFixed(4) }} m</div>
-                <div>Mean / P95：{{ c2mResult.stats.mean.toFixed(4) }} m / {{ c2mResult.stats.p95.toFixed(4) }} m</div>
-                <div>MeanAbs / RMSE：{{ formatC2MDistance(c2mResult.stats.meanAbs) }} / {{ formatC2MDistance(c2mResult.stats.rmse) }}</div>
-                <div>P95Abs / 容差内：{{ formatC2MDistance(c2mResult.stats.p95Abs) }} / {{ formatC2MPercentage(c2mDisplayResult?.stats?.withinToleranceRatio) }}</div>
-                <div v-if="c2mResult.diagnostics?.bboxOverlapIoU !== undefined">BBox 重叠度：{{ (c2mResult.diagnostics.bboxOverlapIoU * 100).toFixed(1) }}%</div>
-              </div>
-              <div v-if="c2mSceneLoaded && c2mDistances" class="c2m-pick-hint">按住 Shift 单击着色网格，可读取该位置的插值偏差。</div>
-              <div class="c2m-panel-tip">
-                <strong>提示：</strong>先设置工程容差，再查看绿色合格区域与蓝 / 红超差区域；颜色深浅表示超差程度。
-              </div>
-            </div>
-          </details>
+          <RebarInspectionSummary v-if="comparison?.inspection" :inspection="comparison.inspection" :bars="comparisonBars" :selected-id="selectedComparisonBarId" @select="selectRebarDebugBar" />
+          <section v-if="comparison" class="c2m-primary-card" aria-label="检测数据">
+            <el-button :loading="inspectionDownloading" :disabled="!c2mResult?.resultVersion" @click="downloadInspectionJSON">导出已保存检测 JSON</el-button>
+            <p class="c2m-search-hint">包含全部钢筋、间距、观测质量及计算参数。修改容差后请先保存配色设置，再导出新批次。</p>
+            <RebarReportHistory v-if="pointcloudAssetId && bimAssetId" :scan-id="pointcloudAssetId" :bim-id="bimAssetId" :result-version="c2mResult?.resultVersion" />
+          </section>
+          <div v-if="c2mError" class="mesh-remesh-error" role="alert">{{ c2mError }}</div>
+          <div v-if="c2mResult" class="c2m-result-notices">
+            <div v-if="!c2mResultIsFresh" class="c2m-result-warning c2m-result-warning--stale" role="alert">结果已过期，请重新计算。{{ c2mResult.staleReason }}</div>
+            <div v-if="c2mOverlapWarning" class="c2m-result-warning" role="status">模型重叠度低于 30%，请检查配准位置。</div>
+            <div v-if="c2mResult.analysis?.status === 'failed'" class="c2m-result-warning" role="alert">分析网格生成失败。{{ c2mResult.analysis.error || '' }}</div>
+          </div>
         </div>
         </div>
       </aside>

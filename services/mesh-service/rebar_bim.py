@@ -150,6 +150,154 @@ def _curve_points(curve: Any, chord_error: float = .001, angle_scale: float = 1.
     return result
 
 
+def _arc_primitive(a: np.ndarray, mid: np.ndarray, b: np.ndarray) -> dict[str, Any] | None:
+    """Return the exact circular arc through three non-collinear points."""
+    ab, ac = mid-a, b-a
+    normal = np.cross(ab, ac)
+    normal_sq = float(np.dot(normal, normal))
+    if normal_sq < 1e-24:
+        return None
+    center = a + (np.cross(normal, ab)*np.dot(ac, ac)
+                  + np.cross(ac, normal)*np.dot(ab, ab)) / (2*normal_sq)
+    radius = float(np.linalg.norm(a-center))
+    if not np.isfinite(radius) or radius <= 1e-12:
+        return None
+    n = normal/math.sqrt(normal_sq)
+    u = (a-center)/radius
+    v = np.cross(n, u)
+    angle = lambda p: math.atan2(float(np.dot(p-center, v)), float(np.dot(p-center, u)))
+    start, middle, end = angle(a), angle(mid), angle(b)
+    positive = (middle-start) % (2*math.pi) <= (end-start) % (2*math.pi)
+    sweep = (end-start) % (2*math.pi) if positive else -((start-end) % (2*math.pi))
+    if abs(sweep) <= 1e-12:
+        return None
+    return {'kind': 'arc', 'startM': a.tolist(), 'endM': b.tolist(),
+            'centerM': center.tolist(), 'normal': n.tolist(),
+            'radiusM': radius, 'sweepRad': float(sweep)}
+
+
+def _reverse_primitives(primitives: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for primitive in reversed(primitives):
+        row = dict(primitive)
+        row['startM'], row['endM'] = primitive['endM'], primitive['startM']
+        if row['kind'] == 'arc':
+            row['sweepRad'] = -float(row['sweepRad'])
+        result.append(row)
+    return result
+
+
+def _curve_primitives(curve: Any, angle_scale: float = 1.) -> list[dict[str, Any]]:
+    """Read only explicit analytic line/arc primitives in IFC length units."""
+    if curve is None:
+        return []
+    if curve.is_a('IfcCompositeCurve'):
+        result: list[dict[str, Any]] = []
+        for segment in curve.Segments:
+            part = _curve_primitives(segment.ParentCurve, angle_scale)
+            if not getattr(segment, 'SameSense', True):
+                part = _reverse_primitives(part)
+            if not part:
+                return []
+            result.extend(part)
+        return result
+    if curve.is_a('IfcTrimmedCurve') and curve.BasisCurve.is_a('IfcCircle'):
+        import ifcopenshell.util.placement
+        circle = curve.BasisCurve
+        placement = np.asarray(ifcopenshell.util.placement.get_axis2placement(circle.Position), dtype=float)
+        angles = _circle_trim_angles(curve, angle_scale)
+        radius = float(circle.Radius)
+        if angles is None or not np.isfinite(radius) or radius <= 0:
+            return []
+        start, sweep = angles
+        center = (placement @ np.array([0., 0., 0., 1.]))[:3]
+        normal = placement[:3, 2]
+        normal_norm = float(np.linalg.norm(normal))
+        if normal_norm <= 1e-12:
+            return []
+        point = lambda angle: (placement @ np.array(
+            [radius*math.cos(angle), radius*math.sin(angle), 0., 1.]))[:3]
+        return [{'kind': 'arc', 'startM': point(start).tolist(),
+                 'endM': point(start+sweep).tolist(), 'centerM': center.tolist(),
+                 'normal': (normal/normal_norm).tolist(), 'radiusM': radius,
+                 'sweepRad': float(sweep)}]
+    points = getattr(curve, 'Points', None)
+    if points is None:
+        return []
+    if hasattr(points, 'CoordList'):
+        coords = [np.asarray(list(map(float, p[:3])) + [0.]*(3-len(p[:3])), dtype=float)
+                  for p in points.CoordList]
+        segments = getattr(curve, 'Segments', None)
+        if not segments:
+            return [{'kind': 'line', 'startM': a.tolist(), 'endM': b.tolist()}
+                    for a, b in zip(coords[:-1], coords[1:]) if np.linalg.norm(b-a) > 1e-12]
+        result = []
+        for segment in segments:
+            indexes = list(getattr(segment, 'Indices', None) or segment.wrappedValue)
+            if len(indexes) < 2 or any(index < 1 or index > len(coords) for index in indexes):
+                return []
+            if segment.is_a('IfcLineIndex'):
+                part = [{'kind': 'line', 'startM': coords[a-1].tolist(), 'endM': coords[b-1].tolist()}
+                        for a, b in zip(indexes[:-1], indexes[1:])
+                        if np.linalg.norm(coords[b-1]-coords[a-1]) > 1e-12]
+            elif segment.is_a('IfcArcIndex') and len(indexes) == 3:
+                arc = _arc_primitive(*(coords[index-1] for index in indexes))
+                part = [arc] if arc is not None else []
+            else:
+                return []
+            if not part:
+                return []
+            result.extend(part)
+        return result
+    coords = []
+    for point in points:
+        value = getattr(point, 'Coordinates', None)
+        if value is not None:
+            coords.append(np.asarray(list(map(float, value[:3])) + [0.]*(3-len(value[:3])), dtype=float))
+    return [{'kind': 'line', 'startM': a.tolist(), 'endM': b.tolist()}
+            for a, b in zip(coords[:-1], coords[1:]) if np.linalg.norm(b-a) > 1e-12]
+
+
+def _transform_curve_primitives(primitives: list[dict[str, Any]], transform: np.ndarray,
+                                unit: float = 1.) -> list[dict[str, Any]]:
+    """Scale IFC coordinates, then apply a known rigid affine transform."""
+    rotation, translation = transform[:3, :3], transform[:3, 3]
+    result = []
+    for primitive in primitives:
+        row = dict(primitive)
+        for field in ('startM', 'endM'):
+            row[field] = (rotation @ (np.asarray(primitive[field], dtype=float)*unit) + translation).tolist()
+        if primitive['kind'] == 'arc':
+            normal = rotation @ np.asarray(primitive['normal'], dtype=float)
+            row['centerM'] = (rotation @ (np.asarray(primitive['centerM'], dtype=float)*unit) + translation).tolist()
+            row['normal'] = (normal/np.linalg.norm(normal)).tolist()
+            row['radiusM'] = float(primitive['radiusM'])*unit
+            row['sweepRad'] = float(primitive['sweepRad'])
+        result.append(row)
+    return result
+
+
+def _extruded_curve_primitives(item: Any, transform: np.ndarray, unit: float) -> list[dict[str, Any]]:
+    extracted = _extruded_points(item, transform, unit)
+    if extracted is None:
+        return []
+    points, _ = extracted
+    return [{'kind': 'line', 'startM': points[0].tolist(), 'endM': points[1].tolist()}]
+
+
+def _swept_disk_primitives(item: Any, transform: np.ndarray, unit: float,
+                           angle_scale: float = 1.) -> list[dict[str, Any]]:
+    if not np.allclose(transform[:3, :3].T @ transform[:3, :3], np.eye(3), atol=1e-6):
+        return []
+    start, end = getattr(item, 'StartParam', None), getattr(item, 'EndParam', None)
+    if start is not None or end is not None:
+        span = _curve_parameter_length(item.Directrix, angle_scale)
+        if span is None or (start is not None and not np.isclose(start, 0., atol=1e-8)) or (end is not None and not np.isclose(end, span, rtol=1e-8, atol=1e-8)):
+            return []
+    return _transform_curve_primitives(_curve_primitives(getattr(item, 'Directrix', None), angle_scale),
+                                       transform, unit)
+
+
 def _scaled_transform(value: Any, unit: float) -> np.ndarray:
     result = np.asarray(value, dtype=np.float64).copy()
     result[:3, 3] *= unit
@@ -276,7 +424,7 @@ def _ifc_bars(path: Path, model_path: Path | None, inverse: np.ndarray, diagnost
     model = ifcopenshell.open(str(path))
     unit = float(ifcopenshell.util.unit.calculate_unit_scale(model))
     angle_scale = float(ifcopenshell.util.unit.calculate_unit_scale(model, 'PLANEANGLEUNIT'))
-    raw: list[tuple[str, str, str, np.ndarray, float]] = []
+    raw: list[tuple[str, str, str, np.ndarray, float, list[dict[str, Any]]]] = []
     seen: set[str] = set()
     products = [p for p in model.by_type("IfcProduct") if getattr(p, "Representation", None)]
     for product in products:
@@ -298,23 +446,31 @@ def _ifc_bars(path: Path, model_path: Path | None, inverse: np.ndarray, diagnost
                         diagnostics["unsupportedDirectrices"] += 1
                     continue
                 points, radius = extracted
+                primitives = (_extruded_curve_primitives(item, transform, unit)
+                              if item.is_a("IfcExtrudedAreaSolid") else
+                              _swept_disk_primitives(item, transform, unit, angle_scale))
                 key = f"{product.GlobalId}:{occurrence}"
                 if key in seen or not np.isfinite(points).all():
                     continue
                 seen.add(key)
-                raw.append((str(product.GlobalId), key, str(product.GlobalId), points, radius))
+                raw.append((str(product.GlobalId), key, str(product.GlobalId), points, radius, primitives))
                 if len(raw) >= _MAX_BARS:
                     diagnostics["truncated"] = True
                     break
     diagnostics["ifcUnitScale"] = unit
-    basis = _basis_for_glb([(gid, points, radius) for gid, _, _, points, radius in raw], model_path, diagnostics)
+    basis = _basis_for_glb([(gid, points, radius) for gid, _, _, points, radius, _ in raw], model_path, diagnostics)
     if basis is None:
         return []
     bars: list[dict[str, Any]] = []
-    for gid, key, global_id, points, radius in raw:
+    for gid, key, global_id, points, radius, primitives in raw:
         glb = (basis @ np.c_[points, np.ones(len(points))].T).T[:, :3]
         scan = (inverse @ np.c_[glb, np.ones(len(glb))].T).T[:, :3]
-        bars.append({"id": key, "ifcGlobalId": global_id, "points": _json_points(scan), "radius": float(radius), "source": "ifc"})
+        row = {"id": key, "ifcGlobalId": global_id, "points": _json_points(scan),
+               "radius": float(radius), "source": "ifc"}
+        if primitives:
+            glb_primitives = _transform_curve_primitives(primitives, basis)
+            row["curvePrimitives"] = _transform_curve_primitives(glb_primitives, inverse)
+        bars.append(row)
     return bars
 
 

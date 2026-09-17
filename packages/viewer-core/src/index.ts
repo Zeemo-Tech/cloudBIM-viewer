@@ -128,6 +128,8 @@ export type {
   AnalysisPoint,
 } from '@/components/preview/ViewerAnalysisOverlay.vue'
 export { default as ViewportToolGlyph } from '@/components/analysis/ViewportToolGlyph.vue'
+// 场景辅助：分析视口的地面网格（dev-hong 侧新增，随 core 发布）。
+export { InfiniteGroundGrid, getTilesetWorldBounds } from '@/components/preview/InfiniteGroundGrid'
 
 // ── 查看器底层工具 ───────────────────────────────────────────────────────────
 export * from '@/components/preview/edlPipeline'

@@ -1,4 +1,4 @@
-"""Production artifact publisher for the full, design-guided workbench algorithm."""
+"""Production artifact publisher for the aligned post-table control net."""
 from copy import deepcopy
 import json
 import os
@@ -13,15 +13,15 @@ from threadpoolctl import threadpool_limits
 from algorithms.pointcloud_normals import available_workers
 from algorithms.preprocessed_las import PROVENANCE_RECORD_ID, PROVENANCE_USER_ID, provenance_vlr
 from algorithms.pointcloud_segmentation import segment_points, VERSION as SEGMENT_VERSION
-from algorithms.design_guided_instances import refine_instances, VERSION as GUIDED_VERSION
-from algorithms.rebar_extension import ATTRIBUTES as COMPLETE_ATTRIBUTES
+from algorithms.rebar_control_net import fit_control_net, VERSION as CONTROL_VERSION
 from pointcloud_step_pipeline import load_positions, source_stamp, source_hash, atomic_json
 from rebar_poc import _publish_shared_artifact_permissions
 from rebar_design_prior import prepare_snapshot
 from rebar_design_inputs import resolve_design_inputs, VERSION as INPUT_VERSION
 
-VERSION = 'denoise-v3-instance-map+' + SEGMENT_VERSION + '+' + INPUT_VERSION + '+' + GUIDED_VERSION
+VERSION = 'denoise-v4-control-net+' + SEGMENT_VERSION + '+' + INPUT_VERSION + '+' + CONTROL_VERSION
 INSTANCE_CONTRACT = 'rebar-instance-map-v1'
+CONTROL_CONTRACT = 'rebar-control-net-evidence-v1'
 INSTANCE_DIMENSION = 'cloudbim_instance_id'
 PREVIEW_LIMIT = 500_000
 MAX_SOURCE_POINTS = 20_000_000
@@ -96,16 +96,53 @@ def export_result(source, destination, context, colors):
             'previewPointCount': len(ids), 'previewOrigin': origin.tolist()}
 
 
-def _instance_map(report):
-    """Persist the complete design-bar directory and only explicit instance links."""
-    inventory = report.get('designReview', {}).get('inventory')
+def _control_envelope(report):
+    if not isinstance(report, dict) or report.get('version') != CONTROL_VERSION:
+        raise ValueError('控制网报告版本无效')
+    return {
+        'schema': CONTROL_CONTRACT,
+        'coordinateFrame': 'scan',
+        'algorithmVersion': CONTROL_VERSION,
+        'report': report,
+    }
+
+
+def _apply_control_result(context, report, arrays):
+    """Expose the fitter's full-source ownership through the production contract."""
+    count = len(context.positions)
+    statuses = np.asarray(arrays.get('control_status'))
+    owners = np.asarray(arrays.get('control_instance'))
+    if statuses.shape != (count,) or statuses.dtype != np.uint8 or np.any(statuses > 4):
+        raise ValueError('控制网状态数组无效')
+    if owners.shape != (count,) or owners.dtype != np.uint32:
+        raise ValueError('控制网实例数组无效')
+    instances = report.get('instances') if isinstance(report, dict) else None
+    if (not isinstance(instances, list)
+            or any(not isinstance(row, dict) or row.get('id') != index
+                   for index, row in enumerate(instances, 1))
+            or (len(owners) and int(owners.max()) > len(instances))):
+        raise ValueError('控制网实例目录与点归属不一致')
+    if np.any((owners > 0) != (statuses == 1)):
+        raise ValueError('控制网已匹配状态与实例归属不一致')
+    if any(instances[int(owner)-1].get('status') != 'fitted'
+           for owner in np.unique(owners[owners > 0])):
+        raise ValueError('控制网点归属引用了未确认的设计单元')
+    # Production preview class contract: unknown/table/fixture/steel/noise.
+    classes = np.asarray([1, 3, 0, 4, 2], dtype=np.uint8)[statuses]
+    context.complete_class = classes
+    context.complete_instance = owners
+    return classes, owners
+
+
+def _instance_map(report, inventory, control_net):
+    """Persist every physical design bar/unit, including missing and ambiguous rows."""
     if not isinstance(inventory, dict):
         raise ValueError('去噪报告缺少设计钢筋目录')
     units = inventory.get('units')
     bars = inventory.get('bars')
     if not isinstance(units, list) or not isinstance(bars, list):
         raise ValueError('去噪报告中的设计钢筋目录无效')
-    bar_rows = []
+    bar_ids = set()
     for row in bars:
         if not isinstance(row, dict):
             raise ValueError('设计钢筋目录包含无效条目')
@@ -113,34 +150,43 @@ def _instance_map(report):
         guid = row.get('ifcGlobalId')
         if not isinstance(design_id, str) or not design_id or not isinstance(guid, str) or not guid.strip():
             raise ValueError('设计钢筋缺少 designBarId 或 IFC GlobalId')
-        bar_rows.append({
-            'designBarId': design_id, 'ifcGlobalId': guid,
-            'name': str(row.get('name') or ''),
-            'unitIds': list(row.get('unitIds') or []),
-            'coverage': str(row.get('coverage') or 'unresolved'),
-        })
-    if len({row['designBarId'] for row in bar_rows}) != len(bar_rows):
+        bar_ids.add(design_id)
+    if len(bar_ids) != len(bars):
         raise ValueError('设计钢筋目录包含重复 designBarId')
+    unit_owner = {}
+    for row in units:
+        if (not isinstance(row, dict) or not isinstance(row.get('designUnitId'), str)
+                or not row['designUnitId'] or row.get('designBarId') not in bar_ids
+                or row['designUnitId'] in unit_owner):
+            raise ValueError('设计钢筋目录包含无效或重复匹配单元')
+        unit_owner[row['designUnitId']] = row['designBarId']
     instance_rows = []
     for row in report.get('instances', []):
-        if not isinstance(row, dict) or type(row.get('id')) is not int or row['id'] <= 0:
+        if (not isinstance(row, dict) or type(row.get('id')) is not int
+                or not 0 < row['id'] <= np.iinfo(np.uint32).max):
             raise ValueError('去噪报告包含无效实例 ID')
+        fit_status = row.get('status')
+        if fit_status not in ('fitted', 'pending', 'missing'):
+            raise ValueError('去噪报告包含无效控制网复核状态')
+        design_bar_id, design_unit_id = row.get('designBarId'), row.get('designUnitId')
+        if design_bar_id not in bar_ids or unit_owner.get(design_unit_id) != design_bar_id:
+            raise ValueError('去噪报告中的实例不属于设计钢筋目录')
         instance_rows.append({
             'id': row['id'],
-            'designBarId': row.get('designBarId') if isinstance(row.get('designBarId'), str) else None,
-            'designUnitId': row.get('designUnitId') if isinstance(row.get('designUnitId'), str) else None,
-            'reviewStatus': str(row.get('reviewStatus') or 'pending'),
+            'designBarId': design_bar_id,
+            'designUnitId': design_unit_id,
+            'reviewStatus': {'fitted': 'matched', 'pending': 'ambiguous', 'missing': 'missing'}[fit_status],
             'pointCount': int(row.get('pointCount') or 0),
         })
     if len({row['id'] for row in instance_rows}) != len(instance_rows):
         raise ValueError('去噪报告包含重复实例 ID')
+    if {row['designUnitId'] for row in instance_rows} != set(unit_owner):
+        raise ValueError('控制网实例目录未覆盖全部设计匹配单元')
     return {
         'schema': INSTANCE_CONTRACT,
         'instances': instance_rows,
-        'inventory': {
-            'bars': bar_rows,
-            'units': units,
-        },
+        'inventory': deepcopy(inventory),
+        'controlNet': control_net,
     }
 
 
@@ -170,21 +216,32 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
             positions, colors = load_positions(source, scratch, progress)
             workers = max(1, min(available_workers(), int(os.environ.get('REBAR_SPATIAL_WORKERS', '4'))))
             with threadpool_limits(limits=1):
-                stages = segment_points(positions, scratch, k=k, workers=workers, through_step=6,
+                stages = segment_points(positions, scratch, k=k, workers=workers, through_step=2,
                                         source=source, design_inventory=inputs.inventory,
-                                        dimension_priors=inputs.dimensions, progress=progress)
-                arrays = {name: np.lib.format.open_memmap(scratch/f'{name}.npy', mode='w+', dtype=dtype, shape=(len(positions),))
-                          for name, dtype in COMPLETE_ATTRIBUTES.items()}
-                report = refine_instances(stages.context, stages.internal_rebar, inputs.inventory,
-                                          mode='topology', workers=workers, output=arrays, progress=progress)
+                                        dimension_priors=inputs.dimensions, progress=progress,
+                                        stop_after_table=True)
+                report, arrays = fit_control_net(
+                    positions, stages.context.shared_table_mask, inputs.inventory,
+                    mode='aligned', normals=stages.context.normals, progress=progress,
+                    workers=min(8, workers), curve_workers=min(8, workers),
+                )
+                _apply_control_result(stages.context, report, arrays)
+            report['modelInfo'] = deepcopy(snapshot.get('modelInfo', {}))
+            report['snapshotFingerprint'] = snapshot.get('fingerprint')
+            control_net = _control_envelope(report)
             result = export_result(source, destination, stages.context, colors)
-            instance_map = _instance_map(report)
+            instance_map = _instance_map(report, inputs.inventory, control_net)
+            atomic_json(destination/'control-net.json', control_net)
             atomic_json(destination/'instance-map.json', instance_map)
+            control_hash = source_hash(destination/'control-net.json')
             instances_hash = source_hash(destination/'instance-map.json')
             result.update(algorithmVersion=VERSION, sourceSha256=digest, designFingerprint=snapshot['fingerprint'],
                           normalK=k, elapsedSeconds=time.perf_counter()-started,
                           instanceCount=len(report.get('instances', [])),
-                          instanceContract=INSTANCE_CONTRACT, instancesSha256=instances_hash)
+                          matchedInstanceCount=report.get('counts', {}).get('fittedUnits', 0),
+                          instanceContract=INSTANCE_CONTRACT, instancesSha256=instances_hash,
+                          controlNetSchema=CONTROL_CONTRACT, controlNetSha256=control_hash,
+                          controlNetAlgorithmVersion=CONTROL_VERSION)
             if stamps != [source_stamp(p) for p in (source, ifc, model)]:
                 raise ValueError('计算期间点云或设计模型发生变化，请重新计算')
             atomic_json(destination/'manifest.json', result)

@@ -11,6 +11,7 @@ import * as Tiles from '3d-tiles-renderer'
 import * as TilePlugins from '3d-tiles-renderer/three/plugins'
 import * as tableVisibility from '../src/features/pointcloud/tableVisibility.ts'
 import { buildInstancePalette } from '../src/features/rebar-visualization/instancePalette.js'
+import { useBimRemeshDisplay } from '../src/views/preview/bimRemeshDisplay.ts'
 
 const require = createRequire(import.meta.url)
 // Execute the real component setup/watchers in Node. Only mounting a WebGL
@@ -31,8 +32,9 @@ function setupComponent(path, input, dependencies = {}) {
       if (name === '3d-tiles-renderer/three/plugins') return TilePlugins
       if (name.endsWith('/tableVisibility')) return tableVisibility
       if (name.endsWith('/instancePalette.js')) return { buildInstancePalette }
+      if (name === './bimRemeshDisplay') return { useBimRemeshDisplay }
       if (name in dependencies) return dependencies[name]
-      if (name === 'vue-router') return { useRouter: () => ({}) }
+      if (name === 'vue-router') return { useRouter: () => ({}), useRoute: () => ({ path: '/preview/asset', query: {} }) }
       if (name === 'element-plus') return { ElMessage: {} }
       if (name.endsWith('.vue') || name.startsWith('@/') || name.startsWith('./')) return {}
       return require(name)

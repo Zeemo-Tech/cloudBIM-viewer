@@ -76,6 +76,23 @@ function createApiError(error: unknown) {
   return error instanceof Error ? error : new Error('请求失败，请稍后重试')
 }
 
+async function decodeApiError(error: unknown) {
+  // Axios keeps JSON errors in the requested download format (Blob/ArrayBuffer).
+  // Decode only small error payloads; never parse a large failed model as JSON.
+  if (axios.isAxiosError(error) && error.response) {
+    const data = error.response.data
+    try {
+      const text = data instanceof Blob && data.size <= 65536 ? await data.text()
+        : data instanceof ArrayBuffer && data.byteLength <= 65536 ? new TextDecoder().decode(data) : null
+      if (text !== null) {
+        const decoded: unknown = JSON.parse(text)
+        if (extractErrorMessage(decoded)) error.response.data = decoded
+      }
+    } catch { /* Keep the original HTTP status and fallback message. */ }
+  }
+  return createApiError(error)
+}
+
 function extractErrorMessage(data: unknown) {
   if (!data || typeof data !== 'object') {
     return null
@@ -158,8 +175,10 @@ backendClient.interceptors.request.use((config) => {
 
 backendClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    const normalized = createApiError(error)
+  async (error: AxiosError) => {
+    // dev-hong 侧引入的 decodeApiError 会先把 Blob/ArrayBuffer 形式的错误体解码成 JSON，
+    // 再统一归一化；401 回调必须使用归一化后的错误对象。
+    const normalized = await decodeApiError(error)
 
     if (error.response?.status === 401) {
       getCloudBimRuntime().onUnauthorized?.(normalized)

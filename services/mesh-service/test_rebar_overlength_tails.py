@@ -70,11 +70,107 @@ class TailDecisionTests(unittest.TestCase):
         self.assertFalse(removed.any())
         self.assertEqual(result['reason'], 'continuous_overlength')
 
-    def test_core_overlength_and_small_overrun_are_preserved(self):
-        for values in (case(core_end=.40), case((.324, .337))):
-            with self.subTest(values=values[0][-1]):
-                removed, _ = self.decide(values)
-                self.assertFalse(removed.any())
+    def test_overlong_core_does_not_shield_a_detached_external_tail(self):
+        values = case(core_end=.40)
+        removed, record = self.decide(values)
+        np.testing.assert_array_equal(removed, values[2])
+        self.assertAlmostEqual(record['afterLengthM'], .40)
+        self.assertTrue(record['coreOverlong'])
+
+    def test_continuous_overlong_core_and_small_overrun_are_preserved(self):
+        for values in (case((.401, .498), core_end=.40), case((.324, .337))):
+            removed, _ = self.decide(values)
+            self.assertFalse(removed.any())
+
+    def test_small_satellite_on_long_rod_is_checked_below_global_length_limit(self):
+        along = np.r_[np.linspace(0, 3.6, 3601), np.linspace(3.65, 3.665, 16)]
+        core = np.arange(len(along)) < 3601
+        removed, record = tail_decision(along, core, ~core, np.zeros(len(along), bool), 3.6, .008)
+        np.testing.assert_array_equal(removed, ~core)
+        self.assertAlmostEqual(record['afterLengthM'], 3.6)
+
+    def test_small_satellite_cannot_remove_original_core_points(self):
+        along = np.r_[np.linspace(0, .4, 401), np.linspace(.46, .47, 11)]
+        core = np.ones(len(along), bool)
+        removed, _ = self.decide((along, core, ~core, np.zeros(len(along), bool)))
+        self.assertFalse(removed.any())
+
+    def test_substantial_detached_continuation_within_design_allowance_is_preserved(self):
+        along = np.r_[np.linspace(0, 3.4, 3401), np.linspace(3.45, 3.6, 151)]
+        core = np.arange(len(along)) < 3401
+        removed, _ = tail_decision(along, core, ~core, np.zeros(len(along), bool), 3.6, .008)
+        self.assertFalse(removed.any())
+
+    def test_short_but_multi_diameter_exposed_terminal_is_not_a_satellite(self):
+        along = np.r_[np.linspace(0, 1.055, 1056), np.linspace(1.122, 1.148, 27)]
+        core = np.arange(len(along)) < 1056
+        removed, _ = tail_decision(along, core, ~core, np.zeros(len(along), bool), 1.15, .008)
+        self.assertFalse(removed.any())
+
+    def test_local_satellites_require_a_reliable_design_length(self):
+        along = np.r_[np.linspace(0, 3.6, 3601), np.linspace(3.65, 3.665, 16)]
+        core = np.arange(len(along)) < 3601
+        removed, record = tail_decision(along, core, ~core, np.zeros(len(along), bool), None, .008)
+        self.assertFalse(removed.any())
+        self.assertEqual(record['reason'], 'no_reliable_design_length')
+
+    def test_shorter_than_design_is_selected_when_closer_like_instance_36(self):
+        along = np.r_[np.linspace(0, 3.5827585, 3589), np.linspace(3.7058519, 3.7071559, 10)]
+        core = np.arange(len(along)) < 3589
+        for sign in (-1, 1):
+            removed, record = tail_decision(sign*along, core, ~core, np.zeros(len(along), bool), 3.6, .008)
+            np.testing.assert_array_equal(removed, ~core)
+            self.assertAlmostEqual(record['afterLengthM'], 3.5827585)
+            self.assertLess(record['afterDesignErrorM'], record['beforeDesignErrorM'])
+
+    def test_before_is_selected_when_cut_is_farther_from_design_or_tied(self):
+        for core_end, tail_end in ((3.50, 3.61), (3.50, 3.59), (3.55, 3.65)):
+            along = np.r_[np.linspace(0, core_end, 3501), np.linspace(tail_end-.01, tail_end, 11)]
+            core = np.arange(len(along)) < 3501
+            removed, record = tail_decision(along, core, ~core, np.zeros(len(along), bool), 3.6, .008)
+            self.assertFalse(removed.any())
+            self.assertEqual(record['reason'], 'no_design_length_improvement')
+
+    def test_closest_length_accounts_for_both_end_cuts_together(self):
+        along = np.r_[np.linspace(0, 3.55, 3551), np.linspace(-.061, -.05, 12),
+                      np.linspace(3.6, 3.611, 12)]
+        core = np.arange(len(along)) < 3551
+        removed, record = tail_decision(along, core, ~core, np.zeros(len(along), bool), 3.6, .008)
+        self.assertEqual(int(removed.sum()), 12)
+        self.assertAlmostEqual(record['afterLengthM'], 3.611)
+        self.assertFalse(removed[core].any())
+
+    def test_best_end_is_selected_independently_of_axis_sign(self):
+        along = np.r_[np.linspace(0, 3.5, 3501), np.linspace(-.1, -.09, 11),
+                      np.linspace(3.64, 3.65, 11)]
+        core = np.arange(len(along)) < 3501
+        for sign in (-1, 1):
+            values = (sign*along, core, ~core, np.zeros(len(along), bool))
+            removed, record = tail_decision(*values, 3.6, .008)
+            np.testing.assert_array_equal(np.flatnonzero(removed), np.arange(3512, 3523))
+            self.assertAlmostEqual(record['afterLengthM'], 3.6)
+            again, _ = tail_decision(*(v[~removed] for v in values), 3.6, .008)
+            self.assertFalse(again.any())
+
+    def test_multiple_satellites_are_idempotent_in_both_axis_directions(self):
+        along = np.r_[np.linspace(0, 3.6, 3601), np.linspace(3.65, 3.66, 11),
+                      np.linspace(3.705, 3.728, 24)]
+        core = np.arange(len(along)) < 3601
+        for sign in (-1, 1):
+            values = (sign*along, core, ~core, np.zeros(len(along), bool))
+            removed, _ = tail_decision(*values, 3.6, .012)
+            again, _ = tail_decision(*(v[~removed] for v in values), 3.6, .012)
+            self.assertFalse(again.any())
+            np.testing.assert_array_equal(removed, ~core)
+
+    def test_satellite_checks_preserve_hooks_and_independent_observations(self):
+        along = np.r_[np.linspace(0, 3.6, 3601), np.linspace(3.65, 3.665, 16)]
+        core = np.arange(len(along)) < 3601
+        for eligible, protected in ((np.zeros(len(along), bool), ~core),
+                                    (~core, ~core),
+                                    (np.zeros(len(along), bool), np.zeros(len(along), bool))):
+            removed, _ = tail_decision(along, core, eligible, protected, 3.6, .008)
+            self.assertFalse(removed.any())
 
     def test_partial_core_does_not_assume_a_centered_design_interval(self):
         removed, _ = self.decide(case((.27, .32), core_end=.15))
@@ -120,6 +216,18 @@ class TailDecisionTests(unittest.TestCase):
 
 
 class TailIntegrationTests(unittest.TestCase):
+    def test_missing_design_prevents_small_satellite_removal(self):
+        args = list(fixture())
+        args[0].positions[-37:, 0] = np.linspace(.462, .470, 37)
+        args[6] = [[]]
+        # Some source points were already rejected before the tail pass.
+        args[1]['complete_class'][-17:] = 4
+        args[1]['complete_instance'][-17:] = 0
+        _, report, _ = filter_overlength_tails(*args)
+        self.assertEqual(report['removedPointCount'], 0)
+        decision = report['decisions'][0]
+        self.assertEqual(decision['reason'], 'no_reliable_design_candidate')
+
     def test_stale_segment_is_refreshed_and_filter_is_idempotent(self):
         args = fixture()
         context, out, segments = args[:3]

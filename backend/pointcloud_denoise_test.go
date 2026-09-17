@@ -47,7 +47,9 @@ func denoiseTestApp(t *testing.T) (*app, Asset) {
 
 func installDenoiseService(t *testing.T, a *app, during func()) *denoiseManifest {
 	t.Helper()
-	manifest := denoiseManifest{InstanceContract: "rebar-instance-map-v1", InstancesSHA256: hashBytes([]byte("instance map")), AlgorithmVersion: "test", SourceSHA256: strings.Repeat("a", 64), DesignFingerprint: strings.Repeat("b", 64), PointsBefore: 10, PointsAfter: 4, Counts: map[string]int64{"unknown": 0, "table": 2, "fixture": 2, "steel": 4, "noise": 2}, PreviewPointCount: 10, PreviewOrigin: []float64{0, 0, 0}, NormalK: 32}
+	controlNet := []byte(`{"schema":"rebar-control-net-evidence-v1","coordinateFrame":"scan","algorithmVersion":"design-control-net-v4","report":{"bodies":[]}}`)
+	instanceMap := []byte(`{"schema":"rebar-instance-map-v1","controlNet":{"schema":"rebar-control-net-evidence-v1","coordinateFrame":"scan","algorithmVersion":"design-control-net-v4","report":{"bodies":[]}}}`)
+	manifest := denoiseManifest{InstanceContract: "rebar-instance-map-v1", InstancesSHA256: hashBytes(instanceMap), AlgorithmVersion: productionDenoiseAlgorithmPrefix + "test", SourceSHA256: strings.Repeat("a", 64), DesignFingerprint: strings.Repeat("b", 64), PointsBefore: 10, PointsAfter: 4, Counts: map[string]int64{"unknown": 0, "table": 2, "fixture": 2, "steel": 4, "noise": 2}, PreviewPointCount: 10, PreviewOrigin: []float64{0, 0, 0}, NormalK: 32, ControlNetSchema: rebarControlNetEvidenceSchema, ControlNetSHA256: hashBytes(controlNet), ControlNetAlgorithmVersion: "design-control-net-v4"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			OutputPath, SourcePath, IFCPath, ModelPath string
@@ -64,7 +66,8 @@ func installDenoiseService(t *testing.T, a *app, during func()) *denoiseManifest
 		os.MkdirAll(req.OutputPath, 0755)
 		os.WriteFile(filepath.Join(req.OutputPath, "cleaned.las"), []byte("clean scan"), 0644)
 		os.WriteFile(filepath.Join(req.OutputPath, "preview.ply"), []byte("preview"), 0644)
-		os.WriteFile(filepath.Join(req.OutputPath, "instance-map.json"), []byte("instance map"), 0644)
+		os.WriteFile(filepath.Join(req.OutputPath, "instance-map.json"), instanceMap, 0644)
+		os.WriteFile(filepath.Join(req.OutputPath, "control-net.json"), controlNet, 0644)
 		if during != nil {
 			during()
 		}
@@ -140,6 +143,28 @@ func TestDenoiseDoesNotPublishAfterAlignmentChangesDuringCompute(t *testing.T) {
 	}
 }
 
+func TestDenoiseDoesNotPublishAfterSourceChangesDuringCompute(t *testing.T) {
+	a, scan := denoiseTestApp(t)
+	installDenoiseService(t, a, func() {
+		path := filepath.Join(scan.Dir, "preprocess", "test", "cleaned.las")
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		_, _ = file.WriteString("changed")
+		_ = file.Close()
+	})
+	c, w := rebarContext("POST", "/", `{"modelScanFileId":1,"modelBimFileId":2}`, 10)
+	a.computeDenoise(c)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("source mutation status = %d: %s", w.Code, w.Body.String())
+	}
+	if _, _, err := a.denoiseRow(scan, 2); err == nil {
+		t.Fatal("source-stale result published")
+	}
+}
+
 func TestDenoiseRejectsInvalidPopulation(t *testing.T) {
 	a, _ := denoiseTestApp(t)
 	manifest := installDenoiseService(t, a, nil)
@@ -179,5 +204,31 @@ func TestDenoiseMissingArtifactDoesNotFallBackToSource(t *testing.T) {
 	}
 	if got, err := a.resolveC2MScanPath(scan, 2, 10); err == nil {
 		t.Fatal("missing output fell back", got)
+	}
+}
+
+func TestDenoiseRejectsPreControlVersionAndTamperedControlNet(t *testing.T) {
+	a, scan := denoiseTestApp(t)
+	installDenoiseService(t, a, nil)
+	c, w := rebarContext("POST", "/", `{"modelScanFileId":1,"modelBimFileId":2}`, 10)
+	a.computeDenoise(c)
+	if w.Code != http.StatusOK {
+		t.Fatal(w.Body.String())
+	}
+	row, manifest, err := a.denoiseRow(scan, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := manifest
+	legacy.AlgorithmVersion = "denoise-v3"
+	if err := a.denoiseFresh(scan, 2, 10, row, legacy); err == nil || !strings.Contains(err.Error(), "控制网生产版本") {
+		t.Fatalf("pre-control result freshness = %v", err)
+	}
+	controlPath := filepath.Join(scan.Dir, row.RelativePath, "control-net.json")
+	if err := os.WriteFile(controlPath, []byte(`{"schema":"rebar-control-net-evidence-v1"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.denoiseFresh(scan, 2, 10, row, manifest); err == nil || !strings.Contains(err.Error(), "控制网文件已变化") {
+		t.Fatalf("tampered control net freshness = %v", err)
 	}
 }

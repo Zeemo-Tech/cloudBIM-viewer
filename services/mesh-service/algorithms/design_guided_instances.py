@@ -15,7 +15,7 @@ from .rebar_extension import ATTRIBUTES, ExtensionParameters, exterior_clusters,
 from .design_prior_refinement import PriorParameters, _candidates
 from .rebar_overlength_tails import CLUSTER_CARRY, DIRECT_EXTENSION, filter_overlength_tails
 
-VERSION = 'design-guided-instances-v16-final-unassigned-disposition'
+VERSION = 'design-guided-instances-v18-closest-design-length'
 PROTECTION_THRESHOLD = .9
 LOW_SCORE_THRESHOLD = .5
 
@@ -834,7 +834,7 @@ def refine_instances(context, internal_report, inventory, *, mode='topology', pa
         protected=hook_protected, fixture_distance=params.fixture_distance)
     operations.extend(terminal_operations)
     rejected += terminal_polish['removedPointCount']
-    progress('第 6 步：异常超长实例的远端尾部回收', 0, count)
+    progress('第 6 步：逐实例检查断开的外部尾部', 0, count)
     tail_operations, tail_filter, final_groups = filter_overlength_tails(
         context, out, segments, units, associations, atoms, ranked, extension_source,
         protected=hook_protected, enabled=params.overlength_tail_filter)

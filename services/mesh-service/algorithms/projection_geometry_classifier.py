@@ -402,7 +402,7 @@ def _multiview_webs(positions, table_mask, labels, params, workers, progress, re
     return recovered, report, cache
 
 
-def prepare_projection(positions, normals, normal_valid, *, params=None, progress=None, fixed_table=None, fixed_table_mask=None):
+def prepare_projection(positions, normals, normal_valid, *, params=None, progress=None, fixed_table=None, fixed_table_mask=None, table_only=False):
     """Fit the table and rasterize once, before independent classification branches."""
     params = params or ProjectionParameters()
     progress = progress or (lambda *args: None)
@@ -424,6 +424,21 @@ def prepare_projection(positions, normals, normal_valid, *, params=None, progres
     t0 = time.perf_counter()
     table = _table_plane(positions, normals, normal_valid, lo[2], params) if fixed_table_mask is None else fixed_table
     timings["tableFitS"] = time.perf_counter()-t0
+    if table_only:
+        # The early control net needs the identical table boundary, without
+        # rasterizing fixtures or inferring even temporary height layers.
+        progress("移除台面", 0, count)
+        table_mask = np.zeros(count, bool)
+        if fixed_table_mask is not None:
+            table_mask[:] = fixed_table_mask
+        elif table:
+            plane = np.asarray(table["origin"]); slopes = np.asarray(table["slopes"])
+            for start in range(0, count, 262144):
+                p = positions[start:start+262144]
+                height = p[:, 2]-plane[2]-(p[:, :2]-plane[:2]) @ slopes
+                table_mask[start:start+len(p)] = height <= params.table_clearance
+        return {"table": table, "table_mask": table_mask, "timings": timings,
+                "elapsedS": time.perf_counter()-started}
     t0 = time.perf_counter()
     progress("投影路线：移除台面 / 汇总 XY 和 Z", 0, count)
     source_to_pixel = np.empty(count, np.int32)
