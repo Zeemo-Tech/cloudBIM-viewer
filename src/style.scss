@@ -1,4 +1,5 @@
-@use './styles/variables';
+// 设计令牌（:root CSS 变量）随查看器包发布，入口在 main.ts 引入
+// `@cloudbim/viewer-core/style.css`，这里只保留应用自身的样式。
 @use './styles/theme';
 @use './styles/global';
 @use './styles/element-plus';

@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { FolderOpened, Plus, SwitchButton } from '@element-plus/icons-vue'
 import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { listProjects, type ProjectSummary } from '@/api/backend-project'
-import { getBimAlignment, getScanCalibration } from '@/api/backend-alignment'
+import { getBimAlignment, getScanCalibration } from '@cloudbim/viewer-core'
 import {
   type AssetDetail,
   type AssetStatus,
@@ -12,7 +12,7 @@ import {
   deleteAsset,
   getAssetDetail,
   listAssets,
-} from '@/api/backend-file'
+} from '@cloudbim/viewer-core'
 import UploadDropCard from '@/components/upload/UploadDropCard.vue'
 import type { AuthSession } from '@/features/auth/auth.service'
 import {
@@ -20,7 +20,7 @@ import {
   POINT_CLOUD_UPLOAD_CONFIG,
 } from '@/features/upload/upload.config'
 import { cancelFileUpload, isAssetReady, uploadFile } from '@/features/upload/upload.service'
-import { formatFileSize } from '@/features/upload/upload.utils'
+import { formatFileSize } from '@cloudbim/viewer-core'
 
 type UploadTaskState = {
   uploadId: string | null

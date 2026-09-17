@@ -72,6 +72,6 @@ function setPageSize(event: Event) {
 </style>
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .project-table-footer { margin-top: var(--spacing-md); padding: 0; justify-content: flex-end; } .pager-button { @include controls.action; min-width: var(--control-height); padding: 0 var(--spacing-sm); } .pager-button.active { @include controls.primary; } .page-size { border: 1px solid var(--border-color); box-shadow: none; height: var(--control-height); } .page-size select { height: 100%; }
 </style>

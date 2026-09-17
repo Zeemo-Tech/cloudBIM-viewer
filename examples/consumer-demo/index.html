@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CloudBIM 查看器包 · 消费方示例</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
+      }
+      #app {
+        height: 100vh;
+      }
+      .demo-tabs {
+        display: flex;
+        gap: 8px;
+        padding: 10px 16px;
+        background: #0f172a;
+      }
+      .demo-tabs button {
+        padding: 6px 14px;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        background: transparent;
+        color: #cbd5e1;
+        cursor: pointer;
+      }
+      .demo-tabs button[data-active='true'] {
+        border-color: #4e66cc;
+        background: #4e66cc;
+        color: #fff;
+      }
+      .demo-page {
+        height: calc(100vh - 53px);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

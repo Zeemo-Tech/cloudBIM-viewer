@@ -124,7 +124,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatFileSize } from '@/features/upload/upload.utils'
+import { formatFileSize } from '@cloudbim/viewer-core'
 import type { SystemInfo } from '@/api/backend-system'
 
 const props = defineProps<{ info: SystemInfo | null; loading: boolean; error?: string }>()
@@ -229,7 +229,7 @@ function formatUptime(seconds: number) {
 
 <style scoped lang="scss">
 @use '@/styles/system-panels' as panels;
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 
 .service-panel { display: flex; flex-direction: column; gap: var(--workspace-gap); min-width: 0; }
 .panel { @include panels.panel; }

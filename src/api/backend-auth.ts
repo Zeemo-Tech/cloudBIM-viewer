@@ -1,4 +1,4 @@
-import { backendRequest, type BackendResult } from '@/api/backend-http'
+import { backendRequest, type BackendResult } from '@cloudbim/viewer-core'
 import type { AuthUser, LoginPayload, RegisterPayload } from '@/features/auth/auth.types'
 
 interface LoginResponse {

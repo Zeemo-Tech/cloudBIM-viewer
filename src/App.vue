@@ -10,18 +10,17 @@ import {
 import LoginView from '@/views/login/LoginView.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProjectSelectionView from '@/views/project/ProjectSelectionView.vue'
-import { getRouteInstanceKey, readNavigationRouteState } from '@/router/navigation'
+import { getRouteInstanceKey, getViewerReturnLocation, navigateViewerBack, readNavigationRouteState } from '@/router/navigation'
 
 const UploadView = defineAsyncComponent(() => import('@/views/upload/SimpleUploadView.vue'))
 const ProjectSurveyView = defineAsyncComponent(() => import('@/views/project/ProjectSurveyView.vue'))
 const DesignView = defineAsyncComponent(() => import('@/views/design/DesignView.vue'))
-const AssetPreviewView = defineAsyncComponent(() => import('@/views/preview/AssetPreviewView.vue'))
-const SplitPreviewView = defineAsyncComponent(() => import('@/views/preview/SplitPreviewView.vue'))
 const SystemManagementView = defineAsyncComponent(() => import('@/views/system/SystemManagementView.vue'))
 const DeviceCenterView = defineAsyncComponent(() => import('@/views/devices/DeviceCenterView.vue'))
-const BimPointcloudAlignView = defineAsyncComponent(
-  () => import('@/views/alignment/BimPointcloudAlignView.vue'),
-)
+const BimPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/bim-preview')).BimPreviewPage)
+const PointcloudPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/pointcloud-preview')).PointcloudPreviewPage)
+const SplitPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/split-preview')).SplitPreviewPage)
+const AlignmentPage = defineAsyncComponent(async () => (await import('@cloudbim/alignment')).AlignmentPage)
 
 const session = ref<AuthSession | null>(null)
 const authReady = ref(false)
@@ -120,6 +119,32 @@ async function handleLogout() {
   void router.replace('/')
 }
 
+// 查看器包不依赖 vue-router：由宿主把返回与步骤变化映射到自身路由。
+function handleViewerBack() {
+  navigateViewerBack(router, readNavigationRouteState(route.path, route.query))
+}
+
+// 返回按钮文案由来源页面决定，包只负责显示。
+const viewerBackLabel = computed(() => {
+  const target = getViewerReturnLocation(readNavigationRouteState(route.path, route.query))
+  const path = typeof target === 'string' ? target.split('?')[0] : ('path' in target ? target.path : '')
+  return path === '/design/overview'
+    ? '返回项目概述'
+    : path === '/design/bim'
+      ? '返回模型列表'
+      : path === '/survey'
+        ? '返回扫描点云'
+        : '返回项目列表'
+})
+
+async function handleAlignmentStepChange(step: number) {
+  if (String(route.query.step || 1) === String(step)) {
+    return
+  }
+
+  await router.replace({ query: { ...route.query, step: String(step) } })
+}
+
 // Profile and role changes made in the system page are reflected in the header
 // without forcing a reload.
 async function handleSessionUpdated() {
@@ -147,30 +172,44 @@ async function handleSessionUpdated() {
     @logout="handleLogout"
   />
 
-  <AssetPreviewView
-    v-else-if="session && currentView === 'asset-preview'"
+  <BimPreviewPage
+    v-if="session && currentView === 'asset-preview' && routeState.previewType !== 'pointcloud'"
     :key="routeKey"
-    :preview-type="routeState.previewType === 'pointcloud' ? 'pointcloud' : 'bim'"
     :asset-id="routeState.assetId"
     :display-name="routeState.displayName"
     :project-id="routeState.projectId || 0"
     :project-name="routeState.projectName"
+    :back-label="viewerBackLabel"
+    @back="handleViewerBack"
   />
-  <SplitPreviewView
+  <PointcloudPreviewPage
+    v-else-if="session && currentView === 'asset-preview'"
+    :key="routeKey"
+    :asset-id="routeState.assetId"
+    :display-name="routeState.displayName"
+    :project-id="routeState.projectId || 0"
+    :project-name="routeState.projectName"
+    @back="handleViewerBack"
+  />
+  <SplitPreviewPage
     v-else-if="session && currentView === 'split-preview'"
     :key="routeKey"
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
+    @back="handleViewerBack"
   />
-  <BimPointcloudAlignView
+  <AlignmentPage
     v-else-if="session && currentView === 'alignment'"
     :key="routeKey"
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
+    :initial-step="routeState.step ?? 1"
+    @back="handleViewerBack"
+    @step-change="handleAlignmentStepChange"
   />
   <AppLayout
     v-else-if="session && (routeState.projectId || currentView === 'devices' || currentView === 'system')"

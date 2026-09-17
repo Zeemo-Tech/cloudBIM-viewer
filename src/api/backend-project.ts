@@ -1,9 +1,7 @@
-import { backendRequest, type BackendResult } from '@/api/backend-http'
-
-const projectApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '')
+import { getBackendBaseUrl, backendRequest, type BackendResult } from '@cloudbim/viewer-core'
 
 function projectApiPath(path = '') {
-  return `${projectApiBaseUrl}/projects${path}`
+  return `${getBackendBaseUrl()}/projects${path}`
 }
 
 function projectRequestOptions(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', data?: ProjectPayload) {

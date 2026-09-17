@@ -4,10 +4,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Aim, DataAnalysis, Delete, Refresh, Search, Upload, View } from '@element-plus/icons-vue'
-import { deleteAsset, listAssets, type AssetSummary } from '@/api/backend-file'
-import { getBimAlignment } from '@/api/backend-alignment'
+import { deleteAsset, formatFileSize, getBimAlignment, listAssets, type AssetSummary } from '@cloudbim/viewer-core'
 import FileUploadDialog from '@/components/upload/FileUploadDialog.vue'
-import { formatFileSize } from '@/features/upload/upload.utils'
 import type { AuthSession } from '@/features/auth/auth.service'
 import WorkspaceHeading from '@/components/layout/WorkspaceHeading.vue'
 import NeumorphicPagination from '@/components/NeumorphicPagination.vue'
@@ -118,7 +116,7 @@ watch([filters, currentPage, pageSize], () => {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .project-page { min-width: 0; display: flex; flex-direction: column; color: var(--text-primary); }
 .project-header { margin-bottom: var(--spacing-md); }
 .project-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-md); @include controls.filters; }

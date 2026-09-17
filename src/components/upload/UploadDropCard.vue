@@ -14,7 +14,7 @@ import {
   formatFileSize,
   getFileExtension,
   matchesAcceptedExtension,
-} from '@/features/upload/upload.utils'
+} from '@cloudbim/viewer-core'
 
 const props = defineProps<{
   config: UploadFileConfig

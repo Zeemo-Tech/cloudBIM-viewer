@@ -1,4 +1,3 @@
-import type { AssetArchiveMetadata, AssetDetail, AssetType, AssetStatus, UploadStatus } from '@/api/backend-file'
 import {
   createTusUpload,
   getAssetDetail,
@@ -6,7 +5,8 @@ import {
   getUploadStatus,
   terminateTusUpload,
   uploadTusChunk,
-} from '@/api/backend-file'
+} from '@cloudbim/viewer-core'
+import type { AssetArchiveMetadata, AssetDetail, AssetType, AssetStatus, UploadStatus } from '@cloudbim/viewer-core'
 import { UploadStateManager } from '@/features/upload/upload-state-manager'
 
 const CHUNK_SIZE = 5 * 1024 * 1024

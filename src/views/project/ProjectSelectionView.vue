@@ -498,7 +498,7 @@ watch([filters, currentPage, pageSize], () => {
 </style>
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .toolbar-button { @include controls.action; } .toolbar-button.is-primary { @include controls.primary; } .project-toolbar { @include controls.filters; }
 .entry-brand .brand-mark { background: var(--brand-sapphire); box-shadow: none; }
 .project-entry-page { background: var(--bg-page); }

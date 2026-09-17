@@ -1,4 +1,4 @@
-import { backendRequest, type BackendResult } from '@/api/backend-http'
+import { backendRequest, type BackendResult } from '@cloudbim/viewer-core'
 
 export type MemberRole = 'admin' | 'member'
 export type MemberStatus = 'active' | 'disabled'

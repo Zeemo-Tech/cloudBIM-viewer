@@ -3,9 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "predev": "npm run build:packages",
+    "build": "npm run build:packages && vue-tsc --noEmit && vite build",
+    "build:app": "vue-tsc --noEmit && vite build",
+    "build:packages": "npm run build -w @cloudbim/viewer-core && npm run build -w @cloudbim/denoise && npm run build -w @cloudbim/bim-preview && npm run build -w @cloudbim/pointcloud-preview && npm run build -w @cloudbim/split-preview && npm run build -w @cloudbim/alignment",
+    "pack:packages": "node scripts/pack-packages.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -26,6 +33,7 @@
     "sass-embedded": "^1.98.0",
     "typescript": "~5.9.3",
     "vite": "^8.0.0",
+    "vite-plugin-dts": "^5.1.0",
     "vue-tsc": "^3.2.5"
   }
 }

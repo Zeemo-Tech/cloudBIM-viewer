@@ -2,10 +2,9 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Close, Document, Loading, Upload } from '@element-plus/icons-vue'
-import { listAssets, type AssetArchiveMetadata, type AssetSummary, type ComponentType } from '@/api/backend-file'
+import { formatFileSize, listAssets, type AssetArchiveMetadata, type AssetSummary, type ComponentType } from '@cloudbim/viewer-core'
 import { uploadFile } from '@/features/upload/upload.service'
 import { BIM_UPLOAD_CONFIG, CAD_UPLOAD_CONFIG, POINT_CLOUD_UPLOAD_CONFIG } from '@/features/upload/upload.config'
-import { formatFileSize } from '@/features/upload/upload.utils'
 import type { UploadKind } from '@/features/upload/upload.types'
 import type { AuthSession } from '@/features/auth/auth.service'
 
@@ -224,7 +223,7 @@ onMounted(() => { void loadDesignModels() })
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .simple-upload-page { width: min(100%, 860px); margin-inline: auto; padding: var(--workspace-gutter); display: flex; flex-direction: column; gap: var(--workspace-gap); container-type: inline-size; }
 .simple-upload-page.is-compact { width: 100%; padding: 0; }
 .simple-upload-page { scrollbar-width: none; }
