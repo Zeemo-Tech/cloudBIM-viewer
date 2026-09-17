@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { parse } from '@vue/compiler-sfc'
 
 // Exercise the actual script-setup bindings without loading a WebGL scene.
-const source = fs.readFileSync(new URL('../src/views/alignment/BimPointcloudAlignView.vue', import.meta.url), 'utf8')
+const source = fs.readFileSync(new URL('../packages/alignment/src/AlignmentPage.vue', import.meta.url), 'utf8')
 const { descriptor } = parse(source)
 const content = descriptor.scriptSetup.content
 const ast = ts.createSourceFile('settings.ts', content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 import * as THREE from 'three';
-import { buildInstancePalette, instanceColorDistance } from '../src/features/rebar-visualization/instancePalette.js';
+import { buildInstancePalette, instanceColorDistance } from '../packages/viewer-core/src/features/rebar-visualization/instancePalette.js';
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 const bar = (id, y, start = 0, end = 3) => ({ id, paths: [[[start, y, 0], [end, y, 0]]] });

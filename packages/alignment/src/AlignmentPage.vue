@@ -720,6 +720,7 @@ const comparisonBimVisibility = new WeakMap<THREE.Object3D, boolean>()
 let rebarCameraAnimationFrame: number | null = null
 let rebarCameraControlsWasEnabled: boolean | null = null
 const rebarInspectionMaterialState = new WeakMap<THREE.Material, { color?: THREE.Color; opacity: number; transparent: boolean; depthWrite: boolean }>()
+let rebarInspectionMaterialsClonedAny = false
 const c2mOriginalVertexColors = new WeakMap<THREE.BufferGeometry, Float32Array>()
 
 const rebarDebugEnabled = ref(route.query.debug === 'rebar' || import.meta.env.MODE === 'rebar-debug')
@@ -935,6 +936,8 @@ function applyComparisonSelection() {
   const bar = debugging ? rebarDebugBar.value : selectedComparisonBar.value
   const resultBar = comparison.value?.bars.find(row => row.ifcGlobalId === bar?.ifcGlobalId)
   const comparisonResult = comparison.value
+  // 预先建一次 id 集合，供遍历时做 O(1) 归属判断。
+  const comparisonIds = new Set((comparisonResult?.bars ?? []).map(item => item.ifcGlobalId))
   // 巡检沿用手动巡视的阅读方式：所有钢筋保持可见，只把非选中钢筋变暗；
   // 逐根对比的高亮过滤只在调试面板里生效。
   const inspectionSelected = !debugging && rebarInspectionActive.value
@@ -960,7 +963,7 @@ function applyComparisonSelection() {
         const original = c2mOriginalVertexColors.get(object.geometry)!
         const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
         const next = new Float32Array(original)
-        const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+        const isComparisonRebar = objectMatchesAnyComparisonBar(object, comparisonIds)
         if (inspectionSelected && isComparisonRebar && !matched) {
           const dimColor = new THREE.Color('#8b97a8')
           for (let index = 0; index < colors.count; index += 1) dimColor.toArray(next, index * 3)
@@ -976,7 +979,11 @@ function applyComparisonSelection() {
         item.needsUpdate = true
       })
     }
-    if (!debugging) return
+    if (!debugging) {
+      // 逐根过滤只在调试态生效；退出调试后必须恢复完整索引，否则构件会停留在上次裁剪。
+      filterComparisonGeometry(object.geometry, undefined)
+      return
+    }
     filterComparisonGeometry(object.geometry, resultBar)
     if (!resultBar) object.geometry.setIndex([])
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
@@ -999,13 +1006,15 @@ function applyComparisonSelection() {
     bimPivot.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return
       const matched = Boolean(bar && objectMatchesComparisonBar(object, bar.ifcGlobalId))
-      const isComparisonRebar = comparisonResult.bars.some(item => objectMatchesComparisonBar(object, item.ifcGlobalId))
+      const isComparisonRebar = objectMatchesAnyComparisonBar(object, comparisonIds)
       // GLTF 常把同一份材质共享给多根钢筋，改色前必须逐网格克隆。
       if (!object.userData.__rebarInspectionMaterialsCloned) {
         const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material]
+        object.userData.__rebarInspectionMaterialsOriginal = object.material
         const clonedMaterials = sourceMaterials.map(material => material.clone())
         object.material = Array.isArray(object.material) ? clonedMaterials : clonedMaterials[0]
         object.userData.__rebarInspectionMaterialsCloned = true
+        rebarInspectionMaterialsClonedAny = true
       }
       const materials = Array.isArray(object.material) ? object.material : [object.material]
       materials.forEach(item => {
@@ -1020,12 +1029,15 @@ function applyComparisonSelection() {
           })
         }
         const saved = rebarInspectionMaterialState.get(material)
-        if (inspectionSelected && isComparisonRebar && !matched) material.color.set('#8b97a8')
-        else if (saved?.color) material.color.copy(saved.color)
-        material.opacity = saved?.opacity ?? 1
-        material.transparent = saved?.transparent ?? false
-        material.depthWrite = saved?.depthWrite ?? true
-        material.needsUpdate = true
+        // 只在状态真正变化时置 needsUpdate，避免每次选择都重编译 shader。
+        if (inspectionSelected && isComparisonRebar && !matched) {
+          if (!sameColor(material.color, '#8b97a8')) { material.color.set('#8b97a8'); material.needsUpdate = true }
+        } else if (saved?.color && !sameColor(material.color, `#${saved.color.getHexString()}`)) {
+          material.color.copy(saved.color); material.needsUpdate = true
+        }
+        if (material.opacity !== (saved?.opacity ?? 1)) { material.opacity = saved?.opacity ?? 1; material.needsUpdate = true }
+        if (material.transparent !== (saved?.transparent ?? false)) { material.transparent = saved?.transparent ?? false; material.needsUpdate = true }
+        if (material.depthWrite !== (saved?.depthWrite ?? true)) { material.depthWrite = saved?.depthWrite ?? true; material.needsUpdate = true }
       })
     })
   }
@@ -1086,6 +1098,23 @@ function objectMatchesComparisonBar(object: THREE.Object3D, ifcGlobalId: string)
     current = current.parent
   }
   return false
+}
+
+// 预计算钢筋 id 集合后只在祖先链上查一次，避免「对象 × 钢筋」的 O(n×m) 遍历。
+function objectMatchesAnyComparisonBar(object: THREE.Object3D, ifcGlobalIds: Set<string>) {
+  if (!ifcGlobalIds.size) return false
+  let current: THREE.Object3D | null = object
+  while (current && current !== bimPivot) {
+    const ids = [current.name, String(current.userData.ifcGlobalId ?? ''), guessIfcId(current.userData)]
+    if (ids.some(id => id && (ifcGlobalIds.has(id) || ifcGlobalIds.has(findMetadataElementById(id)?.id ?? '')))) return true
+    current = current.parent
+  }
+  return false
+}
+
+function sameColor(a: THREE.Color, hex: string) {
+  const target = new THREE.Color(hex)
+  return Math.abs(a.r - target.r) < 1e-4 && Math.abs(a.g - target.g) < 1e-4 && Math.abs(a.b - target.b) < 1e-4
 }
 
 function comparisonBarBounds(bar: RebarComparisonBar) {
@@ -6950,9 +6979,26 @@ function clearPickedState() {
   updateSelectionHighlight()
 }
 
+// 退出对比步骤时把巡检期克隆的材质还原并释放，避免显存长期累积。
+function releaseRebarInspectionMaterials() {
+  if (!rebarInspectionMaterialsClonedAny || !bimPivot) return
+  rebarInspectionMaterialsClonedAny = false
+  bimPivot.traverse(object => {
+    const mesh = object as THREE.Mesh
+    if (!mesh.userData.__rebarInspectionMaterialsCloned) return
+    const original = mesh.userData.__rebarInspectionMaterialsOriginal
+    const cloned = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    if (original) mesh.material = original
+    cloned.forEach(material => material?.dispose?.())
+    delete mesh.userData.__rebarInspectionMaterialsCloned
+    delete mesh.userData.__rebarInspectionMaterialsOriginal
+  })
+}
+
 function applySceneVisibility() {
   syncDenoisePreviewTransform()
   const steelOnly = activeWorkflowStep.value >= 3
+  if (!steelOnly) releaseRebarInspectionMaterials()
   if (c2mSceneGroup) c2mSceneGroup.visible = c2mSceneActive.value && (!rebarDebugActive.value || (rebarDebugDisplaySurface.value === 'mesh' || rebarDebugDisplaySurface.value === 'result'))
   if (remeshSceneGroup) remeshSceneGroup.visible = !steelOnly && !c2mSceneActive.value
   if (denoisePreview) {

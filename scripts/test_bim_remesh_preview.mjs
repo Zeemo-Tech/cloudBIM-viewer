@@ -3,23 +3,30 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import test from 'node:test'
-import { parse, compileScript } from '@vue/compiler-sfc'
+import { parse, compileScript, registerTS } from '@vue/compiler-sfc'
 import ts from 'typescript'
+registerTS(() => ts)
 import * as Vue from 'vue'
 import * as THREE from 'three'
 import * as Tiles from '3d-tiles-renderer'
 import * as TilePlugins from '3d-tiles-renderer/three/plugins'
-import * as tableVisibility from '../src/features/pointcloud/tableVisibility.ts'
-import { buildInstancePalette } from '../src/features/rebar-visualization/instancePalette.js'
-import { useBimRemeshDisplay } from '../src/views/preview/bimRemeshDisplay.ts'
-import * as groundGrid from '../src/components/preview/InfiniteGroundGrid.ts'
+import * as tableVisibility from '../packages/viewer-core/src/features/pointcloud/tableVisibility.ts'
+import { buildInstancePalette } from '../packages/viewer-core/src/features/rebar-visualization/instancePalette.js'
+import { useBimRemeshDisplay } from '../packages/bim-preview/src/bimRemeshDisplay.ts'
+import * as viewerCore from '@cloudbim/viewer-core'
+import * as groundGrid from '../packages/viewer-core/src/components/preview/InfiniteGroundGrid.ts'
 
 const require = createRequire(import.meta.url)
 // Execute the real component setup/watchers in Node. Only mounting a WebGL
 // canvas and unrelated service/UI dependencies are stubbed.
 function setupComponent(path, input, dependencies = {}) {
-  const { descriptor } = parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
-  const script = compileScript(descriptor, { id: path })
+  const fileUrl = new URL(path, import.meta.url)
+  const filename = fileUrl.pathname
+  const { descriptor } = parse(readFileSync(fileUrl, 'utf8'), { filename })
+  const script = compileScript(descriptor, {
+    id: path,
+    fs: ts.sys,
+  })
   const compiled = ts.transpileModule(script.content, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
@@ -36,6 +43,10 @@ function setupComponent(path, input, dependencies = {}) {
       if (name === './bimRemeshDisplay') return { useBimRemeshDisplay }
       if (name === './InfiniteGroundGrid') return groundGrid
       if (name === '@/api/backend-mesh') return { REBAR_SWEEP_ALGORITHM: 'rebar_sweep', DEFAULT_REBAR_SWEEP_PARAMS: { cross_section_sides: 16, axial_spacing: 0.01, max_chord_error: 0.0001 }, ...dependencies[name] }
+      if (name === '@cloudbim/viewer-core') {
+        const apiOverrides = Object.assign({}, ...Object.entries(dependencies).filter(([key]) => key.startsWith('@/api/')).map(([, value]) => value))
+        return { ...viewerCore, ...apiOverrides, ...dependencies[name] }
+      }
       if (name in dependencies) return dependencies[name]
       if (name === 'vue-router') return { useRouter: () => ({}), useRoute: () => ({ path: '/preview/asset', query: {} }) }
       if (name === 'element-plus') return { ElMessage: {} }
@@ -71,7 +82,7 @@ end_header
 `])
 
 function makeViewer(download = async () => ply()) {
-  const viewer = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'bim', assetId: 7 }, {
+  const viewer = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', { type: 'bim', assetId: 7 }, {
     '@/api/backend-mesh': { downloadRemeshResult: download },
   })
   const b = viewer.bindings
@@ -91,7 +102,7 @@ function makeViewer(download = async () => ply()) {
 const settleDisplay = () => new Promise(resolve => setImmediate(resolve))
 
 test('preview ground follows asset bottom and scale without moving the asset or following the camera', () => {
-  const v = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'bim' })
+  const v = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', { type: 'bim' })
   const b = v.bindings
   b.gridHelper = new groundGrid.InfiniteGroundGrid()
   b.camera = new THREE.PerspectiveCamera(50, 1.6)
@@ -122,7 +133,7 @@ test('preview ground follows asset bottom and scale without moving the asset or 
 })
 
 test('preview framing contains every corner on wide and narrow viewports at different asset scales', () => {
-  const v = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'bim' })
+  const v = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', { type: 'bim' })
   const b = v.bindings
   try {
     for (const aspect of [0.35, 1, 2.5]) for (const scale of [0.001, 1, 1000]) {
@@ -151,7 +162,7 @@ test('preview framing contains every corner on wide and narrow viewports at diff
 })
 
 test('tileset ground bounds include parent rotation/translation/scale and do not use sphere bottom', () => {
-  const v = setupComponent('../src/components/preview/UnifiedViewer3D.vue', { type: 'pointcloud' })
+  const v = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', { type: 'pointcloud' })
   const wrapper = new THREE.Group()
   wrapper.rotation.x = -Math.PI / 2
   wrapper.position.set(10, 20, 30)
@@ -178,7 +189,7 @@ test('tileset ground bounds include parent rotation/translation/scale and do not
 
 test('preview automatically displays real PLY, preserves coordinates/camera and can restore original BIM', async () => {
   const v = makeViewer()
-  const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 }, {
+  const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 }, {
     '@/api/backend-mesh': { getRemeshStatus: async () => ({ data: { supported: true, status: 'succeeded', algorithm: 'rebar_sweep', resultFileId: 7 } }) },
   })
   const p = page.bindings
@@ -213,7 +224,7 @@ test('preview automatically displays real PLY, preserves coordinates/camera and 
 
 test('failed result download keeps original geometry and reports the error without enabling toggle', async () => {
   const v = makeViewer(async () => { throw new Error('下载失败') })
-  const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 })
+  const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 })
   const p = page.bindings
   try {
     p.bimRemeshStatus.value = { supported: true, status: 'succeeded', algorithm: 'rebar_sweep', resultFileId: 7 }
@@ -242,7 +253,7 @@ test('turning off or unloading while downloading prevents a late result attachin
 
 test('pending status for previous asset cannot overwrite the next preview', async () => {
   let resolve
-  const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 }, {
+  const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 }, {
     '@/api/backend-mesh': { getRemeshStatus: () => new Promise(r => { resolve = r }) },
   })
   try {
@@ -260,7 +271,7 @@ test('rerunning succeeded mesh forces submission once, retires old PLY and prese
   let finishSubmit
   const calls = []
   const displayed = []
-  const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 }, {
+  const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 }, {
     '@/api/backend-mesh': {
       remeshBimAsset: (id, payload) => { calls.push({ id, payload }); return new Promise(resolve => { finishSubmit = resolve }) },
       getRemeshStatus: async () => ({ data: { supported: true, status: 'queued' } }),
@@ -305,7 +316,7 @@ test('rerunning succeeded mesh forces submission once, retires old PLY and prese
 test('idle/failed can retry without force; unsupported and active jobs cannot submit', async () => {
   for (const status of ['idle', 'failed', 'queued', 'processing', 'unsupported']) {
     const calls = []
-    const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 }, {
+    const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 }, {
       '@/api/backend-mesh': {
         remeshBimAsset: async (id, payload) => { calls.push(payload) },
         getRemeshStatus: async () => ({ data: { supported: true, status: 'queued' } }),
@@ -322,7 +333,7 @@ test('idle/failed can retry without force; unsupported and active jobs cannot su
 })
 
 test('failed rerun keeps current result, reports error, and permits retry', async () => {
-  const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 }, {
+  const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 }, {
     '@/api/backend-mesh': { remeshBimAsset: async () => { throw new Error('服务暂不可用') } },
   })
   const p = page.bindings
@@ -342,7 +353,7 @@ test('failed rerun keeps current result, reports error, and permits retry', asyn
 
 test('BIM section switch passes the renderer state contract and applies six clipping planes', async () => {
   const v = makeViewer()
-  const page = setupComponent('../src/views/preview/AssetPreviewView.vue', { previewType: 'bim', assetId: 7 })
+  const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 })
   const p = page.bindings
   try {
     v.b.renderer = { clippingPlanes: [], localClippingEnabled: false }

@@ -3,22 +3,29 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import test from 'node:test'
-import { parse, compileScript } from '@vue/compiler-sfc'
+import { parse, compileScript, registerTS } from '@vue/compiler-sfc'
 import ts from 'typescript'
+registerTS(() => ts)
 import * as Vue from 'vue'
 import * as THREE from 'three'
 import * as Tiles from '3d-tiles-renderer'
 import * as TilePlugins from '3d-tiles-renderer/three/plugins'
-import * as tableVisibility from '../src/features/pointcloud/tableVisibility.ts'
-import { buildInstancePalette } from '../src/features/rebar-visualization/instancePalette.js'
-import { useBimRemeshDisplay } from '../src/views/preview/bimRemeshDisplay.ts'
+import * as tableVisibility from '../packages/viewer-core/src/features/pointcloud/tableVisibility.ts'
+import { buildInstancePalette } from '../packages/viewer-core/src/features/rebar-visualization/instancePalette.js'
+import { useBimRemeshDisplay } from '../packages/bim-preview/src/bimRemeshDisplay.ts'
+import * as viewerCore from '@cloudbim/viewer-core'
 
 const require = createRequire(import.meta.url)
 // Execute the real component setup/watchers in Node. Only mounting a WebGL
 // canvas and unrelated service/UI dependencies are stubbed.
 function setupComponent(path, input, dependencies = {}) {
-  const { descriptor } = parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
-  const script = compileScript(descriptor, { id: path })
+  const fileUrl = new URL(path, import.meta.url)
+  const filename = fileUrl.pathname
+  const { descriptor } = parse(readFileSync(fileUrl, 'utf8'), { filename })
+  const script = compileScript(descriptor, {
+    id: path,
+    fs: ts.sys,
+  })
   const compiled = ts.transpileModule(script.content, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
@@ -33,6 +40,10 @@ function setupComponent(path, input, dependencies = {}) {
       if (name.endsWith('/tableVisibility')) return tableVisibility
       if (name.endsWith('/instancePalette.js')) return { buildInstancePalette }
       if (name === './bimRemeshDisplay') return { useBimRemeshDisplay }
+      if (name === '@cloudbim/viewer-core') {
+        const apiOverrides = Object.assign({}, ...Object.entries(dependencies).filter(([key]) => key.startsWith('@/api/')).map(([, value]) => value))
+        return { ...viewerCore, ...apiOverrides, ...(dependencies[name] ?? {}) }
+      }
       if (name in dependencies) return dependencies[name]
       if (name === 'vue-router') return { useRouter: () => ({}), useRoute: () => ({ path: '/preview/asset', query: {} }) }
       if (name === 'element-plus') return { ElMessage: {} }
@@ -55,7 +66,7 @@ function setupComponent(path, input, dependencies = {}) {
 for (const mode of ['intensity', 'table-class']) test(`${mode}: preview toggle reaches cached LODs without replacing source, recoloring, loading events or camera changes`, async () => {
   let requests = 0
   const plane = { origin: [0, 0, 0], slopes: [0, 0], clearanceM: .005 }
-  const preview = setupComponent('../src/views/preview/AssetPreviewView.vue', { assetId: 5, previewType: 'pointcloud' }, {
+  const preview = setupComponent('../packages/pointcloud-preview/src/PointcloudPreviewPage.vue', { assetId: 5, previewType: 'pointcloud' }, {
     '@/api/backend-file': { getAssetDetail: async () => { requests++; return { data: { tilesetUrl: '/asset5/source/tileset.json' } } } },
     '@/api/backend-pointcloud-preprocess': { getPointcloudPreprocess: async () => { requests++; return { data: { version: 'v1', result: { plane } } } } },
   })
@@ -63,7 +74,7 @@ for (const mode of ['intensity', 'table-class']) test(`${mode}: preview toggle r
   await Vue.nextTick()
   assert.equal(preview.bindings.pointcloudTableShown.value, false)
   assert.equal(preview.bindings.pointcloudDisplayColorMode.value, 'table-class')
-  const viewer = setupComponent('../src/components/preview/UnifiedViewer3D.vue', {
+  const viewer = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', {
     assetId: 5, type: 'pointcloud', pointcloudTilesetUrl: preview.bindings.pointcloudSourceUrl.value,
     pointcloudTablePlane: preview.bindings.pointcloudTablePlane.value, pointcloudTableVisible: false,
   })
@@ -125,7 +136,7 @@ for (const mode of ['intensity', 'table-class']) test(`${mode}: preview toggle r
 
 test('upload preview has only table/non-table colors, restores source appearance and recolors when the plane changes', async () => {
   const plane = { origin: [0, 0, 0], slopes: [0, 0], clearanceM: .005 }
-  const viewer = setupComponent('../src/components/preview/UnifiedViewer3D.vue', {
+  const viewer = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', {
     assetId: 5, type: 'pointcloud', pointcloudTablePlane: plane, pointcloudTableVisible: true,
   })
   try {
@@ -156,7 +167,7 @@ test('upload preview has only table/non-table colors, restores source appearance
 })
 
 test('category colors never become source intensity or RGB when the upload has no colors', () => {
-  const viewer = setupComponent('../src/components/preview/UnifiedViewer3D.vue', {
+  const viewer = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', {
     assetId: 5, type: 'pointcloud', pointcloudTablePlane: { origin: [0, 0, 0], slopes: [0, 0], clearanceM: .005 },
   })
   try {
@@ -179,7 +190,7 @@ test('category colors never become source intensity or RGB when the upload has n
 })
 
 test('missing table results use true color; asynchronous appearance loading does not override two-color mode', async () => {
-  const preview = setupComponent('../src/views/preview/AssetPreviewView.vue', { assetId: 5, previewType: 'pointcloud' }, {
+  const preview = setupComponent('../packages/pointcloud-preview/src/PointcloudPreviewPage.vue', { assetId: 5, previewType: 'pointcloud' }, {
     '@/api/backend-file': { getAssetDetail: async () => ({ data: { pointcloudColor: '#ffffff' } }) },
   })
   try {

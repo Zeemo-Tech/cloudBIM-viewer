@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
 import * as THREE from 'three'
-import { InfiniteGroundGrid, getTilesetWorldBounds } from '../src/components/preview/InfiniteGroundGrid.ts'
+import { InfiniteGroundGrid, getTilesetWorldBounds } from '../packages/viewer-core/src/components/preview/InfiniteGroundGrid.ts'
 
 test('grid extends beyond the entire frustum after orbit, pan and zoom in both projections', () => {
   const grid = new InfiniteGroundGrid()
@@ -38,7 +38,7 @@ test('grid extends beyond the entire frustum after orbit, pan and zoom in both p
   } finally { grid.dispose() }
 })
 
-const alignmentSource = readFileSync(new URL('../src/views/alignment/BimPointcloudAlignView.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
+const alignmentSource = readFileSync(new URL('../packages/alignment/src/AlignmentPage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
 const ast = ts.createSourceFile('alignment.ts', alignmentSource, ts.ScriptTarget.Latest, true)
 function alignmentHarness(globals) {
   const names = ['updateGridPlacement', 'syncGridVisibility', 'applyEditorTheme']

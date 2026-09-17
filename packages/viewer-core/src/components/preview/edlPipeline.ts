@@ -251,7 +251,9 @@ export class PointCloudEdlPipeline {
             console.warn('EDL composite produced an empty frame; using direct rendering.');
           } else if (directContrast >= 32) {
             this.verificationAttempts += 1;
-            this.verificationPending = this.verificationAttempts < 20;
+            // 每次校验都要整帧 readPixels + 二次渲染，代价高；
+            // 确认三次足以排除空帧实现，之后不再采样。
+            this.verificationPending = this.verificationAttempts < 3;
             this.verificationDelay = 30;
             this.renderer.render(this.fsScene, this.fsCamera);
           } else {

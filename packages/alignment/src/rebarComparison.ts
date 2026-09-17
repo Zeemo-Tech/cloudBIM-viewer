@@ -32,8 +32,9 @@ export function dimComparisonGeometry(geometry: BufferGeometry, bar?: RebarCompa
   }
   const original = originalColors.get(geometry)
   if (!bar) {
+    // 无基线时保持当前顶点色，绝不删除属性：删除会让整块网格直接变白/灰，
+    // 这是「退出巡检后偏差色丢失」的根因。
     if (original) geometry.setAttribute('color', original.clone())
-    else geometry.deleteAttribute('color')
     return
   }
   const positions = geometry.getAttribute('position')

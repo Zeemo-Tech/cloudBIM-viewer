@@ -2,9 +2,19 @@
 // and depth fixtures, without depending on a browser, login or uploaded assets.
 // Run: node --experimental-strip-types scripts/test_edl_color_output.mjs
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as THREE from 'three'
-import { PointCloudEdlPipeline } from '../src/components/preview/edlPipeline.ts'
+import { PointCloudEdlPipeline } from '../packages/viewer-core/src/components/preview/edlPipeline.ts'
+
+// The pixel test drives a surfaceless EGL context via libEGL.so.1, so it only
+// runs on Linux hosts that also have the mesh-service venv. Skip elsewhere
+// instead of reporting a hard failure for a missing platform dependency.
+const pythonPath = fileURLToPath(new URL('../.cloudbim/mesh-venv/bin/python', import.meta.url))
+if (process.platform !== 'linux' || !existsSync(pythonPath)) {
+  console.log(`SKIP: EDL color output requires Linux + EGL and ${pythonPath}; platform=${process.platform}`)
+  process.exit(0)
+}
 
 const pipeline = new PointCloudEdlPipeline({})
 const shader = pipeline.material
@@ -22,7 +32,7 @@ vec4 linearToOutputTexel(vec4 value) { return sRGBTransferOETF(value); }
 ${expand(shader.fragmentShader).replaceAll('varying', 'in').replaceAll('texture2D', 'texture').replaceAll('gl_FragColor', 'fragColor')}`
 try {
   const result = execFileSync(
-    fileURLToPath(new URL('../.cloudbim/mesh-venv/bin/python', import.meta.url)),
+    pythonPath,
     [fileURLToPath(new URL('./test_edl_color_output.py', import.meta.url))],
     { input: JSON.stringify({ vertex, fragment }), encoding: 'utf8' },
   )
