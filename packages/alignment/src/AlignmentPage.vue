@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUp,
   Aim,
+  Back,
   Brush,
   Check,
   CircleCheck,
@@ -159,6 +160,7 @@ import { dimComparisonGeometry, rememberComparisonGeometryColors, filterComparis
 import RebarDebugPanel from './RebarDebugPanel.vue'
 import { debugInventoryBars, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal, type RebarDebugInventory } from './rebarDebug'
 import RebarDeviationDetail from './RebarDeviationDetail.vue'
+import ReportEditable from './ReportEditable.vue'
 import RebarInspectionSummary from './RebarInspectionSummary.vue'
 import RebarReportHistory from './RebarReportHistory.vue'
 // dev-hong 侧的视口工具按钮图标：随包发布（构建时按 assetsInlineLimit 内联）。
@@ -257,6 +259,13 @@ const visibleWorkflowSteps = computed(() =>
   workflowSteps.filter((step) => allowedWorkflowStepIds.value.includes(step.id)),
 )
 const activeWorkflowStep = ref<WorkflowStepId>(1)
+const activeWorkflowStepMeta = computed(() =>
+  workflowSteps.find((step) => step.id === activeWorkflowStep.value),
+)
+const titleBlockSubtitle = computed(() => {
+  const file = props.pointcloudDisplayName || '未选择点云'
+  return activeWorkflowStepMeta.value ? `${activeWorkflowStepMeta.value.subtitle} · ${file}` : file
+})
 const workflowRouteReady = ref(false)
 const reportEditing = ref(false)
 const reportToolbarCollapsed = ref(false)
@@ -271,12 +280,142 @@ const reportReviewer = ref('未填写')
 const reportDate = ref(new Date().toLocaleDateString('zh-CN'))
 const reportFormat = ref<'pdf' | 'docx' | 'xls' | 'dxf' | 'json'>('pdf')
 const reportContents = ref([
-  { id: 'summary', title: '偏差对比摘要', enabled: true, locked: true, group: '基础信息' },
+  { id: 'cover', title: '报告封面', enabled: true, locked: false, group: '基础信息' },
+  { id: 'summary', title: '偏差对比摘要', enabled: true, locked: false, group: '基础信息' },
   { id: 'statistics', title: '偏差统计与分布', enabled: true, locked: false, group: '偏差分析' },
   { id: 'histogram', title: '偏差直方图', enabled: true, locked: false, group: '偏差分析' },
   { id: 'conclusion', title: '结论与建议', enabled: true, locked: false, group: '结论' },
+  { id: 'rebar-table', title: '逐钢筋偏差明细', enabled: true, locked: false, group: '逐钢筋明细' },
+  { id: 'rebar-projection', title: '逐钢筋投影与偏差', enabled: true, locked: false, group: '逐钢筋明细' },
 ])
 const reportEnabledCount = computed(() => reportContents.value.filter((item) => item.enabled).length)
+const REPORT_SUMMARY_SECTION_IDS = ['summary', 'statistics', 'histogram', 'conclusion']
+function reportContentEnabled(id: string) {
+  return reportContents.value.some((item) => item.id === id && item.enabled)
+}
+const reportCoverEnabled = computed(() => reportContentEnabled('cover'))
+const reportTableEnabled = computed(() => reportContentEnabled('rebar-table'))
+const reportProjectionEnabled = computed(() => reportContentEnabled('rebar-projection'))
+const reportSummaryVisible = computed(() => REPORT_SUMMARY_SECTION_IDS.some((id) => reportContentEnabled(id)))
+const reportSummarySections = computed(() =>
+  reportContents.value.filter((item) => item.enabled && REPORT_SUMMARY_SECTION_IDS.includes(item.id)),
+)
+function reportContentTitle(id: string, fallback: string) {
+  return reportContents.value.find((item) => item.id === id)?.title || fallback
+}
+const reportTableTitle = computed(() => reportContentTitle('rebar-table', '逐钢筋偏差明细'))
+const reportProjectionTitle = computed(() => reportContentTitle('rebar-projection', '逐钢筋投影与偏差'))
+// 报告内联编辑：文本覆盖与整块删除都只保留在当前页面，导出时按编辑后的内容输出。
+// 每次提交改动前记录快照，支持 Ctrl/Cmd+Z 撤回。
+interface ReportEditSnapshot {
+  text: Record<string, string>
+  removed: string[]
+  fields: {
+    title: string
+    project: string
+    organization: string
+    inspectors: string
+    reviewer: string
+    date: string
+  }
+}
+const reportTextOverrides = ref<Record<string, string>>({})
+const reportRemovedBlocks = ref<string[]>([])
+const reportEditHistory = ref<ReportEditSnapshot[]>([])
+const REPORT_EDIT_HISTORY_LIMIT = 50
+const canUndoReportEdit = computed(() => reportEditHistory.value.length > 0)
+function reportText(id: string, fallback: string) {
+  const value = reportTextOverrides.value[id]
+  return value === undefined ? fallback : value
+}
+function reportFieldValues() {
+  return {
+    title: reportTitle.value,
+    project: reportProjectName.value,
+    organization: reportOrganization.value,
+    inspectors: reportInspectors.value,
+    reviewer: reportReviewer.value,
+    date: reportDate.value,
+  }
+}
+const reportFieldDefaults = reportFieldValues()
+function reportFieldsDirty() {
+  const current = reportFieldValues()
+  return (Object.keys(current) as Array<keyof typeof current>)
+    .some((key) => current[key] !== reportFieldDefaults[key])
+}
+const reportEditDirty = computed(() =>
+  Object.keys(reportTextOverrides.value).length > 0 ||
+  reportRemovedBlocks.value.length > 0 ||
+  reportFieldsDirty(),
+)
+function snapshotReportEdit() {
+  reportEditHistory.value = [
+    ...reportEditHistory.value.slice(-(REPORT_EDIT_HISTORY_LIMIT - 1)),
+    {
+      text: { ...reportTextOverrides.value },
+      removed: [...reportRemovedBlocks.value],
+      fields: reportFieldValues(),
+    },
+  ]
+}
+function setReportTextValue(id: string, value: string) {
+  if (reportTextOverrides.value[id] === value) return
+  snapshotReportEdit()
+  reportTextOverrides.value = { ...reportTextOverrides.value, [id]: value }
+}
+function isReportBlockRemoved(id: string) {
+  return reportRemovedBlocks.value.includes(id)
+}
+function removeReportBlock(id: string) {
+  if (reportRemovedBlocks.value.includes(id)) return
+  snapshotReportEdit()
+  reportRemovedBlocks.value = [...reportRemovedBlocks.value, id]
+}
+function resetReportEdits() {
+  if (!reportEditDirty.value) return
+  snapshotReportEdit()
+  reportTextOverrides.value = {}
+  reportRemovedBlocks.value = []
+  reportTitle.value = reportFieldDefaults.title
+  reportProjectName.value = reportFieldDefaults.project
+  reportOrganization.value = reportFieldDefaults.organization
+  reportInspectors.value = reportFieldDefaults.inspectors
+  reportReviewer.value = reportFieldDefaults.reviewer
+  reportDate.value = reportFieldDefaults.date
+  ElMessage.info('已恢复报告默认文字与图片')
+}
+function undoReportEdit() {
+  const previous = reportEditHistory.value.at(-1)
+  if (!previous) {
+    ElMessage.info('没有可撤回的编辑')
+    return
+  }
+  reportEditHistory.value = reportEditHistory.value.slice(0, -1)
+  reportTextOverrides.value = { ...previous.text }
+  reportRemovedBlocks.value = [...previous.removed]
+  reportTitle.value = previous.fields.title
+  reportProjectName.value = previous.fields.project
+  reportOrganization.value = previous.fields.organization
+  reportInspectors.value = previous.fields.inspectors
+  reportReviewer.value = previous.fields.reviewer
+  reportDate.value = previous.fields.date
+}
+function reportTextEditingFocused() {
+  const active = document.activeElement as HTMLElement | null
+  return Boolean(active?.isContentEditable && active.closest('.report-preview-workspace'))
+}
+function onReportEditKeydown(event: KeyboardEvent) {
+  if (!reportEditing.value) return
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (event.key.toLowerCase() !== 'z' || event.shiftKey) return
+  // 正在输入框内时交给浏览器处理字符级撤销，避免与原生行为冲突。
+  if (reportTextEditingFocused()) return
+  event.preventDefault()
+  undoReportEdit()
+}
+onMounted(() => window.addEventListener('keydown', onReportEditKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onReportEditKeydown))
 const registrationStage = ref<RegistrationStage>('coarse')
 const fineAlignLoading = ref(false)
 const fineAlignResult = ref<FineAlignmentResult | null>(null)
@@ -640,6 +779,14 @@ function updateReportField(field: 'title' | 'project' | 'organization' | 'inspec
   if (!reportEditing.value) return
   const value = (event.target as HTMLElement).innerText.trim()
   if (!value) return
+  const current = field === 'title' ? reportTitle.value
+    : field === 'project' ? reportProjectName.value
+      : field === 'organization' ? reportOrganization.value
+        : field === 'inspectors' ? reportInspectors.value
+          : field === 'reviewer' ? reportReviewer.value
+            : reportDate.value
+  if (current === value) return
+  snapshotReportEdit()
   if (field === 'title') reportTitle.value = value
   else if (field === 'project') reportProjectName.value = value
   else if (field === 'organization') reportOrganization.value = value
@@ -691,6 +838,14 @@ const REPORT_ROWS_PER_PAGE = 1
 const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
 const reportBarsPerPage = ref(2)
 const comparisonDetailPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / reportBarsPerPage.value) }, (_, page) => comparisonBars.value.slice(page * reportBarsPerPage.value, (page + 1) * reportBarsPerPage.value)))
+const comparisonDetailPageIndex = ref(0)
+const comparisonDetailPageCount = computed(() => comparisonDetailPages.value.length)
+function changeComparisonDetailPage(delta: number) {
+  comparisonDetailPageIndex.value = Math.min(
+    Math.max(comparisonDetailPageIndex.value + delta, 0),
+    Math.max(comparisonDetailPageCount.value - 1, 0),
+  )
+}
 const comparisonMeasurementLabel = computed(() => {
   if (!comparison.value?.effective?.normalConstraintEnabled) return '设计钢筋顶点到对应实例的有符号最近点距离'
   if (comparison.value.inspection?.method === 'control-net-real-point-radial-correspondence-v1') return '控制网辅助的同侧表面法向偏差'
@@ -699,7 +854,6 @@ const comparisonMeasurementLabel = computed(() => {
     : `法向约束的垂直轴向偏差（双向 ${comparison.value.effective.normalMaxAngleDeg}°）`
 })
 // chen side report paging state stays available for the existing template.
-const comparisonReportTotalPages = computed(() => 1 + comparisonReportPages.value.length)
 const comparisonReportPageIndex = ref(0)
 const comparisonReportPageCount = computed(() => comparisonReportPages.value.length)
 function changeComparisonReportPage(delta: number) {
@@ -707,6 +861,24 @@ function changeComparisonReportPage(delta: number) {
     Math.max(comparisonReportPageIndex.value + delta, 0),
     Math.max(comparisonReportPageCount.value - 1, 0),
   )
+}
+// 报告正文页码跟随内容配置动态重排：封面 / 分析摘要 / 逐钢筋明细 / 逐钢筋投影
+// 被隐藏或删除后，后续页面的页码与总页数同步收缩。
+const reportCoverPageCount = computed(() => (reportCoverEnabled.value ? 1 : 0))
+const reportSummaryPageCount = computed(() => (reportSummaryVisible.value ? 1 : 0))
+const reportTablePageCount = computed(() => (reportTableEnabled.value ? comparisonReportPages.value.length : 0))
+const reportProjectionPageCount = computed(() => (reportProjectionEnabled.value ? comparisonDetailPages.value.length : 0))
+const reportTotalPageCount = computed(() =>
+  reportCoverPageCount.value + reportSummaryPageCount.value + reportTablePageCount.value + reportProjectionPageCount.value,
+)
+function reportSummaryPageNumber() {
+  return reportCoverPageCount.value + 1
+}
+function reportTablePageNumber(page: number) {
+  return reportCoverPageCount.value + reportSummaryPageCount.value + page + 1
+}
+function reportProjectionPageNumber(page: number) {
+  return reportCoverPageCount.value + reportSummaryPageCount.value + reportTablePageCount.value + page + 1
 }
 const selectedComparisonBar = computed(() => comparisonBars.value.find(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const rebarInspectionActive = ref(false)
@@ -1510,6 +1682,12 @@ const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAss
 watch(comparisonReportPages, (pages) => {
   comparisonReportPageIndex.value = Math.min(
     comparisonReportPageIndex.value,
+    Math.max(pages.length - 1, 0),
+  )
+})
+watch(comparisonDetailPages, (pages) => {
+  comparisonDetailPageIndex.value = Math.min(
+    comparisonDetailPageIndex.value,
     Math.max(pages.length - 1, 0),
   )
 })
@@ -5239,11 +5417,31 @@ function requestRender() {
     syncAnalysisLineResolutions()
     syncMeasurementBadges()
     syncPointcloudCameraPose()
-    if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
-      const renderedWithEdl = edlPipeline.render(scene, activeCamera)
-      if (!renderedWithEdl && !edlPipeline.enabled) edlEnabled.value = false
-    } else {
-      renderer.render(scene, activeCamera)
+
+    // BIM and point-cloud loading finish independently. Until the final
+    // combined pose has been restored, suppress the content group for this
+    // frame so the user never sees the transient BIM-only camera/placement.
+    // The group is restored immediately after rendering; bounds, tile LOD,
+    // and camera preparation can therefore continue while the scene loads.
+    const contentWasVisible = contentGroup?.visible ?? true
+    const waitingForCombinedScene = Boolean(props.pointcloudAssetId) && !initialSceneReady && (
+      loadingBim.value ||
+      loadingPointcloud.value ||
+      // A failed/blocked point-cloud load should still leave the BIM visible
+      // so the page can present its actionable error state.
+      (!pointcloudRootReady && !pointcloudPreprocessRequired.value) ||
+      (pointcloudRootReady && !loggedSavedAlignmentKey)
+    )
+    if (waitingForCombinedScene && contentGroup) contentGroup.visible = false
+    try {
+      if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
+        const renderedWithEdl = edlPipeline.render(scene, activeCamera)
+        if (!renderedWithEdl && !edlPipeline.enabled) edlEnabled.value = false
+      } else {
+        renderer.render(scene, activeCamera)
+      }
+    } finally {
+      if (contentGroup) contentGroup.visible = contentWasVisible
     }
   }
 
@@ -8342,8 +8540,8 @@ onBeforeUnmount(() => {
       <div class="topbar-left title-block">
         <el-button text :icon="ArrowLeft" aria-label="返回扫描点云" title="返回扫描点云" @click="closePage" />
         <div class="alignment-title-context">
-          <h1 class="brand-title">BIM 与点云校准</h1>
-          <span class="alignment-file-context" :title="pointcloudDisplayName">{{ pointcloudDisplayName || '未选择点云' }}</span>
+          <h1 class="brand-title">{{ activeWorkflowStepMeta?.title || 'BIM 与点云校准' }}</h1>
+          <span class="alignment-file-context" :title="titleBlockSubtitle">{{ titleBlockSubtitle }}</span>
         </div>
       </div>
 
@@ -8640,44 +8838,83 @@ onBeforeUnmount(() => {
           <span class="report-reader-divider"></span>
           <button type="button" :aria-label="reportEditing ? '退出编辑模式' : '编辑报告内容'" class="editing-toggle" :class="{ 'is-exit': reportEditing }" :title="reportEditing ? '退出编辑模式' : '编辑报告内容'" @click="reportEditing ? leaveReportEditor() : enterReportEditor()"><el-icon><Close v-if="reportEditing" /><EditPen v-else /></el-icon></button>
           <button v-if="reportEditing" type="button" title="完成本次编辑（仅当前页面）" aria-label="完成本次编辑" @click="saveReportEdits"><el-icon><Check /></el-icon></button>
+          <button v-if="reportEditing" type="button" title="重置报告文字与图片" aria-label="重置报告文字与图片" :disabled="!reportEditDirty" @click="resetReportEdits"><el-icon><RefreshLeft /></el-icon></button>
+          <button v-if="reportEditing" type="button" title="撤回上一步编辑（Ctrl/Cmd+Z）" aria-label="撤回上一步编辑" :disabled="!canUndoReportEdit" @click="undoReportEdit"><el-icon><Back /></el-icon></button>
           <button type="button" :title="reportFullscreen ? '退出全屏预览' : '全屏预览'" :aria-label="reportFullscreen ? '退出全屏预览' : '全屏预览'" :aria-pressed="reportFullscreen" :class="{ active: reportFullscreen }" @click="toggleReportFullscreen"><el-icon><FullScreen /></el-icon></button>
           <button type="button" title="下载报告" aria-label="下载报告" :disabled="!canUseC2MResult" @click="reportAction('export')"><el-icon><Download /></el-icon></button>
           <button type="button" title="收起工具栏" aria-label="收起工具栏" @click="reportToolbarCollapsed = true"><el-icon><ArrowUp /></el-icon></button>
         </div>
         <button v-else type="button" class="report-reader-toolbar-reopen" title="展开报告工具栏" aria-label="展开报告工具栏" @click="reportToolbarCollapsed = false"><el-icon><ArrowDown /></el-icon></button>
-        <div class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-if="reportCoverEnabled" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
           <div class="report-preview-page cover-paper" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
             <header class="cover-header">
-              <div class="cover-brand"><div class="report-preview-mark"><img :src="reportBrandMark" alt="系统标识" /></div><div><span>点云与工程坐标配准</span><strong>BIM 与点云校准系统</strong></div></div>
-              <div class="cover-report-number"><small>报告编号</small><strong>REPORT / 001</strong></div>
+              <div class="cover-brand">
+                <ReportEditable v-if="!isReportBlockRemoved('cover-mark')" tag="div" class="report-preview-mark" :edit="reportEditing" :editable="false" label="封面标识" @remove="removeReportBlock('cover-mark')"><img :src="reportBrandMark" alt="系统标识" /></ReportEditable>
+                <div>
+                  <ReportEditable v-if="!isReportBlockRemoved('cover-brand-kicker')" tag="span" :edit="reportEditing" :text="reportText('cover-brand-kicker', '点云与工程坐标配准')" label="封面副标题" @update:text="setReportTextValue('cover-brand-kicker', $event)" @remove="removeReportBlock('cover-brand-kicker')" />
+                  <ReportEditable v-if="!isReportBlockRemoved('cover-brand-title')" tag="strong" :edit="reportEditing" :text="reportText('cover-brand-title', 'BIM 与点云校准系统')" label="封面系统名称" @update:text="setReportTextValue('cover-brand-title', $event)" @remove="removeReportBlock('cover-brand-title')" />
+                </div>
+              </div>
+              <div class="cover-report-number">
+                <ReportEditable v-if="!isReportBlockRemoved('cover-number-label')" tag="small" :edit="reportEditing" :text="reportText('cover-number-label', '报告编号')" label="报告编号标签" @update:text="setReportTextValue('cover-number-label', $event)" @remove="removeReportBlock('cover-number-label')" />
+                <ReportEditable v-if="!isReportBlockRemoved('cover-number-value')" tag="strong" :edit="reportEditing" :text="reportText('cover-number-value', 'REPORT / 001')" label="报告编号" @update:text="setReportTextValue('cover-number-value', $event)" @remove="removeReportBlock('cover-number-value')" />
+              </div>
             </header>
-            <div class="cover-main"><h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1><p>Scan vs BIM Deviation Report</p><i aria-hidden="true"></i></div>
-            <dl class="cover-details"><div><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></div><div><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></div><div><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></div><div><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></div><div><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></div><div><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></div></dl>
-            <div class="cover-status"><span></span><div><small>当前检测状态</small><strong>{{ canUseC2MResult ? '逐钢筋偏差结果已生成' : '待生成有效偏差结果' }}</strong></div></div>
-            <div class="cover-footer"><span>BIM 与点云校准</span><span>第 01 页</span></div>
+            <div class="cover-main">
+              <h1 :contenteditable="reportEditing" @blur="updateReportField('title', $event)">{{ reportTitle }}</h1>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-subtitle')" tag="p" :edit="reportEditing" :text="reportText('cover-subtitle', 'Scan vs BIM Deviation Report')" label="封面英文标题" @update:text="setReportTextValue('cover-subtitle', $event)" @remove="removeReportBlock('cover-subtitle')" />
+              <ReportEditable v-if="!isReportBlockRemoved('cover-accent')" tag="i" :edit="reportEditing" :editable="false" label="封面装饰线" aria-hidden="true" @remove="removeReportBlock('cover-accent')" />
+            </div>
+            <dl class="cover-details">
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-project')" tag="div" :edit="reportEditing" :editable="false" label="项目名称行" @remove="removeReportBlock('cover-detail-project')"><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></ReportEditable>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-pointcloud')" tag="div" :edit="reportEditing" :editable="false" label="扫描点云文件行" @remove="removeReportBlock('cover-detail-pointcloud')"><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></ReportEditable>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-organization')" tag="div" :edit="reportEditing" :editable="false" label="检测单位行" @remove="removeReportBlock('cover-detail-organization')"><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></ReportEditable>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-inspectors')" tag="div" :edit="reportEditing" :editable="false" label="检测人员行" @remove="removeReportBlock('cover-detail-inspectors')"><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></ReportEditable>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-reviewer')" tag="div" :edit="reportEditing" :editable="false" label="审核人员行" @remove="removeReportBlock('cover-detail-reviewer')"><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></ReportEditable>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-date')" tag="div" :edit="reportEditing" :editable="false" label="生成日期行" @remove="removeReportBlock('cover-detail-date')"><dt>生成日期</dt><dd :contenteditable="reportEditing" @blur="updateReportField('date', $event)">{{ reportDate }}</dd></ReportEditable>
+            </dl>
+            <div class="cover-status"><span></span><div>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-status-label')" tag="small" :edit="reportEditing" :text="reportText('cover-status-label', '当前检测状态')" label="状态标签" @update:text="setReportTextValue('cover-status-label', $event)" @remove="removeReportBlock('cover-status-label')" />
+              <ReportEditable v-if="!isReportBlockRemoved('cover-status-value')" tag="strong" :edit="reportEditing" :text="reportText('cover-status-value', canUseC2MResult ? '逐钢筋偏差结果已生成' : '待生成有效偏差结果')" label="状态内容" @update:text="setReportTextValue('cover-status-value', $event)" @remove="removeReportBlock('cover-status-value')" />
+            </div></div>
+            <div class="cover-footer">
+              <ReportEditable v-if="!isReportBlockRemoved('cover-footer-left')" tag="span" :edit="reportEditing" :text="reportText('cover-footer-left', 'BIM 与点云校准')" label="封面页脚文字" @update:text="setReportTextValue('cover-footer-left', $event)" @remove="removeReportBlock('cover-footer-left')" />
+              <span>第 1 / {{ reportTotalPageCount }} 页</span>
+            </div>
           </div>
         </div>
-        <div v-if="canUseC2MResult" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-if="canUseC2MResult && reportSummaryVisible" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
           <article class="report-preview-page rebar-report-page report-summary-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <section v-for="item in reportContents.filter(entry => entry.enabled)" :key="item.id" class="report-data-section">
-              <h2>{{ item.title }}</h2>
+            <header class="report-preview-page__header">
+              <ReportEditable v-if="!isReportBlockRemoved('summary-mark')" tag="div" class="report-preview-mark" :edit="reportEditing" :editable="false" label="页眉标识" @remove="removeReportBlock('summary-mark')"><img :src="reportBrandMark" alt="系统标识" /></ReportEditable>
+              <div>
+                <strong>{{ reportTitle }}</strong>
+                <span>{{ reportProjectName }}</span>
+              </div>
+              <small>REPORT / 001 · {{ reportSummaryPageNumber() }} / {{ reportTotalPageCount }}</small>
+            </header>
+            <section v-for="item in reportSummarySections" :key="item.id" class="report-data-section">
+              <ReportEditable tag="h2" :edit="reportEditing" :removable="false" :text="reportText('summary-heading-' + item.id, item.title)" label="章节标题" @update:text="setReportTextValue('summary-heading-' + item.id, $event)" />
               <template v-if="item.id === 'summary'">
-                <p>{{ reportProjectName }} · {{ pointcloudDisplayName }}</p>
-                <p>共 {{ comparisonBars.length }} 根设计钢筋，工程容差 ±{{ comparisonReportToleranceMm }} mm。测量方式：{{ comparisonMeasurementLabel }}。</p>
+                <ReportEditable v-if="!isReportBlockRemoved('summary-line-project')" tag="p" :edit="reportEditing" :text="reportText('summary-line-project', `${reportProjectName} · ${pointcloudDisplayName}`)" label="摘要项目行" @update:text="setReportTextValue('summary-line-project', $event)" @remove="removeReportBlock('summary-line-project')" />
+                <ReportEditable v-if="!isReportBlockRemoved('summary-line-overview')" tag="p" :edit="reportEditing" :text="reportText('summary-line-overview', `共 ${comparisonBars.length} 根设计钢筋，工程容差 ±${comparisonReportToleranceMm} mm。测量方式：${comparisonMeasurementLabel}。`)" label="摘要说明" @update:text="setReportTextValue('summary-line-overview', $event)" @remove="removeReportBlock('summary-line-overview')" />
               </template>
               <dl v-else-if="item.id === 'statistics'" class="report-statistics">
-                <div><dt>平均绝对偏差</dt><dd>{{ ((c2mResult?.stats?.meanAbs ?? 0) * 1000).toFixed(2) }} mm</dd></div>
-                <div><dt>RMSE</dt><dd>{{ ((c2mResult?.stats?.rmse ?? 0) * 1000).toFixed(2) }} mm</dd></div>
-                <div><dt>P95 绝对偏差</dt><dd>{{ ((c2mResult?.stats?.p95Abs ?? 0) * 1000).toFixed(2) }} mm</dd></div>
-                <div><dt>容差内（已覆盖）</dt><dd>{{ formatC2MPercentage(c2mDisplayResult?.stats?.withinToleranceRatio) }}</dd></div>
+                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="平均绝对偏差" @remove="removeReportBlock('stat-mean')"><dt>{{ reportText('stat-mean-label', '平均绝对偏差') }}</dt><dd>{{ ((c2mResult?.stats?.meanAbs ?? 0) * 1000).toFixed(2) }} mm</dd></ReportEditable>
+                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="RMSE" @remove="removeReportBlock('stat-rmse')"><dt>{{ reportText('stat-rmse-label', 'RMSE') }}</dt><dd>{{ ((c2mResult?.stats?.rmse ?? 0) * 1000).toFixed(2) }} mm</dd></ReportEditable>
+                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="P95 绝对偏差" @remove="removeReportBlock('stat-p95')"><dt>{{ reportText('stat-p95-label', 'P95 绝对偏差') }}</dt><dd>{{ ((c2mResult?.stats?.p95Abs ?? 0) * 1000).toFixed(2) }} mm</dd></ReportEditable>
+                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="容差内（已覆盖）" @remove="removeReportBlock('stat-tolerance')"><dt>{{ reportText('stat-tolerance-label', '容差内（已覆盖）') }}</dt><dd>{{ formatC2MPercentage(c2mDisplayResult?.stats?.withinToleranceRatio) }}</dd></ReportEditable>
               </dl>
-              <C2MHistogramLegend v-else-if="item.id === 'histogram' && c2mDisplayResult" :result="c2mDisplayResult" :color-mode="c2mColorMode" :band-count="c2mBandCount" />
-              <p v-else-if="item.id === 'conclusion'">本报告提供实例约束的偏差预估。缺测与待复核钢筋不出具偏差结论，请结合逐筋明细复核；容差内比例仅统计已覆盖顶点。</p>
+              <ReportEditable v-else-if="item.id === 'histogram' && c2mDisplayResult && !isReportBlockRemoved('summary-histogram')" tag="div" :edit="reportEditing" :editable="false" label="直方图" @remove="removeReportBlock('summary-histogram')"><C2MHistogramLegend :result="c2mDisplayResult" :color-mode="c2mColorMode" :band-count="c2mBandCount" /></ReportEditable>
+              <ReportEditable v-else-if="item.id === 'conclusion'" tag="p" :edit="reportEditing" :text="reportText('summary-conclusion', '本报告提供实例约束的偏差预估。缺测与待复核钢筋不出具偏差结论，请结合逐筋明细复核；容差内比例仅统计已覆盖顶点。')" label="结论内容" @update:text="setReportTextValue('summary-conclusion', $event)" @remove="removeReportBlock('summary-conclusion')" />
             </section>
-            <footer>第 2 页 · 分析摘要</footer>
+            <footer class="report-preview-page__footer">
+              <ReportEditable v-if="!isReportBlockRemoved('summary-footer-left')" tag="span" :edit="reportEditing" :text="reportText('summary-footer-left', '分析摘要')" label="页脚文字" @update:text="setReportTextValue('summary-footer-left', $event)" @remove="removeReportBlock('summary-footer-left')" />
+              <span>第 {{ reportSummaryPageNumber() }} / {{ reportTotalPageCount }} 页</span>
+            </footer>
           </article>
         </div>
-        <div v-for="(bars, page) in comparisonReportPages" :key="`table-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-if="reportTableEnabled" v-for="(bars, page) in comparisonReportPages" :key="`table-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
           <nav v-if="comparisonReportPageCount > 1 && page === comparisonReportPageIndex" class="rebar-report-page-nav" aria-label="表格翻页">
             <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonReportPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
             <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonReportPageCount }} 页</strong><small>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }}</small></span>
@@ -8685,22 +8922,22 @@ onBeforeUnmount(() => {
           </nav>
           <article class="report-preview-page rebar-report-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
             <header class="report-preview-page__header">
-              <div class="report-preview-mark"><img :src="'/favicon.ico'" alt="系统标识" /></div>
+              <ReportEditable v-if="!isReportBlockRemoved('table-mark')" tag="div" class="report-preview-mark" :edit="reportEditing" :editable="false" label="页眉标识" @remove="removeReportBlock('table-mark')"><img :src="reportBrandMark" alt="系统标识" /></ReportEditable>
               <div>
                 <strong>{{ reportTitle }}</strong>
                 <span>{{ reportProjectName }}</span>
               </div>
-              <small>REPORT / 001 · {{ page + 2 }} / {{ comparisonReportTotalPages }}</small>
+              <small>REPORT / 001 · {{ reportTablePageNumber(page) }} / {{ reportTotalPageCount }}</small>
             </header>
             <div class="rebar-report-heading">
               <div>
-                <h2>逐钢筋偏差明细</h2>
+                <ReportEditable tag="h2" :edit="reportEditing" :removable="false" :text="reportText('table-heading', reportTableTitle)" label="章节标题" @update:text="setReportTextValue('table-heading', $event)" />
               </div>
             </div>
             <div class="rebar-report-meta">
-              <span>容差 <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
-              <span>测量方向 <strong>设计顶点 → 对应扫描实例最近点</strong></span>
-              <span>已排除设计夹具</span>
+              <span><ReportEditable tag="span" :edit="reportEditing" :removable="false" :text="reportText('table-meta-tolerance', '容差')" label="容差标签" @update:text="setReportTextValue('table-meta-tolerance', $event)" /> <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
+              <span><ReportEditable tag="span" :edit="reportEditing" :removable="false" :text="reportText('table-meta-direction', '测量方向')" label="测量方向标签" @update:text="setReportTextValue('table-meta-direction', $event)" /> <strong>设计顶点 → 对应扫描实例最近点</strong></span>
+              <ReportEditable tag="span" :edit="reportEditing" :text="reportText('table-meta-note', '已排除设计夹具')" label="补充说明" @update:text="setReportTextValue('table-meta-note', $event)" @remove="removeReportBlock('table-meta-note')" />
             </div>
             <table class="rebar-report-table">
               <colgroup><col class="rebar-report-table__member" /><col class="rebar-report-table__status" /><col class="rebar-report-table__coverage" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__tolerance" /></colgroup>
@@ -8716,33 +8953,73 @@ onBeforeUnmount(() => {
               </tr></tbody>
             </table>
             <div v-if="bars[0]?.status === 'matched'" class="rebar-report-inline-views" aria-label="对应钢筋构件三视图">
-              <div class="rebar-report-view-guide" aria-label="三视图图例">
+              <ReportEditable v-if="!isReportBlockRemoved('table-view-guide')" tag="div" class="rebar-report-view-guide" :edit="reportEditing" :editable="false" label="三视图图例" aria-label="三视图图例" @remove="removeReportBlock('table-view-guide')">
                 <span><i class="rebar-report-view-guide__swatch is-design"></i><b>蓝色实体/轮廓</b> BIM 设计模型</span>
                 <span><i class="rebar-report-view-guide__swatch is-scan"></i><b>绿色离散点</b> 当前钢筋实测点云</span>
                 <span><i class="rebar-report-view-guide__swatch is-axis"></i><b>橙色虚线</b> 设计轴（正视/俯视）</span>
-              </div>
+              </ReportEditable>
               <section v-for="bar in bars" :key="`inline-view-${bar.ifcGlobalId}`" class="rebar-report-inline-card">
                 <div class="rebar-report-views" aria-label="钢筋构件三视图">
-                  <div v-for="projection in (['front', 'top', 'side'] as ReportViewProjection[])" :key="projection" class="rebar-report-view">
+                  <ReportEditable
+                    v-for="projection in (['front', 'top', 'side'] as ReportViewProjection[])"
+                    v-show="!isReportBlockRemoved(`view-${bar.ifcGlobalId}-${projection}`)"
+                    :key="projection"
+                    tag="div"
+                    class="rebar-report-view"
+                    :edit="reportEditing"
+                    :editable="false"
+                    :label="`${reportViewLabel(projection)}视图`"
+                    @remove="removeReportBlock(`view-${bar.ifcGlobalId}-${projection}`)"
+                  >
                     <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}</strong>
                     <svg :key="reportSvgRevision" class="rebar-report-model-svg" viewBox="0 0 400 760" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`${reportViewLabel(projection)}设计与实测偏差视图`" v-html="reportSvgFor(bar.ifcGlobalId, projection)"></svg>
-                  </div>
+                  </ReportEditable>
                 </div>
               </section>
             </div>
-            <footer class="report-preview-page__footer"><span>BIM 与点云校准 · 逐钢筋偏差与构件三视图报告</span><span>钢筋 {{ page + 1 }} / {{ comparisonBars.length }} · 第 {{ page + 2 }} / {{ comparisonReportTotalPages }} 页</span></footer>
+            <footer class="report-preview-page__footer">
+              <ReportEditable v-if="!isReportBlockRemoved('table-footer-left')" tag="span" :edit="reportEditing" :text="reportText('table-footer-left', 'BIM 与点云校准 · 逐钢筋偏差与构件三视图报告')" label="页脚文字" @update:text="setReportTextValue('table-footer-left', $event)" @remove="removeReportBlock('table-footer-left')" />
+              <span>钢筋 {{ page + 1 }} / {{ comparisonBars.length }} · 第 {{ reportTablePageNumber(page) }} / {{ reportTotalPageCount }} 页</span>
+            </footer>
           </article>
         </div>
-        <div v-for="(bars, page) in comparisonDetailPages" :key="`detail-${page}`" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-if="reportProjectionEnabled" v-for="(bars, page) in comparisonDetailPages" :key="`detail-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonDetailPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+          <nav v-if="comparisonDetailPageCount > 1 && page === comparisonDetailPageIndex" class="rebar-report-page-nav" aria-label="投影表格翻页">
+            <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonDetailPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
+            <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonDetailPageCount }} 页</strong><small>钢筋 {{ page * reportBarsPerPage + 1 }}–{{ page * reportBarsPerPage + bars.length }} / {{ comparisonBars.length }}</small></span>
+            <button type="button" aria-label="下一页" title="下一页" :disabled="page >= comparisonDetailPageCount - 1" @click="changeComparisonDetailPage(1)"><el-icon><ArrowRight /></el-icon></button>
+          </nav>
           <article class="report-preview-page rebar-report-page rebar-projection-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <h2>逐钢筋投影与偏差</h2>
-            <p>{{ reportProjectName }} · {{ comparisonMeasurementLabel }} · 图形等比例，尺寸单位 mm</p>
+            <header class="report-preview-page__header">
+              <ReportEditable v-if="!isReportBlockRemoved('projection-mark')" tag="div" class="report-preview-mark" :edit="reportEditing" :editable="false" label="页眉标识" @remove="removeReportBlock('projection-mark')"><img :src="reportBrandMark" alt="系统标识" /></ReportEditable>
+              <div>
+                <strong>{{ reportTitle }}</strong>
+                <span>{{ reportProjectName }}</span>
+              </div>
+              <small>REPORT / 001 · {{ reportProjectionPageNumber(page) }} / {{ reportTotalPageCount }}</small>
+            </header>
+            <ReportEditable tag="h2" :edit="reportEditing" :removable="false" :text="reportText('projection-heading', reportProjectionTitle)" label="章节标题" @update:text="setReportTextValue('projection-heading', $event)" />
+            <ReportEditable v-if="!isReportBlockRemoved('projection-description')" tag="p" :edit="reportEditing" :text="reportText('projection-description', `${reportProjectName} · ${comparisonMeasurementLabel} · 图形等比例，尺寸单位 mm`)" label="说明文字" @update:text="setReportTextValue('projection-description', $event)" @remove="removeReportBlock('projection-description')" />
             <div class="rebar-projection-page__bars">
-              <RebarDeviationDetail v-for="bar in bars" :key="bar.ifcGlobalId" :bar="bar" report />
+              <ReportEditable
+                v-for="bar in bars"
+                v-show="!isReportBlockRemoved(`detail-${bar.ifcGlobalId}`)"
+                :key="bar.ifcGlobalId"
+                tag="section"
+                :edit="reportEditing"
+                :editable="false"
+                :label="`${bar.name || bar.designBarId} 详情`"
+                @remove="removeReportBlock(`detail-${bar.ifcGlobalId}`)"
+              >
+                <RebarDeviationDetail :bar="bar" report />
+              </ReportEditable>
             </div>
-            <p>灰色虚线：设计中心线；蓝色实线及圆点：实测拟合中心线。断开处为缺测，最大值仅针对已测范围。弯曲为各直线段扣除整体偏移与倾斜后的残余弓高估计，覆盖不足不出具结论。</p>
-            <p class="rebar-report-provenance">结果版本：{{ c2mResult?.resultVersion }}</p>
-            <footer>第 {{ comparisonReportPages.length + page + 3 }} 页 · 钢筋 {{ page * reportBarsPerPage + 1 }}–{{ page * reportBarsPerPage + bars.length }} / {{ comparisonBars.length }}</footer>
+            <ReportEditable v-if="!isReportBlockRemoved('projection-legend')" tag="p" :edit="reportEditing" :text="reportText('projection-legend', '灰色虚线：设计中心线；蓝色实线及圆点：实测拟合中心线。断开处为缺测，最大值仅针对已测范围。弯曲为各直线段扣除整体偏移与倾斜后的残余弓高估计，覆盖不足不出具结论。')" label="图例说明" @update:text="setReportTextValue('projection-legend', $event)" @remove="removeReportBlock('projection-legend')" />
+            <ReportEditable v-if="!isReportBlockRemoved('projection-provenance')" tag="p" class="rebar-report-provenance" :edit="reportEditing" :text="reportText('projection-provenance', `结果版本：${c2mResult?.resultVersion ?? ''}`)" label="结果版本" @update:text="setReportTextValue('projection-provenance', $event)" @remove="removeReportBlock('projection-provenance')" />
+            <footer class="report-preview-page__footer">
+              <ReportEditable v-if="!isReportBlockRemoved('projection-footer-left')" tag="span" :edit="reportEditing" :text="reportText('projection-footer-left', reportProjectionTitle)" label="页脚文字" @update:text="setReportTextValue('projection-footer-left', $event)" @remove="removeReportBlock('projection-footer-left')" />
+              <span>钢筋 {{ page * reportBarsPerPage + 1 }}–{{ page * reportBarsPerPage + bars.length }} / {{ comparisonBars.length }} · 第 {{ reportProjectionPageNumber(page) }} / {{ reportTotalPageCount }} 页</span>
+            </footer>
           </article>
         </div>
       </section>
@@ -8816,9 +9093,10 @@ onBeforeUnmount(() => {
                 <header v-if="group !== '基础信息'"><strong>{{ group }}</strong><span>{{ reportContents.filter((item) => item.group === group).length }}</span></header>
                 <article v-for="item in reportContents.filter((entry) => entry.group === group)" :key="item.id" :class="{ disabled: !item.enabled }">
                   <el-switch v-model="item.enabled" :disabled="item.locked" :aria-label="`显示或隐藏${item.title}`" />
-                  <el-input v-model="item.title" :disabled="item.locked" :aria-label="`${item.title}章节名称`" maxlength="40" />
+                  <el-input v-model="item.title" :disabled="item.locked || item.id === 'cover'" :aria-label="`${item.title}章节名称`" maxlength="40" />
                   <div class="content-actions"><button type="button" :title="`删除${item.title}章节`" :aria-label="`删除${item.title}章节`" :disabled="item.locked" @click="reportContents = reportContents.filter((entry) => entry.id !== item.id)"><el-icon><Delete /></el-icon></button></div>
                   <small v-if="item.locked">模板固定内容</small>
+                  <small v-else-if="item.id === 'cover'">标题由“报告名称”控制</small>
                 </article>
               </section>
             </div>
