@@ -28,6 +28,7 @@ export default defineConfig(({ mode }) => {
         '/alignments': createProxyConfig(apiProxyTarget),
         // System management APIs share the `/system` prefix with the SPA route;
         // the bypass below keeps HTML navigations on the Vite dev server.
+        '/operator': createProxyConfig(apiProxyTarget),
         '/system': createProxyConfig(apiProxyTarget),
         // Measurement records use a top-level DELETE endpoint in the backend
         // (`/measurements/:measurementId`) in addition to the asset-scoped

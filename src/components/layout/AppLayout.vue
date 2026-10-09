@@ -118,6 +118,7 @@ function goTopTab(tab: 'projects' | 'devices' | 'system') {
                 <span class="menu-icon"><el-icon><MagicStick /></el-icon></span>
                 <span class="menu-text"><span class="menu-title">扫描点云</span><span class="menu-status">扫描归档与分析</span></span>
               </button>
+              <button class="menu-item" title="工人操作" @click="go('/operator')"><span class="menu-icon"><el-icon><Monitor /></el-icon></span><span class="menu-text"><span class="menu-title">工人操作</span><span class="menu-status">开始检测与三维查看</span></span></button>
               <button class="menu-item" :class="{ 'is-active': activePath === '/inspection' }" :aria-current="activePath === '/inspection' ? 'page' : undefined" title="工位检测" @click="go('/inspection')">
                 <span class="menu-icon"><el-icon><DataBoard /></el-icon></span>
                 <span class="menu-text"><span class="menu-title">工位检测</span><span class="menu-status">问题确认与复检</span></span>

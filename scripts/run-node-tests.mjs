@@ -11,6 +11,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const suites = [
   'list-state.test.ts',
   'navigation.test.ts',
+  'test_auth_logout.mjs',
+  '../src/features/operator/operator-geometry.test.ts',
   'test_alignment_transform_state.mjs',
   'test_c2m_search_settings.mjs',
   'test_c2m_colormap.mjs',

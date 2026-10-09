@@ -148,18 +148,19 @@ type Alignment struct {
 	InlierCount          int       `json:"modelInlierCount"`
 }
 type DBUser struct {
-	ID           int64  `gorm:"primaryKey"`
-	Username     string `gorm:"size:128;uniqueIndex;not null"`
-	PasswordHash string `gorm:"size:255;not null"`
-	DisplayName  string `gorm:"size:128"`
-	Email        string `gorm:"size:160"`
-	Phone        string `gorm:"size:32"`
-	Role         string `gorm:"size:32;index;not null;default:member"`
-	Status       string `gorm:"size:32;index;not null;default:active"`
-	TokenVersion int    `gorm:"not null;default:0"`
-	LastLoginAt  *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                int64  `gorm:"primaryKey"`
+	Username          string `gorm:"size:128;uniqueIndex;not null"`
+	PasswordHash      string `gorm:"size:255;not null"`
+	DisplayName       string `gorm:"size:128"`
+	Email             string `gorm:"size:160"`
+	Phone             string `gorm:"size:32"`
+	Role              string `gorm:"size:32;index;not null;default:member"`
+	OperatorProjectID *int64 `json:"operatorProjectId" gorm:"index"`
+	Status            string `gorm:"size:32;index;not null;default:active"`
+	TokenVersion      int    `gorm:"not null;default:0"`
+	LastLoginAt       *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // DBSystemSetting holds workspace-level configuration that administrators can
@@ -821,6 +822,11 @@ func (a *app) authRequired() gin.HandlerFunc {
 		}
 		c.Set("userID", id)
 		c.Set("userRole", normalizeUserRole(account.Role))
+		if normalizeUserRole(account.Role) == roleOperator && !operatorRouteAllowed(c.Request.Method, c.Request.URL.Path) {
+			fail(c, http.StatusForbidden, "操作员仅可访问已分配的检测工位")
+			c.Abort()
+			return
+		}
 		if exp, err := claims.GetExpirationTime(); err == nil && exp != nil {
 			c.Set("sessionExpiresAt", exp.Time)
 		}
@@ -938,7 +944,7 @@ func (a *app) login(c *gin.Context) {
 		fail(c, 500, "生成 token 失败")
 		return
 	}
-	ok(c, gin.H{"token": signed, "role": normalizeUserRole(found.Role), "expiresAt": now.Add(a.cfg.JWTExpiresIn)})
+	ok(c, gin.H{"token": signed, "role": normalizeUserRole(found.Role), "operatorProjectId": found.OperatorProjectID, "expiresAt": now.Add(a.cfg.JWTExpiresIn)})
 }
 
 // issueSession signs a JWT that pins the account's current token version and
@@ -1003,7 +1009,8 @@ func (a *app) me(c *gin.Context) {
 	ok(c, gin.H{
 		"id": u.ID, "username": u.Username, "displayName": u.DisplayName, "email": u.Email,
 		"phone": u.Phone, "role": normalizeUserRole(u.Role), "status": normalizeUserStatus(u.Status),
-		"createdAt": u.CreatedAt, "updatedAt": u.UpdatedAt,
+		"operatorProjectId": u.OperatorProjectID,
+		"createdAt":         u.CreatedAt, "updatedAt": u.UpdatedAt,
 		"lastLoginAt": u.LastLoginAt, "projectCount": projectCount, "assetCount": assetCount,
 		"alignmentCount": alignmentCount,
 	})
@@ -5136,8 +5143,14 @@ func main() {
 	r.GET("/system/settings", a.adminRequired(), a.getSettings)
 	r.PATCH("/system/settings", a.adminRequired(), a.updateSettings)
 	r.GET("/system/members", a.listMembers)
+	r.POST("/system/members", a.adminRequired(), a.createOperatorMember)
 	r.PATCH("/system/members/:id", a.adminRequired(), a.updateMember)
 	r.DELETE("/system/members/:id", a.adminRequired(), a.deleteMember)
+	r.GET("/operator/tasks", a.operatorTasks)
+	r.GET("/operator/tasks/:scanId/result", a.operatorResult)
+	r.GET("/operator/tasks/:scanId/geometry", a.operatorGeometry)
+	r.GET("/operator/reports/:version/actions", a.operatorListActions)
+	r.POST("/operator/reports/:version/actions", a.operatorCreateAction)
 	r.GET("/projects", a.listProjects)
 	r.POST("/projects", a.createProject)
 	r.PATCH("/projects/:id", a.updateProject)

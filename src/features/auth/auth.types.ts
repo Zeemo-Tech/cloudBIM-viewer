@@ -7,7 +7,7 @@ export interface RegisterPayload extends LoginPayload {
   registerCode: string
 }
 
-export type MemberRole = 'admin' | 'member'
+export type MemberRole = 'admin' | 'member' | 'operator'
 
 export interface AuthUser {
   id: number

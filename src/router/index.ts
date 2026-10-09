@@ -34,6 +34,7 @@ const router = createRouter({
       name: 'system',
       component: RouteShell,
     },
+    { path: '/operator', name: 'operator', component: RouteShell },
     { path: '/inspection', name: 'inspection', component: RouteShell },
     {
       path: '/devices',

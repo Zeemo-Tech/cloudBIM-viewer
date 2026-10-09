@@ -20,8 +20,9 @@ import (
 const (
 	sessionCookieName = "cloudbim_session"
 
-	roleAdmin  = "admin"
-	roleMember = "member"
+	roleAdmin    = "admin"
+	roleMember   = "member"
+	roleOperator = "operator"
 
 	userStatusActive   = "active"
 	userStatusDisabled = "disabled"
@@ -40,6 +41,9 @@ const (
 )
 
 func normalizeUserRole(role string) string {
+	if strings.EqualFold(strings.TrimSpace(role), roleOperator) {
+		return roleOperator
+	}
 	if strings.EqualFold(strings.TrimSpace(role), roleAdmin) {
 		return roleAdmin
 	}
@@ -54,6 +58,9 @@ func normalizeUserStatus(status string) string {
 }
 
 func roleLabel(role string) string {
+	if normalizeUserRole(role) == roleOperator {
+		return "操作员"
+	}
 	if normalizeUserRole(role) == roleAdmin {
 		return "管理员"
 	}
@@ -548,6 +555,9 @@ func (a *app) systemInfo(c *gin.Context) {
 }
 
 func (a *app) permissionList(role string) []string {
+	if normalizeUserRole(role) == roleOperator {
+		return []string{"operator:assigned-task:read", "operator:inspection-action:create"}
+	}
 	if normalizeUserRole(role) == roleAdmin {
 		return []string{"workspace:read", "member:manage", "asset:manage"}
 	}
@@ -563,21 +573,22 @@ func (a *app) memberResponse(account DBUser, viewerID int64, activeAdmins int64,
 	role := normalizeUserRole(account.Role)
 	status := normalizeUserStatus(account.Status)
 	item := gin.H{
-		"id":               account.ID,
-		"username":         account.Username,
-		"displayName":      account.DisplayName,
-		"role":             role,
-		"roleLabel":        roleLabel(role),
-		"status":           status,
-		"createdAt":        account.CreatedAt,
-		"updatedAt":        account.UpdatedAt,
-		"lastLoginAt":      account.LastLoginAt,
-		"projectCount":     usage.ProjectCount,
-		"assetCount":       usage.AssetCount,
-		"alignmentCount":   usage.AlignmentCount,
-		"measurementCount": usage.MeasurementCount,
-		"isSelf":           account.ID == viewerID,
-		"isLastAdmin":      role == roleAdmin && status == userStatusActive && activeAdmins <= 1,
+		"id":                account.ID,
+		"username":          account.Username,
+		"displayName":       account.DisplayName,
+		"role":              role,
+		"operatorProjectId": account.OperatorProjectID,
+		"roleLabel":         roleLabel(role),
+		"status":            status,
+		"createdAt":         account.CreatedAt,
+		"updatedAt":         account.UpdatedAt,
+		"lastLoginAt":       account.LastLoginAt,
+		"projectCount":      usage.ProjectCount,
+		"assetCount":        usage.AssetCount,
+		"alignmentCount":    usage.AlignmentCount,
+		"measurementCount":  usage.MeasurementCount,
+		"isSelf":            account.ID == viewerID,
+		"isLastAdmin":       role == roleAdmin && status == userStatusActive && activeAdmins <= 1,
 	}
 	if includeContact {
 		item["email"] = account.Email
@@ -631,10 +642,11 @@ func (a *app) updateMember(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Role   *string `json:"role"`
-		Status *string `json:"status"`
+		Role              *string         `json:"role"`
+		Status            *string         `json:"status"`
+		OperatorProjectID json.RawMessage `json:"operatorProjectId"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || (req.Role == nil && req.Status == nil) {
+	if err := c.ShouldBindJSON(&req); err != nil || (req.Role == nil && req.Status == nil && req.OperatorProjectID == nil) {
 		fail(c, 400, "成员变更参数不完整")
 		return
 	}
@@ -647,8 +659,8 @@ func (a *app) updateMember(c *gin.Context) {
 	nextStatus := normalizeUserStatus(target.Status)
 	if req.Role != nil {
 		value := strings.ToLower(strings.TrimSpace(*req.Role))
-		if value != roleAdmin && value != roleMember {
-			fail(c, 400, "角色只能是 admin 或 member")
+		if value != roleAdmin && value != roleMember && value != roleOperator {
+			fail(c, 400, "角色只能是 admin、member 或 operator")
 			return
 		}
 		nextRole = value
@@ -661,6 +673,32 @@ func (a *app) updateMember(c *gin.Context) {
 		}
 		nextStatus = value
 	}
+	nextProject := target.OperatorProjectID
+	if req.OperatorProjectID != nil {
+		// Decode into a new pointer: decoding into nextProject would mutate the
+		// target's existing pointed-to ID and erase the old/new comparison.
+		var requestedProject *int64
+		if err := json.Unmarshal(req.OperatorProjectID, &requestedProject); err != nil {
+			fail(c, 400, "分配项目 ID 无效")
+			return
+		}
+		nextProject = requestedProject
+	}
+	if nextRole != roleOperator {
+		if req.OperatorProjectID != nil && nextProject != nil {
+			fail(c, 400, "仅操作员可分配工位项目")
+			return
+		}
+		nextProject = nil
+	}
+	assignmentChanged := nextProject != nil && (target.OperatorProjectID == nil || *nextProject != *target.OperatorProjectID)
+	enteringOperatorRole := nextRole == roleOperator && normalizeUserRole(target.Role) != roleOperator
+	if nextProject != nil && (assignmentChanged || enteringOperatorRole) {
+		if err := a.validateOperatorAssignment(userID(c), *nextProject); err != nil {
+			fail(c, 400, "只能分配管理员本人拥有的项目")
+			return
+		}
+	}
 	// The workspace must keep one usable administrator at all times.
 	activeAdmins := a.countActiveAdmins()
 	targetIsActiveAdmin := normalizeUserRole(target.Role) == roleAdmin && normalizeUserStatus(target.Status) == userStatusActive
@@ -670,7 +708,7 @@ func (a *app) updateMember(c *gin.Context) {
 		return
 	}
 	now := time.Now()
-	updates := map[string]any{"role": nextRole, "status": nextStatus, "updated_at": now}
+	updates := map[string]any{"role": nextRole, "status": nextStatus, "operator_project_id": nextProject, "updated_at": now}
 	if err := a.db.Model(&DBUser{}).Where("id = ?", target.ID).Updates(updates).Error; err != nil {
 		fail(c, 500, "保存成员变更失败")
 		return
@@ -684,6 +722,7 @@ func (a *app) updateMember(c *gin.Context) {
 		}
 	}
 	target.Role, target.Status, target.UpdatedAt = nextRole, nextStatus, now
+	target.OperatorProjectID = nextProject
 	ok(c, a.memberResponse(target, userID(c), a.countActiveAdmins(), true))
 }
 

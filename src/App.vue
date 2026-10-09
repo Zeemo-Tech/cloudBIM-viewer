@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   logoutCurrentSession,
@@ -16,6 +16,7 @@ const UploadView = defineAsyncComponent(() => import('@/views/upload/SimpleUploa
 const ProjectSurveyView = defineAsyncComponent(() => import('@/views/project/ProjectSurveyView.vue'))
 const DesignView = defineAsyncComponent(() => import('@/views/design/DesignView.vue'))
 const SystemManagementView = defineAsyncComponent(() => import('@/views/system/SystemManagementView.vue'))
+const OperatorStation = defineAsyncComponent(() => import('@/views/operator/OperatorStation.vue'))
 const InspectionDesk = defineAsyncComponent(() => import('@/views/inspection/InspectionDesk.vue'))
 const DeviceCenterView = defineAsyncComponent(() => import('@/views/devices/DeviceCenterView.vue'))
 const BimPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/bim-preview')).BimPreviewPage)
@@ -39,6 +40,8 @@ const currentView = computed(() => {
   if (!session.value) {
     return 'login'
   }
+
+  if (session.value.role === 'operator' || routeState.value.path === '/operator') return 'operator'
 
   if (routeState.value.path === '/' || routeState.value.path.startsWith('/projects')) {
     return 'project-selection'
@@ -95,6 +98,10 @@ const currentView = computed(() => {
   }
 
   return 'project-selection'
+})
+
+watch(() => [session.value?.role, route.path], () => {
+  if (session.value?.role === 'operator' && route.path !== '/operator') void router.replace('/operator')
 })
 
 function handleLoginSuccess(nextSession: AuthSession) {
@@ -178,8 +185,10 @@ async function handleSessionUpdated() {
     @logout="handleLogout"
   />
 
+  <OperatorStation v-if="session && currentView === 'operator'" :session="session" @logout="handleLogout" />
+
   <BimPreviewPage
-    v-if="session && currentView === 'asset-preview' && routeState.previewType !== 'pointcloud'"
+    v-else-if="session && currentView === 'asset-preview' && routeState.previewType !== 'pointcloud'"
     :key="routeKey"
     :asset-id="routeState.assetId"
     :display-name="routeState.displayName"

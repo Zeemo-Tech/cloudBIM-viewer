@@ -22,6 +22,7 @@ type DBInspectionAction struct {
 	ID            int64     `json:"id" gorm:"primaryKey"`
 	RunID         int64     `json:"-" gorm:"not null;uniqueIndex:idx_inspection_action_step;index"`
 	OwnerID       int64     `json:"-" gorm:"not null;index"`
+	ActorID       int64     `json:"actorId" gorm:"index;not null;default:0"`
 	ResultVersion string    `json:"resultVersion" gorm:"size:64;not null;index"`
 	IFCGlobalID   string    `json:"ifcGlobalId" gorm:"size:255;not null;uniqueIndex:idx_inspection_action_step"`
 	Action        string    `json:"action" gorm:"size:32;not null;uniqueIndex:idx_inspection_action_step"`
@@ -50,8 +51,12 @@ func (e *inspectionActionError) Error() string { return e.msg }
 var inspectionActionSQLiteMu sync.Mutex
 
 func (a *app) listInspectionActions(c *gin.Context) {
+	a.listInspectionActionsForOwner(c, userID(c))
+}
+
+func (a *app) listInspectionActionsForOwner(c *gin.Context, ownerID int64) {
 	var run DBC2MReportRun
-	if err := a.db.WithContext(c.Request.Context()).Where("owner_id = ? AND result_version = ?", userID(c), c.Param("version")).First(&run).Error; err != nil {
+	if err := a.db.WithContext(c.Request.Context()).Where("owner_id = ? AND result_version = ?", ownerID, c.Param("version")).First(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			fail(c, http.StatusNotFound, "C2M 报告不存在")
 		} else {
@@ -60,7 +65,7 @@ func (a *app) listInspectionActions(c *gin.Context) {
 		return
 	}
 	items := make([]DBInspectionAction, 0)
-	if err := a.db.WithContext(c.Request.Context()).Where("owner_id = ? AND run_id = ?", userID(c), run.ID).Order("id ASC").Find(&items).Error; err != nil {
+	if err := a.db.WithContext(c.Request.Context()).Where("owner_id = ? AND run_id = ?", ownerID, run.ID).Order("id ASC").Find(&items).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "查询处置记录失败")
 		return
 	}
@@ -68,6 +73,13 @@ func (a *app) listInspectionActions(c *gin.Context) {
 }
 
 func (a *app) createInspectionAction(c *gin.Context) {
+	a.createInspectionActionForOwner(c, func(_ *gorm.DB) (int64, error) { return userID(c), nil })
+}
+
+// resolveOwner is called inside the write transaction, before the shared parent
+// row lock. Operator routes validate the current assignment without impersonating
+// the report owner; actor identity always remains the authenticated account.
+func (a *app) createInspectionActionForOwner(c *gin.Context, resolveOwner func(*gorm.DB) (int64, error)) {
 	var req inspectionActionRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10))
 	decoder.DisallowUnknownFields()
@@ -104,9 +116,13 @@ func (a *app) createInspectionAction(c *gin.Context) {
 	}
 	var item DBInspectionAction
 	err := a.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		ownerID, err := resolveOwner(tx)
+		if err != nil {
+			return err
+		}
 		var run DBC2MReportRun
 		// Lock the parent row, which exists even when this bar has no events yet.
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("owner_id = ? AND result_version = ?", userID(c), c.Param("version")).First(&run).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("owner_id = ? AND result_version = ?", ownerID, c.Param("version")).First(&run).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return &inspectionActionError{http.StatusNotFound, "C2M 报告不存在"}
 			}
@@ -120,7 +136,7 @@ func (a *app) createInspectionAction(c *gin.Context) {
 			return err
 		}
 		var previous []DBInspectionAction
-		if err := tx.Where("owner_id = ? AND run_id = ? AND ifc_global_id = ? AND demonstration = ?", userID(c), run.ID, req.IFCGlobalID, req.Demonstration).Order("id ASC").Find(&previous).Error; err != nil {
+		if err := tx.Where("owner_id = ? AND run_id = ? AND ifc_global_id = ? AND demonstration = ?", ownerID, run.ID, req.IFCGlobalID, req.Demonstration).Order("id ASC").Find(&previous).Error; err != nil {
 			return err
 		}
 		if len(previous) >= len(steps) {
@@ -134,7 +150,7 @@ func (a *app) createInspectionAction(c *gin.Context) {
 		if req.Action != steps[len(previous)] {
 			return &inspectionActionError{http.StatusConflict, "须依次确认问题、登记调整、申请复检，不可跳步或重复"}
 		}
-		item = DBInspectionAction{RunID: run.ID, OwnerID: userID(c), ResultVersion: run.ResultVersion, IFCGlobalID: req.IFCGlobalID, Action: req.Action, Note: req.Note, Demonstration: req.Demonstration}
+		item = DBInspectionAction{RunID: run.ID, OwnerID: ownerID, ActorID: userID(c), ResultVersion: run.ResultVersion, IFCGlobalID: req.IFCGlobalID, Action: req.Action, Note: req.Note, Demonstration: req.Demonstration}
 		return tx.Create(&item).Error
 	})
 	if err != nil {

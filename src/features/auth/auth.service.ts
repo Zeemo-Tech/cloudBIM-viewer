@@ -32,7 +32,7 @@ function createSession(user: AuthUser) {
     id: user.id,
     username: user.username,
     displayName: user.displayName?.trim() || user.username,
-    role: user.role === 'admin' ? 'admin' : 'member',
+    role: user.role === 'admin' ? 'admin' : user.role === 'operator' ? 'operator' : 'member',
     loginAt: new Date().toISOString(),
   } satisfies AuthSession
 }
@@ -155,7 +155,11 @@ export async function validateStoredSession(): Promise<AuthSession | null> {
 }
 
 export async function logoutCurrentSession() {
-  await logout()
+  try {
+    await logout()
+  } finally {
+    clearStoredSession()
+  }
 }
 
 // Account management lives next to the session helpers so the system page reuses

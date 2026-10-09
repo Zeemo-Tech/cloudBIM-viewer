@@ -1,6 +1,6 @@
 import { backendRequest, type BackendResult } from '@cloudbim/viewer-core'
 
-export type MemberRole = 'admin' | 'member'
+export type MemberRole = 'admin' | 'member' | 'operator'
 export type MemberStatus = 'active' | 'disabled'
 
 export interface WorkspaceMember {
@@ -11,6 +11,7 @@ export interface WorkspaceMember {
   phone?: string
   role: MemberRole
   roleLabel: string
+  operatorProjectId?: number | null
   status: MemberStatus
   createdAt: string
   updatedAt: string
@@ -106,7 +107,7 @@ export function listWorkspaceMembers() {
   return backendRequest<BackendResult<MemberListResult>>('/system/members', { method: 'GET' })
 }
 
-export function updateWorkspaceMember(id: number, payload: { role?: MemberRole; status?: MemberStatus }) {
+export function updateWorkspaceMember(id: number, payload: { role?: MemberRole; status?: MemberStatus; operatorProjectId?: number | null }) {
   return backendRequest<BackendResult<WorkspaceMember>>(`/system/members/${id}`, {
     method: 'PATCH',
     data: payload,
@@ -118,4 +119,8 @@ export function deleteWorkspaceMember(id: number) {
     `/system/members/${id}`,
     { method: 'DELETE' },
   )
+}
+
+export function createOperatorAccount(payload: { username: string; password: string; displayName: string; operatorProjectId: number | null }) {
+  return backendRequest<BackendResult<WorkspaceMember>>('/system/members', { method: 'POST', data: payload })
 }

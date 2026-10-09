@@ -9,7 +9,7 @@ export interface AccountProfile extends AuthUser {
   displayName: string
   email: string
   phone: string
-  role: 'admin' | 'member'
+  role: 'admin' | 'member' | 'operator'
   status: 'active' | 'disabled'
   createdAt: string
   updatedAt: string
