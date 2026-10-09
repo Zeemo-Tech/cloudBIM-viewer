@@ -4,8 +4,9 @@ import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
 import * as THREE from 'three'
+import { rawWorldMatrixForAlignment, alignmentMatrixFromResult, scanToBimRigidTransform, modelPairsFromRigidTransform, desiredBimWorldMatrix, toLocalMatrix } from '@cloudbim/viewer-core'
 
-const source = readFileSync(new URL('../src/views/alignment/BimPointcloudAlignView.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
+const source = readFileSync(new URL('../packages/alignment/src/AlignmentPage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
 const ast = ts.createSourceFile('alignment.ts', source, ts.ScriptTarget.Latest, true)
 const names = [
   'ensureOrientationBase', 'ensurePositionBase', 'ensureInitialOrientation', 'ensureInitialPosition',
@@ -14,10 +15,10 @@ const names = [
   'syncPositionFixFromSelected', 'syncAllTransformFixValuesFromSelected', 'applyTransformSelection',
   'refreshSelectedTransformUi', 'onEditModeChange', 'setTransformMode', 'applyPositionFixRealtime',
   'setPositionOffsetAxis', 'onPositionNumberInput', 'onPositionNumberBlur', 'setOrientationOffsetAxis',
-  'onOrientationNumberInput', 'applyOrientationFixRealtime', 'getRawMatrixWorldForCalibration',
-  'recenterLoadedContentAsWhole', 'syncDenoisePreviewTransform', 'buildAlignmentMatrix',
+  'onOrientationNumberInput', 'applyOrientationFixRealtime',
+  'recenterLoadedContentAsWhole', 'syncDenoisePreviewTransform',
   'getAlignmentRestoreKey', 'tryRestoreSavedAlignment', 'fetchAndLogSavedAlignmentIfExists',
-  'collectCalibrationSnapshot', 'handleSaveAlignment',
+  'collectCalibrationSnapshot', 'handleSaveAlignment', 'revealInitialSceneWhenReady',
 ]
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast)).join('\n')
 assert.equal(functions.match(/^async function |^function /gm)?.length, names.length)
@@ -43,15 +44,19 @@ function fixture() {
     syncBoundsHelpers: noop, requestRender: noop, updateSelectionHighlight: noop, focusSelected: noop,
     logBimRelativeTransform: noop, logCalibrationDiagnostics: noop, logSavedAlignmentMatrix: noop,
     vectorToPlainObject: noop, quaternionToPlainObject: noop, updateClipRangeFromContent: noop, applyClippingState: noop,
+    getRawMatrixWorldForCalibration: rawWorldMatrixForAlignment,
+    alignmentMatrixFromResult, scanToBimRigidTransform, modelPairsFromRigidTransform,
+    desiredBimWorldMatrix, toLocalMatrix,
     nextTick: async cb => cb?.(), restoredSavedAlignmentKey: '', loggedSavedAlignmentKey: '',
     sceneAlignmentReady: ref(false), latestAlignmentResult: ref(null), hasSavedAlignmentMatrix: ref(false),
+    initialSceneReady: false, fitCameraToContent: noop,
     props: { bimAssetId: 7, pointcloudAssetId: 5 }, denoisePreview: null, denoiseResult: ref(null),
     ElMessage: { success: noop, error: noop, warning: noop }, invalidateC2MResult: noop, clearDenoisePreview: noop,
     loadLatestDenoise: async () => {}, loadLatestC2M: async () => {},
     clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
     window: { setTimeout: () => { throw new Error('unexpected retry') } },
   }
-  const api = runInNewContext(`${compiled}\n({ ${names.join(', ')} })`, globals)
+  const api = runInNewContext(`${compiled}\n({ ${[...names, 'getRawMatrixWorldForCalibration'].join(', ')} })`, globals)
   api.ensureOrientationBase(bim); api.ensurePositionBase(bim); api.ensureInitialTransformState(bim)
   return { api, state: globals }
 }

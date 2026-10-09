@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as THREE from 'three';
-import { buildInstancePalette } from '../src/features/rebar-visualization/instancePalette.js';
+import { buildInstancePalette } from '../packages/viewer-core/src/features/rebar-visualization/instancePalette.js';
 
 // Exercise the actual preview loader and Three.js filtering code without a GPU.
 const source = await readFile(new URL('./pointcloud-debug/viewer.js', import.meta.url), 'utf8');

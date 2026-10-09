@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as THREE from 'three'
-import { c2mColorCss, c2mDistancePosition, histogramFromC2MDistances, applyC2MVertexColors } from '../src/utils/c2mColormap.ts'
-import { summarizeC2MRange, resolveC2MRangeMm } from '../src/utils/c2mRange.ts'
+import { c2mColorCss, c2mDistancePosition, histogramFromC2MDistances, applyC2MVertexColors } from '../packages/viewer-core/src/utils/c2mColormap.ts'
+import { summarizeC2MRange, resolveC2MRangeMm } from '../packages/viewer-core/src/utils/c2mRange.ts'
 
 test('engineering boundaries remain green, outliers saturate visibly and unknown stays distinct', () => {
   assert.equal(c2mColorCss(0, .01, .03), '#22c55e')

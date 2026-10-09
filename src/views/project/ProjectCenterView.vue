@@ -4,9 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Delete, Refresh, Folder, View, Search, CirclePlus, Aim, DataAnalysis, MoreFilled } from '@element-plus/icons-vue'
 import { createProject, deleteProject, listProjects, updateProject, type ProjectSummary } from '@/api/backend-project'
 import { useRouter } from 'vue-router'
-import { deleteAsset, listAssets, type AssetSummary } from '@/api/backend-file'
-import { getBimAlignment } from '@/api/backend-alignment'
-import { formatFileSize } from '@/features/upload/upload.utils'
+import { deleteAsset, formatFileSize, getBimAlignment, listAssets, type AssetSummary } from '@cloudbim/viewer-core'
 
 const projects = ref<ProjectSummary[]>([])
 const router = useRouter()

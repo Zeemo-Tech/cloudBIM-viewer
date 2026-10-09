@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,7 +151,7 @@ func TestC2MNormalParametersRejectUnsupportedFallbackAndAngle(t *testing.T) {
 func TestC2MStandardReportDownloadRequiresAuthAndScopesOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err := db.AutoMigrate(&DBC2MReportRun{}, &DBC2MResult{}); err != nil {
+	if err := db.AutoMigrate(&DBC2MReportRun{}, &DBC2MResult{}, &DBUser{}); err != nil {
 		t.Fatal(err)
 	}
 	matrix := `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]`
@@ -158,6 +159,11 @@ func TestC2MStandardReportDownloadRequiresAuthAndScopesOwner(t *testing.T) {
 	run := DBC2MReportRun{OwnerID: 1, ScanID: 2, BimID: 3, ResultVersion: "saved-version", InputFingerprint: strings.Repeat("b", 64), ParamsJSON: `{"tolerance_limit":0.005,"alignmentMatrix":` + matrix + `}`, TransformJSON: matrix, AlgorithmVersion: rebarC2MAlgorithm, Profile: "reference", MetricDirection: "mesh-vertices-to-instance-scan-points", DiagnosticsJSON: diagnostics, CreatedAt: time.Unix(1_700_000_000, 0).UTC()}
 	if err := db.Create(&run).Error; err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range []int64{1, 2} {
+		if err := db.Create(&DBUser{ID: id, Username: fmt.Sprintf("report-user-%d", id), Status: "active"}).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	secret := "report-test-secret"
 	a := &app{db: db, cfg: config{JWTSecret: secret}}

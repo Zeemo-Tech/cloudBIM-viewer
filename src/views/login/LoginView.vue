@@ -864,7 +864,7 @@ line-height: 30px;
 </style>
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .submit-wrap, .submit-wrap.is-ready, .submit-wrap.is-active, .submit-wrap:focus-within, .submit-wrap.is-ready:hover { padding: 0; border-radius: var(--radius-sm); background: transparent; box-shadow: none; transform: none; animation: none; }
 .submit-wrap::before { display: none; }
 .form .submit-wrap :deep(.el-button) { @include controls.action; @include controls.primary; width: 100%; }

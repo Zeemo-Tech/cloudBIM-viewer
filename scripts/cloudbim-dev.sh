@@ -179,7 +179,7 @@ wait_for_workbench() {
 }
 
 start_workbench() {
-  workbench_is_enabled || return
+  workbench_is_enabled || return 0
 
   local python="$RUNTIME_DIR/mesh-venv/bin/python"
   local source output prior_config
@@ -248,6 +248,9 @@ start() {
 
   wait_for_backend
 
+  # Workspace packages must exist before Vite resolves their exports.
+  (cd "$ROOT_DIR" && npm run build:packages)
+
   if ! pid_is_running "$FRONTEND_PID_FILE"; then
     log "Starting frontend"
     if command -v setsid >/dev/null 2>&1; then
@@ -270,7 +273,7 @@ start() {
   log "Ready: http://127.0.0.1:$FRONTEND_PORT"
   log "Frontend bind: $FRONTEND_HOST:$FRONTEND_PORT"
   log "API:   http://127.0.0.1:$BACKEND_PORT"
-  workbench_is_enabled && log "Point-cloud workbench: http://127.0.0.1:$WORKBENCH_PORT"
+  if workbench_is_enabled; then log "Point-cloud workbench: http://127.0.0.1:$WORKBENCH_PORT"; fi
 }
 
 start_rebar_debug() {

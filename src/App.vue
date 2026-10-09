@@ -3,22 +3,25 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   logoutCurrentSession,
+  refreshCurrentSession,
   type AuthSession,
   validateStoredSession,
 } from '@/features/auth/auth.service'
 import LoginView from '@/views/login/LoginView.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProjectSelectionView from '@/views/project/ProjectSelectionView.vue'
-import { getRouteInstanceKey, readNavigationRouteState } from '@/router/navigation'
+import { getRouteInstanceKey, getViewerReturnLocation, navigateViewerBack, readNavigationRouteState } from '@/router/navigation'
 
 const UploadView = defineAsyncComponent(() => import('@/views/upload/SimpleUploadView.vue'))
 const ProjectSurveyView = defineAsyncComponent(() => import('@/views/project/ProjectSurveyView.vue'))
 const DesignView = defineAsyncComponent(() => import('@/views/design/DesignView.vue'))
-const AssetPreviewView = defineAsyncComponent(() => import('@/views/preview/AssetPreviewView.vue'))
-const SplitPreviewView = defineAsyncComponent(() => import('@/views/preview/SplitPreviewView.vue'))
-const BimPointcloudAlignView = defineAsyncComponent(
-  () => import('@/views/alignment/BimPointcloudAlignView.vue'),
-)
+const SystemManagementView = defineAsyncComponent(() => import('@/views/system/SystemManagementView.vue'))
+const InspectionDesk = defineAsyncComponent(() => import('@/views/inspection/InspectionDesk.vue'))
+const DeviceCenterView = defineAsyncComponent(() => import('@/views/devices/DeviceCenterView.vue'))
+const BimPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/bim-preview')).BimPreviewPage)
+const PointcloudPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/pointcloud-preview')).PointcloudPreviewPage)
+const SplitPreviewPage = defineAsyncComponent(async () => (await import('@cloudbim/split-preview')).SplitPreviewPage)
+const AlignmentPage = defineAsyncComponent(async () => (await import('@cloudbim/alignment')).AlignmentPage)
 
 const session = ref<AuthSession | null>(null)
 const authReady = ref(false)
@@ -54,6 +57,18 @@ const currentView = computed(() => {
 
   if (routeState.value.path.startsWith('/survey')) {
     return routeState.value.projectId ? 'survey' : 'project-selection'
+  }
+
+  if (routeState.value.path.startsWith('/inspection')) {
+    return routeState.value.projectId ? 'inspection' : 'project-selection'
+  }
+
+  if (routeState.value.path.startsWith('/devices')) {
+    return 'devices'
+  }
+
+  if (routeState.value.path.startsWith('/system')) {
+    return 'system'
   }
 
   if (routeState.value.path.startsWith('/design/bim')) {
@@ -108,6 +123,43 @@ async function handleLogout() {
   session.value = null
   void router.replace('/')
 }
+
+// 查看器包不依赖 vue-router：由宿主把返回与步骤变化映射到自身路由。
+function handleViewerBack() {
+  navigateViewerBack(router, readNavigationRouteState(route.path, route.query))
+}
+
+// 返回按钮文案由来源页面决定，包只负责显示。
+const viewerBackLabel = computed(() => {
+  const target = getViewerReturnLocation(readNavigationRouteState(route.path, route.query))
+  const path = typeof target === 'string' ? target.split('?')[0] : ('path' in target ? target.path : '')
+  return path === '/inspection' ? '返回工位检测'
+    : path === '/design/overview'
+    ? '返回项目概述'
+    : path === '/design/bim'
+      ? '返回模型列表'
+      : path === '/survey'
+        ? '返回扫描点云'
+        : '返回项目列表'
+})
+
+async function handleAlignmentStepChange(step: number) {
+  if (String(route.query.step || 1) === String(step)) {
+    return
+  }
+
+  await router.replace({ query: { ...route.query, step: String(step) } })
+}
+
+// Profile and role changes made in the system page are reflected in the header
+// without forcing a reload.
+async function handleSessionUpdated() {
+  try {
+    session.value = await refreshCurrentSession()
+  } catch {
+    // Keep the current session when the server cannot be reached.
+  }
+}
 </script>
 
 <template>
@@ -126,44 +178,65 @@ async function handleLogout() {
     @logout="handleLogout"
   />
 
-  <AssetPreviewView
-    v-else-if="session && currentView === 'asset-preview'"
+  <BimPreviewPage
+    v-if="session && currentView === 'asset-preview' && routeState.previewType !== 'pointcloud'"
     :key="routeKey"
-    :preview-type="routeState.previewType === 'pointcloud' ? 'pointcloud' : 'bim'"
     :asset-id="routeState.assetId"
     :display-name="routeState.displayName"
-    :project-id="routeState.projectId"
+    :project-id="routeState.projectId || 0"
     :project-name="routeState.projectName"
+    :back-label="viewerBackLabel"
+    @back="handleViewerBack"
   />
-  <SplitPreviewView
+  <PointcloudPreviewPage
+    v-else-if="session && currentView === 'asset-preview'"
+    :key="routeKey"
+    :asset-id="routeState.assetId"
+    :display-name="routeState.displayName"
+    :project-id="routeState.projectId || 0"
+    :project-name="routeState.projectName"
+    @back="handleViewerBack"
+  />
+  <SplitPreviewPage
     v-else-if="session && currentView === 'split-preview'"
     :key="routeKey"
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
+    @back="handleViewerBack"
   />
-  <BimPointcloudAlignView
+  <AlignmentPage
     v-else-if="session && currentView === 'alignment'"
     :key="routeKey"
     :bim-asset-id="routeState.bimAssetId"
     :pointcloud-asset-id="routeState.pointcloudAssetId"
     :bim-display-name="routeState.displayName"
     :pointcloud-display-name="routeState.pointcloudDisplayName"
+    :initial-step="routeState.step ?? 1"
+    @back="handleViewerBack"
+    @step-change="handleAlignmentStepChange"
   />
   <AppLayout
-    v-else-if="session && routeState.projectId"
+    v-else-if="session && (routeState.projectId || currentView === 'devices' || currentView === 'system')"
     :session="session"
-    :project-id="routeState.projectId"
-    :project-name="routeState.projectName || `项目 ${routeState.projectId}`"
+    :project-id="routeState.projectId || 0"
+    :project-name="routeState.projectName || (routeState.projectId ? `项目 ${routeState.projectId}` : '工作区')"
+    :show-sidebar="currentView !== 'devices' && currentView !== 'system'"
     @logout="handleLogout"
   >
+    <InspectionDesk
+      v-if="currentView === 'inspection'"
+      :session="session"
+      :project-id="routeState.projectId || 0"
+      :project-name="routeState.projectName || '检测项目'"
+    />
     <DesignView
-      v-if="currentView === 'design-bim'"
+      v-else-if="currentView === 'design-bim'"
       :key="routeKey"
       mode="bim"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
     />
     <DesignView
@@ -171,7 +244,7 @@ async function handleLogout() {
       :key="routeKey"
       mode="cad"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
     />
     <DesignView
@@ -179,21 +252,30 @@ async function handleLogout() {
       :key="routeKey"
       mode="overview"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
     />
     <ProjectSurveyView
       v-else-if="currentView === 'survey'"
       :key="routeKey"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
+    />
+    <DeviceCenterView
+      v-else-if="currentView === 'devices'"
+      :key="routeKey"
+    />
+    <SystemManagementView
+      v-else-if="currentView === 'system' && session"
+      :key="routeKey"
+      @session-updated="handleSessionUpdated"
     />
     <UploadView
       v-else
       :key="routeKey"
       :session="session"
-      :project-id="routeState.projectId"
+      :project-id="routeState.projectId || 0"
       :project-name="routeState.projectName"
       @logout="handleLogout"
     />

@@ -31,7 +31,6 @@ function handleUploaded(kind: UploadKind) {
     class="file-upload-dialog"
     :model-value="modelValue"
     :title="title"
-    width="min(760px, calc(100vw - 32px))"
     top="max(16px, 5dvh)"
     append-to-body
     destroy-on-close
@@ -50,9 +49,10 @@ function handleUploaded(kind: UploadKind) {
 </template>
 
 <style>
-.file-upload-dialog { padding: var(--workspace-gutter); border: 1px solid var(--border-color-light); border-radius: var(--radius-md); background: var(--bg-card); box-shadow: var(--shadow-lg); }
-.file-upload-dialog .el-dialog__header { margin: 0 0 var(--workspace-gap); padding: 0 var(--spacing-xl) 0 0; }
+.file-upload-dialog { padding: var(--workspace-gutter); overflow: hidden; border: 1px solid var(--border-color-light); border-radius: var(--radius-md); background: var(--bg-card); box-shadow: var(--shadow-lg); }
+.file-upload-dialog .el-dialog__header { min-height: 42px; margin: 0 0 var(--spacing-sm); padding: 0 var(--spacing-xl) 0 0; }
 .file-upload-dialog .el-dialog__title { font-size: var(--font-size-lg); font-weight: 600; color: var(--text-primary); }
 .file-upload-dialog .el-dialog__headerbtn { top: var(--spacing-sm); right: var(--spacing-sm); }
-.file-upload-dialog .el-dialog__body { max-height: calc(90vh - 96px); max-height: calc(90dvh - 96px); padding: 0; overflow-y: auto; overscroll-behavior: contain; }
+.file-upload-dialog .el-dialog__body { max-height: calc(84vh - 50px); max-height: calc(84dvh - 50px); padding: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.file-upload-dialog .el-dialog__body::-webkit-scrollbar { display: none; width: 0; height: 0; }
 </style>

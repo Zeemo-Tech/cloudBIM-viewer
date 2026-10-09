@@ -12,11 +12,12 @@ export type NavigationRouteState = {
   displayName?: string
   pointcloudDisplayName?: string
   returnTo?: string
+  step: number | null
 }
 
 const returnPaths = new Set([
   '/projects',
-  '/survey',
+  '/survey', '/inspection',
   '/design/bim',
   '/design/cad',
   '/design/overview',
@@ -73,6 +74,7 @@ export function readNavigationRouteState(path: string, query: LocationQuery): Na
     displayName: firstString(query.displayName) ?? firstString(query.bimDisplayName),
     pointcloudDisplayName: firstString(query.pointcloudDisplayName) ?? firstString(query.scanDisplayName),
     returnTo: readReturnTo(query.returnTo, projectId),
+    step: positiveInteger(query.step),
   }
 }
 

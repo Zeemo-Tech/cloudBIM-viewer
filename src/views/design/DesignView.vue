@@ -5,12 +5,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Refresh, Search, Upload, View } from '@element-plus/icons-vue'
-import { deleteAsset, listAssets, type AssetSummary } from '@/api/backend-file'
+import { deleteAsset, formatFileSize, listAssets, type AssetSummary } from '@cloudbim/viewer-core'
 import { listProjects, type ProjectSummary } from '@/api/backend-project'
 import FileUploadDialog from '@/components/upload/FileUploadDialog.vue'
 import NeumorphicPagination from '@/components/NeumorphicPagination.vue'
 import type { AuthSession } from '@/features/auth/auth.service'
-import { formatFileSize } from '@/features/upload/upload.utils'
 
 type DesignMode = 'bim' | 'cad' | 'overview'
 
@@ -263,7 +262,7 @@ watch([bimFilters, bimCurrentPage, bimPageSize], () => {
 
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .design-page { padding: 0; }
 .design-page.is-bim-mode { height: auto; min-height: 100%; overflow: visible; }
 .bim-toolbar { flex-wrap: wrap; @include controls.filters; }

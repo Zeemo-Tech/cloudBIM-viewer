@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import * as THREE from 'three'
-import { filterComparisonGeometry } from '../src/views/alignment/rebarComparison.ts'
-import { applyDenoisePreviewAppearance } from '../src/views/alignment/denoisePreview.ts'
-import { debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal } from '../src/views/alignment/rebarDebug.ts'
+import { dimComparisonGeometry, filterComparisonGeometry } from '../packages/alignment/src/rebarComparison.ts'
+import { applyDenoisePreviewAppearance } from '../packages/denoise/src/denoisePreview.ts'
+import { debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal } from '../packages/alignment/src/rebarDebug.ts'
 
 // Run the actual scene mutators on real Three.js objects; no WebGL or browser is required.
-const source = readFileSync(new URL('../src/views/alignment/BimPointcloudAlignView.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
+const source = readFileSync(new URL('../packages/alignment/src/AlignmentPage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
 const ast = ts.createSourceFile('alignment.ts', source, ts.ScriptTarget.Latest, true)
-const names = ['comparisonMeshMatches', 'rebarDebugDesignObjects', 'rebarDebugBounds', 'clearRebarDebugOverlay', 'updateRebarDebugOverlay', 'applyComparisonSelection', 'applySceneVisibility', 'disposeObject3D', 'selectRebarDebugResult', 'showRebarDebugResult', 'showRebarDebugPair']
+const names = ['comparisonMeshMatches', 'objectMatchesComparisonBar', 'objectMatchesAnyComparisonBar', 'sameColor', 'releaseRebarInspectionMaterials', 'rebarDebugDesignObjects', 'rebarDebugBounds', 'clearRebarDebugOverlay', 'updateRebarDebugOverlay', 'applyComparisonSelection', 'applySceneVisibility', 'disposeObject3D', 'selectRebarDebugResult', 'showRebarDebugResult', 'showRebarDebugPair']
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast)).join('\n')
 assert.equal(functions.match(/^(async )?function /gm).length, names.length)
 const ref = value => ({ value })
@@ -37,7 +37,9 @@ const missing = { ifcGlobalId: 'MISSING', instanceIds: [], vertexStart: 6, verte
 const scene = new THREE.Scene(); scene.add(bimPivot, c2mSceneGroup, denoisePreview)
 const context = {
   THREE, scene, bimPivot, c2mSceneGroup, denoisePreview,
-  filterComparisonGeometry, applyDenoisePreviewAppearance, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal,
+  filterComparisonGeometry, dimComparisonGeometry, applyDenoisePreviewAppearance, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal,
+  c2mAnalysisSession: null, c2mOriginalVertexColors: new WeakMap(), rebarInspectionMaterialState: new WeakMap(), rebarInspectionMaterialsClonedAny: false,
+  rebarInspectionActive: ref(false), clearPickedState() {},
   rebarDebugActive: ref(true), rebarDebugBar: ref(barA), selectedComparisonBar: ref(undefined),
   comparison: ref({ bars: [barA, barB, missing] }), comparisonInventory: ref({ inventory: { bars: [barA, barB] } }),
   comparisonBimVisibility: new WeakMap(), rebarDebugSurface: ref('source'), rebarDebugScan: ref(true),

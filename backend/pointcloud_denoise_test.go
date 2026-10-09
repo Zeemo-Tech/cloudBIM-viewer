@@ -63,6 +63,8 @@ func installDenoiseService(t *testing.T, a *app, during func()) *denoiseManifest
 		if len(req.Transform) != 16 || !strings.HasSuffix(req.SourcePath, "preprocess/test/cleaned.las") || req.IFCPath == "" {
 			t.Error("missing source/design/alignment")
 		}
+		// Match the actual preprocessing bytes, as the production source-integrity gate requires.
+		manifest.SourceSHA256, _ = fileContentHash(req.SourcePath)
 		os.MkdirAll(req.OutputPath, 0755)
 		os.WriteFile(filepath.Join(req.OutputPath, "cleaned.las"), []byte("clean scan"), 0644)
 		os.WriteFile(filepath.Join(req.OutputPath, "preview.ply"), []byte("preview"), 0644)

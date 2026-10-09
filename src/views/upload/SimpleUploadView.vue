@@ -2,10 +2,9 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Close, Document, Loading, Upload } from '@element-plus/icons-vue'
-import { listAssets, type AssetArchiveMetadata, type AssetSummary, type ComponentType } from '@/api/backend-file'
+import { formatFileSize, listAssets, type AssetArchiveMetadata, type AssetSummary, type ComponentType } from '@cloudbim/viewer-core'
 import { uploadFile } from '@/features/upload/upload.service'
 import { BIM_UPLOAD_CONFIG, CAD_UPLOAD_CONFIG, POINT_CLOUD_UPLOAD_CONFIG } from '@/features/upload/upload.config'
-import { formatFileSize } from '@/features/upload/upload.utils'
 import type { UploadKind } from '@/features/upload/upload.types'
 import type { AuthSession } from '@/features/auth/auth.service'
 
@@ -202,7 +201,7 @@ onMounted(() => { void loadDesignModels() })
         <button v-if="activeFile" class="clear-btn" type="button" title="清除已选文件" aria-label="清除已选文件" :disabled="uploading" @click="clearActiveFile"><el-icon><Close /></el-icon></button>
       </div>
     </div>
-    <section class="archive-form">
+    <section class="archive-form" :class="{ 'has-scan-date': activeTab === 'pointcloud' }">
       <div class="archive-form-heading"><div><h2>归档信息</h2><p>模型与点云通过归档编号自动关联</p></div><code :title="archiveCode">{{ archiveCode }}</code></div>
         <div class="archive-fields">
           <div class="archive-field"><span>楼栋</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.building" placeholder="如 2#" clearable /><el-select v-else v-model="archiveForm.building" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="可输入新的楼栋" placeholder="选择或输入楼栋"><el-option v-for="item in buildings" :key="item" :label="item" :value="item" /></el-select></div>
@@ -226,9 +225,11 @@ onMounted(() => { void loadDesignModels() })
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/workspace-controls' as controls;
+@use '@cloudbim/viewer-core/styles/workspace-controls.scss' as controls;
 .simple-upload-page { width: min(100%, 860px); margin-inline: auto; padding: var(--workspace-gutter); display: flex; flex-direction: column; gap: var(--workspace-gap); container-type: inline-size; }
 .simple-upload-page.is-compact { width: 100%; padding: 0; }
+.simple-upload-page { scrollbar-width: none; }
+.simple-upload-page::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .hidden-input { display: none; }
 .type-selector { display: flex; gap: var(--spacing-sm); flex-wrap: wrap; }
 .file-type-btn, .choose-file-button, .clear-btn, .submit-btn { @include controls.action; }
@@ -248,6 +249,7 @@ onMounted(() => { void loadDesignModels() })
 .archive-form-heading p { margin: var(--spacing-xs) 0 0; color: var(--text-secondary); font-size: var(--font-size-xs); }
 .archive-form-heading code { max-width: 45%; padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--radius-xs); background: var(--bg-control); color: var(--text-secondary); overflow-wrap: anywhere; font-size: var(--font-size-xs); }
 .archive-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-md); @include controls.filters; }
+.archive-form.has-scan-date .archive-fields { grid-template-columns: minmax(0, .78fr) minmax(0, .78fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.45fr); }
 .archive-field { min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .archive-field > span { color: var(--text-secondary); font-size: var(--font-size-sm); }
 .archive-field :deep(.el-select), .archive-field :deep(.el-input), .archive-field :deep(.el-date-editor) { width: 100%; min-width: 0; }
@@ -258,6 +260,6 @@ onMounted(() => { void loadDesignModels() })
 .submit-btn { @include controls.primary; flex-shrink: 0; }
 .upload-progress { display: grid; gap: var(--spacing-sm); font-size: var(--font-size-xs); color: var(--text-secondary); }
 .upload-progress .is-error { color: var(--color-danger); }
-@container (max-width: 560px) { .archive-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .file-selection { flex-wrap: wrap; } .file-actions { margin-left: auto; } }
-@container (max-width: 340px) { .archive-fields { grid-template-columns: minmax(0, 1fr); } .upload-footer { align-items: stretch; flex-direction: column; } }
+@container (max-width: 560px) { .archive-fields, .archive-form.has-scan-date .archive-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .file-selection { flex-wrap: wrap; } .file-actions { margin-left: auto; } }
+@container (max-width: 340px) { .archive-fields, .archive-form.has-scan-date .archive-fields { grid-template-columns: minmax(0, 1fr); } .upload-footer { align-items: stretch; flex-direction: column; } }
 </style>

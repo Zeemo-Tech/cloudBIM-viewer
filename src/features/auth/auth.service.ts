@@ -1,4 +1,15 @@
-import { getCurrentUser, login, logout, registerAccount } from '@/api/backend-auth'
+import {
+  changeAccountPassword,
+  getCurrentUser,
+  login,
+  logout,
+  registerAccount,
+  revokeOtherSessions,
+  updateAccountProfile,
+  type AccountProfile,
+  type PasswordChangeResult,
+  type SessionRevokeResult,
+} from '@/api/backend-auth'
 import {
   clearStoredSession,
   getStoredLastUsername,
@@ -7,19 +18,21 @@ import {
   setStoredLastUsername,
   setStoredSession,
 } from './auth.storage'
-import type { AuthSession, LoginPayload, RegisterPayload } from './auth.types'
+import type { AuthSession, AuthUser, LoginPayload, RegisterPayload } from './auth.types'
 
-export type { AuthSession, LoginPayload, RegisterPayload } from './auth.types'
+export type { AuthSession, AuthUser, LoginPayload, MemberRole, RegisterPayload } from './auth.types'
 export {
   clearStoredSession,
   getStoredLastUsername,
   getStoredSession,
 } from './auth.storage'
 
-function createSession(user: { id: number; username: string }) {
+function createSession(user: AuthUser) {
   return {
     id: user.id,
     username: user.username,
+    displayName: user.displayName?.trim() || user.username,
+    role: user.role === 'admin' ? 'admin' : 'member',
     loginAt: new Date().toISOString(),
   } satisfies AuthSession
 }
@@ -143,4 +156,53 @@ export async function validateStoredSession(): Promise<AuthSession | null> {
 
 export async function logoutCurrentSession() {
   await logout()
+}
+
+// Account management lives next to the session helpers so the system page reuses
+// the same token plumbing instead of duplicating it.
+
+export async function loadAccountProfile(): Promise<AccountProfile> {
+  const result = await getCurrentUser()
+  return result.data
+}
+
+export async function saveAccountProfile(payload: {
+  displayName: string
+  email: string
+  phone: string
+}): Promise<AccountProfile> {
+  const result = await updateAccountProfile(payload)
+  return result.data
+}
+
+export async function changePassword(payload: {
+  currentPassword: string
+  newPassword: string
+}): Promise<PasswordChangeResult> {
+  const result = await changeAccountPassword(payload)
+  applyReplacementToken(result.data.token)
+  return result.data
+}
+
+export async function revokeOtherAccountSessions(
+  currentPassword: string,
+): Promise<SessionRevokeResult> {
+  const result = await revokeOtherSessions({ currentPassword })
+  applyReplacementToken(result.data.token)
+  return result.data
+}
+
+// Changing credentials rotates the session token; keeping the replacement in
+// memory avoids signing the current browser out.
+function applyReplacementToken(token?: string) {
+  if (token && token.trim()) {
+    setMemoryAccessToken(token.trim())
+  }
+}
+
+export async function refreshCurrentSession(): Promise<AuthSession> {
+  const meResult = await getCurrentUser()
+  const session = createSession(meResult.data)
+  setStoredSession(session)
+  return session
 }

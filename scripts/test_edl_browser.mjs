@@ -1,13 +1,40 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHmac } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+// This is an end-to-end check: it needs a running vite dev server (127.0.0.1:5173),
+// the backend and a logged-in session. Opt in explicitly so `npm test` stays green.
+if (!process.env.CLOUDBIM_EDL_E2E) {
+  console.log('SKIP: EDL browser E2E needs a running dev server + login; set CLOUDBIM_EDL_E2E=1 to run.')
+  process.exit(0)
+}
+
+// Find an available Chromium binary; skip (not fail) when the host has none.
+const chromeCandidates = [
+  process.env.CHROME_PATH,
+  'google-chrome',
+  'chromium',
+  'chromium-browser',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+].filter(Boolean)
+const chromeBinary = chromeCandidates.find(binary => {
+  try {
+    return spawnSync(binary, ['--version'], { stdio: 'ignore' }).status === 0
+  } catch {
+    return false
+  }
+})
+if (!chromeBinary) {
+  console.log('SKIP: no Chromium/Chrome binary found; set CHROME_PATH to run the EDL browser test.')
+  process.exit(0)
+}
+
 const chromePort = 9323
 const profileDir = await mkdtemp(join(tmpdir(), 'cloudbim-edl-test-'))
-const chrome = spawn('google-chrome', [
+const chrome = spawn(chromeBinary, [
   '--headless=new',
   '--no-sandbox',
   '--disable-gpu-sandbox',
@@ -89,7 +116,7 @@ async function developmentSessionToken() {
 const pixelProbe = `
   async () => {
     const THREE = await import('/node_modules/.vite/deps/three.js')
-    const { PointCloudEdlPipeline } = await import('/src/components/preview/edlPipeline.ts')
+    const { PointCloudEdlPipeline } = await import('/packages/viewer-core/src/components/preview/edlPipeline.ts')
     const canvas = document.createElement('canvas')
     document.body.replaceChildren(canvas)
     const renderer = new THREE.WebGLRenderer({ canvas, preserveDrawingBuffer: true })

@@ -30,6 +30,17 @@ const router = createRouter({
       component: RouteShell,
     },
     {
+      path: '/system',
+      name: 'system',
+      component: RouteShell,
+    },
+    { path: '/inspection', name: 'inspection', component: RouteShell },
+    {
+      path: '/devices',
+      name: 'devices',
+      component: RouteShell,
+    },
+    {
       path: '/design/bim',
       name: 'design-bim',
       component: RouteShell,

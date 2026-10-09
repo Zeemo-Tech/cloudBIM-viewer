@@ -1,4 +1,4 @@
-import type { AssetType } from '@/api/backend-file'
+import type { AssetType } from '@cloudbim/viewer-core'
 
 export interface UploadState {
   uploadId: string
