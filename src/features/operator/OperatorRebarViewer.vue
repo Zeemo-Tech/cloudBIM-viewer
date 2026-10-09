@@ -47,6 +47,8 @@ const scanUniforms = {
   scanPosition: { value: 0 },
   bandWidth: { value: 0.01 },
   scanOpacity: { value: 1 },
+  coverageActive: { value: 0 },
+  coverageColor: { value: new THREE.Color("#7862bc") },
 }
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
@@ -55,7 +57,73 @@ let pointerStart: { x: number; y: number; id: number } | null = null
 let dragged = false
 const activePointers = new Set<number>()
 
+// The alignment workbench's focusComparisonBar uses synchronized camera/target
+// interpolation with smootherstep. Keep that motion, but retain the operator's
+// viewing direction and zoom instead of its fixed inspection orientation.
+let cameraTransition: {
+  startedAt: number; duration: number
+  startPosition: THREE.Vector3; endPosition: THREE.Vector3
+  startTarget: THREE.Vector3; endTarget: THREE.Vector3
+  startOrbit: THREE.Spherical; endOrbit: THREE.Spherical
+  damping: boolean; enabled: boolean
+} | null = null
+
+function stopCameraTransition() {
+  if (!cameraTransition) return
+  if (controls) {
+    controls.enableDamping = cameraTransition.damping
+    controls.enabled = cameraTransition.enabled
+  }
+  cameraTransition = null
+}
+
+function transitionCamera(endPosition: THREE.Vector3, endTarget: THREE.Vector3, duration: number) {
+  if (!camera || !controls) return
+  stopCameraTransition()
+  // A held drag owns the camera, including keyboard shortcuts during that drag.
+  if (activePointers.size > 0) return
+  // Flush OrbitControls' residual deltas without advancing the visible pose.
+  const startPosition = camera.position.clone(), startTarget = controls.target.clone()
+  const damping = controls.enableDamping, enabled = controls.enabled
+  controls.enableDamping = false
+  controls.update()
+  camera.position.copy(startPosition); controls.target.copy(startTarget)
+  controls.update()
+  if (props.reducedMotion) {
+    camera.position.copy(endPosition); controls.target.copy(endTarget)
+    controls.update(); controls.enableDamping = damping
+    return
+  }
+  controls.enabled = false
+  const startOrbit = new THREE.Spherical().setFromVector3(startPosition.clone().sub(startTarget))
+  const endOrbit = new THREE.Spherical().setFromVector3(endPosition.clone().sub(endTarget))
+  const angle = endOrbit.theta - startOrbit.theta
+  endOrbit.theta = startOrbit.theta + Math.atan2(Math.sin(angle), Math.cos(angle))
+  cameraTransition = { startedAt: performance.now(), duration, startPosition, startTarget, endPosition, endTarget, startOrbit, endOrbit, damping, enabled }
+}
+
+function updateCameraTransition(now: number) {
+  const transition = cameraTransition
+  if (!transition || !camera || !controls) return
+  const progress = Math.min(1, (now - transition.startedAt) / transition.duration)
+  const eased = THREE.MathUtils.smootherstep(progress, 0, 1)
+  controls.target.lerpVectors(transition.startTarget, transition.endTarget, eased)
+  // Interpolate the orbit at a positive radius so reset/top never cut through
+  // the target from the opposite side. A follow has identical start/end orbits,
+  // so it remains a pure translation at the user's current angle and distance.
+  const orbit = new THREE.Spherical(
+    THREE.MathUtils.lerp(transition.startOrbit.radius, transition.endOrbit.radius, eased),
+    THREE.MathUtils.lerp(transition.startOrbit.phi, transition.endOrbit.phi, eased),
+    THREE.MathUtils.lerp(transition.startOrbit.theta, transition.endOrbit.theta, eased),
+  )
+  camera.position.setFromSpherical(orbit).add(controls.target)
+  camera.lookAt(controls.target)
+  controls.update()
+  if (progress >= 1) stopCameraTransition()
+}
+
 function disposeModel() {
+  stopCameraTransition()
   disposeScanOverlay()
   if (mesh) {
     scene?.remove(mesh)
@@ -81,7 +149,7 @@ function updateColors() {
     const selected = props.selectedId === bar.ifcGlobalId || props.selectedId === bar.designBarId
     const state = operatorBarState(bar, props.tolerance)
     const showResult = props.displayMode === 'result'
-    const color = !showResult ? '#8292a6' : selected ? '#1674e8' : state === 'missing' ? '#d99b23' : state === 'outlier' || state === 'review' ? '#d74f55' : '#8292a6'
+    const color = !showResult ? (props.displayMode === 'scan' ? '#a8b3c3' : '#8292a6') : selected ? '#1674e8' : state === 'missing' ? '#d99b23' : state === 'outlier' || state === 'review' ? '#d74f55' : '#8292a6'
     mesh!.material[i]!.color.set(color)
     mesh!.material[i]!.emissive.set(showResult && selected ? '#123a78' : '#000000')
     mesh!.material[i]!.emissiveIntensity = showResult && selected ? 0.25 : 0
@@ -108,22 +176,25 @@ function disposeScanOverlay() {
 }
 
 function updateScanPosition() {
-  if (!scanBox || !scanCurtain) return
+  if (!scanBox) return
   const progress = THREE.MathUtils.clamp(Number.isFinite(props.scanProgress) ? props.scanProgress : 0, 0, 1)
-  const position = THREE.MathUtils.lerp(scanStart, scanEnd, progress)
+  const coverageProgress = props.reducedMotion ? Math.floor(progress * 10) / 10 : progress
+  const position = THREE.MathUtils.lerp(scanStart, scanEnd, coverageProgress)
   scanUniforms.scanPosition.value = position
   scanUniforms.scanOpacity.value = Math.min(progress / 0.035, (1 - progress) / 0.035, 1)
   // A parallel overhead light sheet translates as a whole. The steel and camera
   // retain their coordinates, scale and pose throughout the scan.
-  scanCurtain.position[scanAxis] = position
+  if (scanCurtain) scanCurtain.position[scanAxis] = position
 }
 
 function syncDisplayMode() {
+  stopCameraTransition()
+  scanUniforms.coverageActive.value = props.displayMode === 'scan' ? 1 : 0
   updateColors()
   updateAriaLabel()
   disposeScanOverlay()
   if (props.displayMode !== 'result' && viewMode === 'selected') setViewMode('all')
-  if (!scene || !mesh?.geometry.boundingBox || props.displayMode !== 'scan' || props.reducedMotion) return
+  if (!scene || !mesh?.geometry.boundingBox || props.displayMode !== 'scan') return
 
   // C2M PLY retains BIM/GLB XYZ metres: IFC (x,y,z) -> GLB (x,z,-y)
   // (services/mesh-service/rebar_bim.py). +Y is up; scan only along X/Z.
@@ -136,6 +207,10 @@ function syncDisplayMode() {
   scanUniforms.scanAxis.value.set(scanAxis === 'x' ? 1 : 0, 0, scanAxis === 'z' ? 1 : 0)
   const extent = Math.max(size[scanAxis], 0.001)
   scanUniforms.bandWidth.value = Math.max(extent * 0.009, 0.002)
+  scanStart = scanBox.min[scanAxis] - scanUniforms.bandWidth.value
+  scanEnd = scanBox.max[scanAxis] + scanUniforms.bandWidth.value
+  updateScanPosition()
+  if (props.reducedMotion) return
   scanOverlay = new THREE.Group()
 
   // A sharp blue line appears only where the projected sheet meets actual
@@ -163,8 +238,6 @@ function syncDisplayMode() {
   scanOverlay.add(surface)
 
   const curtainHeight = size.y + Math.max(extent * 0.20, 0.08)
-  scanStart = scanBox.min[scanAxis] - scanUniforms.bandWidth.value
-  scanEnd = scanBox.max[scanAxis] + scanUniforms.bandWidth.value
   const curtainGeometry = new THREE.PlaneGeometry(Math.max(size[scanCrossAxis], 0.01), curtainHeight)
   const curtainMaterial = new THREE.ShaderMaterial({
     uniforms: { scanOpacity: scanUniforms.scanOpacity },
@@ -186,7 +259,7 @@ function syncDisplayMode() {
   updateScanPosition()
 }
 
-function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3) {
+function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3, animate = false) {
   if (!camera || !controls || box.isEmpty()) return
   const center = box.getCenter(new THREE.Vector3())
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.025)
@@ -207,29 +280,32 @@ function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3
   }
   distance *= 1.12
   camera.up.set(0, 1, 0)
-  camera.position.copy(center).addScaledVector(direction, distance)
+  const endPosition = center.clone().addScaledVector(direction, distance)
   const modelRadius = Math.max(mesh?.geometry.boundingSphere?.radius ?? radius, radius)
   camera.near = Math.max(modelRadius / 10000, 0.0001)
   camera.far = Math.max(distance + modelRadius * 100, 100)
   camera.updateProjectionMatrix()
-  controls.target.copy(center)
   controls.minDistance = Math.max(modelRadius / 200, 0.005)
   controls.maxDistance = Math.max(modelRadius * 40, distance * 2)
-  controls.update()
+  if (animate) transitionCamera(endPosition, center, 680)
+  else {
+    stopCameraTransition()
+    camera.position.copy(endPosition); controls.target.copy(center); controls.update()
+  }
 }
 
 function setViewMode(mode: typeof viewMode) {
   viewMode = mode
   emit('follow-change', mode === 'selected')
 }
-function resetView() { setViewMode('all'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox) }
-function topView() { setViewMode('top'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, true) }
+function resetView() { setViewMode('all'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, false, undefined, true) }
+function topView() { setViewMode('top'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, true, undefined, true) }
 function focusSelected() {
   if (props.displayMode !== 'result' || !camera || !controls) return
   const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
   if (index >= 0 && bounds[index]) {
     setViewMode('selected')
-    frameBox(bounds[index]!, false, camera.position.clone().sub(controls.target))
+    frameBox(bounds[index]!, false, camera.position.clone().sub(controls.target), true)
   }
 }
 function followSelected() {
@@ -240,11 +316,11 @@ function followSelected() {
   // Translate camera and target together, retaining the worker's zoom and orbit
   // angle rather than fitting each new bar to a different scale.
   const target = box.getCenter(new THREE.Vector3())
-  camera.position.add(target.clone().sub(controls.target))
-  controls.target.copy(target)
-  controls.update()
+  const position = camera.position.clone().add(target.clone().sub(controls.target))
+  transitionCamera(position, target, 520)
 }
 function orbit(horizontal: number, vertical = 0) {
+  stopCameraTransition()
   if (!camera || !controls || !hasModel.value) return
   const offset = camera.position.clone().sub(controls.target)
   if (vertical) {
@@ -259,6 +335,7 @@ function orbit(horizontal: number, vertical = 0) {
 function rotateLeft() { orbit(-Math.PI / 12) }
 function rotateRight() { orbit(Math.PI / 12) }
 function zoom(factor: number) {
+  stopCameraTransition()
   if (!camera || !controls || !hasModel.value) return
   const offset = camera.position.clone().sub(controls.target)
   offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, controls.minDistance, controls.maxDistance))
@@ -355,13 +432,27 @@ async function loadResult() {
     bars = result.diagnostics?.rebarComparison?.bars ?? []
     const mapping = mapOperatorGeometry(geometry, bars, result.meshVertexCount)
     bounds = mapping.bounds; pickIds = mapping.pickIds
-    const materials = pickIds.map(() => new THREE.MeshStandardMaterial({ color: '#8292a6', roughness: 0.6, metalness: 0.12, side: THREE.DoubleSide }))
+    const materials = pickIds.map(() => {
+      const material = new THREE.MeshStandardMaterial({ color: '#8292a6', roughness: 0.6, metalness: 0.12, side: THREE.DoubleSide })
+      // Coverage is clipped on the actual steel surface, including partial bars.
+      // It changes neither geometry nor result data and keeps mesh openings empty.
+      material.onBeforeCompile = shader => {
+        Object.assign(shader.uniforms, scanUniforms)
+        shader.vertexShader = 'uniform vec3 scanAxis; varying float coverageCoordinate;\n' + shader.vertexShader
+        shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\ncoverageCoordinate = dot(position, scanAxis);')
+        shader.fragmentShader = 'uniform float coverageActive; uniform float scanPosition; uniform vec3 coverageColor; varying float coverageCoordinate;\n' + shader.fragmentShader
+        shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+          float covered = coverageActive * step(coverageCoordinate, scanPosition);
+          diffuseColor.rgb = mix(diffuseColor.rgb, coverageColor, covered);`)
+      }
+      return material
+    })
     mesh = new THREE.Mesh(geometry, materials)
     scene.add(mesh)
     geometry = null // The mesh now owns disposal.
     hasModel.value = true
     loading.value = false
-    syncDisplayMode(); resetView()
+    syncDisplayMode(); setViewMode('all'); frameBox(mesh.geometry.boundingBox!)
     emit('loaded', true)
   } catch (error) {
     geometry?.dispose()
@@ -400,6 +491,8 @@ onMounted(() => {
     controls.touches.ONE = THREE.TOUCH.ROTATE
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN
     const canvas = renderer.domElement
+    canvas.addEventListener('pointerdown', stopCameraTransition, true)
+    canvas.addEventListener('wheel', stopCameraTransition, { capture: true, passive: true })
     canvas.addEventListener('keydown', keydown)
     canvas.addEventListener('pointerdown', pointerDown)
     canvas.addEventListener('pointermove', pointerMove)
@@ -411,6 +504,7 @@ onMounted(() => {
     resize()
     const render = () => {
       if (!mounted || contextUnavailable || !renderer || !scene || !camera) return
+      updateCameraTransition(performance.now())
       controls?.update()
       renderer.render(scene, camera)
       animationFrame = requestAnimationFrame(render)
@@ -437,6 +531,8 @@ onBeforeUnmount(() => {
   controls?.dispose()
   const canvas = renderer?.domElement
   if (canvas) {
+    canvas.removeEventListener('pointerdown', stopCameraTransition, true)
+    canvas.removeEventListener('wheel', stopCameraTransition, true)
     canvas.removeEventListener('keydown', keydown)
     canvas.removeEventListener('pointerdown', pointerDown)
     canvas.removeEventListener('pointermove', pointerMove)

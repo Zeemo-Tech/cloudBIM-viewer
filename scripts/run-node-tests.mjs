@@ -13,6 +13,7 @@ const suites = [
   'navigation.test.ts',
   'test_auth_logout.mjs',
   'test_operator_scan_flow.mjs',
+  'test_operator_camera_motion.mjs',
   '../src/features/operator/operator-geometry.test.ts',
   'test_alignment_transform_state.mjs',
   'test_c2m_search_settings.mjs',
