@@ -15,6 +15,8 @@ const suites = [
   'test_operator_scan_flow.mjs',
   'test_operator_camera_motion.mjs',
   '../src/features/operator/operator-geometry.test.ts',
+  '../src/features/operator/operator-presentation.test.ts',
+  '../src/features/operator/operator-diagnosis.test.ts',
   'test_alignment_transform_state.mjs',
   'test_c2m_search_settings.mjs',
   'test_c2m_colormap.mjs',

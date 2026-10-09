@@ -2,6 +2,10 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { operatorBarFrame, operatorBoxEdges, operatorFitDistance, operatorAxisHeading, operatorResultColor, wrappedAngle, type OperatorBarFrame } from './operator-presentation'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import type { C2MResult, RebarComparisonBar } from '@cloudbim/viewer-core'
 import { mapOperatorGeometry, operatorBarState, validateOperatorPlySurface } from './operator-geometry'
@@ -26,6 +30,9 @@ let scene: THREE.Scene | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial[]> | null = null
 let bounds: THREE.Box3[] = []
+let barFrames: (OperatorBarFrame | null)[] = []
+let selectionOutline: LineSegments2 | null = null
+let followPose: { heading: number; fitDistance: number; frame: OperatorBarFrame } | null = null
 let pickIds: string[] = []
 let bars: RebarComparisonBar[] = []
 let requestToken = 0
@@ -58,8 +65,8 @@ let dragged = false
 const activePointers = new Set<number>()
 
 // The alignment workbench's focusComparisonBar uses synchronized camera/target
-// interpolation with smootherstep. Keep that motion, but retain the operator's
-// viewing direction and zoom instead of its fixed inspection orientation.
+// interpolation with smootherstep. Reuse that motion for axial inspection;
+// preserve manual angle and relative zoom when switching between bar lengths.
 let cameraTransition: {
   startedAt: number; duration: number
   startPosition: THREE.Vector3; endPosition: THREE.Vector3
@@ -109,8 +116,7 @@ function updateCameraTransition(now: number) {
   const eased = THREE.MathUtils.smootherstep(progress, 0, 1)
   controls.target.lerpVectors(transition.startTarget, transition.endTarget, eased)
   // Interpolate the orbit at a positive radius so reset/top never cut through
-  // the target from the opposite side. A follow has identical start/end orbits,
-  // so it remains a pure translation at the user's current angle and distance.
+  // the target from the opposite side. Axial changes take the shortest orbit.
   const orbit = new THREE.Spherical(
     THREE.MathUtils.lerp(transition.startOrbit.radius, transition.endOrbit.radius, eased),
     THREE.MathUtils.lerp(transition.startOrbit.phi, transition.endOrbit.phi, eased),
@@ -125,6 +131,8 @@ function updateCameraTransition(now: number) {
 function disposeModel() {
   stopCameraTransition()
   disposeScanOverlay()
+  disposeSelectionOutline()
+  barFrames = []; followPose = null
   if (mesh) {
     scene?.remove(mesh)
     mesh.geometry.dispose()
@@ -146,14 +154,45 @@ function fail(message: string) {
 function updateColors() {
   if (!mesh) return
   bars.forEach((bar, i) => {
-    const selected = props.selectedId === bar.ifcGlobalId || props.selectedId === bar.designBarId
-    const state = operatorBarState(bar, props.tolerance)
-    const showResult = props.displayMode === 'result'
-    const color = !showResult ? (props.displayMode === 'scan' ? '#a8b3c3' : '#8292a6') : selected ? '#1674e8' : state === 'missing' ? '#d99b23' : state === 'outlier' || state === 'review' ? '#d74f55' : '#8292a6'
+    const color = props.displayMode === 'result'
+      ? operatorResultColor(operatorBarState(bar, props.tolerance), bar.stats?.p95Abs, props.tolerance)
+      : props.displayMode === 'scan' ? '#a8b3c3' : '#8292a6'
     mesh!.material[i]!.color.set(color)
-    mesh!.material[i]!.emissive.set(showResult && selected ? '#123a78' : '#000000')
-    mesh!.material[i]!.emissiveIntensity = showResult && selected ? 0.25 : 0
+    mesh!.material[i]!.emissive.set('#000000')
+    mesh!.material[i]!.emissiveIntensity = 0
   })
+}
+
+function selectedFrame() {
+  const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
+  return barFrames[index]
+}
+function disposeSelectionOutline() {
+  if (!selectionOutline) return
+  scene?.remove(selectionOutline)
+  selectionOutline.geometry.dispose(); selectionOutline.material.dispose()
+  selectionOutline = null
+}
+function updateSelectionOutline() {
+  disposeSelectionOutline()
+  const frame = selectedFrame()
+  if (props.displayMode !== 'result' || !scene || !frame) return
+  const geometry = new LineSegmentsGeometry().setPositions(operatorBoxEdges(frame))
+  const material = new LineMaterial({ color: '#287f7c', linewidth: 2, dashed: true, depthTest: false, depthWrite: false, transparent: true, opacity: .95 })
+  selectionOutline = new LineSegments2(geometry, material)
+  selectionOutline.computeLineDistances()
+  selectionOutline.renderOrder = 5
+  scene.add(selectionOutline)
+  updateOutlineScale()
+}
+function updateOutlineScale() {
+  const frame = selectedFrame()
+  if (!selectionOutline || !camera || !host.value || !frame) return
+  const width = Math.max(host.value.clientWidth, 1), height = Math.max(host.value.clientHeight, 1)
+  selectionOutline.material.resolution.set(width, height)
+  const perPixel = 2 * camera.position.distanceTo(frame.center) * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / height
+  selectionOutline.material.dashSize = perPixel * 7
+  selectionOutline.material.gapSize = perPixel * 5
 }
 
 function updateAriaLabel() {
@@ -191,6 +230,7 @@ function syncDisplayMode() {
   stopCameraTransition()
   scanUniforms.coverageActive.value = props.displayMode === 'scan' ? 1 : 0
   updateColors()
+  updateSelectionOutline()
   updateAriaLabel()
   disposeScanOverlay()
   if (props.displayMode !== 'result' && viewMode === 'selected') setViewMode('all')
@@ -296,28 +336,43 @@ function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3
 
 function setViewMode(mode: typeof viewMode) {
   viewMode = mode
+  if (mode !== 'selected') followPose = null
   emit('follow-change', mode === 'selected')
 }
 function resetView() { setViewMode('all'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, false, undefined, true) }
 function topView() { setViewMode('top'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, true, undefined, true) }
 function focusSelected() {
-  if (props.displayMode !== 'result' || !camera || !controls) return
-  const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
-  if (index >= 0 && bounds[index]) {
-    setViewMode('selected')
-    frameBox(bounds[index]!, false, camera.position.clone().sub(controls.target), true)
-  }
+  if (props.displayMode !== 'result' || !camera || !controls || activePointers.size) return
+  const frame = selectedFrame()
+  if (!frame) return
+  const offset = camera.position.clone().sub(controls.target)
+  const heading = operatorAxisHeading(frame, Math.atan2(offset.x, offset.z))
+  const direction = new THREE.Vector3(Math.sin(heading), 1, Math.cos(heading)).normalize()
+  const fitDistance = operatorFitDistance(frame, direction, camera.fov, camera.aspect)
+  setViewMode('selected')
+  followPose = { heading, fitDistance, frame }
+  transitionCamera(frame.center.clone().addScaledVector(direction, fitDistance), frame.center, 780)
 }
-function followSelected() {
-  if (props.displayMode !== 'result' || viewMode !== 'selected' || !camera || !controls) return
-  const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
-  const box = bounds[index]
-  if (!box || box.isEmpty()) return
-  // Translate camera and target together, retaining the worker's zoom and orbit
-  // angle rather than fitting each new bar to a different scale.
-  const target = box.getCenter(new THREE.Vector3())
-  const position = camera.position.clone().add(target.clone().sub(controls.target))
-  transitionCamera(position, target, 520)
+function followSelected(previousAspect = camera?.aspect ?? 1) {
+  if (props.displayMode !== 'result' || viewMode !== 'selected' || !camera || !controls || !followPose || activePointers.size) return
+  const frame = selectedFrame()
+  if (!frame) return
+  // Rapid clicks use the intended pose, avoiding cumulative half-finished turns.
+  // A manual interruption uses the actual pose, keeping the user's adjustments.
+  const offset = cameraTransition
+    ? cameraTransition.endPosition.clone().sub(cameraTransition.endTarget)
+    : camera.position.clone().sub(controls.target)
+  const orbit = new THREE.Spherical().setFromVector3(offset)
+  const heading = operatorAxisHeading(frame, followPose.heading)
+  const manualAngle = wrappedAngle(orbit.theta - followPose.heading)
+  const direction = new THREE.Vector3().setFromSpherical(new THREE.Spherical(1, orbit.phi, heading + manualAngle))
+  const fitDistance = operatorFitDistance(frame, direction, camera.fov, camera.aspect)
+  // Re-evaluate the previous bar at the user's actual direction. Using its old
+  // fit after a manual rotation would cause an unwanted zoom on the next bar.
+  const previousFit = operatorFitDistance(followPose.frame, offset.clone().normalize(), camera.fov, previousAspect)
+  const distance = THREE.MathUtils.clamp(fitDistance * offset.length() / previousFit, controls.minDistance, controls.maxDistance)
+  followPose = { heading, fitDistance, frame }
+  transitionCamera(frame.center.clone().addScaledVector(direction, distance), frame.center, 780)
 }
 function orbit(horizontal: number, vertical = 0) {
   stopCameraTransition()
@@ -398,14 +453,14 @@ function resize() {
   layoutClass = nextLayout
   const width = Math.max(host.value.clientWidth, 1), height = Math.max(host.value.clientHeight, 1)
   renderer.setSize(width, height, false)
+  const previousAspect = camera.aspect
   camera.aspect = width / height
   camera.updateProjectionMatrix()
   // Only reframe on a responsive layout transition. Small resizes preserve the
   // user's zoom, while crossing the breakpoint keeps the current viewing angle.
   if (layoutChanged && mesh?.geometry.boundingBox && controls) {
-    const selected = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
-    const box = viewMode === 'selected' && bounds[selected] ? bounds[selected]! : mesh.geometry.boundingBox
-    frameBox(box, viewMode === 'top', camera.position.clone().sub(controls.target))
+    if (viewMode === 'selected') followSelected(previousAspect)
+    else frameBox(mesh.geometry.boundingBox, viewMode === 'top', camera.position.clone().sub(controls.target))
   }
 }
 
@@ -432,6 +487,7 @@ async function loadResult() {
     bars = result.diagnostics?.rebarComparison?.bars ?? []
     const mapping = mapOperatorGeometry(geometry, bars, result.meshVertexCount)
     bounds = mapping.bounds; pickIds = mapping.pickIds
+    barFrames = bars.map(bar => operatorBarFrame(geometry!, bar.vertexStart, bar.vertexCount))
     const materials = pickIds.map(() => {
       const material = new THREE.MeshStandardMaterial({ color: '#8292a6', roughness: 0.6, metalness: 0.12, side: THREE.DoubleSide })
       // Coverage is clipped on the actual steel surface, including partial bars.
@@ -506,6 +562,7 @@ onMounted(() => {
       if (!mounted || contextUnavailable || !renderer || !scene || !camera) return
       updateCameraTransition(performance.now())
       controls?.update()
+      updateOutlineScale()
       renderer.render(scene, camera)
       animationFrame = requestAnimationFrame(render)
     }
@@ -518,7 +575,7 @@ onMounted(() => {
   }
 })
 watch(() => props.result, () => { if (mounted) void loadResult() })
-watch(() => props.selectedId, () => { updateColors(); followSelected() })
+watch(() => props.selectedId, () => { updateSelectionOutline(); followSelected() })
 watch(() => props.tolerance, updateColors)
 watch(() => [props.displayMode, props.reducedMotion], syncDisplayMode)
 watch(() => props.scanProgress, updateScanPosition)
