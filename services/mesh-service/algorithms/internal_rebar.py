@@ -1,4 +1,4 @@
-"""Layer and straight-cylinder instances within the measured inner steel region.
+"""Layer and straight-cylinder instances for measured steel.
 
 Horizontal members use direction-conditioned projection tracks. Web seeds are
 connected only between the horizontal layers, where junctions cannot join two
@@ -14,7 +14,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 from algorithms.rebar_tracks import diameter_priors, regularize_models, reconcile_tracks, grow_track_ends, track_statistics, remove_explained_fragments
 
-VERSION = 'internal-rebar-tracks-v9-conservative-top-view'
+VERSION = 'internal-rebar-tracks-v11-measured-layer-mass'
 PROTECTION_THRESHOLD = .9
 TYPES = {'0': '非内部钢筋', '1': '下层钢筋', '2': '上层钢筋', '3': '腹杆', '4': '钢筋（实例待定）', '5': '悬浮噪音'}
 ATTRIBUTES = {'internal_type': 'u1', 'internal_instance': '<u4',
@@ -93,7 +93,13 @@ def _height_bands(points, axes, linearity, params):
             groups[-1].append(peak)
         else:
             groups.append([peak])
-    groups = [g for g in groups if smooth[g].sum() >= max(5, smooth.sum()*.012)]
+    # Compare population mass with population mass. Summing only peak bins
+    # penalizes a sparsely scanned upper chord whose surface spans several
+    # height bins, even when its total support is substantial (dense lower mesh).
+    radius_bins = max(1, int(np.ceil(.006 / params.histogram_bin)))
+    groups = [g for g in groups
+              if smooth[max(0, min(g)-radius_bins):max(g)+radius_bins+1].sum()
+              >= max(5, smooth.sum()*.012)]
     if not groups:
         return [], {'reason': 'no substantial horizontal height peaks'}
     bands = []
@@ -388,7 +394,9 @@ def assign_cylinders(points, normals, models, *, workers=1, params=None, cache=N
     return labels, confidence, {'tree': tree, 'sample_owners': owners, 'ambiguous': ambiguous}
 
 
-def segment_internal_rebar(context, *, workers=1, params=None, output=None, progress=None):
+def segment_internal_rebar(context, *, workers=1, params=None, output=None, progress=None, scope_mode='inner-frame'):
+    if scope_mode not in ('inner-frame', 'all-steel'):
+        raise ValueError('unknown instance scope')
     params = params or InternalRebarParameters()
     progress = progress or (lambda *args: None)
     if context.refined_class is None or context.refined_zone is None:
@@ -398,7 +406,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
     output = output if output is not None else {name: np.zeros(count, dtype) for name, dtype in ATTRIBUTES.items()}
     for values in output.values():
         values[:] = 0
-    scope = np.flatnonzero((context.refined_class == 3) & (context.refined_zone == 1))
+    eligible = context.refined_class == 3
+    if scope_mode == 'inner-frame':
+        eligible &= context.refined_zone == 1
+    scope = np.flatnonzero(eligible)
     output['internal_type'][scope] = 4
     prior_noise = context.refined_class == 4
     output['internal_type'][prior_noise] = 5
@@ -407,7 +418,9 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
     recovery_cache = None
     track_report = {}
     track_tree = None
-    diagnostics = {'scope': 'refined_class=3 AND refined_zone=1; strict inner frame',
+    diagnostics = {'scope': ('refined_class=3; all measured steel, independent of frame' if scope_mode == 'all-steel'
+                             else 'refined_class=3 AND refined_zone=1; strict inner frame'),
+                   'scopeMode': scope_mode,
                    'reusedResidualTree': False, 'webInstanceUnit': 'one straight diagonal segment'}
     if len(scope):
         t0 = time.perf_counter()
@@ -415,7 +428,10 @@ def segment_internal_rebar(context, *, workers=1, params=None, output=None, prog
         cache = context.classification_cache; grid = cache['grid']; residual = cache['residual_ids']
         occupied = np.bincount(grid.source_to_cell[scope], minlength=len(grid.points)) > 0
         local_ids = np.flatnonzero(occupied[residual]); cells = residual[local_ids]
-        rotation = np.eye(3); rotation[:2, :2] = context.region_cache['frame_axes']
+        rotation = np.eye(3)
+        frame_axes = context.region_cache.get('frame_axes')
+        if frame_axes is not None and np.shape(frame_axes) == (2, 2):
+            rotation[:2, :2] = frame_axes
         points = (grid.points[cells]+grid.origin) @ rotation.T
         directions = cache['features']['axis'][local_ids] @ rotation.T
         linearity = cache['features']['linearity'][local_ids]

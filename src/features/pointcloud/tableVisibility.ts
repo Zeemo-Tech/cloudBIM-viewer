@@ -7,14 +7,18 @@ const nonTableColor = new THREE.Color(POINTCLOUD_CATEGORY_COLORS.nonTable)
 /** The source LAS frame and threshold used by upload-time _table_mask. */
 export interface PointcloudTablePlane {
   origin: [number, number, number]
-  slopes: [number, number]
+  slopes?: [number, number]
+  /** Unit normal in source coordinates, oriented toward the objects. */
+  normal?: [number, number, number]
   clearanceM: number
 }
 
 export function validPointcloudTablePlane(plane: PointcloudTablePlane | null | undefined): plane is PointcloudTablePlane {
-  return Boolean(plane && Array.isArray(plane.origin) && plane.origin.length === 3 &&
-    Array.isArray(plane.slopes) && plane.slopes.length === 2 &&
-    [...plane.origin, ...plane.slopes, plane.clearanceM].every(Number.isFinite) && plane.clearanceM >= 0)
+  if (!plane || !Array.isArray(plane.origin) || plane.origin.length !== 3 ||
+    ![...plane.origin, plane.clearanceM].every(Number.isFinite) || plane.clearanceM < 0) return false
+  if (plane.normal !== undefined) return Array.isArray(plane.normal) && plane.normal.length === 3 &&
+    plane.normal.every(Number.isFinite) && Math.hypot(...plane.normal) > 1e-8
+  return Array.isArray(plane.slopes) && plane.slopes.length === 2 && plane.slopes.every(Number.isFinite)
 }
 
 type PositionAttribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute
@@ -71,11 +75,12 @@ export class PointcloudTableVisibility {
       state.nonTable = new Uint8Array(position.count)
       state.colors = null
       const point = new THREE.Vector3()
+      const normal = plane.normal ? new THREE.Vector3(...plane.normal).normalize() : null
       for (let index = 0; index < position.count; index++) {
         point.fromBufferAttribute(position, index).applyMatrix4(sourceMatrix)
-        const height = point.z - plane.origin[2] -
-          (point.x - plane.origin[0]) * plane.slopes[0] -
-          (point.y - plane.origin[1]) * plane.slopes[1]
+        const height = normal
+          ? (point.x - plane.origin[0]) * normal.x + (point.y - plane.origin[1]) * normal.y + (point.z - plane.origin[2]) * normal.z
+          : point.z - plane.origin[2] - (point.x - plane.origin[0]) * plane.slopes![0] - (point.y - plane.origin[1]) * plane.slopes![1]
         state.nonTable[index] = height > plane.clearanceM ? 1 : 0
       }
       const count = state.original?.count ?? position.count

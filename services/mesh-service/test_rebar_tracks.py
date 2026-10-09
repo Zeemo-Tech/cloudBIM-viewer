@@ -25,6 +25,24 @@ def fragmented_context(reverse=False):
 
 
 class RebarTrackTests(unittest.TestCase):
+    def test_radius_bound_is_not_a_measured_diameter_mode(self):
+        models = []
+        for i in range(30):
+            clipped = i < 25
+            m = model((0, i*.03, 0), (1, i*.03, 0), radius=.009 if clipped else .004)
+            m.update(radiusAtBound=clipped, fitMedianErrorM=.0002)
+            models.append(m)
+        priors, report = diameter_priors(models)
+        np.testing.assert_allclose(priors[1], [.008])
+        self.assertAlmostEqual(report['1']['observedModeM'], .008)
+
+    def test_only_clipped_fits_do_not_invent_a_diameter_prior(self):
+        m = model((0, 0, 0), (1, 0, 0), radius=.009)
+        m.update(radiusAtBound=True, fitMedianErrorM=.0002)
+        priors, report = diameter_priors([m])
+        self.assertNotIn(1, priors)
+        self.assertEqual(report['1']['nominalsM'], [])
+
     def test_no_residual_support_preserves_internal_points_as_pending(self):
         context,_=fragmented_context();cache=context.classification_cache
         cache['residual_ids']=np.empty(0,np.int32)

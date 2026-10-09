@@ -49,7 +49,7 @@ func (a *app) pointcloudPreprocessRow(scan Asset) (DBAssetDerivative, pointcloud
 	if row.Status != "ready" || row.Version == "" || json.Unmarshal([]byte(row.MetadataJSON), &result) != nil || !validPointcloudPreprocessManifest(result) {
 		return row, result, errors.New("台面处理结果无效，请在点云预览中重新处理")
 	}
-	source, err := a.resolveRawScanSourcePath(scan, scan.OwnerID)
+	source, err := a.resolveMetricScanSourcePath(scan, scan.OwnerID)
 	if err != nil {
 		return row, result, err
 	}
@@ -89,6 +89,19 @@ func (a *app) resolveScanSourcePath(scan Asset, ownerID int64) (string, error) {
 	return rebarFile(scan.Dir, filepath.Join(row.RelativePath, "cleaned.las"))
 }
 
+// Raw uploads retain their declared units. Every derived geometry consumer uses
+// this canonical source so metre-based tolerances agree with IFC-converted GLB.
+func (a *app) resolveMetricScanSourcePath(scan Asset, ownerID int64) (string, error) {
+	if ownerID <= 0 || scan.OwnerID != ownerID {
+		return "", errors.New("点云不存在")
+	}
+	source, err := a.resolveRawScanSourcePath(scan, ownerID)
+	if err != nil {
+		return "", err
+	}
+	return prepareMetricPointcloudSource(source, scan.Dir)
+}
+
 // Callers hold the scan lock, shared with deletion. Publish only after LAS and tiles succeed.
 func (a *app) buildPointcloudPreprocess(ctx context.Context, scan Asset) (DBAssetDerivative, pointcloudPreprocessManifest, error) {
 	if row, result, err := a.pointcloudPreprocessRow(scan); err == nil {
@@ -105,7 +118,7 @@ func (a *app) buildPointcloudPreprocess(ctx context.Context, scan Asset) (DBAsse
 		}
 		defer release()
 	}
-	source, err := a.resolveRawScanSourcePath(scan, scan.OwnerID)
+	source, err := a.resolveMetricScanSourcePath(scan, scan.OwnerID)
 	if err != nil {
 		return empty, result, err
 	}
@@ -174,7 +187,11 @@ func (a *app) buildPointcloudPreprocess(ctx context.Context, scan Asset) (DBAsse
 	if tiles, err := readTileset(filepath.Join(output, "tiles", "tileset.json")); err != nil || !hasTileContent(output, tiles) {
 		return empty, result, errors.New("移除台面后的预览瓦片无效")
 	}
-	after, err := c2mInputFingerprint("preprocess", source, source)
+	currentSource, err := a.resolveMetricScanSourcePath(scan, scan.OwnerID)
+	if err != nil {
+		return empty, result, err
+	}
+	after, err := c2mInputFingerprint("preprocess", currentSource, currentSource)
 	if err != nil || before != after {
 		return empty, result, errors.New("前处理期间点云发生变化，请重新处理")
 	}

@@ -88,6 +88,31 @@ def synthetic_context(reverse_normals=False):
 
 
 class InternalRebarTests(unittest.TestCase):
+    def test_sparse_upper_chords_survive_dense_lower_mesh(self):
+        # Lumos: a few upper chords above a dense mesh. Peak height is not
+        # population mass; a broad but well-supported upper mode must survive.
+        rng = np.random.default_rng(7)
+        z = np.r_[rng.normal(.012, .007, 27000), rng.normal(.094, .004, 1500)]
+        points = np.column_stack((np.zeros((len(z), 2)), z))
+        bands, _ = _height_bands(points, np.tile([1., 0., 0.], (len(z), 1)),
+                                 np.ones(len(z)), InternalRebarParameters())
+        self.assertEqual(len(bands), 2)
+        np.testing.assert_allclose([b['height'] for b in bands], [.012, .094], atol=.003)
+
+    def test_model_free_scope_includes_steel_in_every_zone_without_a_frame(self):
+        context, size = synthetic_context()
+        context.refined_zone[:size] = 0
+        context.refined_zone[size:2*size] = 2
+        context.refined_zone[2*size:3*size] = 3
+        context.region_cache['frame_axes'] = np.empty((0, 2))
+        before = context.refined_class.copy()
+        report = segment_internal_rebar(context, workers=1, scope_mode='all-steel')
+        for part in range(6):
+            self.assertGreater(np.mean(context.internal_instance[part*size:(part+1)*size] > 0), .8)
+        self.assertEqual(report['pointCount'], len(context.positions))
+        self.assertEqual(report['diagnostics']['scopeMode'], 'all-steel')
+        np.testing.assert_array_equal(context.refined_class, before)
+
     def test_exterior_density_review_uses_fixture_context_and_steel_scores(self):
         from test_multiview_floating_noise import rounded_fixture_lip
         points, normals, fixture, fn = rounded_fixture_lip()
@@ -388,7 +413,8 @@ class InternalRebarTests(unittest.TestCase):
             def region_report(context, regions):
                 return {"counts": {"interior": 10}, "frame": {"detected": True, "innerDetected": True}}
 
-            def internal(context, workers, output, progress):
+            def internal(context, workers, output, progress, scope_mode):
+                self.assertEqual(scope_mode, 'all-steel')
                 output["internal_type"][:] = expected_type
                 output["internal_instance"][:] = expected_instance
                 output["internal_segment"][:] = expected_instance

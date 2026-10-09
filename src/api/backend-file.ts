@@ -292,12 +292,20 @@ export function terminateTusUpload(uploadId: string) {
 }
 
 export function getBimGlbUrl(resourcePath: string) {
-  return normalizeBackendUrl(normalizeAssetPath(resourcePath))
+  // This endpoint can be replaced in place. A fresh URL prevents both browser
+  // and Three.js caches from restoring old geometry in preview or alignment.
+  const url = new URL(
+    normalizeBackendUrl(normalizeAssetPath(resourcePath)),
+    window.location.origin,
+  )
+  url.searchParams.set('_reload', String(Date.now()))
+  return url.toString()
 }
 
 export function getBimMetadata(resourcePath: string) {
   return backendRequest<unknown>(normalizeAssetPath(resourcePath), {
     method: 'GET',
+    headers: { 'Cache-Control': 'no-cache' },
   })
 }
 

@@ -20,6 +20,7 @@ const props = withDefaults(
     tilesetUrl?: string | null
     tablePlane?: PointcloudTablePlane | null
     tableVisible?: boolean
+    levelTable?: boolean
     rebarVisualization?: RebarVisualizationMetadata | null
     rebarInspection?: RebarInspection | null
     minimal?: boolean
@@ -34,6 +35,7 @@ const props = withDefaults(
     tilesetUrl: null,
     tablePlane: null,
     tableVisible: true,
+    levelTable: false,
     rebarVisualization: null,
     analysisMode: 'none',
     analysisPoints: () => [],
@@ -106,6 +108,7 @@ defineExpose({
     :pointcloud-tileset-url="tilesetUrl"
     :pointcloud-table-plane="tablePlane"
     :pointcloud-table-visible="tableVisible"
+    :pointcloud-level-table="levelTable"
     :rebar-visualization="rebarVisualization"
     :rebar-inspection="rebarInspection"
     :minimal="minimal"

@@ -21,7 +21,7 @@ from .internal_rebar import segment_internal_rebar, ATTRIBUTES as INTERNAL_ATTRI
 from .rebar_dimension_priors import load_dimension_priors
 from .preprocessed_las import load_preprocessed_las
 
-VERSION = "shared-segmentation-v29-evidence-finalization"
+VERSION = "shared-segmentation-v31-measured-layer-mass"
 SCENE_ATTRIBUTES = {**SCENE_ATTRIBUTES, **FLOATING_ATTRIBUTES}
 CLASS_ATTRIBUTES = {"geometry_class": "u1", "geometry_support": "<f4", "geometry_recovered": "u1"}
 PROJECTION_ATTRIBUTES = {"projection_class": "u1", "projection_layer": "u1"}
@@ -222,6 +222,7 @@ def segment_points(positions, directory, *, k=32, workers=1, through_step=6, sou
                                     if dimension_priors is None else dimension_priors)
         with threadpool_limits(limits=1):
             internal_rebar = segment_internal_rebar(context, workers=workers,
-                output={name: arrays[name] for name in INTERNAL_ATTRIBUTES}, progress=progress)
+                output={name: arrays[name] for name in INTERNAL_ATTRIBUTES}, progress=progress,
+                scope_mode='inner-frame' if design_inventory is not None else 'all-steel')
         timing['internalRebarS'] = time.perf_counter()-t0
     return SimpleNamespace(context=context, arrays=arrays, shapes=shapes, computation=computation, timing=timing, classification=classification, projection=projection, fusion=fusion, regions=regions, refinement=refinement, internal_rebar=internal_rebar, complete_rebar=complete_rebar, execution=execution, preprocessing=preprocessing)

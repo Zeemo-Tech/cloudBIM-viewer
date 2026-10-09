@@ -13,6 +13,8 @@ import { TilesRenderer } from '3d-tiles-renderer'
 import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins'
 import { PointCloudEdlPipeline } from './edlPipeline'
 import { PointcloudTableVisibility, validPointcloudTablePlane, type PointcloudTablePlane } from '@/features/pointcloud/tableVisibility'
+import { pointcloudDisplayMatrix } from '@/features/pointcloud/displayFrame'
+import { SEGMENTATION_CLASSES } from '@/features/pointcloud/segmentation'
 import {
   createPointcloudLoadLifecycle,
   type PointcloudLoadLifecycle,
@@ -57,6 +59,7 @@ export type PointcloudColorMode =
   | 'rgb'
   | 'intensity'
   | 'table-class'
+  | 'segmentation-class'
   | 'rebar-class'
   | 'rebar-direction'
   | 'rebar-instance'
@@ -98,6 +101,7 @@ export interface UnifiedViewerProps {
   pointcloudTilesetUrl?: string | null
   pointcloudTablePlane?: PointcloudTablePlane | null
   pointcloudTableVisible?: boolean
+  pointcloudLevelTable?: boolean
   rebarVisualization?: RebarVisualizationMetadata | null
   rebarInspection?: RebarInspection | null
   displayName?: string
@@ -130,6 +134,7 @@ const props = withDefaults(defineProps<UnifiedViewerProps>(), {
   pointcloudTilesetUrl: null,
   pointcloudTablePlane: null,
   pointcloudTableVisible: true,
+  pointcloudLevelTable: false,
   rebarVisualization: null,
   displayName: undefined,
   minimal: false,
@@ -1605,7 +1610,7 @@ async function loadPointcloudModel(assetId: number, expectedToken: number) {
 
   const wrapper = new THREE.Group()
   wrapper.name = 'pointcloud-tileset-wrapper'
-  wrapper.rotation.x = -Math.PI / 2
+  wrapper.applyMatrix4(pointcloudDisplayMatrix(props.pointcloudLevelTable ? props.pointcloudTablePlane : null))
   wrapper.add(nextTileset.group)
   scene?.add(wrapper)
 
@@ -1933,6 +1938,8 @@ function cachedRebarColors(
   return attribute
 }
 
+const segmentationColors = [new THREE.Color('#94a3b8'), ...SEGMENTATION_CLASSES.map(item => new THREE.Color(item.color))]
+
 function applyRebarColoring(
   geometry: THREE.BufferGeometry,
   material: THREE.PointsMaterial,
@@ -1943,6 +1950,7 @@ function applyRebarColoring(
     ambiguous: number
   }> = {
     'rebar-class': { names: ['rebar_class', 'rebarclass'], empty: 0, ambiguous: 2 },
+    'segmentation-class': { names: ['rebar_class', 'rebarclass'], empty: 0, ambiguous: 0 },
     'rebar-direction': { names: ['rebar_direction', 'rebardirection'], empty: 0, ambiguous: 65535 },
     'rebar-instance': { names: ['rebar_instance', 'rebarinstance'], empty: 0, ambiguous: 0xffffffff },
   }
@@ -1955,7 +1963,7 @@ function applyRebarColoring(
   const rebarRole = getPointAttribute(geometry, ['rebar_role', 'rebarrole'])
   const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
   const visualization = validateVisualization(props.rebarVisualization)
-  if (visualization && sceneClass && flags && direction && instance && position &&
+  if (pointcloudColorMode !== 'segmentation-class' && visualization && sceneClass && flags && direction && instance && position &&
     sceneClass.count === position.count && flags.count === position.count &&
     direction.count === position.count && instance.count === position.count) {
     geometry.setAttribute('color', cachedRebarColors(
@@ -1981,7 +1989,10 @@ function applyRebarColoring(
   for (let index = 0; index < attribute.count; index += 1) {
     const value = attribute.getX(index)
     let rgb: [number, number, number]
-    if (pointcloudColorMode === 'rebar-class') {
+    if (pointcloudColorMode === 'segmentation-class') {
+      const color = segmentationColors[value] ?? segmentationColors[0]!
+      rgb = [color.r, color.g, color.b]
+    } else if (pointcloudColorMode === 'rebar-class') {
       if (value === 1) rgb = [0.96, 0.23, 0.18]
       else if (value === definition.ambiguous) rgb = [1, 0.72, 0.12]
       else if (value === 255) rgb = [0.42, 0.46, 0.52]
@@ -2582,7 +2593,7 @@ function initViewer() {
     const nh = Math.max(1, Math.floor(nextRect.height || 1))
     const dpr = Math.min(window.devicePixelRatio || 1, dprCap)
     renderer.setPixelRatio(dpr)
-    renderer.setSize(nw, nh, false)
+    renderer.setSize(nw, nh)
     camera.aspect = nw / nh
     camera.updateProjectionMatrix()
     edlPipeline?.setSize(nw, nh)
@@ -2961,6 +2972,15 @@ watch(
 watch(
   () => props.pointcloudTablePlane,
   () => {
+    if (pointcloudWrapper && props.pointcloudLevelTable) {
+      pointcloudDisplayMatrix(props.pointcloudTablePlane).decompose(pointcloudWrapper.position, pointcloudWrapper.quaternion, pointcloudWrapper.scale)
+      pointcloudWrapper.updateMatrixWorld(true)
+      if (tileset) {
+        const box = getTilesetWorldBounds(tileset)
+        if (box) setSectionState({ box })
+      }
+      resetView()
+    }
     if (pointcloudColorMode === 'table-class') refreshLoadedPointcloudMaterials()
     else forEachLoadedPointcloudModel(applyPointcloudTableVisibility)
   },

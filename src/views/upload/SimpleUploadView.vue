@@ -51,7 +51,10 @@ function archivePart(value?: string) {
 const matchingDesign = computed(() => designModels.value.find((asset) => archivePart(asset.building) === archivePart(archiveForm.building) && archivePart(asset.floor) === archivePart(archiveForm.floor) && archivePart(asset.componentType) === archivePart(archiveForm.componentType) && archivePart(asset.archiveSerial) === archivePart(archiveForm.archiveSerial)))
 const buildings = computed(() => [...new Set(designModels.value.map((asset) => archivePart(asset.building)).filter(Boolean))] as string[])
 const floors = computed(() => [...new Set(designModels.value.filter((asset) => !archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)).map((asset) => archivePart(asset.floor)).filter(Boolean))] as string[])
-const componentTypes = computed(() => [...new Set(designModels.value.filter((asset) => (!archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)) && (!archiveForm.floor || archivePart(asset.floor) === archivePart(archiveForm.floor))).map((asset) => archivePart(asset.componentType)).filter(Boolean))] as ComponentType[])
+const componentTypes = computed(() => {
+  const matched = [...new Set(designModels.value.filter((asset) => (!archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)) && (!archiveForm.floor || archivePart(asset.floor) === archivePart(archiveForm.floor))).map((asset) => archivePart(asset.componentType)).filter(Boolean))] as ComponentType[]
+  return matched.length ? matched : ['YKT', 'YTY', 'PCLT', 'DLB', 'YB'] as ComponentType[]
+})
 const serials = computed(() => [...new Set(designModels.value.filter((asset) => (!archiveForm.building || archivePart(asset.building) === archivePart(archiveForm.building)) && (!archiveForm.floor || archivePart(asset.floor) === archivePart(archiveForm.floor)) && (!archiveForm.componentType || archivePart(asset.componentType) === archivePart(archiveForm.componentType))).map((asset) => archivePart(asset.archiveSerial)).filter(Boolean))] as string[])
 function componentTypeLabel(value: string) {
   return ({ YKT: '预制空调板 YKT', YTY: '预制空调板 YTY', PCLT: '预制楼梯 PCLT', DLB: '叠合板 DLB', YB: '叠合板 YB' } as Record<string, string>)[value] || value
@@ -79,7 +82,6 @@ function requestUpload(kind: UploadKind) {
   if (!selectedFiles[kind]) { ElMessage.warning(kind === 'bim' ? '请先选择 IFC 模型文件' : kind === 'cad' ? '请先选择 CAD 图纸' : '请先选择点云文件'); return }
   if (!archiveForm.building || !archiveForm.floor || !archiveForm.componentType || !archiveForm.archiveSerial) { ElMessage.warning('请完整填写楼栋、楼层、构件类型和归档序号'); return }
   if (kind === 'pointcloud' && !archiveForm.scanDate) { ElMessage.warning('请选择扫描日期'); return }
-  if (kind === 'pointcloud' && !matchingDesign.value) { ElMessage.warning('当前归档编号没有匹配的 IFC 设计模型'); return }
   void confirmUpload(kind)
 }
 function chooseFile() {
@@ -203,13 +205,13 @@ onMounted(() => { void loadDesignModels() })
     <section class="archive-form">
       <div class="archive-form-heading"><div><h2>归档信息</h2><p>模型与点云通过归档编号自动关联</p></div><code :title="archiveCode">{{ archiveCode }}</code></div>
         <div class="archive-fields">
-          <div class="archive-field"><span>楼栋</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.building" placeholder="如 2#" clearable /><el-select v-else v-model="archiveForm.building" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="当前项目暂无已就绪且归档完整的 IFC 模型" placeholder="选择楼栋"><el-option v-for="item in buildings" :key="item" :label="item" :value="item" /></el-select></div>
-          <div class="archive-field"><span>楼层</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.floor" placeholder="如 16F" clearable /><el-select v-else v-model="archiveForm.floor" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="请先选择楼栋" placeholder="选择楼层"><el-option v-for="item in floors" :key="item" :label="item" :value="item" /></el-select></div>
+          <div class="archive-field"><span>楼栋</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.building" placeholder="如 2#" clearable /><el-select v-else v-model="archiveForm.building" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="可输入新的楼栋" placeholder="选择或输入楼栋"><el-option v-for="item in buildings" :key="item" :label="item" :value="item" /></el-select></div>
+          <div class="archive-field"><span>楼层</span><el-input v-if="activeTab !== 'pointcloud'" v-model="archiveForm.floor" placeholder="如 16F" clearable /><el-select v-else v-model="archiveForm.floor" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="可输入新的楼层" placeholder="选择或输入楼层"><el-option v-for="item in floors" :key="item" :label="item" :value="item" /></el-select></div>
           <div class="archive-field"><span>楼板类型</span><el-select v-model="archiveForm.componentType" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="请先选择楼栋和楼层" placeholder="选择类型"><template v-if="activeTab === 'pointcloud'"><el-option v-for="item in componentTypes" :key="item" :label="componentTypeLabel(item)" :value="item" /></template><template v-else><el-option label="预制空调板 YKT" value="YKT" /><el-option label="预制空调板 YTY" value="YTY" /><el-option label="预制楼梯 PCLT" value="PCLT" /><el-option label="叠合板 DLB" value="DLB" /><el-option label="叠合板 YB" value="YB" /></template></el-select></div>
-          <div class="archive-field"><span>归档序号</span><el-select v-if="activeTab === 'pointcloud'" v-model="archiveForm.archiveSerial" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="请先选择楼栋、楼层和楼板类型" placeholder="选择序号"><el-option v-for="item in serials" :key="item" :label="item" :value="item" /></el-select><el-input v-else v-model="archiveForm.archiveSerial" placeholder="如 21" clearable /></div>
+          <div class="archive-field"><span>归档序号</span><el-select v-if="activeTab === 'pointcloud'" v-model="archiveForm.archiveSerial" filterable allow-create default-first-option clearable :loading="designModelsLoading" no-data-text="可输入新的序号" placeholder="选择或输入序号"><el-option v-for="item in serials" :key="item" :label="item" :value="item" /></el-select><el-input v-else v-model="archiveForm.archiveSerial" placeholder="如 21" clearable /></div>
           <div v-if="activeTab === 'pointcloud'" class="archive-field"><span>扫描日期</span><el-date-picker v-model="archiveForm.scanDate" type="date" value-format="YYYY-MM-DD" clearable placeholder="选择日期" /></div>
         </div>
-        <div v-if="activeTab === 'pointcloud'" class="match-status" :class="{ matched: matchingDesign }">{{ matchingDesign ? `已匹配 IFC：${matchingDesign.sourceName}` : '请选择完整归档信息以匹配 IFC 模型' }}</div>
+        <div v-if="activeTab === 'pointcloud'" class="match-status" :class="{ matched: matchingDesign }">{{ matchingDesign ? `已匹配 IFC：${matchingDesign.sourceName}` : '无匹配 IFC：将作为独立实测点云上传，可直接预览；设计对比需关联 IFC' }}</div>
 
     </section>
     <div v-if="uploading || tasks[activeTab].status === 'success' || tasks[activeTab].status === 'error'" class="upload-progress" role="status">

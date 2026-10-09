@@ -12,7 +12,10 @@ import {
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { useBimRemeshDisplay } from './bimRemeshDisplay'
-import { getAssetDetail } from '@/api/backend-file'
+import { getAssetDetail, getAssetRepresentations } from '@/api/backend-file'
+import { backendRequest } from '@/api/backend-http'
+import { pointcloudDisplayMatrix, transformMeasurement } from '@/features/pointcloud/displayFrame'
+import { SEGMENTATION_CLASSES, type PointcloudSegmentationPreview } from '@/features/pointcloud/segmentation'
 import {
   DEFAULT_REBAR_SWEEP_PARAMS,
   REBAR_SWEEP_ALGORITHM,
@@ -199,14 +202,18 @@ const measurementBackendIds = new Map<string, number>()
 let measurementLoadToken = 0
 let pointcloudAppearanceLoadToken = 0
 let pointcloudResourceLoadToken = 0
-const pointcloudTableVisible = ref(false)
+const pointcloudTableVisible = ref(true)
 const pointcloudSourceUrl = ref('')
+const pointcloudSegmentation = ref<PointcloudSegmentationPreview | null>(null)
+const pointcloudSegmentationUrl = ref('')
+const pointcloudSegmentationError = ref('')
+const pointcloudPreviewUrl = computed(() => pointcloudSegmentationUrl.value || pointcloudSourceUrl.value)
 const pointcloudPreprocess = ref<PointcloudPreprocessResult | null>(null)
 const pointcloudResourceResolved = ref(false)
 const pointcloudPreprocessRunning = ref(false)
 const pointcloudResourceError = ref('')
 const pointcloudTablePlane = computed(() => {
-  const plane = pointcloudPreprocess.value?.result.plane
+  const plane = pointcloudSegmentation.value?.plane ?? pointcloudPreprocess.value?.result.plane
   return validPointcloudTablePlane(plane) ? plane : null
 })
 const pointcloudTableFilterAvailable = computed(() => Boolean(pointcloudTablePlane.value))
@@ -223,7 +230,7 @@ const pointcloudControls = reactive({
   showAxes: true,
   showGrid: false,
   sectionEnabled: false,
-  colorMode: 'table-class' as PointcloudColorMode | 'original' | 'custom',
+  colorMode: 'rgb' as PointcloudColorMode | 'original' | 'custom',
   pointColor: DEFAULT_POINT_COLOR,
 })
 
@@ -391,8 +398,36 @@ async function loadPointcloudResources() {
     }
     pointcloudResourceError.value = error instanceof Error ? error.message : '读取点云预处理结果失败'
   } finally {
-    if (token === pointcloudResourceLoadToken) pointcloudResourceResolved.value = true
+    if (token === pointcloudResourceLoadToken) {
+      await loadPointcloudSegmentation(assetId, token)
+      if (token === pointcloudResourceLoadToken) {
+        pointcloudResourceResolved.value = true
+        void loadMeasurements()
+      }
+    }
   }
+}
+
+async function loadPointcloudSegmentation(assetId: number, token: number) {
+  try {
+    const response = await getAssetRepresentations(assetId)
+    const result = response.data.list.find(item => item.kind === 'pointcloud-segmentation' && item.status === 'ready')
+    if (!result?.baseUrl || !result.url) return
+    const metadata = await backendRequest<PointcloudSegmentationPreview>(`${result.baseUrl}manifest.json`)
+    if (token !== pointcloudResourceLoadToken) return
+    if (metadata.schema !== 'pointcloud-segmentation-preview-v1') throw new Error('分类结果版本不受支持')
+    pointcloudSegmentation.value = metadata
+    pointcloudSegmentationUrl.value = result.url
+    pointcloudSegmentationError.value = ''
+  } catch (error) {
+    if (token === pointcloudResourceLoadToken) pointcloudSegmentationError.value = error instanceof Error ? error.message : '读取分类结果失败'
+  }
+}
+
+function handlePointcloudSourceFallback() {
+  pointcloudControls.colorMode = 'rgb'
+  pointcloudSegmentationUrl.value = ''
+  pointcloudSegmentationError.value = '分类预览加载失败，当前显示原始点云'
 }
 
 async function runPointcloudPreprocess() {
@@ -403,7 +438,7 @@ async function runPointcloudPreprocess() {
     await computePointcloudPreprocess(props.assetId)
     await loadPointcloudResources()
     if (pointcloudTableFilterAvailable.value) {
-      pointcloudTableVisible.value = false
+      pointcloudTableVisible.value = true
       ElMessage.success('台面识别与点云预处理完成')
     } else {
       ElMessage.warning('预处理已完成，未检测到可隐藏的台面')
@@ -522,7 +557,10 @@ async function persistMeasurement(kind: MeasurementKind, payload: unknown) {
     ? String(payload.id)
     : ''
   try {
-    const response = await createMeasurement(props.assetId, kind, payload)
+    const savedPayload = props.previewType === 'pointcloud'
+      ? transformMeasurement(payload, pointcloudDisplayMatrix(null).multiply(pointcloudDisplayMatrix(pointcloudTablePlane.value).invert()))
+      : payload
+    const response = await createMeasurement(props.assetId, kind, savedPayload)
     if (!localId) return
     if (hasMeasurement(kind, localId)) {
       measurementBackendIds.set(localId, response.data.id)
@@ -549,8 +587,11 @@ async function loadMeasurements() {
     const response = await listMeasurements(assetId)
     if (token !== measurementLoadToken) return
     response.data.forEach((record) => {
-      const payload = record.payload && typeof record.payload === 'object'
-        ? { ...(record.payload as Record<string, unknown>) }
+      const sourcePayload = props.previewType === 'pointcloud'
+        ? transformMeasurement(record.payload, pointcloudDisplayMatrix(pointcloudTablePlane.value).multiply(pointcloudDisplayMatrix(null).invert()))
+        : record.payload
+      const payload = sourcePayload && typeof sourcePayload === 'object'
+        ? { ...(sourcePayload as Record<string, unknown>) }
         : {}
       const id = typeof payload.id === 'string' && payload.id
         ? payload.id
@@ -617,9 +658,13 @@ watch(
     void refreshBimRemeshStatus()
     analysisMode.value = 'none'
     pointcloudIntensityHistogram.value = []
-    pointcloudTableVisible.value = false
+    pointcloudTableVisible.value = true
     pointcloudResourceResolved.value = false
     pointcloudSourceUrl.value = ''
+    pointcloudSegmentation.value = null
+    pointcloudSegmentationUrl.value = ''
+    pointcloudSegmentationError.value = ''
+    pointcloudControls.colorMode = 'rgb'
     pointcloudPreprocess.value = null
     void loadMeasurements()
     void loadPointcloudAppearance()
@@ -671,13 +716,14 @@ watch(
       :class="`theme-${backgroundTheme}`"
     >
       <PointcloudPreviewPanel
-        v-if="pointcloudResourceResolved && pointcloudSourceUrl"
+        v-if="pointcloudResourceResolved && pointcloudPreviewUrl"
         ref="pointcloudPanelRef"
         class="pointcloud-viewer-panel"
         :asset-id="assetId"
-        :tileset-url="pointcloudSourceUrl"
+        :tileset-url="pointcloudPreviewUrl"
         :table-plane="pointcloudTablePlane"
         :table-visible="pointcloudTableShown"
+        level-table
         :analysis-mode="analysisMode"
         :analysis-points="analysisPoints"
         :analysis-distances="analysisDistances"
@@ -692,7 +738,7 @@ watch(
         @analysis-area="handleAnalysisArea"
         @analysis-delete="removeAnalysisById($event.kind, $event.id)"
         @analysis-mode-exit="handleAnalysisModeExit"
-        @pointcloud-source-fallback="pointcloudControls.colorMode = 'rgb'"
+        @pointcloud-source-fallback="handlePointcloudSourceFallback"
         @edl-fallback="pointcloudEdlEnabled = false"
       />
 
@@ -728,6 +774,21 @@ watch(
         <div class="pointcloud-display-panel">
           <div class="pointcloud-display-row">
             <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
+              <button
+                type="button"
+                :disabled="!pointcloudSegmentationUrl"
+                :title="pointcloudSegmentationError || (pointcloudSegmentationUrl ? '在整份点云上查看台面、夹具、钢筋与噪点' : '这份点云尚无分类结果')"
+                :class="{ on: pointcloudDisplayColorMode === 'segmentation-class' }"
+                :aria-pressed="pointcloudDisplayColorMode === 'segmentation-class'"
+                @click="pointcloudControls.colorMode = 'segmentation-class'"
+              >查看分类</button>
+              <button
+                type="button"
+                :disabled="!pointcloudSegmentationUrl"
+                :class="{ on: pointcloudDisplayColorMode === 'rebar-instance' }"
+                :aria-pressed="pointcloudDisplayColorMode === 'rebar-instance'"
+                @click="pointcloudControls.colorMode = 'rebar-instance'"
+              >查看实例</button>
               <button
                 type="button"
                 :disabled="!pointcloudTableFilterAvailable"
@@ -893,10 +954,24 @@ watch(
         </span>
       </div>
 
+      <div v-if="pointcloudDisplayColorMode === 'segmentation-class'" class="pointcloud-category-legend" role="group" aria-label="点云分类图例">
+        <span v-for="item in SEGMENTATION_CLASSES" :key="item.id">
+          <i :style="{ backgroundColor: item.color }" aria-hidden="true"></i>
+          {{ item.name }}<small v-if="item.id === 1 && !pointcloudTableShown">（已隐藏）</small>
+        </span>
+      </div>
+      <div v-if="pointcloudDisplayColorMode === 'rebar-instance'" class="pointcloud-category-legend" role="note">
+        <span>不同颜色表示候选实例 · 深灰为未归属点（含台面和夹具）</span>
+        <span v-if="pointcloudSegmentation?.instanceQuality?.wholeBarValidated === false">
+          {{ pointcloudSegmentation.instanceCount }} 个候选，含断裂片段；弯钩尚未拼接，不能作为钢筋根数
+        </span>
+      </div>
+
       <div class="pointcloud-viewer-status" role="status">
         <i :class="{ loading: !pointcloudLoaded }" aria-hidden="true"></i>
         {{ pointcloudLoaded ? (pointcloudTableShown ? '点云已加载 · 台面显示' : '点云已加载 · 台面隐藏') : '正在加载点云' }}
         <span v-if="pointcloudEdlEnabled">显示增强</span>
+        <span v-if="pointcloudTablePlane">台面朝上 · 整体点云</span>
       </div>
 
       <div class="pointcloud-measurement-dock">
@@ -1498,8 +1573,8 @@ watch(
     padding-inline: 8px;
   }
 
-  .pointcloud-color-modes button:nth-child(n + 4) {
-    display: none;
+  .pointcloud-color-modes {
+    flex-wrap: wrap;
   }
 }
 

@@ -1074,11 +1074,13 @@ func (a *app) createUpload(c *gin.Context) {
 			return
 		}
 		var model DBAsset
-		if err := a.db.Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status = ?", userID(c), project.ID, "bim", building, floor, componentType, archiveSerial, "ready").Order("created_at DESC").First(&model).Error; err != nil {
-			fail(c, 409, "未找到匹配的已就绪 IFC 设计模型，请先维护设计库")
+		modelErr := a.db.Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status = ?", userID(c), project.ID, "bim", building, floor, componentType, archiveSerial, "ready").Order("created_at DESC").First(&model).Error
+		if modelErr == nil {
+			linkedBimID = &model.ID
+		} else if !errors.Is(modelErr, gorm.ErrRecordNotFound) {
+			fail(c, 500, "查询设计模型失败")
 			return
 		}
-		linkedBimID = &model.ID
 	} else {
 		var count int64
 		a.db.Model(&DBAsset{}).Where("owner_id = ? AND project_id = ? AND type = ? AND building = ? AND floor = ? AND component_type = ? AND archive_serial = ? AND status <> ?", userID(c), project.ID, typ, building, floor, componentType, archiveSerial, "failed").Count(&count)
@@ -2774,6 +2776,11 @@ func buildPointCloud(parent context.Context, source, dir string, subsample float
 	input := filepath.Join(dir, "source.las")
 	if err := linkOrSymlink(source, input); err != nil {
 		return fmt.Errorf("准备 LAS 转换输入失败: %w", err)
+	}
+	// Preserve the uploaded LAS; tiles and analysis share metre coordinates.
+	input, err = prepareMetricPointcloudSource(input, dir)
+	if err != nil {
+		return fmt.Errorf("点云单位转换失败: %w", err)
 	}
 	tilesDir := filepath.Join(dir, "tiles")
 	ctx, cancel := context.WithTimeout(parent, 60*time.Minute)

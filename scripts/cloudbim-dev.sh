@@ -185,11 +185,16 @@ start_workbench() {
   local source output prior_config
   source="$(resolve_repo_path "$WORKBENCH_SOURCE")"
   output="$(resolve_repo_path "$WORKBENCH_OUTPUT")"
-  prior_config="$(resolve_repo_path "$WORKBENCH_PRIOR_CONFIG")"
+  prior_config=""
+  if [[ -n "$WORKBENCH_PRIOR_CONFIG" && "$WORKBENCH_PRIOR_CONFIG" != "none" ]]; then
+    prior_config="$(resolve_repo_path "$WORKBENCH_PRIOR_CONFIG")"
+  fi
 
   [[ -x "$python" ]] || fail "Point-cloud workbench requires $python"
   [[ -f "$source" ]] || fail "Point-cloud workbench source not found: $source"
-  [[ -f "$prior_config" ]] || fail "Point-cloud workbench prior config not found: $prior_config"
+  if [[ -n "$prior_config" ]]; then
+    [[ -f "$prior_config" ]] || fail "Point-cloud workbench prior config not found: $prior_config"
+  fi
 
   if ! pid_is_running "$WORKBENCH_PID_FILE" && ! port_is_available "$WORKBENCH_PORT"; then
     fail "Point-cloud workbench port $WORKBENCH_PORT is already in use by an unmanaged process"
@@ -197,12 +202,16 @@ start_workbench() {
 
   if ! pid_is_running "$WORKBENCH_PID_FILE"; then
     log "Starting supervised point-cloud workbench"
+    local prior_args=()
+    if [[ -n "$prior_config" ]]; then
+      prior_args=(--prior-config "$prior_config")
+    fi
     setsid "$ROOT_DIR/scripts/cloudbim-supervise.sh" \
       "$python" "$ROOT_DIR/scripts/pointcloud-debug.py" \
       --source "$source" --output "$output" \
       --host "$WORKBENCH_HOST" --port "$WORKBENCH_PORT" --allow-host "$WORKBENCH_ALLOW_HOST" \
       --workers "$WORKBENCH_WORKERS" --through-step "$WORKBENCH_THROUGH_STEP" \
-      --prior-config "$prior_config" \
+      "${prior_args[@]}" \
       >"$WORKBENCH_LOG_FILE" 2>&1 < /dev/null &
     echo $! >"$WORKBENCH_PID_FILE"
   fi

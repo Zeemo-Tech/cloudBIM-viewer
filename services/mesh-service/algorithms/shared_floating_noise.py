@@ -30,14 +30,15 @@ def prepare_floating_scene(context, inventory=None, *, output, progress=None, st
     progress = progress or (lambda *args: None)
     progress('01D：钢筋分层', 0, len(context.positions))
     report = build_floating_zones(inventory, layers_only=True) if stop_after_layering else build_floating_zones(inventory)
-    eligible = ~np.asarray(context.shared_table_mask, bool) & np.isin(context.partition_zone, [1, 3])
     cloth_eligible = ~np.asarray(context.shared_table_mask, bool)
+    model_free = inventory is None
+    eligible = cloth_eligible if model_free else cloth_eligible & np.isin(context.partition_zone, [1, 3])
     forbidden = np.zeros(len(context.positions), bool)
     layers = np.zeros(len(context.positions), np.uint8)
     # Without a usable design, measured horizontal bands still move before A/B.
     # Occupied voxels prevent repeated scanner echoes manufacturing layer peaks.
     from .internal_rebar import _height_bands, InternalRebarParameters
-    scope = np.flatnonzero(eligible & (context.partition_zone == 1))
+    scope = np.flatnonzero(eligible if model_free else eligible & (context.partition_zone == 1))
     bands, histogram = [], {}
     if len(scope):
         points = context.positions[scope]

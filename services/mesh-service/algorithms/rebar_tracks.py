@@ -19,18 +19,24 @@ def diameter_priors(models, supplied=None):
             continue
         diam=np.array([m['radius']*2 for m in members])
         weights=np.array([max(m['high']-m['low'],.001)/(1+m['fitMedianErrorM']/.0005) for m in members])
-        # A half-mm mode is robust to many noisy tiny fragments and radius caps.
-        bins=np.rint(diam/.0005).astype(int);mass=np.bincount(bins,weights=weights)
+        # A constrained fit reaching the radius bound is not a diameter
+        # measurement. Do not let many partial/flat arcs manufacture a mode at
+        # the configured maximum and then force every other section toward it.
+        reliable=np.array([not m.get('radiusAtBound',False) and m['fitMedianErrorM']<max(.0003,d*.04)
+                           for m,d in zip(members,diam)])
+        if not reliable.any():
+            diagnostics[str(kind)]={'source':'insufficient-measured-support', 'nominalsM':[],
+                                    'rawRangeM':[float(diam.min()),float(diam.max())]}
+            continue
+        bins=np.rint(diam/.0005).astype(int);mass=np.bincount(bins,weights=weights*reliable)
         peak=int(np.argmax(ndimage.gaussian_filter1d(mass, .7)))
-        near=np.abs(diam-peak*.0005)<.001
+        near=reliable&(np.abs(diam-peak*.0005)<.001)
         value=float(np.average(diam[near],weights=weights[near]))
         nominal=float(available[np.argmin(np.abs(available-value))]) if len(available) else round(value/.0005)*.0005
         # IFC is a prior only when geometrically compatible with the scan.
         if abs(nominal-value)>max(.001,value*.15):nominal=round(value/.0005)*.0005
         # Retain supported minority diameters within the same layer/type. A
         # layer is not a diameter family, and radius-clipped fits are not modes.
-        reliable=np.array([not m.get('radiusAtBound',False) and m['fitMedianErrorM']<max(.0003,d*.04)
-                           for m,d in zip(members,diam)])
         trusted=np.bincount(bins,weights=weights*reliable,minlength=len(mass))
         smooth=ndimage.gaussian_filter1d(np.pad(trusted,(2,2)),.7)
         peaks,_=signal.find_peaks(smooth,distance=3,prominence=max(float(smooth.max())*.1,1.e-9))

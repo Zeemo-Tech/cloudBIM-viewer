@@ -14,6 +14,19 @@ from test_shared_scene import measured_scene
 
 
 class LayeringBranchContractTests(unittest.TestCase):
+    def test_model_free_layers_do_not_require_an_inner_frame(self):
+        from test_internal_rebar import synthetic_context
+        context, _ = synthetic_context()
+        count = len(context.positions)
+        context.partition_zone = np.zeros(count, np.uint8)
+        context.shared_table_mask = np.zeros(count, np.uint8)
+        context.normal_valid = np.ones(count, np.uint8)
+        context.scene_cache = {}
+        output = {name: np.zeros(count, np.uint8) for name in ('shared_layer', 'shared_floating_noise')}
+        layering, _ = prepare_floating_scene(context, output=output)
+        self.assertEqual(len(layering['bands']), 2)
+        np.testing.assert_allclose([band['height'] for band in layering['bands']], [.02, .08], atol=.005)
+
     def test_crossed_bar_heights_form_two_layers_and_a_web_layer(self):
         heights = [.04, .052, .20, .212]
         inventory = {'bars': [dict(designBarId=str(i), points=[[0, 0, z], [1, 0, z]],
