@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, Aim, Camera, Check, CircleCheck, FullScreen, Minus, Plus, Refresh, RefreshLeft, RefreshRight, SwitchButton, Warning } from '@element-plus/icons-vue'
 import type { AuthSession } from '@/features/auth/auth.service'
@@ -16,6 +16,7 @@ const scanProgress = ref(0)
 const scanCompletedVersion = ref('')
 const scanDemoUsed = ref(false)
 const reducedMotion = ref(false)
+const following = ref(false)
 const scanning = computed(() => scanState.value === 'running')
 const canShowResult = computed(() => scanState.value === 'complete' && scanCompletedVersion.value === version.value && fresh.value && geometryReady.value && !loading.value)
 let scanFrame = 0
@@ -56,7 +57,7 @@ const componentName = computed(() => task.value?.bimName?.replace(/\.ifc$/i, '')
 
 function select(id: string) { if (saving.value || stage.value !== 'result') return; selectedId.value = id; note.value = ''; message.value = '' }
 function move(delta: number) { if (!issues.value.length || saving.value) return; const start = issueIndex.value < 0 ? (delta > 0 ? -1 : 0) : issueIndex.value; const row = issues.value[(start + delta + issues.value.length) % issues.value.length]; if (row) select(row.ifcGlobalId) }
-function showResult() { if (!canShowResult.value || saving.value) return; stage.value = 'result'; if (!selectedId.value) selectedId.value = issues.value[0]?.ifcGlobalId || ''; void nextTick(() => viewer.value?.resetView()) }
+function showResult() { if (!canShowResult.value || saving.value) return; stage.value = 'result'; if (!selectedId.value) selectedId.value = issues.value[0]?.ifcGlobalId || '' }
 function stopScan() {
   cancelAnimationFrame(scanFrame); scanFrame = 0; advanceScan = null; scanEpoch++
   scanState.value = 'idle'; scanProgress.value = 0; scanCompletedVersion.value = ''
@@ -65,7 +66,7 @@ function cancelScan() { stopScan(); stage.value = 'ready'; scanDemoUsed.value = 
 function prepare() { if (saving.value) return; stopScan(); stage.value = 'ready'; scanDemoUsed.value = false }
 function startScan() {
   if (scanning.value || saving.value || loading.value || stage.value !== 'ready' || !task.value || !fresh.value || !geometryReady.value || !version.value) return
-  stopScan(); stage.value = 'scan'; viewer.value?.resetView(); scanDemoUsed.value = true; scanState.value = 'running'
+  stopScan(); stage.value = 'scan'; scanDemoUsed.value = true; scanState.value = 'running'
   const epoch = scanEpoch; const request = generation; const snapshot = version.value
   scanElapsed = 0; previousFrame = performance.now()
   advanceScan = (now: number) => {
@@ -166,8 +167,8 @@ onBeforeUnmount(() => {
       <div v-else-if="!task" class="operator-empty"><el-icon :size="56"><Camera /></el-icon><h2>{{ loading ? '正在读取任务' : '还没有分配检测任务' }}</h2><p>{{ loading ? '请稍候…' : '请联系管理员分配项目和检测构件。' }}</p><button class="op-button" :disabled="loading" @click="refresh">刷新任务</button></div>
       <div v-else class="operator-workspace">
         <section class="operator-scene">
-          <div class="scene-title"><div><h2>{{ stage==='result' ? '三维定位' : scanning ? '激光扫描演示' : '构件预览' }}</h2><p>{{ stage==='result' ? '拖动旋转 · 点击钢筋定位' : scanning ? (reducedMotion ? '保留扫描进度提示' : '上方光束投向网片，沿钢筋表面扫描') : '设计模型 · 核对构件外形与朝向' }}</p></div><span v-if="result && stage==='result'" class="data-date">已有结果 {{ computedAt }}</span></div>
-          <div class="scene-canvas"><OperatorRebarViewer ref="viewer" :result="result" :selected-id="stage==='result'?selectedId:''" :tolerance="threshold" :load-geometry="loadGeometry" :display-mode="stage==='result'?'result':scanning?'scan':'neutral'" :scan-progress="scanProgress" :reduced-motion="reducedMotion" @select="select" @loaded="geometryLoaded" />
+          <div class="scene-title"><div><h2>{{ stage==='result' ? '三维定位' : scanning ? '激光扫描演示' : '构件预览' }}</h2><p>{{ stage==='result' ? (following ? '视角跟随已开启 · 切换问题自动定位' : '拖动旋转 · 点击钢筋定位') : scanning ? (reducedMotion ? '保留扫描进度提示' : '上方光幕平移，沿钢筋表面扫描') : '设计模型 · 核对构件外形与朝向' }}</p></div><span v-if="result && stage==='result'" class="data-date">已有结果 {{ computedAt }}</span></div>
+          <div class="scene-canvas"><OperatorRebarViewer ref="viewer" :result="result" :selected-id="stage==='result'?selectedId:''" :tolerance="threshold" :load-geometry="loadGeometry" :display-mode="stage==='result'?'result':scanning?'scan':'neutral'" :scan-progress="scanProgress" :reduced-motion="reducedMotion" @select="select" @loaded="geometryLoaded" @follow-change="following=$event" />
             <div v-if="!result && !loading" class="scene-unavailable"><el-icon :size="42"><Camera /></el-icon><strong>暂无三维检测结果</strong><span>请联系技术人员完成采集和分析。</span></div>
             <div v-if="result && !fresh" class="scene-unavailable"><el-icon :size="42"><Warning /></el-icon><strong>检测结果需要更新</strong><span>请联系技术人员重新计算。</span></div>
           </div>
@@ -185,7 +186,7 @@ onBeforeUnmount(() => {
           <template v-else-if="stage==='scan'">
             <div class="stage-symbol scan-symbol"><el-icon><Camera /></el-icon></div>
             <h2>正在扫描</h2>
-            <p class="stage-description">{{ reducedMotion ? '扫描演示进行中，请稍候。' : '光束正从上方扫过钢筋网片。' }}</p>
+            <p class="stage-description">{{ reducedMotion ? '扫描演示进行中，请稍候。' : '激光光幕正平移扫过钢筋网片。' }}</p>
             <div class="scan-progress-panel">
               <div class="scan-progress-caption"><span>演示进度</span><strong>{{ Math.round(scanProgress*100) }}<small>%</small></strong></div>
               <div class="scan-progress-track" role="progressbar" aria-label="扫描演示进度" :aria-valuenow="Math.round(scanProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{transform:`scaleX(${scanProgress})`}"/></div>

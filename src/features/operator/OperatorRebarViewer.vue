@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
   scanProgress?: number
   reducedMotion?: boolean
 }>(), { displayMode: 'result', scanProgress: 0, reducedMotion: false })
-const emit = defineEmits<{ select: [id: string]; loaded: [value: boolean]; error: [message: string] }>()
+const emit = defineEmits<{ select: [id: string]; loaded: [value: boolean]; error: [message: string]; 'follow-change': [value: boolean] }>()
 const host = ref<HTMLDivElement>()
 const loading = ref(false)
 const errorMessage = ref('')
@@ -36,11 +36,10 @@ let layoutClass = -1
 let mounted = false
 let contextUnavailable = false
 let scanOverlay: THREE.Group | null = null
-let scanFan: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null
+let scanCurtain: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null = null
 let scanBox: THREE.Box3 | null = null
 let scanAxis: 'x' | 'z' = 'x'
 let scanCrossAxis: 'x' | 'z' = 'z'
-let scanFrame: THREE.Box3 | null = null
 let scanStart = 0
 let scanEnd = 1
 const scanUniforms = {
@@ -48,9 +47,6 @@ const scanUniforms = {
   scanPosition: { value: 0 },
   bandWidth: { value: 0.01 },
   scanOpacity: { value: 1 },
-  emitterCoordinate: { value: 0 },
-  emitterHeight: { value: 1 },
-  floorHeight: { value: 0 },
 }
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
@@ -108,29 +104,25 @@ function disposeScanOverlay() {
       materials.forEach(material => material.dispose())
     })
   }
-  scanOverlay = null; scanFan = null; scanBox = null; scanFrame = null
+  scanOverlay = null; scanCurtain = null; scanBox = null
 }
 
 function updateScanPosition() {
-  if (!scanBox || !scanFan) return
+  if (!scanBox || !scanCurtain) return
   const progress = THREE.MathUtils.clamp(Number.isFinite(props.scanProgress) ? props.scanProgress : 0, 0, 1)
   const position = THREE.MathUtils.lerp(scanStart, scanEnd, progress)
   scanUniforms.scanPosition.value = position
   scanUniforms.scanOpacity.value = Math.min(progress / 0.035, (1 - progress) / 0.035, 1)
-  // Only the lower fan edge moves. The overhead projector stays fixed, like
-  // Blender V5.1's stationary camera with internal swing-line acquisition.
-  const vertices = scanFan.geometry.getAttribute('position') as THREE.BufferAttribute
-  if (scanAxis === 'x') { vertices.setX(1, position); vertices.setX(2, position) }
-  else { vertices.setZ(1, position); vertices.setZ(2, position) }
-  vertices.needsUpdate = true
+  // A parallel overhead light sheet translates as a whole. The steel and camera
+  // retain their coordinates, scale and pose throughout the scan.
+  scanCurtain.position[scanAxis] = position
 }
 
 function syncDisplayMode() {
   updateColors()
   updateAriaLabel()
-  const wasScanning = Boolean(scanOverlay)
   disposeScanOverlay()
-  if (wasScanning && mesh?.geometry.boundingBox) resetView()
+  if (props.displayMode !== 'result' && viewMode === 'selected') setViewMode('all')
   if (!scene || !mesh?.geometry.boundingBox || props.displayMode !== 'scan' || props.reducedMotion) return
 
   // C2M PLY retains BIM/GLB XYZ metres: IFC (x,y,z) -> GLB (x,z,-y)
@@ -150,15 +142,12 @@ function syncDisplayMode() {
   // steel. Open mesh gaps stay open; the brief afterglow never means "passed".
   const surfaceMaterial = new THREE.ShaderMaterial({
     uniforms: scanUniforms,
-    vertexShader: `uniform vec3 scanAxis; varying float scanCoordinate; varying float surfaceHeight;
-      void main() { scanCoordinate = dot(position, scanAxis); surfaceHeight = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    vertexShader: `uniform vec3 scanAxis; varying float scanCoordinate;
+      void main() { scanCoordinate = dot(position, scanAxis); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform float scanPosition; uniform float bandWidth; uniform float scanOpacity;
-      uniform float emitterCoordinate; uniform float emitterHeight; uniform float floorHeight;
-      varying float scanCoordinate; varying float surfaceHeight;
+      varying float scanCoordinate;
       void main() {
-        float heightFraction = clamp((surfaceHeight - floorHeight) / (emitterHeight - floorHeight), 0.0, 1.0);
-        float projectedPosition = mix(scanPosition, emitterCoordinate, heightFraction);
-        float distance = projectedPosition - scanCoordinate;
+        float distance = scanPosition - scanCoordinate;
         float core = 1.0 - smoothstep(bandWidth * 0.18, bandWidth, abs(distance));
         float trail = distance < 0.0 ? 0.0 : (1.0 - smoothstep(0.0, bandWidth * 6.0, distance)) * 0.13;
         float alpha = (core * 0.94 + trail) * scanOpacity;
@@ -173,64 +162,27 @@ function syncDisplayMode() {
   surface.renderOrder = 2
   scanOverlay.add(surface)
 
-  const emitterHeight = scanBox.max.y + Math.max(extent * 0.27, size.y * 0.65, 0.08)
-  scanUniforms.emitterCoordinate.value = center[scanAxis]
-  scanUniforms.emitterHeight.value = emitterHeight
-  scanUniforms.floorHeight.value = scanBox.min.y
-  const topFraction = size.y / (emitterHeight - scanBox.min.y)
-  // Extend the footprint so the tilted sheet reaches elevated bars at both ends.
-  const projectionScale = 1 / Math.max(1 - topFraction, 0.1)
-  scanStart = center[scanAxis] - (size[scanAxis] / 2 + scanUniforms.bandWidth.value) * projectionScale
-  scanEnd = center[scanAxis] + (size[scanAxis] / 2 + scanUniforms.bandWidth.value) * projectionScale
-  const apex = center.clone(); apex.y = emitterHeight
-  const left = center.clone(); left.y = scanBox.min.y
-  const right = left.clone()
-  left[scanCrossAxis] = center[scanCrossAxis] - size[scanCrossAxis] / 2 * projectionScale
-  right[scanCrossAxis] = center[scanCrossAxis] + size[scanCrossAxis] / 2 * projectionScale
-  left[scanAxis] = right[scanAxis] = scanStart
-  // One light sheet, not a bounding plane or box. It stops at the mesh envelope;
-  // the surface shader above supplies the actual steel intersection pattern.
-  const fanGeometry = new THREE.BufferGeometry().setFromPoints([apex, left, right])
-  fanGeometry.setAttribute('uv', new THREE.Float32BufferAttribute([0.5, 1, 0, 0, 1, 0], 2))
-  // The triangle changes shape without reallocating. Fix its conservative bounds
-  // once so culling is correct at either end of the sweep.
-  scanFrame = scanBox.clone().expandByPoint(apex).expandByPoint(left).expandByPoint(right)
-  const farCorner = right.clone(); farCorner[scanAxis] = scanEnd
-  scanFrame.expandByPoint(farCorner)
-  fanGeometry.boundingBox = scanFrame.clone()
-  fanGeometry.boundingSphere = scanFrame.getBoundingSphere(new THREE.Sphere())
-  const fanMaterial = new THREE.ShaderMaterial({
+  const curtainHeight = size.y + Math.max(extent * 0.20, 0.08)
+  scanStart = scanBox.min[scanAxis] - scanUniforms.bandWidth.value
+  scanEnd = scanBox.max[scanAxis] + scanUniforms.bandWidth.value
+  const curtainGeometry = new THREE.PlaneGeometry(Math.max(size[scanCrossAxis], 0.01), curtainHeight)
+  const curtainMaterial = new THREE.ShaderMaterial({
     uniforms: { scanOpacity: scanUniforms.scanOpacity },
     vertexShader: `varying vec2 beamUv; void main() { beamUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform float scanOpacity; varying vec2 beamUv; void main() {
-      float edge = smoothstep(0.0, 0.16, beamUv.x) * smoothstep(0.0, 0.16, 1.0 - beamUv.x);
-      float density = 0.035 + 0.09 * pow(beamUv.y, 3.0) + 0.07 * pow(1.0 - beamUv.y, 10.0);
-      gl_FragColor = vec4(0.08, 0.38, 1.0, density * edge * scanOpacity);
+      float sides = smoothstep(0.0, 0.10, beamUv.x) * smoothstep(0.0, 0.10, 1.0 - beamUv.x);
+      float fromAbove = pow(1.0 - beamUv.y, 1.5);
+      gl_FragColor = vec4(0.08, 0.38, 1.0, 0.20 * fromAbove * sides * scanOpacity);
     }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
   })
-  scanFan = new THREE.Mesh(fanGeometry, fanMaterial)
-  scanFan.renderOrder = 1
-  scanOverlay.add(scanFan)
-
-  // A small fixed projector gives the beam a readable origin. Dimensions and
-  // false-colour light are presentation aids, not specified hardware geometry.
-  const radius = Math.max(extent * 0.018, 0.008)
-  const projector = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius, radius, radius * 0.8, 20),
-    new THREE.MeshStandardMaterial({ color: '#466183', metalness: 0.35, roughness: 0.4 }),
-  )
-  projector.position.copy(apex); projector.position.y += radius * 0.4
-  scanOverlay.add(projector)
-  const lens = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.58, radius * 0.58, radius * 0.08, 20),
-    new THREE.MeshBasicMaterial({ color: '#4f9aff', toneMapped: false }),
-  )
-  lens.position.copy(apex)
-  scanOverlay.add(lens)
-  scanFrame.max.y += radius
+  scanCurtain = new THREE.Mesh(curtainGeometry, curtainMaterial)
+  scanCurtain.position.copy(center)
+  scanCurtain.position.y = scanBox.min.y + curtainHeight / 2
+  if (scanAxis === 'x') scanCurtain.rotation.y = Math.PI / 2
+  scanCurtain.renderOrder = 1
+  scanOverlay.add(scanCurtain)
   scene.add(scanOverlay)
-  frameBox(scanFrame)
   updateScanPosition()
 }
 
@@ -266,12 +218,31 @@ function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3
   controls.update()
 }
 
-function resetView() { viewMode = 'all'; const box = scanFrame ?? mesh?.geometry.boundingBox; if (box) frameBox(box) }
-function topView() { viewMode = 'top'; const box = scanFrame ?? mesh?.geometry.boundingBox; if (box) frameBox(box, true) }
+function setViewMode(mode: typeof viewMode) {
+  viewMode = mode
+  emit('follow-change', mode === 'selected')
+}
+function resetView() { setViewMode('all'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox) }
+function topView() { setViewMode('top'); if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, true) }
 function focusSelected() {
-  if (props.displayMode !== 'result') return
+  if (props.displayMode !== 'result' || !camera || !controls) return
   const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
-  if (index >= 0 && bounds[index]) { viewMode = 'selected'; frameBox(bounds[index]!) }
+  if (index >= 0 && bounds[index]) {
+    setViewMode('selected')
+    frameBox(bounds[index]!, false, camera.position.clone().sub(controls.target))
+  }
+}
+function followSelected() {
+  if (props.displayMode !== 'result' || viewMode !== 'selected' || !camera || !controls) return
+  const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
+  const box = bounds[index]
+  if (!box || box.isEmpty()) return
+  // Translate camera and target together, retaining the worker's zoom and orbit
+  // angle rather than fitting each new bar to a different scale.
+  const target = box.getCenter(new THREE.Vector3())
+  camera.position.add(target.clone().sub(controls.target))
+  controls.target.copy(target)
+  controls.update()
 }
 function orbit(horizontal: number, vertical = 0) {
   if (!camera || !controls || !hasModel.value) return
@@ -356,7 +327,7 @@ function resize() {
   // user's zoom, while crossing the breakpoint keeps the current viewing angle.
   if (layoutChanged && mesh?.geometry.boundingBox && controls) {
     const selected = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
-    const box = viewMode === 'selected' && bounds[selected] ? bounds[selected]! : scanFrame ?? mesh.geometry.boundingBox
+    const box = viewMode === 'selected' && bounds[selected] ? bounds[selected]! : mesh.geometry.boundingBox
     frameBox(box, viewMode === 'top', camera.position.clone().sub(controls.target))
   }
 }
@@ -453,7 +424,8 @@ onMounted(() => {
   }
 })
 watch(() => props.result, () => { if (mounted) void loadResult() })
-watch(() => [props.selectedId, props.tolerance], updateColors)
+watch(() => props.selectedId, () => { updateColors(); followSelected() })
+watch(() => props.tolerance, updateColors)
 watch(() => [props.displayMode, props.reducedMotion], syncDisplayMode)
 watch(() => props.scanProgress, updateScanPosition)
 onBeforeUnmount(() => {

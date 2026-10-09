@@ -13,13 +13,13 @@ const names = new Set(['stage', 'scanState', 'scanProgress', 'scanCompletedVersi
 const statements = ast.statements.filter(node => names.has(node.name?.text) || ts.isVariableStatement(node) && node.declarationList.declarations.some(d => names.has(d.name.getText(ast))))
 assert.equal(statements.length, names.size)
 const ref = value => ({ value })
-let now = 0, nextId = 0
+let now = 0, nextId = 0, cameraResets = 0
 const frames = new Map()
 const context = { Math, ref, computed: fn => ({ get value() { return fn() } }),
   requestAnimationFrame: callback => { frames.set(++nextId, callback); return nextId },
   cancelAnimationFrame: id => frames.delete(id), performance: { now: () => now }, document: { hidden: false },
   version: ref('v1'), fresh: ref(true), geometryReady: ref(true), loading: ref(false), saving: ref(false), task: ref({scanId: 5}), generation: 1,
-  viewer: ref({ resetView() {} }), nextTick: fn => fn(), selectedId: ref(''), issues: ref([{ifcGlobalId:'bar-1'}]),
+  viewer: ref({ resetView() { cameraResets++ } }), nextTick: fn => fn(), selectedId: ref(''), issues: ref([{ifcGlobalId:'bar-1'}]),
 }
 vm.createContext(context)
 const exports = `\nglobalThis.controller = {${[...names].join(',')}}`
@@ -52,4 +52,5 @@ c.startScan(); c.geometryLoaded(false); tick(70000)
 assert.equal(c.stage.value,'ready'); assert.equal(c.scanState.value,'idle'); assert.equal(frames.size,0); assert.equal(c.canShowResult.value,false)
 context.geometryReady.value=true; c.reducedMotion.value=true; c.startScan(); tick(78000)
 assert.equal(c.stage.value,'result','reduced motion retains automatic results')
+assert.equal(cameraResets,0,'prepare, scan, cancellation and automatic results must not reset the camera')
 console.log('PASS: single-click scanning, automatic results, cancellation/restart, hidden-tab pause, task/version invalidation and lost geometry')
