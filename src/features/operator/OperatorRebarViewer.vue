@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
-import { operatorBarFrame, operatorBoxEdges, operatorFitDistance, operatorAxisHeading, operatorResultColor, wrappedAngle, type OperatorBarFrame } from './operator-presentation'
+import { operatorBarFrame, operatorBoxEdges, operatorFitDistance, operatorAxisHeading, operatorResultColor, operatorPatrolGroups, wrappedAngle, type OperatorBarFrame, type OperatorPatrol } from './operator-presentation'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import type { C2MResult, RebarComparisonBar } from '@cloudbim/viewer-core'
 import { mapOperatorGeometry, operatorBarState, validateOperatorPlySurface } from './operator-geometry'
@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
   scanProgress?: number
   reducedMotion?: boolean
 }>(), { displayMode: 'result', scanProgress: 0, reducedMotion: false })
-const emit = defineEmits<{ select: [id: string]; loaded: [value: boolean]; error: [message: string]; 'follow-change': [value: boolean] }>()
+const emit = defineEmits<{ select: [id: string]; loaded: [value: boolean]; error: [message: string]; 'follow-change': [value: boolean]; 'patrol-change': [value: OperatorPatrol] }>()
 const host = ref<HTMLDivElement>()
 const loading = ref(false)
 const errorMessage = ref('')
@@ -372,7 +372,7 @@ function followSelected(previousAspect = camera?.aspect ?? 1) {
   const previousFit = operatorFitDistance(followPose.frame, offset.clone().normalize(), camera.fov, previousAspect)
   const distance = THREE.MathUtils.clamp(fitDistance * offset.length() / previousFit, controls.minDistance, controls.maxDistance)
   followPose = { heading, fitDistance, frame }
-  transitionCamera(frame.center.clone().addScaledVector(direction, distance), frame.center, 780)
+  transitionCamera(frame.center.clone().addScaledVector(direction, distance), frame.center, 680)
 }
 function orbit(horizontal: number, vertical = 0) {
   stopCameraTransition()
@@ -468,6 +468,7 @@ async function loadResult() {
   const token = ++requestToken
   disposeModel()
   emit('loaded', false)
+  emit('patrol-change', { longitudinal: [], transverse: [] })
   errorMessage.value = ''
   const result = props.result
   if (contextUnavailable || !renderer || !scene) {
@@ -509,6 +510,7 @@ async function loadResult() {
     hasModel.value = true
     loading.value = false
     syncDisplayMode(); setViewMode('all'); frameBox(mesh.geometry.boundingBox!)
+    emit('patrol-change', operatorPatrolGroups(bars.map((bar, i) => ({ id: bar.ifcGlobalId, frame: barFrames[i] ?? null, designUnitCount: new Set(bar.measurement?.longitudinalProfile?.map(sample => sample.designUnitId)).size }))))
     emit('loaded', true)
   } catch (error) {
     geometry?.dispose()

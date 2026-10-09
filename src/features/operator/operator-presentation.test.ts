@@ -49,3 +49,22 @@ test('deviation boundaries are display-only; missing and review take precedence'
   assert.equal(operatorResultColor('measured', NaN, t), resultPalette.review)
   assert.equal(operatorResultColor('measured', .001, null), resultPalette.review)
 })
+
+test('patrol includes adjacent normal bars, orders by space and excludes local ties and compound members', async () => {
+  const { operatorPatrolGroups } = await import(modulePath) as typeof import('./operator-presentation')
+  function entry(id: string, length: number, axis: Vector3, center: Vector3, designUnitCount = 1) {
+    return { id, designUnitCount, frame: { axis, center, up: new Vector3(0, 1, 0), side: new Vector3().crossVectors(axis, new Vector3(0, 1, 0)), halfSize: new Vector3(length / 2 + .02, .024, .024), corners: [] } }
+  }
+  // Rotated, translated and deliberately shuffled; IDs do not encode position.
+  const axis = new Vector3(1, 0, .4).normalize(), cross = new Vector3(-axis.z, 0, axis.x), origin = new Vector3(11, 2, -7)
+  const entries = [3, 0, 4, 1, 2].map(i => entry('long-' + i, 4.2, i % 2 ? axis.clone().negate() : axis, origin.clone().addScaledVector(cross, i * .1)))
+  entries.push(...[3, 0, 4, 1, 2].map(i => entry('short-' + i, 1.15, cross, origin.clone().addScaledVector(axis, i * .1))))
+  entries.push(...[0, 1, 2].map(i => entry('tie-' + i, .28, cross, origin.clone().addScaledVector(axis, i * .1))))
+  entries.push(...Array.from({ length: 20 }, (_, i) => entry('compound-' + i, 3.6, axis, origin.clone().addScaledVector(cross, i * .01), 36)))
+  const original = entries.map(e => e.frame.center.toArray())
+  const result = operatorPatrolGroups(entries)
+  assert.deepEqual(result.longitudinal, ['long-0', 'long-1', 'long-2', 'long-3', 'long-4'])
+  assert.deepEqual(result.transverse, ['short-0', 'short-1', 'short-2', 'short-3', 'short-4'])
+  assert.deepEqual(entries.map(e => e.frame.center.toArray()), original)
+  assert.deepEqual(operatorPatrolGroups(entries.slice(0, 5)), { longitudinal: [], transverse: [] })
+})

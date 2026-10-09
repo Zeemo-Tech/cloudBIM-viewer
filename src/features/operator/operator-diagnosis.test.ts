@@ -24,20 +24,20 @@ test('uses the worst supported local offset, doubles signed radius difference, a
   const result = operatorDiagnosis(bar([sample([.01, .002, 0]), sample([.2, .3, 0], 'unstable-section')]), 'outlier')
   assert.match(result.lines[0]!.text, /向右 10.0 mm；抬高 2.0 mm/)
   assert.match(result.lines[1]!.text, /8.6 mm（设计 8.0 mm），较设计粗 0.6 mm/)
-  assert.match(result.lines[2]!.text, /暂不能判断是否过弯/)
+  assert.match(result.lines[2]!.text, /待补扫/)
   assert.match(result.coverage!, /1 \/ 2/)
   const bend = operatorDiagnosis(bar([sample([.01, 0, 0])], .0046, 'supported'), 'outlier')
-  assert.match(bend.lines[2]!.text, /4.6 mm/); assert.match(bend.lines[2]!.detail!, /未设置弯曲限值/)
+  assert.match(bend.lines[2]!.text, /4.6 mm/); assert.doesNotMatch(bend.lines[2]!.text, /超限|过弯|合格/)
 })
 test('missing, review, malformed or legacy values do not manufacture a diagnosis or zero measurement', () => {
   const known = bar([sample([.02, 0, 0])], .01, 'supported')
-  assert.match(operatorDiagnosis(known, 'missing').title, /尚不能确认少筋/)
-  assert.match(operatorDiagnosis(known, 'review').lines[1]!.text, /暂不判断/)
+  assert.equal(operatorDiagnosis(known, 'missing').title, '缺测，需补扫')
+  assert.equal(operatorDiagnosis(known, 'review').lines.length, 1); assert.match(operatorDiagnosis(known, 'review').lines[0]!.text, /核对测量结果/)
   const invalid = sample([.02, 0, 0]); invalid.observedCenterM = null
   const legacy = sample([.02, 0, 0]); delete legacy.quality
   assert.equal(operatorOffset(invalid), null); assert.equal(operatorOffset(legacy), null)
   const unknown = operatorDiagnosis(bar([invalid, legacy]), 'outlier')
-  assert.match(unknown.lines[0]!.text, /不能确定偏移方向/); assert.match(unknown.lines[1]!.text, /暂不能判断/)
+  assert.match(unknown.lines[0]!.text, /待补扫/); assert.match(unknown.lines[1]!.text, /待补扫/)
   const bad = sample([.02, 0, 0]); bad.radiusDeltaM = NaN
-  assert.match(operatorDiagnosis(bar([bad], .003, 'insufficient-coverage'), 'outlier').lines[2]!.text, /暂不能判断/)
+  assert.match(operatorDiagnosis(bar([bad], .003, 'insufficient-coverage'), 'outlier').lines[2]!.text, /待补扫/)
 })

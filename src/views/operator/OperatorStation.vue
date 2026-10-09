@@ -6,7 +6,7 @@ import type { AuthSession } from '@/features/auth/auth.service'
 import type { C2MResult, RebarComparisonBar } from '@cloudbim/viewer-core'
 import { coverage, millimetres, problemKind, type InspectionAction, type InspectionActionRecord } from '@/features/inspection/inspection-data'
 import { getOperatorActions, getOperatorGeometry, getOperatorResult, listOperatorTasks, postOperatorAction, type OperatorTask } from '@/features/operator/operator-api'
-import { operatorResultColor, operatorResultLegend } from '@/features/operator/operator-presentation'
+import { operatorResultColor, operatorResultLegend, type OperatorPatrol } from '@/features/operator/operator-presentation'
 import { operatorDiagnosis } from '@/features/operator/operator-diagnosis'
 import OperatorRebarViewer from '@/features/operator/OperatorRebarViewer.vue'
 
@@ -43,7 +43,12 @@ const issues = computed(() => bars.value.filter(b => kind(b) !== 'observed'))
 const outliers = computed(() => issues.value.filter(b => kind(b) === 'outlier').length)
 const missing = computed(() => issues.value.filter(b => kind(b) === 'missing').length)
 const selected = computed(() => bars.value.find(b => b.ifcGlobalId === selectedId.value))
-const issueIndex = computed(() => issues.value.findIndex(b => b.ifcGlobalId === selectedId.value))
+const patrol = ref<OperatorPatrol>({ longitudinal: [], transverse: [] })
+const browseMode = ref<'issues' | keyof OperatorPatrol>('issues')
+const browseOptions = [{ value: 'issues', label: '问题' }, { value: 'longitudinal', label: '纵向长筋' }, { value: 'transverse', label: '横向短筋' }] as const
+const navigationIds = computed(() => browseMode.value === 'issues' ? issues.value.map(b => b.ifcGlobalId) : patrol.value[browseMode.value])
+const navigationIndex = computed(() => navigationIds.value.indexOf(selectedId.value))
+const navigationLabel = computed(() => browseMode.value === 'issues' ? '问题' : browseMode.value === 'longitudinal' ? '长筋' : '短筋')
 const selectedNumber = computed(() => selected.value ? String(bars.value.indexOf(selected.value) + 1).padStart(2, '0') : '')
 const fresh = computed(() => result.value?.fresh === true)
 const version = computed(() => result.value?.resultVersion || '')
@@ -60,7 +65,18 @@ const computedAt = computed(() => { const d = result.value?.updatedAt || result.
 const componentName = computed(() => task.value?.bimName?.replace(/\.ifc$/i, '') || task.value?.scanName || '未分配检测任务')
 
 function select(id: string) { if (saving.value || stage.value !== 'result') return; selectedId.value = id; note.value = ''; message.value = '' }
-function move(delta: number) { if (!issues.value.length || saving.value) return; const start = issueIndex.value < 0 ? (delta > 0 ? -1 : 0) : issueIndex.value; const row = issues.value[(start + delta + issues.value.length) % issues.value.length]; if (row) select(row.ifcGlobalId) }
+function move(delta: number) {
+  const ids = navigationIds.value
+  if (!ids.length || saving.value) return
+  const start = navigationIndex.value < 0 ? (delta > 0 ? -1 : 0) : navigationIndex.value
+  const id = ids[(start + delta + ids.length) % ids.length]
+  if (id) select(id)
+}
+function changeBrowseMode(mode: typeof browseMode.value) {
+  if (saving.value || stage.value !== 'result') return
+  browseMode.value = mode
+  if (!navigationIds.value.includes(selectedId.value) && navigationIds.value[0]) select(navigationIds.value[0])
+}
 function showResult() { if (!canShowResult.value || saving.value) return; stage.value = 'result'; if (!selectedId.value) selectedId.value = issues.value[0]?.ifcGlobalId || '' }
 function stopScan() {
   cancelAnimationFrame(scanFrame); scanFrame = 0; advanceScan = null; scanEpoch++
@@ -105,6 +121,7 @@ async function readRecords(request = generation) {
 }
 async function loadTask() {
   stopScan(); stage.value = 'ready'; scanDemoUsed.value = false
+  browseMode.value = 'issues'; patrol.value = { longitudinal: [], transverse: [] }
   const request=++generation; ++recordGeneration; loading.value=true; error.value=''; result.value=null; records.value=[]; recordsError.value=''; selectedId.value=''; geometryReady.value=false; note.value=''; message.value=''
   const current=task.value
   try {
@@ -133,7 +150,7 @@ async function save(action:InspectionAction) {
   if(!canAct.value||!selected.value)return
   if(action==='acknowledge'&&confirmed.value||action==='record_adjustment'&&(!confirmed.value||adjusted.value||!note.value.trim())||action==='request_recheck'&&(!adjusted.value||requested.value))return
   const request=generation; const id=selectedId.value;const isDemo=demo.value; saving.value=true;message.value=''
-  try {await postOperatorAction(version.value,{ifcGlobalId:id,action,note:action==='record_adjustment'?note.value.trim():'',demonstration:isDemo});if(request!==generation)return;await readRecords(request);if(!recordsError.value)message.value=action==='request_recheck'?'已申请复检，等待补扫和新检测结果。':'记录已保存。'}
+  try {await postOperatorAction(version.value,{ifcGlobalId:id,action,note:action==='record_adjustment'?note.value.trim():'',demonstration:isDemo});if(request!==generation)return;await readRecords(request);if(!recordsError.value)message.value=action==='request_recheck'?'已申请复检。':'记录已保存。'}
   catch(e){if(request===generation)recordsError.value=e instanceof Error?e.message:'保存失败，请重试。'}
   finally{saving.value=false}
 }
@@ -160,7 +177,7 @@ onBeforeUnmount(() => {
       <div class="operator-brand"><span>CloudBIM</span><h1>工人操作</h1></div>
       <div class="operator-account"><span>{{ session.displayName || session.username }}<small>{{ isWorker ? '现场工人' : '工人视图' }}</small></span><button v-if="!isWorker" class="op-button subtle" @click="router.push('/projects')">返回管理平台</button><button class="op-button subtle" @click="emit('logout')"><el-icon><SwitchButton /></el-icon>退出</button></div>
     </header>
-    <div class="operator-demo"><strong>{{ stage === 'result' ? '演示结果' : '扫描演示' }}</strong><span>{{ stage === 'result' ? '展示该构件已有检测结果；演示处理单独记录，不代表新采集或现场已调整。' : '当前未连接扫描设备，动画结束后自动展示该构件已有检测结果。' }}</span></div>
+    <div class="operator-demo"><strong>{{ stage === 'result' ? '演示结果' : '扫描演示' }}</strong><span>{{ stage === 'result' ? '当前显示已有检测结果' : '设备未连接 · 扫描后查看已有结果' }}</span></div>
     <main>
       <div class="operator-context"><label>当前构件<select v-model="chosen" :disabled="loading || saving || scanning || !tasks.length" @change="changeTask"><option v-if="!tasks.length" value="">{{ loading ? '正在读取任务…' : '暂无分配任务' }}</option><option v-for="item in tasks" :key="item.scanId" :value="String(item.scanId)">{{ item.bimName.replace(/\.ifc$/i,'') || item.scanName }} · {{ item.projectName }}</option></select></label><ol class="operator-steps" aria-label="检测步骤">
           <li :class="{active:stage==='ready',done:stage!=='ready'}" :aria-current="stage==='ready'?'step':undefined"><span class="step-number">1</span><div><strong>准备检测</strong><small>构件就位</small></div></li>
@@ -171,12 +188,12 @@ onBeforeUnmount(() => {
       <div v-else-if="!task" class="operator-empty"><el-icon :size="56"><Camera /></el-icon><h2>{{ loading ? '正在读取任务' : '还没有分配检测任务' }}</h2><p>{{ loading ? '请稍候…' : '请联系管理员分配项目和检测构件。' }}</p><button class="op-button" :disabled="loading" @click="refresh">刷新任务</button></div>
       <div v-else class="operator-workspace">
         <section class="operator-scene">
-          <div class="scene-title"><div><h2>{{ stage==='result' ? '三维定位' : scanning ? '激光扫描演示' : '构件预览' }}</h2><p>{{ stage==='result' ? (following ? '沿钢筋轴向跟随 · 可拖动调整角度' : '拖动旋转 · 点击钢筋定位') : scanning ? (reducedMotion ? '覆盖区域分段更新，扫描完成后自动查看结果' : '上方光幕平移，紫色保留已扫描区域') : '设计模型 · 核对构件外形与朝向' }}</p></div><span v-if="result && stage==='result'" class="data-date">已有结果 {{ computedAt }}</span></div>
-          <div class="scene-canvas"><OperatorRebarViewer ref="viewer" :result="result" :selected-id="stage==='result'?selectedId:''" :tolerance="threshold" :load-geometry="loadGeometry" :display-mode="stage==='result'?'result':scanning?'scan':'neutral'" :scan-progress="scanProgress" :reduced-motion="reducedMotion" @select="select" @loaded="geometryLoaded" @follow-change="following=$event" />
+          <div class="scene-title"><div><h2>{{ stage==='result' ? '三维定位' : scanning ? '激光扫描演示' : '构件预览' }}</h2><p>{{ stage==='result' ? (following ? '沿钢筋轴向跟随 · 可拖动调整角度' : '拖动旋转 · 点击钢筋定位') : scanning ? (reducedMotion ? '覆盖区域分段更新' : '光幕平移 · 紫色为已扫描区域') : '设计模型 · 核对构件外形与朝向' }}</p></div><span v-if="result && stage==='result'" class="data-date">已有结果 {{ computedAt }}</span></div>
+          <div class="scene-canvas"><OperatorRebarViewer ref="viewer" :result="result" :selected-id="stage==='result'?selectedId:''" :tolerance="threshold" :load-geometry="loadGeometry" :display-mode="stage==='result'?'result':scanning?'scan':'neutral'" :scan-progress="scanProgress" :reduced-motion="reducedMotion" @select="select" @loaded="geometryLoaded" @follow-change="following=$event" @patrol-change="patrol=$event" />
             <div v-if="!result && !loading" class="scene-unavailable"><el-icon :size="42"><Camera /></el-icon><strong>暂无三维检测结果</strong><span>请联系技术人员完成采集和分析。</span></div>
             <div v-if="result && !fresh" class="scene-unavailable"><el-icon :size="42"><Warning /></el-icon><strong>检测结果需要更新</strong><span>请联系技术人员重新计算。</span></div>
           </div>
-          <div class="scene-toolbar"><div class="view-controls"><button class="op-button" :disabled="!geometryReady" @click="viewer?.resetView()"><el-icon><FullScreen /></el-icon>看全图</button><button class="op-button" :disabled="!geometryReady" @click="viewer?.topView()">俯视</button><button class="op-button icon" aria-label="向左旋转" :disabled="!geometryReady" @click="viewer?.rotateLeft()"><el-icon><RefreshLeft /></el-icon></button><button class="op-button icon" aria-label="向右旋转" :disabled="!geometryReady" @click="viewer?.rotateRight()"><el-icon><RefreshRight /></el-icon></button><button class="op-button icon" aria-label="放大模型" :disabled="!geometryReady" @click="viewer?.zoomIn()"><el-icon><Plus /></el-icon></button><button class="op-button icon" aria-label="缩小模型" :disabled="!geometryReady" @click="viewer?.zoomOut()"><el-icon><Minus /></el-icon></button></div><div v-if="stage==='result'" class="scene-legend"><span class="selected-key">选中</span><small>偏差 mm</small><span v-for="item in resultLegend" :key="item.label" class="deviation-key" :style="{ '--legend-color': item.color }">{{ item.label }}</span></div><div v-else-if="scanning" class="scene-legend scan-legend" aria-label="扫描覆盖图例"><span class="scanned-key">已扫描（演示）</span><span class="unscanned-key">未扫描</span></div><span v-else class="scene-hint">拖动模型可旋转查看</span></div>
+          <div class="scene-toolbar"><div class="view-controls"><button class="op-button" :disabled="!geometryReady" @click="viewer?.resetView()"><el-icon><FullScreen /></el-icon>看全图</button><button class="op-button" :disabled="!geometryReady" @click="viewer?.topView()">俯视</button><button class="op-button icon" aria-label="向左旋转" :disabled="!geometryReady" @click="viewer?.rotateLeft()"><el-icon><RefreshLeft /></el-icon></button><button class="op-button icon" aria-label="向右旋转" :disabled="!geometryReady" @click="viewer?.rotateRight()"><el-icon><RefreshRight /></el-icon></button><button class="op-button icon" aria-label="放大模型" :disabled="!geometryReady" @click="viewer?.zoomIn()"><el-icon><Plus /></el-icon></button><button class="op-button icon" aria-label="缩小模型" :disabled="!geometryReady" @click="viewer?.zoomOut()"><el-icon><Minus /></el-icon></button></div><div v-if="stage==='result'" class="scene-legend"><span class="selected-key">选中</span><small>偏差 mm</small><span v-for="item in resultLegend" :key="item.label" class="deviation-key" :style="{ '--legend-color': item.color }">{{ item.label }}</span></div><div v-else-if="scanning" class="scene-legend scan-legend" aria-label="扫描覆盖图例"><span class="scanned-key">已扫描</span><span class="unscanned-key">未扫描</span></div><span v-else class="scene-hint">拖动模型可旋转查看</span></div>
         </section>
         <aside class="operator-controls" :class="{'editing-adjustment':editingAdjustment}">
           <template v-if="stage==='ready'">
@@ -192,32 +209,33 @@ onBeforeUnmount(() => {
             <h2>正在扫描</h2>
             <p class="stage-description">{{ reducedMotion ? '扫描演示进行中，请稍候。' : '激光光幕正平移扫过钢筋网片。' }}</p>
             <div class="scan-progress-panel">
-              <div class="scan-progress-caption"><span>演示覆盖进度</span><strong>{{ Math.round(scanProgress*100) }}<small>%</small></strong></div>
+              <div class="scan-progress-caption"><span>覆盖进度</span><strong>{{ Math.round(scanProgress*100) }}<small>%</small></strong></div>
               <div class="scan-progress-track" role="progressbar" aria-label="扫描演示进度" :aria-valuenow="Math.round(scanProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{transform:`scaleX(${scanProgress})`}"/></div>
-              <p class="scan-step-status" role="status">{{ scanProgress<.85 ? '颜色仅表示扫描覆盖，不表示合格或偏差。' : '即将完成，随后自动查看已有结果。' }}</p>
+              <p class="scan-step-status" role="status">{{ scanProgress<.85 ? '正在扫描网片' : '即将显示结果' }}</p>
               <p v-if="reducedMotion" class="operator-note">已启用减少动态效果，保留进度提示。</p>
             </div>
             <button class="op-button secondary-action main-action" @click="cancelScan">取消扫描演示</button>
-            <p class="operator-note">扫描结束后自动显示结果，无需再次点击。</p>
+
           </template>
           <template v-else>
-            <div class="result-heading"><el-icon><Warning /></el-icon><h2>{{ issues.length ? `${issues.length} 处需要检查` : '等待质量复核' }}</h2></div><p class="result-counts">{{ outliers }} 根超复核阈值<span>·</span>{{ missing }} 根需补扫</p>
-            <div class="problem-navigation"><button class="op-button icon" aria-label="上一处问题" :disabled="!issues.length || saving" @click="move(-1)"><el-icon><ArrowLeft /></el-icon></button><strong>{{ issueIndex>=0 ? `问题 ${issueIndex+1} / ${issues.length}` : '模型中选中' }}</strong><button class="op-button icon" aria-label="下一处问题" :disabled="!issues.length || saving" @click="move(1)"><el-icon><ArrowRight /></el-icon></button></div>
-            <div class="selected-problem"><div class="selected-problem-heading"><h3>{{ selected ? `钢筋 ${selectedNumber}` : '尚未选择' }}</h3><button class="op-button compact" :disabled="!selected || !geometryReady" @click="viewer?.focusSelected()"><el-icon><Aim /></el-icon>放大位置</button></div><strong v-if="!editingAdjustment" class="issue-instruction">{{ diagnosis?.title || selectionTitle }}</strong><div v-if="selected" class="selected-measure"><span>{{ kind(selected)==='missing' ? '有效测量' : '偏差参考值' }}</span><strong :style="{ color: kind(selected)==='missing' ? '#94651d' : operatorResultColor(kind(selected), selected.stats?.p95Abs, threshold) }">{{ kind(selected)==='missing' ? '缺测' : millimetres(selected.stats?.p95Abs) }}</strong></div><p v-if="selected && kind(selected)!=='missing'" class="measurement-caption">95%绝对表面偏差 · 复核阈值 {{ millimetres(threshold) }}</p>
+            <div class="result-heading"><el-icon><Warning /></el-icon><h2>{{ issues.length ? `${issues.length} 处需要检查` : '等待质量复核' }}</h2></div><p class="result-counts">{{ outliers }} 根偏差超阈值<span>·</span>{{ missing }} 根需补扫</p>
+            <div class="browse-modes" role="group" aria-label="巡视范围"><button v-for="option in browseOptions" :key="option.value" class="op-button compact" :aria-pressed="browseMode===option.value" :disabled="saving || (option.value!=='issues' && !patrol[option.value].length)" @click="changeBrowseMode(option.value)">{{ option.label }}</button></div>
+            <div class="problem-navigation"><button class="op-button icon" :aria-label="browseMode==='issues'?'上一处问题':'上一根钢筋'" :disabled="!navigationIds.length || saving" @click="move(-1)"><el-icon><ArrowLeft /></el-icon></button><strong>{{ navigationIndex>=0 ? `${navigationLabel} ${navigationIndex+1} / ${navigationIds.length}` : '模型中选中' }}</strong><button class="op-button icon" :aria-label="browseMode==='issues'?'下一处问题':'下一根钢筋'" :disabled="!navigationIds.length || saving" @click="move(1)"><el-icon><ArrowRight /></el-icon></button></div>
+            <div class="selected-problem"><div class="selected-problem-heading"><h3>{{ selected ? `钢筋 ${selectedNumber}` : '尚未选择' }}</h3><button class="op-button compact" :disabled="!selected || !geometryReady" @click="viewer?.focusSelected()"><el-icon><Aim /></el-icon>放大位置</button></div><strong v-if="!editingAdjustment" class="issue-instruction">{{ diagnosis?.title || selectionTitle }}</strong><div v-if="selected" class="selected-measure"><span>{{ kind(selected)==='missing' ? '有效测量' : '表面偏差' }}</span><strong :style="{ color: kind(selected)==='missing' ? '#94651d' : operatorResultColor(kind(selected), selected.stats?.p95Abs, threshold) }">{{ kind(selected)==='missing' ? '缺测' : millimetres(selected.stats?.p95Abs) }}</strong></div><p v-if="selected && kind(selected)!=='missing'" class="measurement-caption">P95 · 阈值 {{ millimetres(threshold) }}</p>
               <div v-if="diagnosis && !editingAdjustment" class="problem-diagnosis" aria-label="问题诊断">
                 <dl><div v-for="line in diagnosis.lines" :key="line.label"><dt>{{ line.label }}</dt><dd>{{ line.text }}<small v-if="line.detail">{{ line.detail }}</small></dd></div></dl>
                 <p v-if="diagnosis.coverage" class="diagnosis-coverage">{{ diagnosis.coverage }}</p>
-                <details v-if="diagnosis.reference"><summary>偏移方向怎么看？</summary><p>{{ diagnosis.reference }}</p></details>
+                <details v-if="diagnosis.reference"><summary>方向说明</summary><p>{{ diagnosis.reference }}</p></details>
               </div></div>
             <div v-if="selected && kind(selected)!=='observed'" class="operator-action-flow">
-              <div v-if="requested" class="waiting-state"><el-icon><CircleCheck /></el-icon><div><strong>已申请复检</strong><p>等待补扫和新结果，尚未放行。</p></div></div>
+              <div v-if="requested" class="waiting-state"><el-icon><CircleCheck /></el-icon><div><strong>已申请复检</strong><p>等待复检结果</p></div></div>
               <template v-else-if="adjusted"><div class="saved-note"><el-icon><Check /></el-icon><strong>处理记录已保存</strong><p>{{ adjusted.note }}</p></div><button class="op-button primary main-action" :disabled="!canAct" @click="save('request_recheck')">{{ saving ? '正在提交…' : '申请复检' }}</button></template>
               <template v-else-if="confirmed"><label class="adjustment-label">做了哪些处理？</label><div class="quick-notes"><button v-for="text in (kind(selected)==='missing'?['安排补扫缺测区域','移除遮挡后补扫']:['调整钢筋位置','重新绑扎固定','安排局部补扫'])" :key="text" class="op-button" :class="{chosen:note===text}" :disabled="saving" @click="note=text">{{ text }}</button></div><textarea v-model="note" aria-label="处理说明" rows="2" maxlength="2000" placeholder="可补充处理说明" :disabled="saving"/><button class="op-button primary main-action" :disabled="!canAct || !note.trim()" @click="save('record_adjustment')">{{ saving ? '正在保存…' : '保存处理记录' }}</button></template>
               <button v-else class="op-button primary main-action" :disabled="!canAct" @click="save('acknowledge')">{{ saving ? '正在保存…' : '确认这处问题' }}</button>
               <p v-if="demo" class="operator-note">当前操作为演示记录</p>
             </div>
             <p v-if="message" class="save-feedback" role="status">{{ message }}</p><div v-if="recordsError" class="record-error" role="alert">{{ recordsError }}<button class="op-button" :disabled="recordsLoading || saving" @click="readRecords()">重新读取记录</button></div>
-            <details v-if="selected" class="operator-details"><summary>构件与钢筋信息</summary><p>{{ selected.name }}</p><p>测量覆盖 {{ coverage(selected) }} · 编号与当前报告一致</p><p>构件 {{ componentName }}</p><p>缺测保留未知状态；处理记录不会改写检测结论。</p></details>
+            <details v-if="selected" class="operator-details"><summary>构件与钢筋信息</summary><p>{{ selected.name }}</p><p>测量覆盖 {{ coverage(selected) }}</p><p>构件 {{ componentName }}</p></details>
           </template>
         </aside>
       </div>
@@ -226,6 +244,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.browse-modes{display:flex;gap:6px;margin-top:18px}.browse-modes .op-button{flex:1;padding-inline:7px;white-space:nowrap;font-size:15px}.browse-modes [aria-pressed="true"]{color:var(--op-blue);background:#e9eefc;border-color:var(--op-blue)}.browse-modes+.problem-navigation{margin:12px 0}
+
 .problem-diagnosis{margin-top:18px}.problem-diagnosis dl{margin:0}.problem-diagnosis dl>div{margin-top:14px}.problem-diagnosis dt{font-size:14px;color:#53647b;font-weight:600;margin-bottom:4px}.problem-diagnosis dd{font-size:17px;line-height:1.55;margin:0;color:#263657}.problem-diagnosis dd small{display:block;font-size:13px;line-height:1.45;color:#65748b;margin-top:3px}.problem-diagnosis .diagnosis-coverage{font-size:13px;line-height:1.5;margin-top:14px;color:#65748b}.problem-diagnosis details{margin-top:8px;font-size:13px;color:#53647b;line-height:1.55}.problem-diagnosis summary{cursor:pointer}.problem-diagnosis details p{margin-top:6px}
 
 .operator-station{--op-blue:var(--brand-aether,#4e66cc);--op-ink:var(--brand-sapphire,#102375);--op-border:#d7e0ed;min-height:100dvh;background:#f3f6fb;color:#263657;font-family:var(--font-family-base);font-size:18px;line-height:1.5;font-variant-numeric:tabular-nums;}

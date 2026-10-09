@@ -95,3 +95,43 @@ export function operatorAxisHeading(frame: OperatorBarFrame, reference: number) 
   const heading = Math.atan2(axis.x, axis.z)
   return Math.abs(wrappedAngle(heading - reference)) <= Math.PI / 2 + 1e-8 ? heading : heading + Math.PI
 }
+
+export interface OperatorPatrol { longitudinal: string[]; transverse: string[] }
+
+// Display groups from design geometry, not IFC structural classifications.
+// Exclude known multi-segment members, then group similar parallel spans so ties do not get
+// interleaved with the main mesh. Use the largest repeated families, with span breaking ties.
+export function operatorPatrolGroups(entries: { id: string; frame: OperatorBarFrame | null; designUnitCount?: number }[]): OperatorPatrol {
+  const groups: { axis: Vector3; span: number; entries: { id: string; frame: OperatorBarFrame }[] }[] = []
+  const candidates = entries.flatMap(({ id, frame, designUnitCount }) => frame && (designUnitCount ?? 1) <= 1 && Math.abs(frame.axis.y) < Math.sin(Math.PI / 18)
+    ? [{ id, frame, span: frame.halfSize.x * 2 - .04 }] : [])
+    .sort((a, b) => b.span - a.span || a.id.localeCompare(b.id))
+  for (const entry of candidates) {
+    if (entry.span <= 0) continue
+    const axis = entry.frame.axis.clone().setY(0).normalize()
+    const group = groups.find(g => Math.abs(g.axis.dot(axis)) > Math.cos(Math.PI / 36) && Math.abs(g.span - entry.span) <= g.span * .05)
+    if (group) group.entries.push(entry)
+    else groups.push({ axis, span: entry.span, entries: [entry] })
+  }
+  let pair: [typeof groups[number], typeof groups[number]] | null = null, bestCount = 0, bestSpan = 0
+  for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
+    const a = groups[i]!, b = groups[j]!
+    if (a.entries.length < 2 || b.entries.length < 2 || Math.abs(a.axis.dot(b.axis)) > Math.sin(Math.PI / 18)) continue
+    const count = a.entries.length * b.entries.length, span = a.span * b.span
+    if (count > bestCount || count === bestCount && span > bestSpan) { pair = [a, b]; bestCount = count; bestSpan = span }
+  }
+  if (!pair) return { longitudinal: [], transverse: [] }
+  const [long, short] = pair[0].span >= pair[1].span ? pair : [pair[1], pair[0]]
+  const ordered = (group: typeof groups[number]) => {
+    const across = new Vector3(-group.axis.z, 0, group.axis.x)
+    // A stable direction in the existing top-view basis: +X or +Z.
+    const dominant = Math.abs(across.x) >= Math.abs(across.z) ? across.x : across.z
+    if (dominant < 0) across.negate()
+    return [...group.entries].sort((a, b) => {
+      const delta = a.frame.center.clone().sub(b.frame.center)
+      const cross = delta.dot(across)
+      return Math.abs(cross) > .0001 ? cross : Math.abs(delta.y) > .0001 ? delta.y : a.id.localeCompare(b.id)
+    }).map(entry => entry.id)
+  }
+  return { longitudinal: ordered(long!), transverse: ordered(short!) }
+}
