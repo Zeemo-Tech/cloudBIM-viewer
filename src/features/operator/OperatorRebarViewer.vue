@@ -6,12 +6,15 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import type { C2MResult, RebarComparisonBar } from '@cloudbim/viewer-core'
 import { mapOperatorGeometry, operatorBarState, validateOperatorPlySurface } from './operator-geometry'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   result: C2MResult | null
   selectedId: string
   tolerance: number | null
   loadGeometry: (result: C2MResult) => Promise<ArrayBuffer>
-}>()
+  displayMode?: 'neutral' | 'scan' | 'result'
+  scanProgress?: number
+  reducedMotion?: boolean
+}>(), { displayMode: 'result', scanProgress: 0, reducedMotion: false })
 const emit = defineEmits<{ select: [id: string]; loaded: [value: boolean]; error: [message: string] }>()
 const host = ref<HTMLDivElement>()
 const loading = ref(false)
@@ -32,6 +35,23 @@ let viewMode: 'all' | 'top' | 'selected' = 'all'
 let layoutClass = -1
 let mounted = false
 let contextUnavailable = false
+let scanOverlay: THREE.Group | null = null
+let scanFan: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null
+let scanBox: THREE.Box3 | null = null
+let scanAxis: 'x' | 'z' = 'x'
+let scanCrossAxis: 'x' | 'z' = 'z'
+let scanFrame: THREE.Box3 | null = null
+let scanStart = 0
+let scanEnd = 1
+const scanUniforms = {
+  scanAxis: { value: new THREE.Vector3(1, 0, 0) },
+  scanPosition: { value: 0 },
+  bandWidth: { value: 0.01 },
+  scanOpacity: { value: 1 },
+  emitterCoordinate: { value: 0 },
+  emitterHeight: { value: 1 },
+  floorHeight: { value: 0 },
+}
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
 const axisY = new THREE.Vector3(0, 1, 0)
@@ -40,6 +60,7 @@ let dragged = false
 const activePointers = new Set<number>()
 
 function disposeModel() {
+  disposeScanOverlay()
   if (mesh) {
     scene?.remove(mesh)
     mesh.geometry.dispose()
@@ -63,11 +84,154 @@ function updateColors() {
   bars.forEach((bar, i) => {
     const selected = props.selectedId === bar.ifcGlobalId || props.selectedId === bar.designBarId
     const state = operatorBarState(bar, props.tolerance)
-    const color = selected ? '#1674e8' : state === 'missing' ? '#d99b23' : state === 'outlier' || state === 'review' ? '#d74f55' : '#8292a6'
+    const showResult = props.displayMode === 'result'
+    const color = !showResult ? '#8292a6' : selected ? '#1674e8' : state === 'missing' ? '#d99b23' : state === 'outlier' || state === 'review' ? '#d74f55' : '#8292a6'
     mesh!.material[i]!.color.set(color)
-    mesh!.material[i]!.emissive.set(selected ? '#123a78' : '#000000')
-    mesh!.material[i]!.emissiveIntensity = selected ? 0.25 : 0
+    mesh!.material[i]!.emissive.set(showResult && selected ? '#123a78' : '#000000')
+    mesh!.material[i]!.emissiveIntensity = showResult && selected ? 0.25 : 0
   })
+}
+
+function updateAriaLabel() {
+  const state = props.displayMode === 'result' ? '钢筋三维定位视图。点击选择钢筋；' : props.displayMode === 'scan' ? '钢筋三维扫描进行中。' : '钢筋三维模型，等待检测。'
+  renderer?.domElement.setAttribute('aria-label', `${state}拖动旋转，滚轮或双指缩放；方向键旋转，加减键缩放，R键恢复全景。`)
+}
+
+function disposeScanOverlay() {
+  if (scanOverlay) {
+    scene?.remove(scanOverlay)
+    scanOverlay.traverse(object => {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points)) return
+      // The surface light shares the original metre-based geometry.
+      if (object.geometry !== mesh?.geometry) object.geometry.dispose()
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      materials.forEach(material => material.dispose())
+    })
+  }
+  scanOverlay = null; scanFan = null; scanBox = null; scanFrame = null
+}
+
+function updateScanPosition() {
+  if (!scanBox || !scanFan) return
+  const progress = THREE.MathUtils.clamp(Number.isFinite(props.scanProgress) ? props.scanProgress : 0, 0, 1)
+  const position = THREE.MathUtils.lerp(scanStart, scanEnd, progress)
+  scanUniforms.scanPosition.value = position
+  scanUniforms.scanOpacity.value = Math.min(progress / 0.035, (1 - progress) / 0.035, 1)
+  // Only the lower fan edge moves. The overhead projector stays fixed, like
+  // Blender V5.1's stationary camera with internal swing-line acquisition.
+  const vertices = scanFan.geometry.getAttribute('position') as THREE.BufferAttribute
+  if (scanAxis === 'x') { vertices.setX(1, position); vertices.setX(2, position) }
+  else { vertices.setZ(1, position); vertices.setZ(2, position) }
+  vertices.needsUpdate = true
+}
+
+function syncDisplayMode() {
+  updateColors()
+  updateAriaLabel()
+  const wasScanning = Boolean(scanOverlay)
+  disposeScanOverlay()
+  if (wasScanning && mesh?.geometry.boundingBox) resetView()
+  if (!scene || !mesh?.geometry.boundingBox || props.displayMode !== 'scan' || props.reducedMotion) return
+
+  // C2M PLY retains BIM/GLB XYZ metres: IFC (x,y,z) -> GLB (x,z,-y)
+  // (services/mesh-service/rebar_bim.py). +Y is up; scan only along X/Z.
+  // No axis flip, translation, scale, or alignment is applied to the steel.
+  scanBox = mesh.geometry.boundingBox.clone()
+  const size = scanBox.getSize(new THREE.Vector3())
+  const center = scanBox.getCenter(new THREE.Vector3())
+  scanAxis = size.x >= size.z ? 'x' : 'z'
+  scanCrossAxis = scanAxis === 'x' ? 'z' : 'x'
+  scanUniforms.scanAxis.value.set(scanAxis === 'x' ? 1 : 0, 0, scanAxis === 'z' ? 1 : 0)
+  const extent = Math.max(size[scanAxis], 0.001)
+  scanUniforms.bandWidth.value = Math.max(extent * 0.009, 0.002)
+  scanOverlay = new THREE.Group()
+
+  // A sharp blue line appears only where the projected sheet meets actual
+  // steel. Open mesh gaps stay open; the brief afterglow never means "passed".
+  const surfaceMaterial = new THREE.ShaderMaterial({
+    uniforms: scanUniforms,
+    vertexShader: `uniform vec3 scanAxis; varying float scanCoordinate; varying float surfaceHeight;
+      void main() { scanCoordinate = dot(position, scanAxis); surfaceHeight = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float scanPosition; uniform float bandWidth; uniform float scanOpacity;
+      uniform float emitterCoordinate; uniform float emitterHeight; uniform float floorHeight;
+      varying float scanCoordinate; varying float surfaceHeight;
+      void main() {
+        float heightFraction = clamp((surfaceHeight - floorHeight) / (emitterHeight - floorHeight), 0.0, 1.0);
+        float projectedPosition = mix(scanPosition, emitterCoordinate, heightFraction);
+        float distance = projectedPosition - scanCoordinate;
+        float core = 1.0 - smoothstep(bandWidth * 0.18, bandWidth, abs(distance));
+        float trail = distance < 0.0 ? 0.0 : (1.0 - smoothstep(0.0, bandWidth * 6.0, distance)) * 0.13;
+        float alpha = (core * 0.94 + trail) * scanOpacity;
+        if (alpha < 0.005) discard;
+        gl_FragColor = vec4(mix(vec3(0.05, 0.30, 0.92), vec3(0.40, 0.75, 1.0), core), alpha);
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    toneMapped: false,
+  })
+  const surface = new THREE.Mesh(mesh.geometry, surfaceMaterial)
+  surface.renderOrder = 2
+  scanOverlay.add(surface)
+
+  const emitterHeight = scanBox.max.y + Math.max(extent * 0.27, size.y * 0.65, 0.08)
+  scanUniforms.emitterCoordinate.value = center[scanAxis]
+  scanUniforms.emitterHeight.value = emitterHeight
+  scanUniforms.floorHeight.value = scanBox.min.y
+  const topFraction = size.y / (emitterHeight - scanBox.min.y)
+  // Extend the footprint so the tilted sheet reaches elevated bars at both ends.
+  const projectionScale = 1 / Math.max(1 - topFraction, 0.1)
+  scanStart = center[scanAxis] - (size[scanAxis] / 2 + scanUniforms.bandWidth.value) * projectionScale
+  scanEnd = center[scanAxis] + (size[scanAxis] / 2 + scanUniforms.bandWidth.value) * projectionScale
+  const apex = center.clone(); apex.y = emitterHeight
+  const left = center.clone(); left.y = scanBox.min.y
+  const right = left.clone()
+  left[scanCrossAxis] = center[scanCrossAxis] - size[scanCrossAxis] / 2 * projectionScale
+  right[scanCrossAxis] = center[scanCrossAxis] + size[scanCrossAxis] / 2 * projectionScale
+  left[scanAxis] = right[scanAxis] = scanStart
+  // One light sheet, not a bounding plane or box. It stops at the mesh envelope;
+  // the surface shader above supplies the actual steel intersection pattern.
+  const fanGeometry = new THREE.BufferGeometry().setFromPoints([apex, left, right])
+  fanGeometry.setAttribute('uv', new THREE.Float32BufferAttribute([0.5, 1, 0, 0, 1, 0], 2))
+  // The triangle changes shape without reallocating. Fix its conservative bounds
+  // once so culling is correct at either end of the sweep.
+  scanFrame = scanBox.clone().expandByPoint(apex).expandByPoint(left).expandByPoint(right)
+  const farCorner = right.clone(); farCorner[scanAxis] = scanEnd
+  scanFrame.expandByPoint(farCorner)
+  fanGeometry.boundingBox = scanFrame.clone()
+  fanGeometry.boundingSphere = scanFrame.getBoundingSphere(new THREE.Sphere())
+  const fanMaterial = new THREE.ShaderMaterial({
+    uniforms: { scanOpacity: scanUniforms.scanOpacity },
+    vertexShader: `varying vec2 beamUv; void main() { beamUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float scanOpacity; varying vec2 beamUv; void main() {
+      float edge = smoothstep(0.0, 0.16, beamUv.x) * smoothstep(0.0, 0.16, 1.0 - beamUv.x);
+      float density = 0.035 + 0.09 * pow(beamUv.y, 3.0) + 0.07 * pow(1.0 - beamUv.y, 10.0);
+      gl_FragColor = vec4(0.08, 0.38, 1.0, density * edge * scanOpacity);
+    }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+  })
+  scanFan = new THREE.Mesh(fanGeometry, fanMaterial)
+  scanFan.renderOrder = 1
+  scanOverlay.add(scanFan)
+
+  // A small fixed projector gives the beam a readable origin. Dimensions and
+  // false-colour light are presentation aids, not specified hardware geometry.
+  const radius = Math.max(extent * 0.018, 0.008)
+  const projector = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, radius * 0.8, 20),
+    new THREE.MeshStandardMaterial({ color: '#466183', metalness: 0.35, roughness: 0.4 }),
+  )
+  projector.position.copy(apex); projector.position.y += radius * 0.4
+  scanOverlay.add(projector)
+  const lens = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius * 0.58, radius * 0.58, radius * 0.08, 20),
+    new THREE.MeshBasicMaterial({ color: '#4f9aff', toneMapped: false }),
+  )
+  lens.position.copy(apex)
+  scanOverlay.add(lens)
+  scanFrame.max.y += radius
+  scene.add(scanOverlay)
+  frameBox(scanFrame)
+  updateScanPosition()
 }
 
 function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3) {
@@ -102,9 +266,10 @@ function frameBox(box: THREE.Box3, top = false, currentDirection?: THREE.Vector3
   controls.update()
 }
 
-function resetView() { viewMode = 'all'; if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox) }
-function topView() { viewMode = 'top'; if (mesh?.geometry.boundingBox) frameBox(mesh.geometry.boundingBox, true) }
+function resetView() { viewMode = 'all'; const box = scanFrame ?? mesh?.geometry.boundingBox; if (box) frameBox(box) }
+function topView() { viewMode = 'top'; const box = scanFrame ?? mesh?.geometry.boundingBox; if (box) frameBox(box, true) }
 function focusSelected() {
+  if (props.displayMode !== 'result') return
   const index = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
   if (index >= 0 && bounds[index]) { viewMode = 'selected'; frameBox(bounds[index]!) }
 }
@@ -157,7 +322,7 @@ function pointerUp(event: PointerEvent) {
   activePointers.delete(event.pointerId)
   const start = pointerStart
   pointerStart = null
-  if (!start || start.id !== event.pointerId || dragged || !mesh || !camera || !renderer || !hasModel.value) return
+  if (!start || start.id !== event.pointerId || dragged || !mesh || !camera || !renderer || !hasModel.value || props.displayMode !== 'result') return
   if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return
   const rect = renderer.domElement.getBoundingClientRect()
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1)
@@ -191,7 +356,7 @@ function resize() {
   // user's zoom, while crossing the breakpoint keeps the current viewing angle.
   if (layoutChanged && mesh?.geometry.boundingBox && controls) {
     const selected = bars.findIndex(bar => bar.ifcGlobalId === props.selectedId || bar.designBarId === props.selectedId)
-    const box = viewMode === 'selected' && bounds[selected] ? bounds[selected]! : mesh.geometry.boundingBox
+    const box = viewMode === 'selected' && bounds[selected] ? bounds[selected]! : scanFrame ?? mesh.geometry.boundingBox
     frameBox(box, viewMode === 'top', camera.position.clone().sub(controls.target))
   }
 }
@@ -225,7 +390,7 @@ async function loadResult() {
     geometry = null // The mesh now owns disposal.
     hasModel.value = true
     loading.value = false
-    updateColors(); resetView()
+    syncDisplayMode(); resetView()
     emit('loaded', true)
   } catch (error) {
     geometry?.dispose()
@@ -245,7 +410,7 @@ onMounted(() => {
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.domElement.tabIndex = 0
     renderer.domElement.setAttribute('role', 'application')
-    renderer.domElement.setAttribute('aria-label', '钢筋三维定位视图。拖动旋转，滚轮或双指缩放，点击选择钢筋；方向键旋转，加减键缩放，R键恢复全景。')
+    updateAriaLabel()
     host.value.appendChild(renderer.domElement)
     scene = new THREE.Scene()
     camera = new THREE.PerspectiveCamera(42, 1, 0.001, 10000)
@@ -289,6 +454,8 @@ onMounted(() => {
 })
 watch(() => props.result, () => { if (mounted) void loadResult() })
 watch(() => [props.selectedId, props.tolerance], updateColors)
+watch(() => [props.displayMode, props.reducedMotion], syncDisplayMode)
+watch(() => props.scanProgress, updateScanPosition)
 onBeforeUnmount(() => {
   mounted = false
   requestToken++
