@@ -56,6 +56,7 @@ export interface BimAlignmentResult {
 export interface FineAlignmentParams {
   modelScanFileId: number
   modelBimFileId: number
+  method?: 'auto' | 'rebar' | 'icp'
   maxCorrespondenceDistance?: number
   rmseRegressRatio?: number
   fitnessRegressRatio?: number
@@ -63,6 +64,7 @@ export interface FineAlignmentParams {
 }
 
 export interface FineAlignmentMetrics {
+  [key: string]: unknown
   initFitness: number
   initRmse: number
   fineFitness: number
@@ -79,6 +81,9 @@ export interface FineAlignmentResult {
   modelBimFileId: number
   modelBimBuildingName?: string | null
   modelMatrix: number[]
+  method?: 'rebar-weighted-rigid-v1' | 'point-to-plane-icp' | string
+  diagnostics?: Record<string, unknown>
+  auditVersion?: string
   regressed: boolean
   appliedFineResult: boolean
   fallback: boolean

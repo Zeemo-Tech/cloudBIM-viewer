@@ -61,7 +61,12 @@ function showAll(includeNoise: boolean) {
           <div><span>处理前 · 无台面点</span><strong>{{ result.result.pointsBefore.toLocaleString() }}</strong></div>
           <div class="denoise-metric-kept"><span>保留钢筋点</span><strong>{{ result.result.pointsAfter.toLocaleString() }}</strong></div>
         </div>
-        <div class="denoise-result-meta"><span>钢筋实例 <b>{{ result.result.instanceCount.toLocaleString() }}</b></span><span>耗时 {{ result.result.elapsedSeconds.toFixed(1) }} 秒</span></div>
+        <div class="denoise-result-meta">
+          <span v-if="result.result.matchedPhysicalBarCount != null">匹配钢筋 <b>{{ result.result.matchedPhysicalBarCount.toLocaleString() }}</b> 根<span v-if="result.result.designPhysicalBarCount != null"> / 设计 {{ result.result.designPhysicalBarCount.toLocaleString() }} 根</span></span>
+          <span v-else-if="result.result.designPhysicalBarCount != null">设计钢筋 <b>{{ result.result.designPhysicalBarCount.toLocaleString() }}</b> 根</span>
+          <span>设计分段 <b>{{ result.result.instanceCount.toLocaleString() }}</b><span v-if="result.result.matchedInstanceCount != null"> · 匹配 {{ result.result.matchedInstanceCount.toLocaleString() }} 段</span></span>
+          <span>耗时 {{ result.result.elapsedSeconds.toFixed(1) }} 秒</span>
+        </div>
       </section>
 
       <section class="denoise-card denoise-display-card" aria-label="配色与类别">
@@ -94,7 +99,7 @@ function showAll(includeNoise: boolean) {
               <i class="denoise-swatch" :class="{ 'is-instances': item.id === 3 && colorMode === 'cleaned' }" :style="{ backgroundColor: item.color }" aria-hidden="true" />
               <span>{{ item.name }}</span>
             </button>
-            <span class="denoise-class-count" :title="`${item.name}全量点数`">{{ result.result.counts[item.key].toLocaleString() }}</span>
+            <span class="denoise-class-count" :title="`${item.name}全量点数`">{{ (result.result.counts[item.key] ?? 0).toLocaleString() }}</span>
             <button type="button" class="denoise-only-button" :disabled="controlsDisabled" :aria-label="`只看${item.name}`" @click="emit('visibility', [item.id])">只看</button>
           </div>
         </div>

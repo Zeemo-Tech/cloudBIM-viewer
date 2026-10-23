@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
 import * as THREE from 'three'
-import { rawWorldMatrixForAlignment, alignmentMatrixFromResult, scanToBimRigidTransform, modelPairsFromRigidTransform, desiredBimWorldMatrix, toLocalMatrix } from '@cloudbim/viewer-core'
+import { recordNormalizationOffset, rawWorldMatrixForAlignment, alignmentMatrixFromResult, scanToBimRigidTransform, modelPairsFromRigidTransform, desiredBimWorldMatrix, toLocalMatrix } from '@cloudbim/viewer-core'
 
 const source = readFileSync(new URL('../packages/alignment/src/AlignmentPage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1].split('</script>')[0]
 const ast = ts.createSourceFile('alignment.ts', source, ts.ScriptTarget.Latest, true)
@@ -19,6 +19,7 @@ const names = [
   'recenterLoadedContentAsWhole', 'syncDenoisePreviewTransform',
   'getAlignmentRestoreKey', 'tryRestoreSavedAlignment', 'fetchAndLogSavedAlignmentIfExists',
   'collectCalibrationSnapshot', 'handleSaveAlignment', 'revealInitialSceneWhenReady',
+  'createCenteredPivot', 'resetCurrentObjectTransform',
 ]
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast)).join('\n')
 assert.equal(functions.match(/^async function |^function /gm)?.length, names.length)
@@ -46,7 +47,7 @@ function fixture() {
     vectorToPlainObject: noop, quaternionToPlainObject: noop, updateClipRangeFromContent: noop, applyClippingState: noop,
     getRawMatrixWorldForCalibration: rawWorldMatrixForAlignment,
     alignmentMatrixFromResult, scanToBimRigidTransform, modelPairsFromRigidTransform,
-    desiredBimWorldMatrix, toLocalMatrix,
+    desiredBimWorldMatrix, toLocalMatrix, recordNormalizationOffset,
     nextTick: async cb => cb?.(), restoredSavedAlignmentKey: '', loggedSavedAlignmentKey: '',
     sceneAlignmentReady: ref(false), latestAlignmentResult: ref(null), hasSavedAlignmentMatrix: ref(false),
     initialSceneReady: false, fitCameraToContent: noop,
@@ -73,6 +74,111 @@ function savedResult(matrix) {
 function closeMatrix(actual, expected) {
   actual.elements.forEach((value, i) => assert.ok(Math.abs(value - expected.elements[i]) < 1e-8, `matrix[${i}]: ${value} != ${expected.elements[i]}`))
 }
+
+// Match the real shared engineeringRoot; imported IFC GLB vertices already use
+// B(x,y,z) = (x,z,-y), whereas scan vertices remain in native engineering axes.
+function engineeringSceneFixture({ legacyBimBasis = false } = {}) {
+  const { api, state: s } = fixture()
+  s.contentGroup.clear()
+  const engineeringRoot = new THREE.Group()
+  engineeringRoot.rotation.x = -Math.PI / 2
+  s.contentGroup.add(engineeringRoot)
+  const basis = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
+  const nativePoints = [[11, -17, 29], [19, -5, 37], [-3, 7, 41], [23, -11, 13]].map(p => new THREE.Vector3(...p))
+  const glbPoints = nativePoints.map(p => p.clone().applyMatrix4(basis))
+  const pointsObject = points => new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), new THREE.PointsMaterial())
+  const scan = pointsObject(nativePoints), root = pointsObject(glbPoints)
+  const scanCenter = new THREE.Box3().setFromObject(scan).getCenter(new THREE.Vector3())
+  const glbCenter = new THREE.Box3().setFromObject(root).getCenter(new THREE.Vector3())
+  scan.position.sub(scanCenter)
+  recordNormalizationOffset(scan, scanCenter, 'self')
+  s.pointcloudWrapper = new THREE.Group()
+  s.pointcloudGroup = scan
+  s.pointcloudWrapper.add(scan)
+  s.bimPivot = api.createCenteredPivot(root)
+  if (legacyBimBasis) s.bimPivot.quaternion.identity()
+  engineeringRoot.add(s.bimPivot, s.pointcloudWrapper)
+  api.ensureOrientationBase(s.bimPivot); api.ensurePositionBase(s.bimPivot); api.ensureInitialTransformState(s.bimPivot)
+  s.scene.updateMatrixWorld(true)
+  return { api, state: s, root, basis, nativePoints, glbPoints, scanCenter, glbCenter }
+}
+
+test('initial IFC GLB and native scan share viewport directions after independent centering', () => {
+  const { api, state: s, root, basis, nativePoints, glbPoints, scanCenter, glbCenter } = engineeringSceneFixture()
+  closeVector(root.position, glbCenter.clone().negate())
+  closeVector(s.bimPivot.userData.__viewerNormalizationCenter, glbCenter)
+  assert.equal(s.bimPivot.userData.__viewerNormalizationMode, 'child')
+  nativePoints.forEach((point, i) => {
+    const actualGlbVertex = new THREE.Vector3().fromBufferAttribute(root.geometry.attributes.position, i)
+    closeVector(actualGlbVertex, glbPoints[i], 1e-6)
+    const expected = point.clone().sub(scanCenter).applyMatrix4(basis)
+    closeVector(point.clone().applyMatrix4(s.pointcloudGroup.matrixWorld), expected)
+    closeVector(actualGlbVertex.applyMatrix4(root.matrixWorld), expected, 1e-6)
+  })
+  // A reflection or scale can still fit selected points: verify the full basis.
+  for (const object of [s.bimPivot, s.pointcloudGroup]) {
+    const rawWorld = api.getRawMatrixWorldForCalibration(object)
+    assert.ok(Math.abs(rawWorld.determinant() - 1) < 1e-8)
+    for (let axis = 0; axis < 3; axis++) {
+      assert.ok(Math.abs(new THREE.Vector3().setFromMatrixColumn(rawWorld, axis).length() - 1) < 1e-8)
+    }
+  }
+  for (const direction of [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)]) {
+    closeVector(direction.clone().applyMatrix4(basis).transformDirection(root.matrixWorld), direction.clone().transformDirection(s.pointcloudGroup.matrixWorld))
+  }
+})
+
+test('saved scan-to-GLB absolute pose replaces either initial basis and survives save/restore', async () => {
+  const matrix = new THREE.Matrix4().compose(
+    new THREE.Vector3(17.25, -31.5, 8.125),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(.31, -.27, .48, 'ZYX')),
+    new THREE.Vector3(1, 1, 1),
+  )
+  const corrected = engineeringSceneFixture(), legacy = engineeringSceneFixture({ legacyBimBasis: true })
+  for (const { api, state: s, nativePoints } of [corrected, legacy]) {
+    assert.equal(api.tryRestoreSavedAlignment(savedResult(matrix)), true)
+    closeMatrix(scanToBim(api, s), matrix)
+    for (const point of nativePoints) {
+      closeVector(point.clone().applyMatrix4(matrix).applyMatrix4(api.getRawMatrixWorldForCalibration(s.bimPivot)), point.clone().applyMatrix4(api.getRawMatrixWorldForCalibration(s.pointcloudGroup)))
+    }
+  }
+  closeMatrix(corrected.state.bimPivot.matrixWorld, legacy.state.bimPivot.matrixWorld)
+  closeMatrix(corrected.state.pointcloudGroup.matrixWorld, legacy.state.pointcloudGroup.matrixWorld)
+  corrected.state.createBimAlignment = async payload => {
+    for (const pair of payload.modelPairs) {
+      closeVector(new THREE.Vector3(pair.modelScanX, pair.modelScanY, pair.modelScanZ).applyMatrix4(matrix), new THREE.Vector3(pair.modelBimX, pair.modelBimY, pair.modelBimZ))
+    }
+    return { data: savedResult(scanToBim(corrected.api, corrected.state)) }
+  }
+  assert.equal(await corrected.api.handleSaveAlignment(), true)
+  const reopened = engineeringSceneFixture()
+  assert.equal(reopened.api.tryRestoreSavedAlignment(corrected.state.latestAlignmentResult.value), true)
+  closeMatrix(scanToBim(reopened.api, reopened.state), matrix)
+  closeMatrix(reopened.state.bimPivot.matrixWorld, corrected.state.bimPivot.matrixWorld)
+})
+
+test('orientation editing and reset capture the corrected initial GLB basis', () => {
+  const { api, state: s } = engineeringSceneFixture()
+  const initial = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+  assert.ok(s.bimPivot.userData.__orientationBaseQuat.angleTo(initial) < 1e-7)
+  assert.ok(s.bimPivot.userData.__initialOrientationQuat.angleTo(initial) < 1e-7)
+  api.setTransformMode('rotate')
+  assert.ok(Math.abs(s.orientationDegX.value) < 1e-8)
+  assert.ok(Math.abs(s.orientationDegY.value) < 1e-8)
+  assert.ok(Math.abs(s.orientationDegZ.value) < 1e-8)
+  s.showOnlyVerticalAxis.value = true
+  api.setOrientationOffsetAxis('y', '32.5')
+  const delta = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(32.5))
+  assert.ok(s.bimPivot.quaternion.angleTo(delta.multiply(initial)) < 1e-7)
+  api.setPositionOffsetAxis('x', 12.75)
+  api.resetCurrentObjectTransform()
+  const resetInitial = s.bimPivot.userData.__initialOrientationQuat
+  assert.ok(s.bimPivot.quaternion.angleTo(resetInitial) < 1e-7)
+  closeVector(s.bimPivot.position, new THREE.Vector3())
+  assert.equal(s.orientationDegY.value, 0)
+  assert.equal(s.positionOffsetX.value, 0)
+  assert.ok(s.bimPivot.userData.__orientationBaseQuat.angleTo(resetInitial) < 1e-7)
+})
 
 test('saved numeric pose survives leaving, returning and selecting BIM; next edit preserves other axes', () => {
   const { api, state: s } = fixture()
@@ -227,4 +333,28 @@ test('classification stays unavailable until a saved matrix is applied to the sc
   assert.equal(ready.value, false)
   s.sceneAlignmentReady.value = true; assert.equal(ready.value, true)
   s.coarseAlignmentDirty.value = true; assert.equal(ready.value, false)
+})
+
+test('applied fine registration expires segmentation and pending preview responses before comparison', async () => {
+  const node = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'runFineAlignment')
+  const code = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+  for (const applied of [true, false]) {
+    const events = []
+    const state = {
+      canRunFineAlignment: ref(true), props: { bimAssetId: 13, pointcloudAssetId: 14 },
+      fineAlignLoading: ref(false), fineRmseRegressRatio: ref(1.05), fineFitnessRegressRatio: ref(.95),
+      fineApplyWhenRegressed: ref(false), fineAlignResult: ref(null), latestAlignmentResult: ref(null),
+      denoiseRequestId: 4, denoiseLoading: ref(true), denoiseResult: ref({ version: 'old', fresh: true }),
+      restoredSavedAlignmentKey: '', tryRestoreSavedAlignment: noop,
+      computeFineAlignment: async () => ({ data: { appliedFineResult: applied, modelMatrix: new THREE.Matrix4().elements, metrics: { fineRmse: .008 } } }),
+      clearDenoisePreview: () => events.push('clear-preview'),
+      invalidateC2MResult: () => events.push('expire-comparison'),
+      ElMessage: { success: () => events.push('success'), warning: () => events.push('warning'), error: e => assert.fail(e) },
+    }
+    await runInNewContext(`${code}\nrunFineAlignment()`, state)
+    assert.equal(state.denoiseResult.value.fresh, !applied)
+    assert.equal(state.denoiseRequestId, applied ? 5 : 4)
+    assert.equal(state.fineAlignLoading.value, false)
+    assert.deepEqual(events, applied ? ['clear-preview', 'expire-comparison', 'success'] : ['warning'])
+  }
 })

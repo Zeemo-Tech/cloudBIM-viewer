@@ -51,7 +51,7 @@ class ProgressiveControlNetTests(unittest.TestCase):
         )
 
         row = report["instances"][0]
-        self.assertEqual(report["version"], "design-control-net-v24")
+        self.assertEqual(report["version"], "design-control-net-v25-scene-exclusion")
         self.assertEqual(row["status"], "fitted")
         self.assertEqual(row["lengthCheck"], "extended-observed-span")
         self.assertEqual(row["axisModel"], "evidence-extended-straight-cylinder")

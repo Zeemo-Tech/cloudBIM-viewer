@@ -58,6 +58,22 @@ test('legacy previews require regeneration for instances but still support class
   parseDenoisePreview(preview(false), 'classes').dispose()
 })
 
+test('embedded items and pipes have distinct semantic colors and independent filters', () => {
+  const bytes = new TextEncoder().encode(`ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nproperty uchar label\nproperty uint instance\nend_header\n0 0 0 3 1\n1 0 0 5 0\n2 0 0 6 0\n`)
+  const geometry = parseDenoisePreview(bytes.buffer, 'classes')
+  assert.equal(geometry.drawRange.count, 3)
+  assert.notDeepEqual(rgb(geometry, 0), rgb(geometry, 1))
+  assert.notDeepEqual(rgb(geometry, 0), rgb(geometry, 2))
+  assert.notDeepEqual(rgb(geometry, 1), rgb(geometry, 2))
+  assert.equal(applyDenoisePreviewAppearance(geometry, 'classes', [5]), 1)
+  assert.equal(geometry.index!.getX(0), 1)
+  assert.equal(applyDenoisePreviewAppearance(geometry, 'classes', [6]), 1)
+  assert.equal(geometry.index!.getX(0), 2)
+  assert.equal(applyDenoisePreviewAppearance(geometry, 'cleaned', [3]), 1)
+  assert.equal(geometry.index!.getX(0), 0)
+  geometry.dispose()
+})
+
 test('category switches isolate, combine, hide and restore points without changing their positions', () => {
   const geometry = parseDenoisePreview(preview(), 'classes')
   const positions = geometry.getAttribute('position')

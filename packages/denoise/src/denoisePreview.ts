@@ -4,6 +4,8 @@ import { buildInstancePalette } from '@cloudbim/viewer-core'
 
 export const DENOISE_CLASSES = [
   { id: 3, key: 'steel', name: '钢筋', color: '#2dd4bf' },
+  { id: 5, key: 'embedded', name: '预埋件', color: '#d946ef' },
+  { id: 6, key: 'pipe', name: '管道', color: '#0f766e' },
   { id: 2, key: 'fixture', name: '夹具', color: '#f59e0b' },
   { id: 1, key: 'table', name: '台面残留', color: '#64748b' },
   { id: 4, key: 'noise', name: '噪声', color: '#ef476f' },
@@ -85,7 +87,7 @@ export function parseDenoisePreview(buffer: ArrayBuffer, mode: 'classes' | 'clea
   }
   for (let i = 0; i < labels.count; i++) {
     const label = labels.getX(i)
-    if (!Number.isInteger(label) || label < 0 || label >= DENOISE_CLASSES.length) {
+    if (!DENOISE_CLASSES.some(item => item.id === label)) {
       geometry.dispose()
       throw new Error('去噪预览缺少分类信息，请重新分类和去噪')
     }

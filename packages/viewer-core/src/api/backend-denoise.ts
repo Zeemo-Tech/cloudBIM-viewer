@@ -8,12 +8,17 @@ export interface DenoiseResult {
   result: {
     pointsBefore: number
     pointsAfter: number
-    counts: Record<'unknown' | 'table' | 'fixture' | 'steel' | 'noise', number>
+    counts: Record<'unknown' | 'table' | 'fixture' | 'steel' | 'noise', number> & Partial<Record<'embedded' | 'pipe', number>>
     previewPointCount: number
     previewOrigin: [number, number, number]
     normalK?: number
     elapsedSeconds: number
     instanceCount: number
+    matchedInstanceCount?: number
+    designPhysicalBarCount?: number
+    matchedPhysicalBarCount?: number
+    classificationSchema?: 'bim-guided-scene-v1'
+    sceneClassificationSha256?: string
     algorithmVersion: string
     instanceContract?: 'rebar-instance-map-v1'
     instancesSha256?: string
@@ -32,6 +37,6 @@ export function getLatestDenoise(scanId: number, bimId: number) {
     params: { modelScanFileId: scanId, modelBimFileId: bimId },
   })
 }
-export function denoiseArtifactUrl(scanId: number, bimId: number, version: string, name: 'preview.ply' | 'cleaned.las' | 'instance-map.json' | 'control-net.json') {
+export function denoiseArtifactUrl(scanId: number, bimId: number, version: string, name: 'preview.ply' | 'cleaned.las' | 'instance-map.json' | 'control-net.json' | 'scene-classification.json') {
   return `/alignments/bim/denoise/artifacts/${name}?${new URLSearchParams({ modelScanFileId: String(scanId), modelBimFileId: String(bimId), version })}`
 }

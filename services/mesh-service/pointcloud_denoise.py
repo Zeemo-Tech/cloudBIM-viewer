@@ -14,12 +14,14 @@ from algorithms.pointcloud_normals import available_workers
 from algorithms.preprocessed_las import PROVENANCE_RECORD_ID, PROVENANCE_USER_ID, provenance_vlr
 from algorithms.pointcloud_segmentation import segment_points, VERSION as SEGMENT_VERSION
 from algorithms.rebar_control_net import fit_control_net, VERSION as CONTROL_VERSION
+from algorithms.bim_guided_classification import fit_bim_guided_scene, VERSION as SCENE_VERSION
+from bim_scene_geometry import load_scene_geometry
 from pointcloud_step_pipeline import load_positions, source_stamp, source_hash, atomic_json
 from rebar_poc import _publish_shared_artifact_permissions
 from rebar_design_prior import prepare_snapshot
 from rebar_design_inputs import resolve_design_inputs, VERSION as INPUT_VERSION
 
-VERSION = 'denoise-v4-control-net+' + SEGMENT_VERSION + '+' + INPUT_VERSION + '+' + CONTROL_VERSION
+VERSION = 'denoise-v4-control-net+' + SEGMENT_VERSION + '+' + INPUT_VERSION + '+' + CONTROL_VERSION + '+' + SCENE_VERSION
 INSTANCE_CONTRACT = 'rebar-instance-map-v1'
 CONTROL_CONTRACT = 'rebar-control-net-evidence-v1'
 INSTANCE_DIMENSION = 'cloudbim_instance_id'
@@ -30,8 +32,8 @@ MAX_SOURCE_POINTS = 20_000_000
 def export_result(source, destination, context, colors):
     """Keep actual source records, in original scan coordinates, with original dimensions."""
     classes = np.asarray(context.complete_class)
-    counts = np.bincount(classes, minlength=5)
-    if len(counts) != 5 or int(counts[3]) == 0:
+    counts = np.bincount(classes, minlength=7)
+    if len(counts) != 7 or int(counts[3]) == 0:
         raise ValueError('去噪后没有可用于偏差计算的钢筋点，请检查设计模型和配准')
     with laspy.open(source) as reader:
         header = deepcopy(reader.header)
@@ -92,7 +94,7 @@ def export_result(source, destination, context, colors):
                       'property float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty uchar label\nproperty uint instance\nend_header\n').encode())
         vertices.tofile(stream)
     return {'pointsBefore': len(classes), 'pointsAfter': int(counts[3]),
-            'counts': dict(zip(('unknown','table','fixture','steel','noise'), map(int, counts))),
+            'counts': dict(zip(('unknown','table','fixture','steel','noise','embedded','pipe'), map(int, counts))),
             'previewPointCount': len(ids), 'previewOrigin': origin.tolist()}
 
 
@@ -214,25 +216,46 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
                 raise ValueError('设计模型中没有可解析的钢筋构件，无法执行设计辅助去噪')
             progress = lambda stage, done, total: None
             positions, colors = load_positions(source, scratch, progress)
+            scene = None
+            # Legacy exports using plates for steel lack trustworthy scene semantics.
+            # Keep their old path; semantic classification requires explicit structural IFC entities.
+            if any(b.get('productType') == 'IfcReinforcingBar' for b in inputs.inventory['bars']):
+                scene = load_scene_geometry(ifc, model, transform)
+            inventory = inputs.inventory
+            scene_report = None
             workers = max(1, min(available_workers(), int(os.environ.get('REBAR_SPATIAL_WORKERS', '4'))))
             with threadpool_limits(limits=1):
                 stages = segment_points(positions, scratch, k=k, workers=workers, through_step=2,
                                         source=source, design_inventory=inputs.inventory,
                                         dimension_priors=inputs.dimensions, progress=progress,
                                         stop_after_table=True)
-                report, arrays = fit_control_net(
-                    positions, stages.context.shared_table_mask, inputs.inventory,
-                    mode='aligned', normals=stages.context.normals, progress=progress,
-                    workers=min(8, workers), curve_workers=min(8, workers),
-                )
+                if scene is not None:
+                    report, arrays, scene_report, inventory = fit_bim_guided_scene(
+                        positions, stages.context.normals, stages.context.shared_table_mask,
+                        inventory, scene, workers=min(8, workers), progress=progress)
+                else:
+                    report, arrays = fit_control_net(
+                        positions, stages.context.shared_table_mask, inventory,
+                        mode='aligned', normals=stages.context.normals, progress=progress,
+                        workers=min(8, workers), curve_workers=min(8, workers))
                 _apply_control_result(stages.context, report, arrays)
+                if scene_report is not None:
+                    scene_labels = arrays['scene_class']
+                    stages.context.complete_class[scene_labels > 0] = scene_labels[scene_labels > 0]
             report['modelInfo'] = deepcopy(snapshot.get('modelInfo', {}))
             report['snapshotFingerprint'] = snapshot.get('fingerprint')
             control_net = _control_envelope(report)
             result = export_result(source, destination, stages.context, colors)
-            instance_map = _instance_map(report, inputs.inventory, control_net)
+            instance_map = _instance_map(report, inventory, control_net)
             atomic_json(destination/'control-net.json', control_net)
             atomic_json(destination/'instance-map.json', instance_map)
+            if scene_report is not None:
+                scene_report.update(sourceSha256=digest, pointCount=len(positions),
+                                    scanToBim=list(transform), sourceRowContract='source-labels.npz row i equals source LAS record i')
+                atomic_json(destination/'scene-classification.json', scene_report)
+                np.savez_compressed(destination/'source-labels.npz',
+                    classes=stages.context.complete_class, instances=stages.context.complete_instance,
+                    sceneInstances=arrays['scene_instance'])
             control_hash = source_hash(destination/'control-net.json')
             instances_hash = source_hash(destination/'instance-map.json')
             result.update(algorithmVersion=VERSION, sourceSha256=digest, designFingerprint=snapshot['fingerprint'],
@@ -242,6 +265,11 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
                           instanceContract=INSTANCE_CONTRACT, instancesSha256=instances_hash,
                           controlNetSchema=CONTROL_CONTRACT, controlNetSha256=control_hash,
                           controlNetAlgorithmVersion=CONTROL_VERSION)
+            result.update(designPhysicalBarCount=len({b['ifcGlobalId'] for b in inventory['bars']}),
+                          matchedPhysicalBarCount=len({r['designBarId'].split(':')[0] for r in report['instances'] if r.get('pointCount', 0)>0}))
+            if scene_report is not None:
+                result.update(classificationSchema='bim-guided-scene-v1',
+                              sceneClassificationSha256=source_hash(destination/'scene-classification.json'))
             if stamps != [source_stamp(p) for p in (source, ifc, model)]:
                 raise ValueError('计算期间点云或设计模型发生变化，请重新计算')
             atomic_json(destination/'manifest.json', result)

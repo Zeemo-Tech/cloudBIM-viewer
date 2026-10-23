@@ -18,6 +18,8 @@ const suites = [
   '../src/features/operator/operator-presentation.test.ts',
   '../src/features/operator/operator-diagnosis.test.ts',
   'test_alignment_transform_state.mjs',
+  'test_alignment_pointcloud_colors.mjs',
+  'test_rebar_inspection_camera.mjs',
   'test_c2m_search_settings.mjs',
   'test_c2m_colormap.mjs',
   'test_ground_grid.mjs',

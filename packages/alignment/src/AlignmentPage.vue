@@ -1334,7 +1334,6 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
 
   const startPosition = activeCamera.position.clone()
   const startTarget = controls.target.clone()
-  const startUp = activeCamera.up.clone().normalize()
   const endTarget = bounds.getCenter(new THREE.Vector3())
   const size = bounds.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z, 0.1)
@@ -1351,16 +1350,19 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
   const tilt = THREE.MathUtils.degToRad(18)
   const viewDirection = new THREE.Vector3(0, Math.cos(tilt), Math.sin(tilt)).normalize()
   const cameraDirection = viewDirection.clone().multiplyScalar(-1)
-  const cameraUp = new THREE.Vector3(0, 0, -1)
-    .addScaledVector(cameraDirection, -cameraDirection.dot(new THREE.Vector3(0, 0, -1)))
+  // Project world up only to measure the screen-space extent. It is not the
+  // camera's orbit axis: engineering +Z is viewer +Y throughout inspection.
+  const worldUp = new THREE.Vector3(0, 1, 0)
+  const screenUp = worldUp.clone()
+    .addScaledVector(cameraDirection, -cameraDirection.dot(worldUp))
     .normalize()
-  const cameraRight = cameraDirection.clone().cross(cameraUp).normalize()
+  const cameraRight = cameraDirection.clone().cross(screenUp).normalize()
   const projectedWidth = Math.max(
     Math.abs(cameraRight.x) * size.x + Math.abs(cameraRight.y) * size.y + Math.abs(cameraRight.z) * size.z,
     0.08,
   )
   const projectedHeight = Math.max(
-    Math.abs(cameraUp.x) * size.x + Math.abs(cameraUp.y) * size.y + Math.abs(cameraUp.z) * size.z,
+    Math.abs(screenUp.x) * size.x + Math.abs(screenUp.y) * size.y + Math.abs(screenUp.z) * size.z,
     0.08,
   )
   let distance = Math.max(focusDim * 0.42, 0.08)
@@ -1396,10 +1398,9 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
     const eased = THREE.MathUtils.smootherstep(progress, 0, 1)
     activeCamera.position.lerpVectors(startPosition, endPosition, eased)
     controls.target.lerpVectors(startTarget, endTarget, eased)
-    // Keep the camera roll continuous while the inspection view changes. The
-    // previous implementation calculated cameraUp but never applied it,
-    // which made sequence navigation appear to snap into a side view.
-    activeCamera.up.lerpVectors(startUp, cameraUp, eased).normalize()
+    // OrbitControls caches the Y-up orbit basis when mounted. Changing up to
+    // the projected screen direction tilts the scene on subsequent orbit/pan.
+    activeCamera.up.copy(worldUp)
     if (isOrthographicCamera(activeCamera)) {
       orthoViewSize = THREE.MathUtils.lerp(startOrthoSize, endOrthoSize, eased)
       updateOrthographicFrustum()
@@ -1411,7 +1412,7 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
     else {
       activeCamera.position.copy(endPosition)
       controls.target.copy(endTarget)
-      activeCamera.up.copy(cameraUp)
+      activeCamera.up.copy(worldUp)
       activeCamera.lookAt(controls.target)
       controls.update()
       rebarCameraAnimationFrame = null
@@ -3282,7 +3283,7 @@ const backgroundColor = ref('#0b1020')
 const isLightBackground = ref(false)
 const pointcloudColor = ref('#86898D')
 const persistedPointcloudColor = ref('#86898D')
-const pointcloudColorOverridden = ref(true)
+const pointcloudColorOverridden = ref(false)
 const pointcloudColorSaving = ref(false)
 let pointcloudColorSaveTimer: number | null = null
 const enableClipping = ref(false)
@@ -3743,7 +3744,7 @@ function collectPointcloudColorStats(root: THREE.Object3D) {
     if (!obj?.isPoints) return
     const geometry = obj.geometry as THREE.BufferGeometry
     if (!originalPointcloudColors.has(geometry)) {
-      originalPointcloudColors.set(geometry, (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)?.clone() ?? null)
+      originalPointcloudColors.set(geometry, (geometry.getAttribute('color') as THREE.BufferAttribute | undefined) ?? null)
     }
     const scalar = pointcloudScalarSource(geometry)
     if (!scalar) return
@@ -3769,11 +3770,12 @@ function restorePointcloudOriginalColors(root: THREE.Object3D) {
     if (!obj?.isPoints) return
     const geometry = obj.geometry as THREE.BufferGeometry
     const original = originalPointcloudColors.get(geometry)
-    if (original) geometry.setAttribute('color', original.clone())
+    if (original) geometry.setAttribute('color', original)
     else geometry.deleteAttribute('color')
     const materials = Array.isArray(obj.material) ? obj.material : [obj.material]
     materials.forEach((material: any) => {
       if (!material) return
+      if (original && material.color?.isColor) material.color.set(0xffffff)
       if ('vertexColors' in material) material.vertexColors = Boolean(original)
       if ('colorNode' in material) material.colorNode = original ? tslVertexColor() : tslColor(0xffffff)
       material.needsUpdate = true
@@ -3785,7 +3787,7 @@ function applyPointcloudIntensityColoring(root: THREE.Object3D) {
   root.traverse((obj: any) => {
     if (!obj?.isPoints || !obj.geometry || !obj.material) return
     const geometry = obj.geometry as THREE.BufferGeometry
-    if (!originalPointcloudColors.has(geometry)) originalPointcloudColors.set(geometry, (geometry.getAttribute('color') as THREE.BufferAttribute | undefined)?.clone() ?? null)
+    if (!originalPointcloudColors.has(geometry)) originalPointcloudColors.set(geometry, (geometry.getAttribute('color') as THREE.BufferAttribute | undefined) ?? null)
     const scalar = pointcloudScalarSource(geometry)
     const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
     if (!scalar || !position) return
@@ -3816,10 +3818,20 @@ function applyPointcloudIntensityColoring(root: THREE.Object3D) {
   requestRender()
 }
 
-function applyPointcloudColor() {
-  if (!pointcloudGroup || !pointcloudColorOverridden.value) return
+function forEachLoadedPointcloudModel(callback: (model: THREE.Object3D) => void) {
+  if (tileset?.forEachLoadedModel) tileset.forEachLoadedModel(callback)
+  else if (pointcloudGroup) callback(pointcloudGroup)
+}
+
+function applyPointcloudColor(root?: THREE.Object3D | null) {
+  if (!pointcloudColorOverridden.value) return
+  if (root === undefined) {
+    forEachLoadedPointcloudModel(model => applyPointcloudColor(model))
+    return
+  }
+  if (!root) return
   const color = new THREE.Color(normalizePointcloudColor(pointcloudColor.value))
-  pointcloudGroup.traverse((obj: any) => {
+  root.traverse((obj: any) => {
     const material = obj?.material
     if (!material) return
     const apply = (item: any) => {
@@ -3845,7 +3857,13 @@ function handlePointcloudColorStats(stats: { histogram: number[]; hasIntensity: 
   pointcloudIntensityHistogram.value = [...stats.histogram]
 }
 
-function applyPointcloudDisplay(root: THREE.Object3D | null = pointcloudGroup) {
+function applyPointcloudDisplay(root?: THREE.Object3D | null) {
+  if (root === undefined) {
+    // Cached LODs can be detached from the visible group. Update them on an
+    // explicit appearance change; incoming tiles pass their own root below.
+    forEachLoadedPointcloudModel(model => applyPointcloudDisplay(model))
+    return
+  }
   if (!root) return
   if (pointcloudColorMode.value === 'intensity') {
     applyPointcloudMaterialMode(root)
@@ -3855,6 +3873,13 @@ function applyPointcloudDisplay(root: THREE.Object3D | null = pointcloudGroup) {
   restorePointcloudOriginalColors(root)
   applyPointcloudMaterialMode(root)
   requestRender()
+}
+
+function setPointcloudColorMode(mode: 'rgb' | 'intensity') {
+  pointcloudColorMode.value = mode
+  pointcloudColorOverridden.value = false
+  clearPointcloudColorSaveTimer()
+  applyPointcloudDisplay()
 }
 
 function updatePointcloudColorRange(range: PointcloudColorRange) {
@@ -3935,7 +3960,7 @@ function handlePointcloudColorChange() {
 
 function resetPointcloudColor() {
   pointcloudColorOverridden.value = false
-  applyPointcloudMaterialMode(pointcloudGroup)
+  applyPointcloudDisplay()
   clearPointcloudColorSaveTimer()
   void persistPointcloudColor()
 }
@@ -5459,8 +5484,16 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
   if (!renderer) return
 
   const currentTarget = controls?.target.clone() ?? new THREE.Vector3(0, 0, 0)
+  const currentPosition = camera.position.clone()
+  const currentUp = camera.up.clone()
   controls?.dispose()
+  // OrbitControls caches its orbit basis in the constructor. Screen roll must
+  // not turn the engineering vertical into a different mouse-rotation axis.
+  camera.up.set(0, 1, 0)
   controls = new OrbitControls(camera, renderer.domElement)
+  // The constructor updates against its initial target (the origin).
+  camera.position.copy(currentPosition)
+  camera.up.copy(currentUp)
   controls.enableDamping = false
   controls.target.copy(currentTarget)
   controls.addEventListener('change', () => {
@@ -5644,6 +5677,8 @@ async function initScene() {
 
 function fitCameraToBox(box: THREE.Box3) {
   if (!activeCamera || !controls) return
+  stopRebarCameraAnimation()
+  activeCamera.up.set(0, 1, 0)
 
   const size = box.getSize(new THREE.Vector3())
   const center = box.getCenter(new THREE.Vector3())
@@ -5744,6 +5779,8 @@ function setPresetView(kind: 'front' | 'top' | 'side') {
 
   const box = getVisibleContentBox()
   if (!box) return
+  stopRebarCameraAnimation()
+  activeCamera.up.set(0, 1, 0)
 
   const size = box.getSize(new THREE.Vector3())
   const center = box.getCenter(new THREE.Vector3())
@@ -5795,14 +5832,14 @@ function setPointcloudViewDirection(direction: [number, number, number]) {
   const directionVector = new THREE.Vector3(...direction)
   if (directionVector.lengthSq() < 1e-6) return
   directionVector.normalize()
+  stopRebarCameraAnimation()
 
   controls.target.copy(center)
   const distance = Math.max(activeCamera.position.distanceTo(controls.target), 1)
-  activeCamera.up.set(
-    0,
-    Math.abs(directionVector.y) > 0.98 ? 0 : 1,
-    directionVector.y > 0.98 ? -1 : directionVector.y < -0.98 ? 1 : 0,
-  )
+  // Keep engineering +Z (viewer +Y) as the orbit vertical even at the poles.
+  // OrbitControls.makeSafe supplies the tiny offset needed for top/bottom;
+  // using screen -Z/+Z as up here corrupts subsequent orbit and pan gestures.
+  activeCamera.up.set(0, 1, 0)
   activeCamera.position.copy(center).addScaledVector(directionVector, distance)
   activeCamera.lookAt(center)
   activeCamera.updateProjectionMatrix()
@@ -5814,6 +5851,7 @@ function setPointcloudViewDirection(direction: [number, number, number]) {
 
 function orbitPointcloudFromCube(delta: { lon: number; lat: number }) {
   if (!activeCamera || !controls) return
+  stopRebarCameraAnimation()
   const offset = activeCamera.position.clone().sub(controls.target)
   if (offset.lengthSq() < 1e-8) return
   const spherical = new THREE.Spherical().setFromVector3(offset)
@@ -5833,6 +5871,7 @@ function orbitPointcloudFromCube(delta: { lon: number; lat: number }) {
 
 function rollPointcloudView(direction: -1 | 1) {
   if (!activeCamera || !controls) return
+  stopRebarCameraAnimation()
   const viewDirection = activeCamera.position.clone().sub(controls.target).normalize()
   activeCamera.up.applyAxisAngle(viewDirection, direction * Math.PI / 2).normalize()
   activeCamera.lookAt(controls.target)
@@ -5864,6 +5903,7 @@ function applyPointcloudPointSize(root: THREE.Object3D | null) {
 function setProjectionMode(nextMode: ProjectionMode) {
   if (!perspectiveCamera || !orthographicCamera || !activeCamera) return
   if (projectionMode.value === nextMode) return
+  stopRebarCameraAnimation()
 
   const previousCamera = activeCamera
   const previousTarget = controls?.target.clone() ?? new THREE.Vector3()
@@ -5872,6 +5912,7 @@ function setProjectionMode(nextMode: ProjectionMode) {
 
   nextCamera.position.copy(previousCamera.position)
   nextCamera.quaternion.copy(previousCamera.quaternion)
+  nextCamera.up.copy(previousCamera.up)
   nextCamera.near = previousCamera.near
   nextCamera.far = previousCamera.far
 
@@ -6227,7 +6268,8 @@ function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
     }
     normalizePointMaterial(obj)
   })
-  applyPointcloudColor()
+  // A load-model event must only style its new tile, not the whole cloud.
+  applyPointcloudColor(root)
 }
 
 function updateClipRangeFromContent(
@@ -7442,6 +7484,11 @@ function createCenteredPivot(root: THREE.Object3D) {
   root.position.sub(center)
   recordNormalizationOffset(pivot, center, 'child')
   pivot.add(root)
+  // IFC GLB is already Y-up (x, z, -y). Mount it in the Z-up engineering
+  // frame before the shared viewport conversion; keep raw GLB coordinates
+  // and normalization intact for scan -> GLB alignment save/restore.
+  // Saved alignments replace this initial pose with an absolute transform.
+  pivot.rotation.x = Math.PI / 2
   pivot.updateMatrixWorld(true)
 
   return pivot
@@ -7938,6 +7985,14 @@ async function runFineAlignment() {
     fineAlignResult.value = response.data
     const result = response.data
     if (result.appliedFineResult) {
+      // The new rigid frame invalidates instance identities as well as C2M.
+      // Cancel pending preview loads before they can restore the old geometry.
+      denoiseRequestId += 1
+      denoiseLoading.value = false
+      clearDenoisePreview()
+      if (denoiseResult.value) {
+        denoiseResult.value = { ...denoiseResult.value, fresh: false, staleReason: '精细配准已更新，请重新分类与去噪' }
+      }
       invalidateC2MResult('精细化配准已应用，请重新计算')
     }
     const current = latestAlignmentResult.value
@@ -7962,7 +8017,11 @@ async function runFineAlignment() {
     restoredSavedAlignmentKey = ''
     tryRestoreSavedAlignment(preview)
     const metrics = result.metrics
-    ElMessage.success(`精细化配准完成：RMSE ${Number(metrics?.fineRmse ?? 0).toFixed(4)} m`)
+    if (result.appliedFineResult) {
+      ElMessage.success(`精细配准已保存：RMSE ${(Number(metrics?.fineRmse ?? 0) * 1000).toFixed(2)} mm，请重新分类与去噪`)
+    } else {
+      ElMessage.warning('精细配准未通过退化检查，保留原配准')
+    }
   } catch (error: any) {
     ElMessage.error(error?.message || '精细化配准失败')
   } finally {
@@ -8201,7 +8260,7 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
     }
 
     const savedPointcloudColor = normalizePointcloudColor(assetDetail.pointcloudColor || '', '')
-    pointcloudColorOverridden.value = true
+    pointcloudColorOverridden.value = Boolean(savedPointcloudColor)
     pointcloudColor.value = savedPointcloudColor || '#86898D'
     persistedPointcloudColor.value = savedPointcloudColor || '#86898D'
 
@@ -8772,8 +8831,8 @@ onBeforeUnmount(() => {
             </label>
             <div v-if="activeWorkflowStep === 1 || (activeWorkflowStep === 2 && denoiseView === 'source')" class="pointcloud-display-row">
               <div class="pointcloud-segmented pointcloud-color-modes" role="group" aria-label="点云着色">
-                <button type="button" :class="{ on: pointcloudColorMode === 'rgb' }" :aria-pressed="pointcloudColorMode === 'rgb'" @click="pointcloudColorMode = 'rgb'; applyPointcloudDisplay()">真彩</button>
-                <button type="button" :class="{ on: pointcloudColorMode === 'intensity' }" :aria-pressed="pointcloudColorMode === 'intensity'" @click="pointcloudColorMode = 'intensity'; applyPointcloudDisplay()">强度</button>
+                <button type="button" :class="{ on: pointcloudColorMode === 'rgb' && !pointcloudColorOverridden }" :aria-pressed="pointcloudColorMode === 'rgb' && !pointcloudColorOverridden" @click="setPointcloudColorMode('rgb')">真彩</button>
+                <button type="button" :class="{ on: pointcloudColorMode === 'intensity' }" :aria-pressed="pointcloudColorMode === 'intensity'" @click="setPointcloudColorMode('intensity')">强度</button>
               </div>
               <div v-if="pointcloudColorMode === 'intensity'" class="pointcloud-segmented pointcloud-ramp-modes" role="group" aria-label="强度色带">
                 <button type="button" :disabled="pointcloudColorMode !== 'intensity'" :class="{ on: pointcloudColorRamp === 'grayscale' }" :aria-pressed="pointcloudColorRamp === 'grayscale'" @click="pointcloudColorRamp = 'grayscale'; applyPointcloudDisplay()">灰度</button>
@@ -9137,14 +9196,14 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="fineRunBlockedReason" class="fine-actions__hint">{{ fineRunBlockedReason }}</div>
             <div v-if="fineAlignResult" class="fine-result" :class="{ 'fine-result--warning': fineAlignResult.regressed }">
-              <div class="fine-result__title">{{ fineAlignResult.regressed ? '精调结果出现退化告警' : '精调结果' }}</div>
+              <div class="fine-result__title">{{ fineAlignResult.regressed ? '精调结果出现退化告警' : fineAlignResult.method === 'rebar-weighted-rigid-v1' ? '钢筋加权精配准' : '精调结果' }}</div>
               <div class="fine-result__grid">
-                <span>RMSE <strong>{{ Number(fineAlignResult.metrics?.fineRmse ?? 0).toFixed(4) }} m</strong></span>
-                <span>Fitness <strong>{{ Number(fineAlignResult.metrics?.fineFitness ?? 0).toFixed(4) }}</strong></span>
-                <span>位移变化 <strong>{{ Number(fineAlignResult.metrics?.deltaTranslationM ?? 0).toFixed(3) }} m</strong></span>
+                <span>{{ fineAlignResult.method === 'rebar-weighted-rigid-v1' ? '轴线 RMSE' : 'RMSE' }} <strong>{{ (Number(fineAlignResult.metrics?.fineRmse ?? 0) * 1000).toFixed(2) }} mm</strong></span>
+                <span>{{ fineAlignResult.method === 'rebar-weighted-rigid-v1' ? '轴线 RMSE ≤10 mm比例' : 'Fitness' }} <strong>{{ Number(fineAlignResult.metrics?.fineFitness ?? 0).toFixed(4) }}</strong></span>
+                <span>{{ fineAlignResult.method === 'rebar-weighted-rigid-v1' ? '参考中心位移' : '位移变化' }} <strong>{{ (Number(fineAlignResult.metrics?.deltaTranslationM ?? 0) * 1000).toFixed(2) }} mm</strong></span>
                 <span>旋转变化 <strong>{{ Number(fineAlignResult.metrics?.deltaRotationDeg ?? 0).toFixed(3) }} deg</strong></span>
                 <span>耗时 <strong>{{ Number(fineAlignResult.metrics?.elapsedS ?? 0).toFixed(1) }} s</strong></span>
-                <span>点数 <strong>{{ fineAlignResult.metrics?.sourceTotalPoints ?? 0 }} / {{ fineAlignResult.metrics?.targetPoints ?? 0 }}</strong></span>
+                <span>{{ fineAlignResult.method === 'rebar-weighted-rigid-v1' ? '源点 / 有效截面' : '点数' }} <strong>{{ fineAlignResult.metrics?.sourceTotalPoints ?? 0 }} / {{ fineAlignResult.metrics?.targetPoints ?? 0 }}</strong></span>
               </div>
             </div>
           </template>

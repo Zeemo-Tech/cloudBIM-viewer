@@ -30,7 +30,7 @@ from typing import Annotated, Any, Callable, Literal
 import numpy as np
 
 import trimesh
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -771,69 +771,71 @@ def c2m_recolor(req: C2MRecolorRequest):
 # ── 精细化配准 (Fine Registration) ─────────────────────────────────────
 
 class FineAlignRequest(BaseModel):
-    scan_path: str
-    mesh_path: str
-    init_transform: list[float]
-    max_correspondence_distance: float = 0.3
-    rmse_regress_ratio: float = 1.05
-    fitness_regress_ratio: float = 0.95
+    method: Literal['auto', 'rebar', 'icp'] = 'auto'
+    scan_path: str | None = None
+    mesh_path: str | None = None
+    denoise_dir: str | None = None
+    init_transform: list[Annotated[float, Field(allow_inf_nan=False)]] = Field(min_length=16, max_length=16)
+    max_correspondence_distance: float = Field(default=0.3, gt=0, allow_inf_nan=False)
+    rmse_regress_ratio: float = Field(default=1.05, gt=0, allow_inf_nan=False)
+    fitness_regress_ratio: float = Field(default=0.95, gt=0, allow_inf_nan=False)
     apply_when_regressed: bool = False
 
 
 @app.post("/align/fine")
 @_single_heavy_task("fine-align")
 def align_fine(req: FineAlignRequest):
-    """执行精细化配准（Point-to-Plane ICP）。
+    """Refine a saved scan-to-BIM rigid transform using classified bars or ICP.
 
-    以 Remesh PLY 的顶点和法线作为 Target，以原始 LAS 点云作为 Source，
-    使用手动粗配准矩阵作为初始值，执行 Point-to-Plane ICP 精调。
-    支持负优化告警阈值：若精调后指标退化，标记告警。
-    是否应用精调结果由请求参数 apply_when_regressed 决定。
-
-    参数（JSON Body）：
-    - scan_path: 原始点云 LAS 文件路径（磁盘绝对路径）
-    - mesh_path: Remesh 产物 PLY 文件路径（磁盘绝对路径）
-    - init_transform: 列主序 4x4 配准矩阵（16 个浮点数，来自手动粗配准）
-    - max_correspondence_distance: ICP 最大匹配距离（米），默认 0.3
-    - rmse_regress_ratio: RMSE 退化阈值比例，默认 1.05
-    - fitness_regress_ratio: Fitness 退化阈值比例，默认 0.95
-    - apply_when_regressed: 触发告警时是否仍应用精调结果，默认 false
-
-    返回：
-    - transform: 最终列主序 16 浮点矩阵
-    - quaternion: 四元数 {qx,qy,qz,qw}
-    - translation: 平移向量 {tx,ty,tz}
-    - regressed: 是否触发负优化告警
-    - appliedFineResult: 最终是否应用精调结果
-    - fallback: 兼容字段，等价于 regressed 且未应用精调
-    - metrics: 详细评估指标
+    The backend resolves freshness and selects an explicit method. Direct auto
+    requests use rebar whenever denoise_dir is supplied, and never retry ICP on
+    invalid rebar geometry. All file inputs remain within shared storage.
     """
-    from algorithms.icp_registration import fine_registration
+    from analysis_mesh_api import _safe
+    from rebar_bim import _matrix
 
-    if not os.path.isfile(req.scan_path):
-        return JSONResponse(status_code=400, content={"code": 400, "msg": f"LAS 文件不存在: {req.scan_path}"})
-    if not os.path.isfile(req.mesh_path):
-        return JSONResponse(status_code=400, content={"code": 400, "msg": f"PLY 文件不存在: {req.mesh_path}"})
-    if len(req.init_transform) != 16:
-        return JSONResponse(status_code=400, content={"code": 400, "msg": "init_transform 必须包含 16 个浮点数"})
-    if req.max_correspondence_distance <= 0:
-        return JSONResponse(status_code=400, content={"code": 400, "msg": "max_correspondence_distance 必须大于 0"})
-    if req.rmse_regress_ratio <= 0:
-        return JSONResponse(status_code=400, content={"code": 400, "msg": "rmse_regress_ratio 必须大于 0"})
-    if req.fitness_regress_ratio <= 0:
-        return JSONResponse(status_code=400, content={"code": 400, "msg": "fitness_regress_ratio 必须大于 0"})
-
+    method = 'rebar' if req.method == 'auto' and req.denoise_dir else req.method
+    if method == 'auto':
+        method = 'icp'
     try:
-        result = fine_registration(
-            scan_path=req.scan_path,
-            remesh_ply_path=req.mesh_path,
-            init_matrix_16=req.init_transform,
-            max_correspondence_distance=req.max_correspondence_distance,
-            rmse_regress_ratio=req.rmse_regress_ratio,
-            fitness_regress_ratio=req.fitness_regress_ratio,
-            apply_when_regressed=req.apply_when_regressed,
-        )
+        _matrix(req.init_transform)
+        if method == 'rebar':
+            from algorithms.rebar_registration import fine_rebar_registration
+
+            if not req.denoise_dir:
+                raise ValueError('钢筋精配准需要当前分类与去噪结果 denoise_dir')
+            denoise_dir = _safe(req.denoise_dir, must_exist=True, directory=True)
+            for name in ('cleaned.las', 'instance-map.json', 'control-net.json'):
+                _safe(str(denoise_dir / name), must_exist=True)
+            result = fine_rebar_registration(
+                denoise_dir=str(denoise_dir),
+                init_matrix_16=req.init_transform,
+                rmse_regress_ratio=req.rmse_regress_ratio,
+                fitness_regress_ratio=req.fitness_regress_ratio,
+                apply_when_regressed=req.apply_when_regressed,
+            )
+        else:
+            from algorithms.icp_registration import fine_registration
+
+            if not req.scan_path or not req.mesh_path:
+                raise ValueError('ICP 精配准需要 scan_path 和 mesh_path')
+            scan_path, mesh_path = [_safe(path, must_exist=True) for path in (req.scan_path, req.mesh_path)]
+            result = fine_registration(
+                scan_path=str(scan_path),
+                remesh_ply_path=str(mesh_path),
+                init_matrix_16=req.init_transform,
+                max_correspondence_distance=req.max_correspondence_distance,
+                rmse_regress_ratio=req.rmse_regress_ratio,
+                fitness_regress_ratio=req.fitness_regress_ratio,
+                apply_when_regressed=req.apply_when_regressed,
+            )
+            result.setdefault('method', 'point-to-plane-icp')
+            result.setdefault('diagnostics', {})
         return result
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"code": exc.status_code, "msg": str(exc.detail)})
+    except (ValueError, OSError) as exc:
+        return JSONResponse(status_code=400, content={"code": 400, "msg": str(exc)})
     except Exception:
         tb = traceback.format_exc()
         return JSONResponse(status_code=500, content={"code": 500, "msg": f"精细化配准失败:\n{tb}"})

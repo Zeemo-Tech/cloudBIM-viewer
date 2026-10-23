@@ -37,6 +37,11 @@ type denoiseManifest struct {
 	NormalK                    int              `json:"normalK"`
 	ElapsedSeconds             float64          `json:"elapsedSeconds"`
 	InstanceCount              int              `json:"instanceCount"`
+	MatchedInstanceCount       *int             `json:"matchedInstanceCount,omitempty"`
+	DesignPhysicalBarCount     *int             `json:"designPhysicalBarCount,omitempty"`
+	MatchedPhysicalBarCount    *int             `json:"matchedPhysicalBarCount,omitempty"`
+	ClassificationSchema       string           `json:"classificationSchema,omitempty"`
+	SceneClassificationSHA256  string           `json:"sceneClassificationSha256,omitempty"`
 	InstanceContract           string           `json:"instanceContract"`
 	InstancesSHA256            string           `json:"instancesSha256"`
 	ControlNetSchema           string           `json:"controlNetSchema"`
@@ -47,6 +52,7 @@ type denoiseManifest struct {
 const (
 	productionDenoiseAlgorithmPrefix = "denoise-v4-control-net+"
 	rebarControlNetEvidenceSchema    = "rebar-control-net-evidence-v1"
+	bimGuidedSceneSchema             = "bim-guided-scene-v1"
 )
 
 func denoiseKind(bimID int64) string { return fmt.Sprintf("pointcloud-denoise-%d", bimID) }
@@ -112,6 +118,32 @@ func (a *app) denoiseFresh(scan Asset, bimID, ownerID int64, row DBAssetDerivati
 	}
 	if err := validateStoredControlNet(scan, row, manifest); err != nil {
 		return err
+	}
+	return validateStoredSceneClassification(scan, row, manifest)
+}
+
+// Historical five-class results have no scene audit. Once advertised, the
+// classification audit is immutable and must match the stored digest.
+func validateStoredSceneClassification(scan Asset, row DBAssetDerivative, manifest denoiseManifest) error {
+	if manifest.ClassificationSchema == "" && manifest.SceneClassificationSHA256 == "" {
+		return nil
+	}
+	if manifest.ClassificationSchema != bimGuidedSceneSchema || !hex64(manifest.SceneClassificationSHA256) {
+		return errors.New("场景分类来源信息无效，请重新分类与去噪")
+	}
+	path, err := rebarFile(scan.Dir, filepath.Join(row.RelativePath, "scene-classification.json"))
+	if err != nil {
+		return errors.New("场景分类文件缺失，请重新分类与去噪")
+	}
+	if digest, err := fileContentHash(path); err != nil || digest != manifest.SceneClassificationSHA256 {
+		return errors.New("场景分类文件已变化，请重新分类与去噪")
+	}
+	raw, err := os.ReadFile(path)
+	var audit struct {
+		Schema string `json:"schema"`
+	}
+	if err != nil || json.Unmarshal(raw, &audit) != nil || audit.Schema != manifest.ClassificationSchema {
+		return errors.New("场景分类文件来源无效，请重新分类与去噪")
 	}
 	return nil
 }
@@ -315,6 +347,10 @@ func (a *app) computeDenoise(c *gin.Context) {
 		fail(c, 502, err.Error())
 		return
 	}
+	if err := validateStoredSceneClassification(scan, DBAssetDerivative{RelativePath: relative}, result); err != nil {
+		fail(c, 502, err.Error())
+		return
+	}
 	a.c2mMutationMu.Lock()
 	defer a.c2mMutationMu.Unlock()
 	_, _, current, err := a.denoiseInputs(scan, req.ModelBimFileID, userID(c))
@@ -344,13 +380,34 @@ func validDenoiseManifest(m denoiseManifest) bool {
 		m.ControlNetSchema != rebarControlNetEvidenceSchema || !hex64(m.ControlNetSHA256) || strings.TrimSpace(m.ControlNetAlgorithmVersion) == "" {
 		return false
 	}
+	if m.ClassificationSchema != "" || m.SceneClassificationSHA256 != "" {
+		if m.ClassificationSchema != bimGuidedSceneSchema || !hex64(m.SceneClassificationSHA256) {
+			return false
+		}
+	}
+	for _, count := range []*int{m.MatchedInstanceCount, m.DesignPhysicalBarCount, m.MatchedPhysicalBarCount} {
+		if count != nil && *count < 0 {
+			return false
+		}
+	}
+	if m.InstanceCount < 0 || (m.MatchedInstanceCount != nil && *m.MatchedInstanceCount > m.InstanceCount) ||
+		(m.DesignPhysicalBarCount != nil && m.MatchedPhysicalBarCount != nil && *m.MatchedPhysicalBarCount > *m.DesignPhysicalBarCount) {
+		return false
+	}
 	if !hex64(m.SourceSHA256) || !hex64(m.DesignFingerprint) || m.PointsBefore < 3 || m.PointsAfter <= 0 || m.PointsAfter > m.PointsBefore || len(m.PreviewOrigin) != 3 || m.PreviewPointCount <= 0 || m.PreviewPointCount > 500000 || m.PreviewPointCount > m.PointsBefore {
 		return false
 	}
 	var total int64
 	for _, k := range []string{"unknown", "table", "fixture", "steel", "noise"} {
 		v, ok := m.Counts[k]
-		if !ok || v < 0 {
+		if !ok || v < 0 || v > m.PointsBefore-total {
+			return false
+		}
+		total += v
+	}
+	for _, k := range []string{"embedded", "pipe"} {
+		v := m.Counts[k] // Missing keys are valid in historical five-class manifests.
+		if v < 0 || v > m.PointsBefore-total {
 			return false
 		}
 		total += v
@@ -383,7 +440,7 @@ func (a *app) denoiseArtifact(c *gin.Context) {
 		return
 	}
 	name := c.Param("name")
-	if name != "cleaned.las" && name != "preview.ply" && name != "instance-map.json" && name != "control-net.json" {
+	if name != "cleaned.las" && name != "preview.ply" && name != "instance-map.json" && name != "control-net.json" && name != "scene-classification.json" {
 		fail(c, 404, "文件不存在")
 		return
 	}

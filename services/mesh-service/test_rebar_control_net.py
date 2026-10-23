@@ -70,7 +70,7 @@ class ControlNetTests(unittest.TestCase):
 
         report, attrs = self.fit(points, inv, normals, table=table_mask)
 
-        self.assertEqual(report['version'], 'design-control-net-v24')
+        self.assertEqual(report['version'], 'design-control-net-v25-scene-exclusion')
         self.assertEqual(report['inputStage'], 'post-table')
         self.assertNotIn('layers', report)
         self.assertEqual([row['layerId'] for row in report['instances']], [2, 1])

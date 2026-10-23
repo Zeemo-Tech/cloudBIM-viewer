@@ -67,6 +67,25 @@ function setupComponent(path, input, dependencies = {}) {
   return { props, bindings, events, stop: () => scope.stop() }
 }
 
+test('the first preview tile renders source RGB before a host applies display settings', () => {
+  const viewer = setupComponent('../packages/viewer-core/src/components/preview/UnifiedViewer3D.vue', {
+    assetId: 5, type: 'pointcloud',
+  })
+  try {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 2, 3], 3))
+    geometry.setAttribute('color', new THREE.Uint8BufferAttribute([255, 32, 8, 16, 64, 255], 3, true))
+    const points = new THREE.Points(geometry, new THREE.PointsMaterial())
+    viewer.bindings.applyPointcloudMaterial(points)
+    assert.equal(points.material.vertexColors, true, 'RGB must be enabled on the first model, without a later mode switch')
+    assert.equal(points.material.color.getHex(), 0xffffff, 'the material must not tint source colors')
+    viewer.bindings.collectPointcloudColorStats(points)
+    assert.equal(viewer.events.at(-1)[1].hasRgb, true)
+  } finally {
+    viewer.stop()
+  }
+})
+
 for (const mode of ['intensity', 'table-class']) test(`${mode}: preview toggle reaches cached LODs without replacing source, recoloring, loading events or camera changes`, async () => {
   let requests = 0
   const plane = { origin: [0, 0, 0], slopes: [0, 0], clearanceM: .005 }

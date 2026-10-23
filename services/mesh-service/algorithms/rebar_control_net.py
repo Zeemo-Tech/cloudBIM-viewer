@@ -23,7 +23,7 @@ from scipy.optimize import least_squares
 from rebar_prior_axis import fit_prior_axis
 
 
-VERSION = "design-control-net-v24"
+VERSION = "design-control-net-v25-scene-exclusion"
 _MAX_TREE_QUERIES = 256
 _NEIGHBOURS_PER_QUERY = 192
 _MAX_UNIT_CANDIDATES = 30_000
@@ -1430,7 +1430,7 @@ def _fit_worker_init():
 
 def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=None,
                     progress=None, fused_classes=None, layer_ids=None, layering=None,
-                    workers=1, curve_workers=1):
+                    workers=1, curve_workers=1, excluded_mask=None):
     """Fit physical design-unit control lines on post-table or fused steel input.
 
     Returns ``(JSON report, typed full-source attributes)``. Source coordinates
@@ -1473,6 +1473,11 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
         template = templates.get(unit['source'].get('designUnitId'), {})
         unit['curveAttachedEnds'] = [side for side in ('start', 'end') if template.get(side+'TailM')]
     candidate_class = ~table_mask if not post_fusion else (~table_mask & (fused_classes == 3))
+    if excluded_mask is not None:
+        excluded_mask = np.asarray(excluded_mask, dtype=bool)
+        if excluded_mask.shape != (len(points),):
+            raise ValueError("excluded_mask must be source aligned")
+        candidate_class &= ~excluded_mask
     usable = candidate_class & np.isfinite(points).all(axis=1)
     source_ids = np.flatnonzero(usable)
     source_points = points[source_ids]
@@ -1502,6 +1507,8 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
     status = np.full(len(points), 2, dtype=np.uint8)
     if post_fusion:
         status[~table_mask & (fused_classes != 3)] = 4
+    if excluded_mask is not None:
+        status[excluded_mask] = 4
     status[table_mask] = 0
     owner = np.zeros(len(points), dtype=np.uint32)
     pending = np.zeros(len(points), dtype=bool)

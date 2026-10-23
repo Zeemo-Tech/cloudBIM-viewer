@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -70,6 +71,9 @@ func installDenoiseService(t *testing.T, a *app, during func()) *denoiseManifest
 		os.WriteFile(filepath.Join(req.OutputPath, "preview.ply"), []byte("preview"), 0644)
 		os.WriteFile(filepath.Join(req.OutputPath, "instance-map.json"), instanceMap, 0644)
 		os.WriteFile(filepath.Join(req.OutputPath, "control-net.json"), controlNet, 0644)
+		if manifest.ClassificationSchema != "" {
+			os.WriteFile(filepath.Join(req.OutputPath, "scene-classification.json"), []byte(`{"schema":"bim-guided-scene-v1"}`), 0644)
+		}
 		if during != nil {
 			during()
 		}
@@ -78,6 +82,111 @@ func installDenoiseService(t *testing.T, a *app, during func()) *denoiseManifest
 	t.Cleanup(server.Close)
 	a.cfg.MeshServiceURL = server.URL
 	return &manifest
+}
+
+func TestDenoiseSceneCountsAndOptionalPhysicalCounts(t *testing.T) {
+	a, _ := denoiseTestApp(t)
+	base := *installDenoiseService(t, a, nil)
+	if !validDenoiseManifest(base) {
+		t.Fatal("historical five-class manifest rejected")
+	}
+	count := func(value int) *int { return &value }
+	cases := []struct {
+		name   string
+		change func(*denoiseManifest)
+		valid  bool
+	}{
+		{"seven classes", func(m *denoiseManifest) {
+			m.Counts["fixture"]--
+			m.Counts["noise"]--
+			m.Counts["embedded"] = 1
+			m.Counts["pipe"] = 1
+		}, true},
+		{"negative optional class", func(m *denoiseManifest) { m.Counts["pipe"] = -1 }, false},
+		{"population mismatch", func(m *denoiseManifest) { m.Counts["embedded"] = 1 }, false},
+		{"cleaned remains steel only", func(m *denoiseManifest) { m.Counts["steel"]--; m.Counts["pipe"] = 1 }, false},
+		{"physical zero", func(m *denoiseManifest) { m.DesignPhysicalBarCount = count(2); m.MatchedPhysicalBarCount = count(0) }, true},
+		{"negative physical count", func(m *denoiseManifest) { m.MatchedPhysicalBarCount = count(-1) }, false},
+		{"too many physical matches", func(m *denoiseManifest) { m.DesignPhysicalBarCount = count(2); m.MatchedPhysicalBarCount = count(3) }, false},
+		{"too many segment matches", func(m *denoiseManifest) { m.InstanceCount = 2; m.MatchedInstanceCount = count(3) }, false},
+		{"missing audit hash", func(m *denoiseManifest) { m.ClassificationSchema = bimGuidedSceneSchema }, false},
+		{"missing audit schema", func(m *denoiseManifest) { m.SceneClassificationSHA256 = strings.Repeat("a", 64) }, false},
+		{"unknown audit schema", func(m *denoiseManifest) {
+			m.ClassificationSchema = "other"
+			m.SceneClassificationSHA256 = strings.Repeat("a", 64)
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := base
+			m.Counts = make(map[string]int64)
+			for key, value := range base.Counts {
+				m.Counts[key] = value
+			}
+			tc.change(&m)
+			if validDenoiseManifest(m) != tc.valid {
+				t.Fatal("unexpected manifest acceptance", tc.valid)
+			}
+		})
+	}
+	base.MatchedPhysicalBarCount = count(0)
+	raw, err := json.Marshal(base)
+	if err != nil || !strings.Contains(string(raw), `"matchedPhysicalBarCount":0`) || strings.Contains(string(raw), `"designPhysicalBarCount"`) {
+		t.Fatal("optional counters lost zero or invented historical values", string(raw), err)
+	}
+}
+
+func TestDenoiseSceneAuditPublishesAndRejectsTampering(t *testing.T) {
+	a, scan := denoiseTestApp(t)
+	manifest := installDenoiseService(t, a, nil)
+	manifest.ClassificationSchema = bimGuidedSceneSchema
+	manifest.SceneClassificationSHA256 = hashBytes([]byte(`{"schema":"bim-guided-scene-v1"}`))
+	c, w := rebarContext("POST", "/", `{"modelScanFileId":1,"modelBimFileId":2}`, 10)
+	a.computeDenoise(c)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	row, stored, err := a.denoiseRow(scan, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, w = rebarContext("GET", "/?modelScanFileId=1&modelBimFileId=2&version="+row.Version, "", 10)
+	c.Params = gin.Params{{Key: "name", Value: "scene-classification.json"}}
+	a.denoiseArtifact(c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), bimGuidedSceneSchema) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	path := filepath.Join(scan.Dir, row.RelativePath, "scene-classification.json")
+	if err := os.WriteFile(path, []byte(`{"schema":"tampered"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.denoiseFresh(scan, 2, 10, row, stored); err == nil || !strings.Contains(err.Error(), "场景分类文件已变化") {
+		t.Fatal("tampered audit accepted", err)
+	}
+	if _, err := a.resolveC2MScanPath(scan, 2, 10); err == nil {
+		t.Fatal("C2M accepted tampered scene classification")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateStoredSceneClassification(scan, row, stored); err == nil {
+		t.Fatal("missing advertised audit accepted")
+	}
+}
+
+func TestDenoiseRejectsMismatchedSceneAuditBeforePublish(t *testing.T) {
+	a, scan := denoiseTestApp(t)
+	manifest := installDenoiseService(t, a, nil)
+	manifest.ClassificationSchema = bimGuidedSceneSchema
+	manifest.SceneClassificationSHA256 = strings.Repeat("a", 64)
+	c, w := rebarContext("POST", "/", `{"modelScanFileId":1,"modelBimFileId":2}`, 10)
+	a.computeDenoise(c)
+	if w.Code != 502 {
+		t.Fatal("mismatched audit published", w.Code, w.Body.String())
+	}
+	if _, _, err := a.denoiseRow(scan, 2); err == nil {
+		t.Fatal("invalid result retained")
+	}
 }
 
 func TestDenoiseFeedsC2MAndRejectsStaleOrForeignResults(t *testing.T) {
