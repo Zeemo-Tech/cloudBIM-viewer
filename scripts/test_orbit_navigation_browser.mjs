@@ -75,8 +75,13 @@ try {
   }
   const matrices = await page.evaluate(() => ({ before: window.__navBefore, after: window.__navMatrices() }))
   const after = new Map(matrices.after)
-  for (const [id, matrix] of matrices.before) if (after.has(id)) assert.deepEqual(after.get(id), matrix)
-  checks.push({ unchangedGeometryMatrices: matrices.before.length })
+  let comparedMatrices = 0
+  for (const [id, matrix] of matrices.before) if (after.has(id)) {
+    assert.deepEqual(after.get(id), matrix)
+    comparedMatrices++
+  }
+  assert.ok(comparedMatrices > 0)
+  checks.push({ unchangedGeometryMatrices: comparedMatrices, streamedOutObjects: matrices.before.length - comparedMatrices })
   await page.screenshot({ path: `${output}/cloudbim-reset.png` })
 
   // Tunnel's production shared factory, exercised with native browser input and
