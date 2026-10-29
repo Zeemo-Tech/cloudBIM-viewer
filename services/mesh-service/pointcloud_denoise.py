@@ -1,5 +1,6 @@
 """Production artifact publisher for the aligned post-table control net."""
 from copy import deepcopy
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -20,8 +21,10 @@ from pointcloud_step_pipeline import load_positions, source_stamp, source_hash, 
 from rebar_poc import _publish_shared_artifact_permissions
 from rebar_design_prior import prepare_snapshot
 from rebar_design_inputs import resolve_design_inputs, VERSION as INPUT_VERSION
+from pipeline_timing import timed_call
+from model_cache import cache_root
 
-VERSION = 'denoise-v4-control-net+' + SEGMENT_VERSION + '+' + INPUT_VERSION + '+' + CONTROL_VERSION + '+' + SCENE_VERSION
+VERSION = 'denoise-v4-control-net+' + SEGMENT_VERSION + '+' + INPUT_VERSION + '+' + CONTROL_VERSION + '+' + SCENE_VERSION + '+execution-v4'
 INSTANCE_CONTRACT = 'rebar-instance-map-v1'
 CONTROL_CONTRACT = 'rebar-control-net-evidence-v1'
 INSTANCE_DIMENSION = 'cloudbim_instance_id'
@@ -194,6 +197,8 @@ def _instance_map(report, inventory, control_net):
 
 def build_denoise(source, ifc, model, transform, destination, k=32):
     started = time.perf_counter()
+    timings = {}
+    run = partial(timed_call, timings)
     stamps = [source_stamp(p) for p in (source, ifc, model)]
     with source.open('rb') as stream:
         if stream.read(4) != b'LASF':
@@ -206,35 +211,38 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
     try:
         with tempfile.TemporaryDirectory(prefix='denoise-') as scratch:
             scratch = Path(scratch)
-            digest = source_hash(source)
+            digest = run('sourceHash', source_hash, source)
             config = scratch/'design.json'
             atomic_json(config, {'sourcePath': str(source), 'sourceSha256': digest,
-                                 'ifcPath': str(ifc), 'modelPath': str(model), 'scanToBim': transform})
-            snapshot = prepare_snapshot(config)
-            inputs = resolve_design_inputs(snapshot, source, digest)
+                                 'ifcPath': str(ifc), 'modelPath': str(model), 'scanToBim': transform,
+                                 'excludeSceneFixtures': True})
+            design_cache = cache_root()
+            snapshot = run('designSnapshot', prepare_snapshot, config, cache_directory=design_cache)
+            inputs = run('designInputs', resolve_design_inputs, snapshot, source, digest)
             if not inputs.inventory or not inputs.inventory.get('units'):
                 raise ValueError('设计模型中没有可解析的钢筋构件，无法执行设计辅助去噪')
             progress = lambda stage, done, total: None
-            positions, colors = load_positions(source, scratch, progress)
+            positions, colors = run('loadPositions', load_positions, source, scratch, progress)
             scene = None
+            workers = max(1, min(available_workers(), int(os.environ.get('REBAR_SPATIAL_WORKERS', '8'))))
             # Legacy exports using plates for steel lack trustworthy scene semantics.
             # Keep their old path; semantic classification requires explicit structural IFC entities.
             if any(b.get('productType') == 'IfcReinforcingBar' for b in inputs.inventory['bars']):
-                scene = load_scene_geometry(ifc, model, transform)
+                scene = run('sceneGeometry', load_scene_geometry, ifc, model, transform,
+                            workers=min(8, workers), cache_directory=design_cache)
             inventory = inputs.inventory
             scene_report = None
-            workers = max(1, min(available_workers(), int(os.environ.get('REBAR_SPATIAL_WORKERS', '4'))))
             with threadpool_limits(limits=1):
-                stages = segment_points(positions, scratch, k=k, workers=workers, through_step=2,
+                stages = run('preprocess', segment_points, positions, scratch, k=k, workers=workers, through_step=2,
                                         source=source, design_inventory=inputs.inventory,
                                         dimension_priors=inputs.dimensions, progress=progress,
                                         stop_after_table=True)
                 if scene is not None:
                     report, arrays, scene_report, inventory = fit_bim_guided_scene(
                         positions, stages.context.normals, stages.context.shared_table_mask,
-                        inventory, scene, workers=min(8, workers), progress=progress)
+                        inventory, scene, workers=min(8, workers), progress=progress, timings=timings)
                 else:
-                    report, arrays = fit_control_net(
+                    report, arrays = run('controlNet', fit_control_net,
                         positions, stages.context.shared_table_mask, inventory,
                         mode='aligned', normals=stages.context.normals, progress=progress,
                         workers=min(8, workers), curve_workers=min(8, workers))
@@ -244,6 +252,7 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
                     stages.context.complete_class[scene_labels > 0] = scene_labels[scene_labels > 0]
             report['modelInfo'] = deepcopy(snapshot.get('modelInfo', {}))
             report['snapshotFingerprint'] = snapshot.get('fingerprint')
+            export_started = time.perf_counter()
             control_net = _control_envelope(report)
             result = export_result(source, destination, stages.context, colors)
             instance_map = _instance_map(report, inventory, control_net)
@@ -258,7 +267,12 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
                     sceneInstances=arrays['scene_instance'])
             control_hash = source_hash(destination/'control-net.json')
             instances_hash = source_hash(destination/'instance-map.json')
+            timings['exportArtifacts'] = time.perf_counter()-export_started
             result.update(algorithmVersion=VERSION, sourceSha256=digest, designFingerprint=snapshot['fingerprint'],
+                          stageTimingsSeconds=timings,
+                          modelCacheHits={'design':bool(snapshot.get('preparation',{}).get('modelCacheHit')),
+                                          'alignment':bool(snapshot.get('preparation',{}).get('alignmentCacheHit')),
+                                          'scene':bool(scene and scene['diagnostics'].get('modelCacheHit'))},
                           normalK=k, elapsedSeconds=time.perf_counter()-started,
                           instanceCount=len(report.get('instances', [])),
                           matchedInstanceCount=report.get('counts', {}).get('fittedUnits', 0),

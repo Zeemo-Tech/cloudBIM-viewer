@@ -12,13 +12,20 @@ operation and result state clear while reserving most workspace area for geometr
 - Narrow layouts are robustness checks, not the primary design direction.
 - Viewer workspaces fill the viewport height. Use `100dvh` with a `100vh`
   fallback; do not rely on percentage height inside a minimum-height parent.
-- Keep project navigation stable. Show the project/file context when entering a
-  full-screen viewer, and provide a named return action.
+- Keep project navigation stable and provide a named return action. Full-screen
+  viewers show the project/file context; the analysis workspace uses a compact
+  56px header with only return navigation and the single-line steps **坐标配准 →
+  分类去噪 → 偏差对比 → 报告**. Do not repeat the current step, file name or explanatory
+  subtitles beside or below this navigation. Narrow screens use short labels
+  while retaining complete accessible names.
 - The desktop sidebar uses `--sidebar-width`; the viewer control panel uses
   `--viewer-panel-width`. Collapse the rail at its breakpoint without losing
   accessible names or the active-page state.
 - Keep related controls together. View navigation and measurement tools must not
   overlap. Leave the center of the geometry viewport available for model work.
+- Keep the analysis panel toggle inside the geometry viewport at its right edge,
+  clear of panel inputs. Use a 56px panel heading with the existing previous/next
+  actions, and retain the workflow readiness gates.
 - Tables give file names flexible width and keep pagination near the records.
   Horizontal scrolling may be necessary for dense data; avoid whole-page overflow.
 

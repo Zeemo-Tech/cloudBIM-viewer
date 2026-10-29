@@ -16,7 +16,7 @@ def tube(radius=.004,length=.09,tilt=.15):
 
 
 class EvidenceTests(unittest.TestCase):
-    def test_curve_refit_keeps_global_ids_for_unmatched_last_unit(self):
+    def test_final_curves_keep_global_ids_for_unmatched_last_unit(self):
         # The updated parent owns unit 2; its last unit 3 has no source rows.
         # Passing only parent rows to the curve solver used to size counts to
         # max(owner)+1 and crash when updating the unmatched global unit 3.
@@ -32,12 +32,13 @@ class EvidenceTests(unittest.TestCase):
              patch(prefix+'fit_control_net',return_value=(report,arrays)), \
              patch(prefix+'recover_connectors',return_value={'objects':[{'designBarId':'parent','status':'observed-partial-connector'}]}), \
              patch(prefix+'recover_bent_bars',return_value={'objects':[]}), \
+             patch(prefix+'complete_end_faces',return_value=0), \
              patch(prefix+'recover_scene_alternatives',side_effect=lambda p,n,t,s,i,r,l,o,**kw:(r,l,o)), \
              patch(prefix+'extend_embedded_axes',return_value={}):
             out,attrs,_,_=fit_bim_guided_scene(np.zeros((1,3)),np.array([[0.,0.,1.]]),np.zeros(1,bool),inv,{'objects':[]})
         self.assertEqual(out['instances'][-1]['pointCount'],0)
         self.assertEqual(attrs['control_instance'][0],2)
-        self.assertEqual(out['bodyPoseCurveRefit']['designPieces'],0)
+        self.assertEqual(out['curveSummary']['designPieces'],0)
 
     def test_offset_tilt_diameter_measured(self):
         fit=fit_tube_cluster(tube(),.003,[0,0,1],np.zeros(3))

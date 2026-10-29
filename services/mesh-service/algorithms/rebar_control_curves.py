@@ -14,6 +14,7 @@ from contextlib import ExitStack
 import numpy as np
 from scipy.optimize import least_squares
 from scipy.spatial.distance import cdist
+import geometry_accel
 
 
 def _unit(v):
@@ -60,19 +61,23 @@ class _CurveResidual:
         square=np.einsum('ij,ij->i',delta,delta)
         valid_segments=np.flatnonzero(square>1e-20)
         starts,delta,square=starts[valid_segments],delta[valid_segments],square[valid_segments]
-        along=self.query@delta.T-np.einsum('ij,ij->i',starts,delta)
-        fractions=np.clip(along/square,0.,1.)
-        squares=cdist(self.query,starts,'sqeuclidean')-2*fractions*along+fractions*fractions*square
-        nearest=squares.argmin(axis=1)
-        at=np.arange(len(self.query))
-        distance=np.sqrt(np.maximum(0.,squares[at,nearest]))
+        if geometry_accel.available():
+            best,nearest,fraction=geometry_accel.project(self.query,starts,delta,square,expanded=True)
+        else:
+            along=self.query@delta.T-np.einsum('ij,ij->i',starts,delta)
+            fractions=np.clip(along/square,0.,1.)
+            squares=cdist(self.query,starts,'sqeuclidean')-2*fractions*along+fractions*fractions*square
+            nearest=squares.argmin(axis=1)
+            at=np.arange(len(self.query))
+            best=squares[at,nearest];fraction=fractions[at,nearest]
+        distance=np.sqrt(np.maximum(0.,best))
         chosen=np.empty(len(self.weights),int)
         chosen[~self.valid]=np.arange(self.n_invalid)
         plus=self.n_invalid+np.arange(self.n_valid)
         minus=plus+self.n_valid
         chosen[self.valid]=np.where(distance[plus]<=distance[minus],plus,minus)
         segment=nearest[chosen]
-        fraction=fractions[chosen,segment]
+        fraction=fraction[chosen]
         q=starts[segment]+fraction[:,None]*delta[segment]
         radial=q-self.query[chosen]
         radial/=np.maximum(np.linalg.norm(radial,axis=1)[:,None],1e-12)
@@ -112,15 +117,21 @@ def _project(points, curve):
     tangent = np.zeros((n, 3))
     station = np.zeros(n)
     index = np.zeros(n, dtype=int)
-    for j, (a, d, length) in enumerate(zip(starts, delta, lengths)):
-        t = np.clip((points-a) @ d / (length*length), 0., 1.)
-        q = a+t[:, None]*d
-        square = np.einsum('ij,ij->i', points-q, points-q)
-        take = square < best
-        best[take], closest[take] = square[take], q[take]
-        tangent[take] = d/length
-        station[take] = stations[j]+t[take]*length
-        index[take] = j
+    if geometry_accel.available() and len(starts):
+        best,index,t=geometry_accel.project(points,starts,delta,lengths*lengths)
+        closest=starts[index]+t[:,None]*delta[index]
+        tangent=delta[index]/lengths[index,None]
+        station=stations[index]+t*lengths[index]
+    else:
+        for j, (a, d, length) in enumerate(zip(starts, delta, lengths)):
+            t = np.clip((points-a) @ d / (length*length), 0., 1.)
+            q = a+t[:, None]*d
+            square = np.einsum('ij,ij->i', points-q, points-q)
+            take = square < best
+            best[take], closest[take] = square[take], q[take]
+            tangent[take] = d/length
+            station[take] = stations[j]+t[take]*length
+            index[take] = j
     radial = points-closest
     distance = np.sqrt(best)
     # Projected endpoint balls are not evidence of a flat-cut rebar end.
@@ -574,7 +585,10 @@ def _fit_piece(points, normals, piece, rows, *, articulated=False, candidate_out
         candidate_out['parameters']=params.copy()
     partial_reason=None
     if not evidence['accepted']:
-        if not (articulated and piece['kind']=='terminal' and evidence['bendSupport']>=96
+        # Partial observation must not require twice the 48 records required
+        # for a complete bend. This only admits an independent pose check;
+        # ownership still needs the stable local surface intervals below.
+        if not (articulated and piece['kind']=='terminal' and evidence['bendSupport']>=48
                 and evidence['coveredBins']>=3 and evidence['crossSectionSpread']>=.0001
                 and evidence['normalSpread']>=.005
                 and evidence['attachmentMaxGapM']<=max(.003,1.25*radius)):
@@ -739,7 +753,7 @@ def _local_curve_support(points, normals, curve, check_curve, radius, normal_axi
     need independent local surface bands; proximity to design alone never suffices.
     """
     empty = np.zeros(len(points), bool)
-    if normals is None or len(points) < 48:
+    if normals is None or len(points) < 24:
         return empty, [], 0.
     d, radial, tangent, station, side = _project(points, curve)
     vd, vradial, _, _, vside = _project(points, check_curve)
@@ -782,7 +796,10 @@ def _local_curve_support(points, normals, curve, check_curve, radius, normal_axi
         # silently turn into a confirmed bridge.
         parts = np.split(observed, np.flatnonzero(np.diff(observed) > max(.0015, .65*radius))+1)
         for part in parts:
-            if len(part) < 48 or np.ptp(part) < 3*radius:
+            # Two certified bands already require at least 12 records each,
+            # angular diversity, continuity and agreement of two fitted poses.
+            # Requiring 48 again discards valid short observed hook patches.
+            if len(part) < 24 or np.ptp(part) < 3*radius:
                 continue
             lo, hi = float(part[0]), float(part[-1])
             selected |= mask & (station >= lo) & (station <= hi)
@@ -1133,9 +1150,18 @@ def fit_curved_pieces(points,normals,inventory,instance_rows,status,owner,*,tree
             candidate=tree.query_ball_point(_curve_query_stations(result['curve'],query_radius),r=query_radius)
             local=np.unique(np.concatenate(candidate)).astype(np.int64)
             full=source_ids[local]
-            full=full[(owner[full]==0)&np.isin(status[full],[2,3])]
+            full=full[((owner[full]==0)&np.isin(status[full],[2,3])) |
+                      (np.isin(owner[full],report['unitIds'])&(status[full]==1))]
             ev=_evidence(points[full],None if normals is None else normals[full],result['curve'],piece['radiusM'],result['meta'])
-            fitted.append((report,result,full,ev))
+            # A second pass must retain a still-supported hook even when the
+            # first pass already claimed every point. Only unowned rows compete.
+            retained=(owner[full]>0)&ev['support']
+            ev['retainedIds']=full[retained]
+            ev['retainedBendCount']=int(np.count_nonzero(retained&ev['onBend']))
+            unowned=owner[full]==0
+            ev['support']=ev['support'][unowned]
+            ev['residual']=ev['residual'][unowned]
+            fitted.append((report,result,full[unowned],ev))
     # Competing curved pieces must be uniquely better. No accepted body owner is reassigned.
     union=np.unique(np.concatenate([x[2] for x in fitted])) if fitted else np.empty(0,np.int64)
     best=np.full(len(union),np.inf);second=np.full(len(union),np.inf);winner=np.full(len(union),-1,int)
@@ -1151,7 +1177,7 @@ def fit_curved_pieces(points,normals,inventory,instance_rows,status,owner,*,tree
         selected=union[unique&(winner==j)]
         # Existing same-parent body support is valid evidence; added points are
         # kept separately and never inflate the physical body/parent counts.
-        if len(selected)<12:
+        if len(selected)+ev['retainedBendCount']<12:
             report.update(status='pending',reason='insufficient-unique-curve-support')
             report.pop('centerlineM',None)
             report.pop('fittedLengthM',None)
@@ -1161,7 +1187,8 @@ def fit_curved_pieces(points,normals,inventory,instance_rows,status,owner,*,tree
             unit_owner=np.where(station<_length(result['curve'])/2,report['unitIds'][0],report['unitIds'][1])
         else:unit_owner=np.full(len(selected),report['unitIds'][0],np.uint32)
         owner[selected]=unit_owner;status[selected]=1
-        report['pointCount']=len(selected)
+        report.update(pointCount=len(selected)+len(ev['retainedIds']),
+                      addedPointCount=len(selected),retainedPointCount=len(ev['retainedIds']))
         for anchor,position in result['meta']['attachments']:
             display_changes.setdefault(anchor['designUnitId'],{})[anchor['side']]=position
     # Confirmed bodies establish identity and attachment frames for missing
@@ -1215,27 +1242,41 @@ def fit_curved_pieces(points,normals,inventory,instance_rows,status,owner,*,tree
                         check_curve[-1]=check_curve[-2]+candidate['meta']['tailLengthM']*_unit(check_curve[-1]-check_curve[-2])
                     support,intervals,change=_local_curve_support(points[ids],None if normals is None else normals[ids],
                         curve,check_curve,piece['radiusM'],candidate['meta']['normal'])
-                    support &= (owner[ids]==0)&np.isin(status[ids],[2,3])
+                    support &= ((owner[ids]==0)&np.isin(status[ids],[2,3])) | (
+                        np.isin(owner[ids],report['unitIds'])&(status[ids]==1))
                     if support.sum()>=12:
                         residual=np.abs(_project(points[ids],curve)[0]-piece['radiusM'])
-                        partial.append((report,ids[support],residual[support]/max(.0009,.36*piece['radiusM']),intervals,change))
+                        retained=ids[support&(owner[ids]>0)]
+                        unowned=support&(owner[ids]==0)
+                        partial.append((report,ids[unowned],residual[unowned]/max(.0009,.36*piece['radiusM']),
+                                        intervals,change,retained,curve,piece['radiusM']))
         inferred+=1
     # Fully confirmed curves already own their points. Partial observations
     # compete with each other only on remaining records, with the same margin.
     union=np.unique(np.concatenate([item[1] for item in partial])) if partial else np.empty(0,np.int64)
     best=np.full(len(union),np.inf);second=best.copy();winner=np.full(len(union),-1,int)
-    for j,(_,ids,score,_,_) in enumerate(partial):
+    for j,(_,ids,score,*_) in enumerate(partial):
         at=np.searchsorted(union,ids);improve=score<best[at]
         second[at]=np.where(improve,best[at],np.minimum(second[at],score))
         best[at[improve]]=score[improve];winner[at[improve]]=j
     unique=(best<=1.)&(second>best+.18)
-    for j,(report,_,_,intervals,change) in enumerate(partial):
+    for j,(report,_,_,intervals,change,retained,curve,radius) in enumerate(partial):
         selected=union[unique&(winner==j)]
-        if len(selected)<12:
+        observed_ids=np.r_[selected,retained]
+        if len(observed_ids)<12:
+            continue
+        # Competition can remove a patch. Publish only the intervals still
+        # supported by this parent's retained or newly assigned source rows.
+        station=np.sort(_project(points[observed_ids],curve)[3])
+        intervals=[[float(part[0]),float(part[-1])] for part in
+                   np.split(station,np.flatnonzero(np.diff(station)>max(.0015,.65*radius))+1)
+                   if len(part)>1 and part[-1]>part[0]]
+        if not intervals:
             continue
         owner[selected]=report['unitIds'][0];status[selected]=1
         report['localSupport']={'method':'independent-continuous-surface-intervals-v2',
-            'pointCount':len(selected),'intervalsM':intervals,'validationMaxChangeM':change}
+            'pointCount':len(observed_ids),'addedPointCount':len(selected),'retainedPointCount':len(retained),
+            'intervalsM':intervals,'validationMaxChangeM':change}
     for uid,changes in display_changes.items():
         display=_clip_display(rows[uid],changes)
         if display is not None:rows[uid]['bodyDisplayCenterlineM']=display

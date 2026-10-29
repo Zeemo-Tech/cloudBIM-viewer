@@ -19,6 +19,7 @@ export {
 
 // ── 导航契约（包不依赖 vue-router，由宿主注入） ────────────────────────────────
 export type { ViewerNavigationHandlers } from '@/viewer/navigation'
+export { NavigationOrbitControls } from '@/viewer/NavigationOrbitControls'
 export type {
   ViewerAssetPairProps,
   ViewerPageEmits,

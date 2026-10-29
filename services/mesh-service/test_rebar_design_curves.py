@@ -78,6 +78,17 @@ class IfcPrimitiveTests(unittest.TestCase):
         self.assertEqual(result["version"], "design-inventory-v4")
         self.assertEqual(result["bars"][0]["curvePrimitives"][0]["kind"], "arc")
         self.assertAlmostEqual(result["bars"][0]["curvePrimitives"][0]["radiusM"], 1.)
+        # Semantic extraction skips positively typed fixture products, but
+        # retains unresolved proxies and keeps legacy plate-only exports intact.
+        for kind in ('IfcPlate','IfcMember','IfcBuildingElementProxy'):
+            model.create_entity(kind,GlobalId=ifcopenshell.guid.new(),ObjectPlacement=local,Representation=definition)
+        with patch('ifcopenshell.open',return_value=model):
+            full=extract_model('unused.ifc')
+            structural=extract_model('unused.ifc',exclude_scene_fixtures=True)
+            self.assertEqual(structural['bars'],[b for b in full['bars'] if b['productType'] not in ('IfcPlate','IfcMember')])
+            model.remove(model.by_type('IfcReinforcingBar')[0])
+            legacy=extract_model('unused.ifc')
+            self.assertEqual(extract_model('unused.ifc',exclude_scene_fixtures=True),legacy)
 
     def test_trimmed_circle_and_composite_reversal_are_exact(self):
         model = ifcopenshell.file(schema="IFC4")

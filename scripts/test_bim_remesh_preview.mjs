@@ -17,6 +17,7 @@ import * as viewerCore from '@cloudbim/viewer-core'
 import * as segmentation from '../packages/viewer-core/src/features/pointcloud/segmentation.ts'
 import * as displayFrame from '../packages/viewer-core/src/features/pointcloud/displayFrame.ts'
 import * as groundGrid from '../packages/viewer-core/src/components/preview/InfiniteGroundGrid.ts'
+import { NavigationOrbitControls } from '../packages/viewer-core/src/viewer/NavigationOrbitControls.ts'
 
 const require = createRequire(import.meta.url)
 // Execute the real component setup/watchers in Node. Only mounting a WebGL
@@ -38,6 +39,7 @@ function setupComponent(path, input, dependencies = {}) {
     require(name) {
       if (name === 'vue') return { ...Vue, onMounted() {}, onBeforeUnmount() {} }
       if (name === 'three') return THREE
+      if (name.endsWith('/NavigationOrbitControls')) return { NavigationOrbitControls }
       if (name === '3d-tiles-renderer') return Tiles
       if (name === '3d-tiles-renderer/three/plugins') return TilePlugins
       if (name.endsWith('/segmentation')) return segmentation

@@ -1,13 +1,19 @@
 """Explicit scene semantics, fixture-first ownership and short-bar evidence."""
 from copy import deepcopy
+from functools import partial
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
+import multiprocessing
 import numpy as np
 from algorithms.bim_scene_classification import classify_scene_surfaces, recover_scene_alternatives, VERSION as SCENE_VERSION
 from algorithms.bim_short_connectors import recover_connectors, VERSION as SHORT_VERSION
 from algorithms.bim_bent_bars import recover_bent_bars, VERSION as BENT_VERSION
 from algorithms.bim_embedded_extent import extend_embedded_axes, VERSION as EXTENT_VERSION
-from algorithms.rebar_control_net import fit_control_net
+from algorithms.rebar_control_net import fit_control_net, _fit_worker_init
 from algorithms.rebar_control_curves import fit_curved_pieces
+from algorithms.rebar_control_endpoints import complete_end_faces
 from scipy.spatial import cKDTree
+from pipeline_timing import timed_call
 
 VERSION=SCENE_VERSION+'+'+SHORT_VERSION+'+'+BENT_VERSION+'+'+EXTENT_VERSION
 
@@ -27,35 +33,39 @@ def structural_inventory(inventory, scene):
     return result
 
 
-def fit_bim_guided_scene(points,normals,table_mask,inventory,scene,*,workers=1,progress=None):
+def fit_bim_guided_scene(points,normals,table_mask,inventory,scene,*,workers=1,progress=None,timings=None):
+    run=partial(timed_call,{} if timings is None else timings)
     inventory=structural_inventory(inventory,scene)
-    scene_report,labels,scene_owner=classify_scene_surfaces(points,normals,table_mask,scene,inventory,progress=progress,allow_fallback=False)
-    report,arrays=fit_control_net(points,table_mask,inventory,normals=normals,mode='aligned',
-        excluded_mask=labels>0,workers=workers,curve_workers=workers,progress=progress)
-    recovery=recover_connectors(points,normals,inventory,report['instances'],arrays['control_status'],
-        arrays['control_instance'],excluded=labels>0,progress=progress)
-    owner=arrays['control_instance'];status=arrays['control_status']
-    bent=recover_bent_bars(points,normals,inventory,report['instances'],status,owner,scene,scene_report,
-        excluded=(labels>0)|np.asarray(table_mask,bool),progress=progress)
-    updated={r['designBarId'] for r in recovery['objects'] if r['status']=='observed-partial-connector'}
-    updated.update(r['designBarId'] for r in bent['objects'] if r['status']=='observed-trace')
-    if updated:
-        curve_inventory={**inventory,'bars':[b for b in inventory['bars'] if b['designBarId'] in updated],
-                         'units':[u for u in inventory['units'] if u['designBarId'] in updated]}
-        # Owner IDs are global and may include unmatched high-numbered units.
-        # Restrict design pieces, while retaining the full instance namespace.
-        curve_rows=report['instances']
+    scene_report,labels,scene_owner=run('sceneSurfaces',classify_scene_surfaces,points,normals,table_mask,scene,inventory,progress=progress,allow_fallback=False,workers=workers)
+    # One request owns one bounded process pool across all structural passes.
+    # Every pass still confirms ownership before the next dependent pass starts.
+    pool=(ProcessPoolExecutor(max_workers=min(8,int(workers)),
+          mp_context=multiprocessing.get_context('spawn'),initializer=_fit_worker_init)
+          if workers>1 else nullcontext(None))
+    with pool as executor:
+        report,arrays=run('controlNet',fit_control_net,points,table_mask,inventory,normals=normals,mode='aligned',
+            excluded_mask=labels>0,workers=workers,curve_workers=workers,progress=progress,worker_pool=executor,
+            complete_members=False)
+        recovery=run('shortConnectors',recover_connectors,points,normals,inventory,report['instances'],arrays['control_status'],
+            arrays['control_instance'],excluded=labels>0,progress=progress)
+        owner=arrays['control_instance'];status=arrays['control_status']
+        bent=run('bentBars',recover_bent_bars,points,normals,inventory,report['instances'],status,owner,scene,scene_report,
+            excluded=(labels>0)|np.asarray(table_mask,bool),progress=progress,workers=workers,executor=executor)
+        # All bodies reach their final validated pose before dependent geometry
+        # can claim points. An earlier hook/cap must never survive a body change
+        # merely because an additive second pass cannot revoke its ownership.
         source_ids=np.flatnonzero((labels==0)&~np.asarray(table_mask,bool)&np.isfinite(points).all(axis=1))
-        pieces,summary=fit_curved_pieces(points,normals,curve_inventory,curve_rows,status,owner,
-            tree=cKDTree(np.asarray(points)[source_ids]) if len(source_ids) else None,
-            source_ids=source_ids,workers=workers,progress=progress)
-        report['curvedPieces']=[p for p in report.get('curvedPieces',[]) if p['designBarId'] not in updated]+pieces
-        report['bodyPoseCurveRefit']=summary
+        tree=cKDTree(np.asarray(points)[source_ids]) if len(source_ids) else None
+        pieces,summary=run('curvedPieces',fit_curved_pieces,points,normals,inventory,report['instances'],status,owner,
+            tree=tree,source_ids=source_ids,workers=workers,progress=progress,executor=executor)
+        report['curvedPieces']=pieces;report['curveSummary']=summary
+        report['counts']['endFaceMatchedPoints']=run('endFaces',complete_end_faces,points,normals,
+            report['instances'],pieces,owner,status,tree,source_ids)
     # Resolve alternate fixture faces only after structural body and terminal
     # evidence, so a nearby compatible fixture cannot hide that evidence.
-    scene_report,labels,scene_owner=recover_scene_alternatives(points,normals,table_mask,scene,inventory,
-        scene_report,labels,scene_owner,excluded_mask=owner>0)
-    extent=extend_embedded_axes(points,normals,scene,scene_report,labels,scene_owner,
+    scene_report,labels,scene_owner=run('sceneAlternatives',recover_scene_alternatives,points,normals,table_mask,scene,inventory,
+        scene_report,labels,scene_owner,excluded_mask=owner>0,workers=workers)
+    extent=run('embeddedExtent',extend_embedded_axes,points,normals,scene,scene_report,labels,scene_owner,
         np.asarray(table_mask,bool)|(owner>0))
     status[labels>0]=4
     scene_counts=np.bincount(scene_owner,minlength=len(scene_report['objects'])+1)
@@ -82,7 +92,7 @@ def fit_bim_guided_scene(points,normals,table_mask,inventory,scene,*,workers=1,p
     report['bentBarRecovery']=bent
     report['embeddedAxialExtension']=extent
     report['policy']['sceneExclusion']='only supported non-rebar surface rows; original post-table geometry scope retained'
-    report['policy']['ownershipPolicy']='BIM-guided fixtures/embedded/pipes, structural control net, short connector recovery, IFC sweep-axis flexible fitting, IFC local axial-end fitting'
+    report['policy']['ownershipPolicy']='BIM-guided scene surfaces; provisional structural bodies; validated body revisions replace their source support; curves and cut faces attach once to final bodies; IFC local axial-end fitting'
     report['policy']['registrationFramework']='adjust IFC component rigid pose, sweep-axis and local axial-end degrees of freedom against original scan surfaces; unsupported model geometry remains inferred'
     scene_report['connectorRecovery']=recovery
     scene_report['structuralSummary']={'designPhysicalBarCount':len({b['ifcGlobalId'] for b in inventory['bars']}),

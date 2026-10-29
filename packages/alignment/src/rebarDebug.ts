@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import type { RebarComparisonBar, RebarProfileSample } from '@cloudbim/viewer-core'
+import type { ReportDesignInventory } from './rebarReportLayout'
 
 export interface RebarDebugInventory {
-  inventory: { bars: { ifcGlobalId: string; designBarId: string; name: string }[] }
+  inventory: ReportDesignInventory
   instances: { id: number; designBarId?: string; designUnitId?: string; reviewStatus: string; pointCount?: number }[]
 }
 

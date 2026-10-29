@@ -1,0 +1,662 @@
+{
+  "denoiseVersion": "339c982a4a8fcc43a83fbb8d",
+  "controlVersion": "design-control-net-v26",
+  "countsBefore": {
+    "unknown": 1279967,
+    "table": 0,
+    "fixture": 1707062,
+    "steel": 935134,
+    "noise": 76574,
+    "embedded": 39404,
+    "pipe": 0
+  },
+  "countsAfter": {
+    "unknown": 1279744,
+    "table": 0,
+    "fixture": 1707062,
+    "steel": 935377,
+    "noise": 76554,
+    "embedded": 39404,
+    "pipe": 0
+  },
+  "addedOwnedRows": 243,
+  "removedOwnedRows": 0,
+  "reassignedRows": 0,
+  "changedClassTransitions": {
+    "0->3": 223,
+    "4->3": 20
+  },
+  "unchangedSceneInstances": true,
+  "unchangedProtectedClasses": true,
+  "sourceFieldsPreserved": [
+    "X",
+    "Y",
+    "Z",
+    "intensity",
+    "bit_fields",
+    "raw_classification",
+    "scan_angle_rank",
+    "user_data",
+    "point_source_id",
+    "gps_time",
+    "red",
+    "green",
+    "blue",
+    "source_index",
+    "normal_x",
+    "normal_y",
+    "normal_z",
+    "normal_valid",
+    "normal_curvature",
+    "normal_radius",
+    "shared_table_mask"
+  ],
+  "sourceHash": "5df73d4ebfd01e13cd26cdb1a2acef40b7ea76ce99f4a38dd9ef35ca687c44df",
+  "cachedCoordinatesEqualSource": true,
+  "alignmentAndC2MParametersUnchanged": true,
+  "priorReportVersionsPreserved": true,
+  "artifactHashesValid": true,
+  "latestFresh": true,
+  "distancesAndColoredPlyHTTPValid": true,
+  "curveSummaryBefore": {
+    "designPieces": 152,
+    "fittedPieces": 1,
+    "pendingPieces": 151,
+    "inferredPieces": 61,
+    "unresolvedPieces": 90,
+    "locallySupportedPieces": 4,
+    "locallyMatchedPoints": 230,
+    "matchedPoints": 260,
+    "workers": 8,
+    "elapsedS": 5.953204386983998
+  },
+  "curveSummaryAfter": {
+    "designPieces": 152,
+    "fittedPieces": 2,
+    "pendingPieces": 150,
+    "inferredPieces": 60,
+    "unresolvedPieces": 90,
+    "locallySupportedPieces": 9,
+    "locallyMatchedPoints": 3864,
+    "matchedPoints": 4671,
+    "workers": 8,
+    "elapsedS": 6.232315729022957
+  },
+  "unitChanges": {
+    "1": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-unique-curve-support"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "fitted",
+          "pointCount": 329,
+          "localSupport": null,
+          "retainedPointCount": 325,
+          "reason": "parametric-tube-supported"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 453,
+            "addedPointCount": 3,
+            "retainedPointCount": 450,
+            "intervalsM": [
+              [
+                0.00011334128663984841,
+                0.07341909456144768
+              ]
+            ],
+            "validationMaxChangeM": 0.0016526487263306246
+          },
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        }
+      ],
+      "beforeOwned": 23094,
+      "afterOwned": 23101
+    },
+    "3": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        }
+      ],
+      "beforeOwned": 16331,
+      "afterOwned": 16331
+    },
+    "40": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 49,
+            "intervalsM": [
+              [
+                0.0001423313944140708,
+                0.08181319733895659
+              ]
+            ],
+            "validationMaxChangeM": 0.0026567288171587163
+          },
+          "retainedPointCount": null,
+          "reason": "unobserved-terminal-leg"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 594,
+            "addedPointCount": 49,
+            "retainedPointCount": 545,
+            "intervalsM": [
+              [
+                0.0001423313944140708,
+                0.08181319733895659
+              ]
+            ],
+            "validationMaxChangeM": 0.0026567288171587163
+          },
+          "retainedPointCount": null,
+          "reason": "unobserved-terminal-leg"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        }
+      ],
+      "beforeOwned": 9407,
+      "afterOwned": 9407
+    },
+    "57": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unstable-observed-hook"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 88,
+            "addedPointCount": 44,
+            "retainedPointCount": 44,
+            "intervalsM": [
+              [
+                0.061927429330753465,
+                0.08160764601108723
+              ],
+              [
+                0.12709147750974994,
+                0.14576547114906363
+              ]
+            ],
+            "validationMaxChangeM": 0.0007540052763887258
+          },
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unstable-observed-hook"
+        }
+      ],
+      "beforeOwned": 22226,
+      "afterOwned": 22327
+    },
+    "62": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "fitted",
+          "pointCount": 30,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "parametric-tube-supported"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-curve-validation"
+        },
+        {
+          "side": "terminal-end",
+          "status": "fitted",
+          "pointCount": 478,
+          "localSupport": null,
+          "retainedPointCount": 448,
+          "reason": "parametric-tube-supported"
+        }
+      ],
+      "beforeOwned": 23110,
+      "afterOwned": 23110
+    },
+    "127": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 44,
+            "intervalsM": [
+              [
+                0.0,
+                0.0819035312393775
+              ]
+            ],
+            "validationMaxChangeM": 0.0016440506325656832
+          },
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unstable-observed-hook"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 1162,
+            "addedPointCount": 44,
+            "retainedPointCount": 1118,
+            "intervalsM": [
+              [
+                0.0,
+                0.0819035312393775
+              ]
+            ],
+            "validationMaxChangeM": 0.0016440506325656832
+          },
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unstable-observed-hook"
+        }
+      ],
+      "beforeOwned": 15591,
+      "afterOwned": 15591
+    },
+    "156": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unobserved-terminal-leg"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 245,
+            "addedPointCount": 1,
+            "retainedPointCount": 244,
+            "intervalsM": [
+              [
+                0.05398471404279218,
+                0.09806858899505577
+              ]
+            ],
+            "validationMaxChangeM": 0.0018004720452009047
+          },
+          "retainedPointCount": null,
+          "reason": "unobserved-terminal-leg"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 526,
+            "addedPointCount": 2,
+            "retainedPointCount": 524,
+            "intervalsM": [
+              [
+                0.00013099493784678596,
+                0.074303245056967
+              ]
+            ],
+            "validationMaxChangeM": 0.0019289087676326465
+          },
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        }
+      ],
+      "beforeOwned": 22087,
+      "afterOwned": 22127
+    },
+    "157": {
+      "before": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 22,
+            "intervalsM": [
+              [
+                0.0004365470697333652,
+                0.0736516134836258
+              ],
+              [
+                0.09472727762894076,
+                0.13381470430283893
+              ]
+            ],
+            "validationMaxChangeM": 0.001335593130253363
+          },
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        }
+      ],
+      "after": [
+        {
+          "side": "terminal-start",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": null,
+          "retainedPointCount": null,
+          "reason": "insufficient-continuous-curved-surface"
+        },
+        {
+          "side": "terminal-end",
+          "status": "pending",
+          "pointCount": 0,
+          "localSupport": {
+            "method": "independent-continuous-surface-intervals-v2",
+            "pointCount": 549,
+            "addedPointCount": 22,
+            "retainedPointCount": 527,
+            "intervalsM": [
+              [
+                0.0004365470697333652,
+                0.0736516134836258
+              ],
+              [
+                0.09472727762894076,
+                0.13381470430283893
+              ]
+            ],
+            "validationMaxChangeM": 0.001335593130253363
+          },
+          "retainedPointCount": null,
+          "reason": "unstable-held-out-curve"
+        }
+      ],
+      "beforeOwned": 11180,
+      "afterOwned": 11180
+    }
+  },
+  "comparisons": {
+    "before": {
+      "knownVertices": 313295,
+      "unknownVertices": 92581,
+      "units": {
+        "1": {
+          "knownVertices": 7539,
+          "unknownVertices": 1247,
+          "observedCurves": []
+        },
+        "3": {
+          "knownVertices": 8259,
+          "unknownVertices": 527,
+          "observedCurves": []
+        },
+        "57": {
+          "knownVertices": 8061,
+          "unknownVertices": 725,
+          "observedCurves": []
+        },
+        "156": {
+          "knownVertices": 7428,
+          "unknownVertices": 1358,
+          "observedCurves": []
+        }
+      },
+      "resultVersion": "f47346a2940a2a53d841c2762c8181cc2f13f32614cb739068191272ea294d99"
+    },
+    "after": {
+      "knownVertices": 314734,
+      "unknownVertices": 91142,
+      "units": {
+        "1": {
+          "knownVertices": 8000,
+          "unknownVertices": 786,
+          "observedCurves": [
+            {
+              "pointCount": 10,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.00213269732133987
+                ]
+              ]
+            },
+            {
+              "pointCount": 335,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.1121435430802672
+                ]
+              ]
+            },
+            {
+              "pointCount": 463,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.07330575327480779
+                ]
+              ]
+            }
+          ]
+        },
+        "3": {
+          "knownVertices": 8259,
+          "unknownVertices": 527,
+          "observedCurves": []
+        },
+        "57": {
+          "knownVertices": 8118,
+          "unknownVertices": 668,
+          "observedCurves": [
+            {
+              "pointCount": 48,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.019680216680333658
+                ]
+              ]
+            },
+            {
+              "pointCount": 40,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.018673993639313644
+                ]
+              ]
+            }
+          ]
+        },
+        "156": {
+          "knownVertices": 8098,
+          "unknownVertices": 688,
+          "observedCurves": [
+            {
+              "pointCount": 245,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.044083874952263694
+                ]
+              ]
+            },
+            {
+              "pointCount": 534,
+              "intervalsM": [
+                [
+                  0.0,
+                  0.07417225011912025
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      "resultVersion": "aca6eeead7fbc3efc0b9c35855a3995f92727143d1eb5611a7b67635a68709ad"
+    }
+  },
+  "elapsedSeconds": 65.04351264704019,
+  "fixedHook57DiagnosticBox": {
+    "sourceRows": 64,
+    "beforeAssigned": 0,
+    "afterAssigned": 40,
+    "interpretation": "fixed diagnostic box; not labelled recall"
+  }
+}

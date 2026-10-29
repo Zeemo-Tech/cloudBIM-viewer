@@ -42,6 +42,7 @@ function fixture() {
     orientationDegX: ref(0), orientationDegY: ref(0), orientationDegZ: ref(0), showOnlyVerticalAxis: ref(false),
     positionSliderRange: ref({ min: -55, max: 55 }), coarseAlignmentDirty: ref(false),
     transformControls: null, rotationControls: null, transformHelper: null, rotationHelper: null,
+    transformHandleInteraction: null,
     syncBoundsHelpers: noop, requestRender: noop, updateSelectionHighlight: noop, focusSelected: noop,
     logBimRelativeTransform: noop, logCalibrationDiagnostics: noop, logSavedAlignmentMatrix: noop,
     vectorToPlainObject: noop, quaternionToPlainObject: noop, updateClipRangeFromContent: noop, applyClippingState: noop,
@@ -51,6 +52,7 @@ function fixture() {
     nextTick: async cb => cb?.(), restoredSavedAlignmentKey: '', loggedSavedAlignmentKey: '',
     sceneAlignmentReady: ref(false), latestAlignmentResult: ref(null), hasSavedAlignmentMatrix: ref(false),
     initialSceneReady: false, fitCameraToContent: noop,
+    tileset: null, pointcloudCameraFramed: false, savedAlignmentLoadPromise: null,
     props: { bimAssetId: 7, pointcloudAssetId: 5 }, denoisePreview: null, denoiseResult: ref(null),
     ElMessage: { success: noop, error: noop, warning: noop }, invalidateC2MResult: noop, clearDenoisePreview: noop,
     loadLatestDenoise: async () => {}, loadLatestC2M: async () => {},
@@ -168,7 +170,7 @@ test('orientation editing and reset capture the corrected initial GLB basis', ()
   assert.ok(Math.abs(s.orientationDegZ.value) < 1e-8)
   s.showOnlyVerticalAxis.value = true
   api.setOrientationOffsetAxis('y', '32.5')
-  const delta = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(32.5))
+  const delta = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), THREE.MathUtils.degToRad(32.5))
   assert.ok(s.bimPivot.quaternion.angleTo(delta.multiply(initial)) < 1e-7)
   api.setPositionOffsetAxis('x', 12.75)
   api.resetCurrentObjectTransform()
@@ -178,6 +180,44 @@ test('orientation editing and reset capture the corrected initial GLB basis', ()
   assert.equal(s.orientationDegY.value, 0)
   assert.equal(s.positionOffsetX.value, 0)
   assert.ok(s.bimPivot.userData.__orientationBaseQuat.angleTo(resetInitial) < 1e-7)
+})
+
+test('numeric engineering XYZ matches world handle directions through the complete parent transform', () => {
+  const { api, state: s } = engineeringSceneFixture()
+  s.contentGroup.position.set(17, -8, 23)
+  s.contentGroup.rotation.set(.17, -.29, .13)
+  s.contentGroup.scale.setScalar(1.25)
+  s.scene.updateMatrixWorld(true)
+  const before = s.bimPivot.matrixWorld.clone(), rotation = s.bimPivot.quaternion.clone()
+  api.setPositionOffsetAxis('x', 1.234)
+  api.setPositionOffsetAxis('y', -2.345)
+  api.setPositionOffsetAxis('z', 3.456)
+  s.scene.updateMatrixWorld(true)
+  const worldOffset = new THREE.Vector3(1.234, 3.456, 2.345)
+  for (const p of [[1, 3, -2], [-7, .5, 4], [2, -4, 9]]) {
+    closeVector(new THREE.Vector3(...p).applyMatrix4(s.bimPivot.matrixWorld), new THREE.Vector3(...p).applyMatrix4(before).add(worldOffset))
+  }
+  assert.deepEqual(s.bimPivot.quaternion.toArray(), rotation.toArray())
+  api.syncPositionFixFromSelected()
+  assert.deepEqual([s.positionOffsetX.value, s.positionOffsetY.value, s.positionOffsetZ.value], [1.234, -2.345, 3.456])
+})
+
+test('numeric Z rotation has the same pivot, axis and positive direction as the blue world-Y ring', () => {
+  const { api, state: s } = engineeringSceneFixture()
+  s.bimPivot.position.set(7, -9, 2)
+  s.scene.updateMatrixWorld(true)
+  const before = s.bimPivot.matrixWorld.clone(), pivot = s.bimPivot.getWorldPosition(new THREE.Vector3())
+  api.setTransformMode('rotate'); s.showOnlyVerticalAxis.value = true
+  api.setOrientationOffsetAxis('y', '23')
+  s.scene.updateMatrixWorld(true)
+  closeVector(s.bimPivot.getWorldPosition(new THREE.Vector3()), pivot)
+  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(23))
+  for (const p of [[1, 3, -2], [-7, .5, 4], [2, -4, 9]]) {
+    const expected = new THREE.Vector3(...p).applyMatrix4(before).sub(pivot).applyQuaternion(rotation).add(pivot)
+    closeVector(new THREE.Vector3(...p).applyMatrix4(s.bimPivot.matrixWorld), expected)
+  }
+  api.syncOrientationFixFromSelected()
+  assert.equal(s.orientationDegY.value, 23)
 })
 
 test('saved numeric pose survives leaving, returning and selecting BIM; next edit preserves other axes', () => {
@@ -198,7 +238,7 @@ test('saved numeric pose survives leaving, returning and selecting BIM; next edi
   assert.equal(s.coarseAlignmentDirty.value, false)
   closeMatrix(scanToBim(api, s), before)
   api.setPositionOffsetAxis('x', '12.346678')
-  closeVector(s.bimPivot.position, new THREE.Vector3(12.346678, 3.001, -5.4321))
+  closeVector(s.bimPivot.position, new THREE.Vector3(12.346678, 3.001, 5.4321))
 })
 
 test('clearing a number mid-edit does not apply a zero transform; blur restores the actual value', () => {
@@ -327,11 +367,13 @@ test('classification stays unavailable until a saved matrix is applied to the sc
   const declaration = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(ast) === 'canOpenDenoiseStep'))
   const s = { computed: fn => ({ get value() { return fn() } }), props: { bimAssetId: 7, pointcloudAssetId: 5 },
     pointcloudLoaded: ref(true), pointcloudPreprocessRequired: ref(false), hasSavedAlignmentMatrix: ref(true),
-    sceneAlignmentReady: ref(false), coarseAlignmentDirty: ref(false) }
+    sceneAlignmentReady: ref(false), coarseAlignmentDirty: ref(false), transformHandleState: ref(null) }
   const code = ts.transpileModule(declaration.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
   const ready = runInNewContext(`${code}\ncanOpenDenoiseStep`, s)
   assert.equal(ready.value, false)
   s.sceneAlignmentReady.value = true; assert.equal(ready.value, true)
+  s.transformHandleState.value = { dragging: true }; assert.equal(ready.value, false)
+  s.transformHandleState.value = null; assert.equal(ready.value, true)
   s.coarseAlignmentDirty.value = true; assert.equal(ready.value, false)
 })
 

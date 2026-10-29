@@ -87,9 +87,11 @@ class DenoiseTests(unittest.TestCase):
             fit_arrays = {'control_status': np.array([0, 1, 2, 3], np.uint8),
                           'control_instance': np.array([0, 1, 0, 0], np.uint32)}
 
-            def prepare(path):
+            def prepare(path, *, cache_directory):
                 config = json.loads(path.read_text())
                 self.assertEqual(config['scanToBim'], transform)
+                self.assertTrue(config['excludeSceneFixtures'])
+                self.assertNotEqual(cache_directory, path.parent/'design-prior-cache')
                 return snapshot
 
             def exported(_source, _destination, value, _colors):
@@ -121,6 +123,11 @@ class DenoiseTests(unittest.TestCase):
             self.assertEqual(result['controlNetAlgorithmVersion'], CONTROL_VERSION)
             self.assertEqual(result['controlNetSha256'], __import__('hashlib').sha256((destination/'control-net.json').read_bytes()).hexdigest())
             self.assertEqual(result['matchedInstanceCount'], 1)
+            timings = result['stageTimingsSeconds']
+            self.assertEqual(set(timings), {'sourceHash', 'designSnapshot', 'designInputs',
+                                           'loadPositions', 'preprocess', 'controlNet', 'exportArtifacts'})
+            self.assertTrue(all(np.isfinite(value) and value >= 0 for value in timings.values()))
+            self.assertLessEqual(sum(timings.values()), result['elapsedSeconds'])
 
     def test_export_keeps_final_steel_source_records_and_attributes(self):
         with tempfile.TemporaryDirectory() as tmp:

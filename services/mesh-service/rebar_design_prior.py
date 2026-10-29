@@ -110,7 +110,7 @@ def _brep_body(item, transform, unit):
     return None, xyz
 
 
-def extract_model(ifc_path, model_path=None):
+def extract_model(ifc_path, model_path=None, *, exclude_scene_fixtures=False):
     """Extract in GLB coordinates, independent of the scan/alignment cache."""
     import ifcopenshell
     import ifcopenshell.util.unit
@@ -120,12 +120,19 @@ def extract_model(ifc_path, model_path=None):
     unit = float(ifcopenshell.util.unit.calculate_unit_scale(model))
     angle_scale = float(ifcopenshell.util.unit.calculate_unit_scale(model, 'PLANEANGLEUNIT'))
     raw, anchors, diagnostics = [], [], {'unsupportedProducts': 0, 'truncated': False}
+    # The semantic scene pipeline already handles positively typed plates and
+    # members as fixtures. Do not fit circles to every face of their BReps just
+    # to discard them after parsing. Legacy plate-only steel exports keep the
+    # original extraction path; proxies remain unresolved structural candidates.
+    typed_scene = exclude_scene_fixtures and bool(model.by_type('IfcReinforcingBar'))
     for product in model.by_type('IfcProduct'):
         if not getattr(product, 'Representation', None):
             continue
         # The sample exports circular reinforcing geometry as IfcPlate. Do not
         # infer fixture/rebar semantics solely from that IFC class.
         if product.is_a() not in ('IfcReinforcingBar', 'IfcPlate', 'IfcBuildingElementProxy', 'IfcMember'):
+            continue
+        if typed_scene and product.is_a() in ('IfcPlate', 'IfcMember'):
             continue
         try:
             placement = _scaled_transform(ifcopenshell.util.placement.get_local_placement(product.ObjectPlacement), unit)
@@ -355,13 +362,17 @@ def prepare_snapshot(config_path, cache_directory=None):
     if not isinstance(source_hash, str) or len(source_hash) != 64:
         raise ValueError('先验配置必须绑定源点云 SHA-256')
     cache = Path(cache_directory or path.parent/'design-prior-cache')
-    model_key = _hash([VERSION, digest_file(ifc), digest_file(glb) if glb else None])
+    model_identity = [VERSION, digest_file(ifc), digest_file(glb) if glb else None]
+    exclude_scene_fixtures = bool(config.get('excludeSceneFixtures', False))
+    if exclude_scene_fixtures:
+        model_identity.append('scene-fixtures-excluded-v1')
+    model_key = _hash(model_identity)
     model_cache = cache/f'model-{model_key}.json'
     model_hit = model_cache.is_file()
     if model_hit:
         model = json.loads(model_cache.read_text())
     else:
-        model = extract_model(ifc, glb)
+        model = extract_model(ifc, glb, exclude_scene_fixtures=exclude_scene_fixtures)
         _write(model_cache, model)
     geometry_done = time.perf_counter()
     aligned_key = _hash([model_key, transform])

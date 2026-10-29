@@ -25,28 +25,30 @@ type denoiseRequest struct {
 }
 
 type denoiseManifest struct {
-	AlgorithmVersion           string           `json:"algorithmVersion"`
-	SourceSHA256               string           `json:"sourceSha256"`
-	DesignFingerprint          string           `json:"designFingerprint"`
-	InputFingerprint           string           `json:"inputFingerprint"`
-	PointsBefore               int64            `json:"pointsBefore"`
-	PointsAfter                int64            `json:"pointsAfter"`
-	Counts                     map[string]int64 `json:"counts"`
-	PreviewPointCount          int64            `json:"previewPointCount"`
-	PreviewOrigin              []float64        `json:"previewOrigin"`
-	NormalK                    int              `json:"normalK"`
-	ElapsedSeconds             float64          `json:"elapsedSeconds"`
-	InstanceCount              int              `json:"instanceCount"`
-	MatchedInstanceCount       *int             `json:"matchedInstanceCount,omitempty"`
-	DesignPhysicalBarCount     *int             `json:"designPhysicalBarCount,omitempty"`
-	MatchedPhysicalBarCount    *int             `json:"matchedPhysicalBarCount,omitempty"`
-	ClassificationSchema       string           `json:"classificationSchema,omitempty"`
-	SceneClassificationSHA256  string           `json:"sceneClassificationSha256,omitempty"`
-	InstanceContract           string           `json:"instanceContract"`
-	InstancesSHA256            string           `json:"instancesSha256"`
-	ControlNetSchema           string           `json:"controlNetSchema"`
-	ControlNetSHA256           string           `json:"controlNetSha256"`
-	ControlNetAlgorithmVersion string           `json:"controlNetAlgorithmVersion"`
+	AlgorithmVersion           string             `json:"algorithmVersion"`
+	SourceSHA256               string             `json:"sourceSha256"`
+	DesignFingerprint          string             `json:"designFingerprint"`
+	InputFingerprint           string             `json:"inputFingerprint"`
+	PointsBefore               int64              `json:"pointsBefore"`
+	PointsAfter                int64              `json:"pointsAfter"`
+	Counts                     map[string]int64   `json:"counts"`
+	PreviewPointCount          int64              `json:"previewPointCount"`
+	PreviewOrigin              []float64          `json:"previewOrigin"`
+	NormalK                    int                `json:"normalK"`
+	ElapsedSeconds             float64            `json:"elapsedSeconds"`
+	StageTimingsSeconds        map[string]float64 `json:"stageTimingsSeconds,omitempty"`
+	ModelCacheHits             map[string]bool    `json:"modelCacheHits,omitempty"`
+	InstanceCount              int                `json:"instanceCount"`
+	MatchedInstanceCount       *int               `json:"matchedInstanceCount,omitempty"`
+	DesignPhysicalBarCount     *int               `json:"designPhysicalBarCount,omitempty"`
+	MatchedPhysicalBarCount    *int               `json:"matchedPhysicalBarCount,omitempty"`
+	ClassificationSchema       string             `json:"classificationSchema,omitempty"`
+	SceneClassificationSHA256  string             `json:"sceneClassificationSha256,omitempty"`
+	InstanceContract           string             `json:"instanceContract"`
+	InstancesSHA256            string             `json:"instancesSha256"`
+	ControlNetSchema           string             `json:"controlNetSchema"`
+	ControlNetSHA256           string             `json:"controlNetSha256"`
+	ControlNetAlgorithmVersion string             `json:"controlNetAlgorithmVersion"`
 }
 
 const (

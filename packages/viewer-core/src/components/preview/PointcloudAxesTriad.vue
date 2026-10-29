@@ -5,12 +5,14 @@ import type { CameraPose } from './UnifiedViewer3D.vue'
 
 const props = defineProps<{
   pose: CameraPose | null
+  coordinateFrame?: 'viewport' | 'engineering'
 }>()
 
 const hostRef = ref<HTMLDivElement | null>(null)
 const SIZE = 112
 const AXIS_LENGTH = 0.78
 const DEFAULT_UP = new THREE.Vector3(0, 1, 0)
+const ENGINEERING_TO_VIEWPORT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
 const WORLD_AXIS_DIRECTIONS: ReadonlyArray<readonly [number, number, number]> = [
   [1, 0, 0],
   [0, 1, 0],
@@ -94,6 +96,7 @@ function syncAxesPose() {
   } else {
     axesGroup.quaternion.identity()
   }
+  if (props.coordinateFrame === 'engineering') axesGroup.quaternion.multiply(ENGINEERING_TO_VIEWPORT)
   axesGroup.updateMatrixWorld(true)
 }
 
@@ -154,8 +157,8 @@ onBeforeUnmount(dispose)
     ref="hostRef"
     class="pointcloud-axes-triad"
     role="img"
-    aria-label="视口坐标轴 X Y Z"
-    title="视口坐标轴 X Y Z"
+    :aria-label="coordinateFrame === 'engineering' ? '工程坐标轴 X Y Z，Z 向上' : '视口坐标轴 X Y Z'"
+    :title="coordinateFrame === 'engineering' ? '工程坐标轴 X Y Z，Z 向上' : '视口坐标轴 X Y Z'"
   />
 </template>
 

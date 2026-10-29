@@ -5,7 +5,7 @@ import test from 'node:test'
 import ts from 'typescript'
 import * as THREE from 'three'
 import { PNTSLoader } from '3d-tiles-renderer'
-import { selectPointcloudRepresentation } from '@cloudbim/viewer-core'
+import { selectPointcloudRepresentation, createPointcloudLoadLifecycle } from '@cloudbim/viewer-core'
 
 // Execute the analysis page's real load-model -> appearance path. Only WebGL
 // mounting and API transport are replaced; geometry and materials are real.
@@ -45,6 +45,7 @@ function fixture(savedColor = '') {
     downloadQueue = {}
     parseQueue = {}
     setCamera() {}
+    update() {}
     forEachLoadedModel(callback) { models.forEach(callback) }
   }
   const state = {
@@ -58,7 +59,7 @@ function fixture(savedColor = '') {
     getAssetDetail: async () => ({ data: { type: 'pointcloud', status: 'ready', pointcloudColor: savedColor } }),
     getAssetRepresentations: async () => ({ data: { list: [{ kind: 'table-free', format: '3d-tiles', status: 'ready', version: 'v1', url: '/table-free/tileset.json' }] } }),
     getPointcloudPreprocess: async () => ({ data: { version: 'v1' } }), selectPointcloudRepresentation,
-    getPointcloudTilesetUrl: url => url, createUploadHeaders: () => ({}), TilesRenderer,
+    getPointcloudTilesetUrl: url => url, createUploadHeaders: () => ({}), TilesRenderer, createPointcloudLoadLifecycle,
     DRACOLoader: class { setDecoderPath() {} preload() {} }, GLTFExtensionsPlugin: class {},
     updateTilesetResolution: noop, clearDenoisePreview: noop, ensureInitialTransformState: noop,
     recenterLoadedContentAsWhole: noop, applySceneVisibility: noop, updateClipRangeFromContent: noop,
@@ -109,6 +110,39 @@ test('loading a new tile styles that tile without revisiting all previous tiles'
   }
   assert.equal(previousTileVisits, 0, 'each arriving LOD must not restyle the entire loaded cloud')
   assert.equal(first.material.version, version, 'an existing material must not recompile for every incoming tile')
+})
+
+test('readiness tracks actual tile content and late model events cannot leave a finished load spinning', async () => {
+  const { api, state, tile } = fixture()
+  await api.loadPointcloudFromApi(14, false)
+  assert.equal(state.loadingPointcloud.value, true, 'a tileset URL alone is not a visible point cloud')
+  state.tileset.dispatchEvent({ type: 'tiles-load-start' })
+  state.tileset.dispatchEvent({ type: 'load-model', scene: tile() })
+  assert.equal(state.loadingPointcloud.value, false)
+  assert.match(state.statusText.value, /细化中/)
+  assert.equal(state.pointcloudLoadLifecycle.allowEdl, false)
+  state.tileset.dispatchEvent({ type: 'tiles-load-end' })
+  assert.equal(state.pointcloudLoadLifecycle.allowEdl, true)
+  state.tileset.dispatchEvent({ type: 'load-model', scene: tile() })
+  assert.match(state.statusText.value, /^已加载点云/)
+  const status = state.statusText.value
+  state.pointcloudLoadToken++
+  state.tileset.dispatchEvent({ type: 'tiles-load-start' })
+  assert.equal(state.statusText.value, status, 'obsolete tile events cannot change a new load')
+})
+
+test('a superseded metadata request cannot install an old point cloud or clear the new loading state', async () => {
+  const { api, state } = fixture()
+  let resolveAsset
+  state.getAssetDetail = () => new Promise(resolve => { resolveAsset = resolve })
+  const pending = api.loadPointcloudFromApi(14, false)
+  await new Promise(resolve => setImmediate(resolve))
+  state.pointcloudLoadToken++
+  resolveAsset({ data: { type: 'pointcloud', status: 'ready' } })
+  await pending
+  assert.equal(state.tileset, null)
+  assert.equal(state.pointcloudWrapper, null)
+  assert.equal(state.loadingPointcloud.value, true)
 })
 
 test('RGB/intensity switches restore original colors in active and detached cached LODs', async () => {

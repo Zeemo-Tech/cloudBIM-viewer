@@ -4,7 +4,9 @@ import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { NavigationOrbitControls as OrbitControls } from '../packages/viewer-core/src/viewer/NavigationOrbitControls.ts'
+import { orderRebarInspection, REBAR_INSPECTION_TILT } from '../packages/alignment/src/rebarInspectionOrder.ts'
+import { isRebarInspectionAbnormal } from '../packages/alignment/src/rebarComparison.ts'
 
 // Execute the page's real navigation and animation with the installed controls.
 // Stubbing controls.update would miss the mismatch between its orbit axis and up.
@@ -16,10 +18,15 @@ const names = [
   'resetRebarInspection', 'exitRebarInspection', 'setPresetView', 'orbitPointcloudFromCube',
   'isPerspectiveCamera', 'isOrthographicCamera',
   'setPointcloudViewDirection', 'setProjectionMode', 'mountControls', 'rollPointcloudView', 'fitCameraToBox',
+  'lockRebarInspectionOrder', 'selectInspectionBarById', 'onInspectionFilterChange',
 ]
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text))
 assert.equal(functions.length, names.length)
-const compiled = ts.transpileModule(functions.map(node => node.getText(ast)).join('\n'), {
+const computedNames = ['rebarInspectionOrderedBars', 'rebarInspectionBars', 'rebarInspectionIndex']
+const computedDeclarations = ast.statements.filter(node => ts.isVariableStatement(node) &&
+  node.declarationList.declarations.some(d => computedNames.includes(d.name.getText(ast))))
+assert.equal(computedDeclarations.length, computedNames.length)
+const compiled = ts.transpileModule([...functions, ...computedDeclarations].map(node => node.getText(ast)).join('\n'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText
 const ref = value => ({ value })
@@ -44,13 +51,15 @@ function fixture(orthographic = false) {
   let now = 0, frameId = 0
   const frames = new Map()
   const s = {
-    THREE, OrbitControls, activeCamera: camera, controls, orthoViewSize: 5, activeView: ref(''),
+    THREE, OrbitControls, orderRebarInspection, REBAR_INSPECTION_TILT, isRebarInspectionAbnormal,
+    computed: callback => ({ get value() { return callback() } }),
+    activeCamera: camera, controls, orthoViewSize: 5, activeView: ref(''),
     perspectiveCamera, orthographicCamera, projectionMode: ref(orthographic ? 'orthographic' : 'perspective'),
-    renderer: { domElement }, scene: null, tileset: null, syncBoundsHelpers: noop,
+    renderer: { domElement }, scene: null, tileset: null, syncBoundsHelpers: noop, transformHandleInteraction: null,
     viewportEl: ref({ clientWidth: 1600, clientHeight: 1000 }),
-    rebarInspectionBars: ref(bars), selectedComparisonBarId: ref(''),
+    comparisonBars: ref(bars), rebarInspectionOrderIds: ref([]), c2mToleranceMm: ref(10), selectedComparisonBarId: ref(''),
     rebarInspectionActive: ref(false), rebarInspectionManualSelect: ref(false),
-    rebarInspectionAbnormalOnly: ref(false), rebarCameraAnimationFrame: null,
+    rebarInspectionAbnormalOnly: ref(false), rebarCameraAnimationFrame: null, rebarInspectionClick: { cancel: noop },
     rebarCameraControlsWasEnabled: null, performance: { now: () => now },
     window: {
       requestAnimationFrame: cb => { frames.set(++frameId, cb); return frameId },
@@ -62,8 +71,7 @@ function fixture(orthographic = false) {
     updateOrthographicFrustum: noop, syncPointcloudCameraPose: noop,
     ElMessage: { info: noop, warning: message => assert.fail(message) },
   }
-  s.rebarInspectionIndex = { get value() { return bars.findIndex(bar => bar.ifcGlobalId === s.selectedComparisonBarId.value) } }
-  const api = runInNewContext(`${compiled}\n({ ${names.join(', ')} })`, s)
+  const api = runInNewContext(`${compiled}\n({ ${[...names, ...computedNames].join(', ')} })`, s)
   function advance(ms) {
     now += ms
     const pending = [...frames.values()]
@@ -94,7 +102,7 @@ for (const orthographic of [false, true]) {
         assert.ok(s.activeCamera.up.distanceTo(worldUp) < 1e-10, `up changed to ${s.activeCamera.up.toArray()}`)
       }
       assert.equal(s.controls.enabled, true)
-      const center = bars[s.rebarInspectionIndex.value].bounds.getCenter(new THREE.Vector3())
+      const center = bars.find(bar => bar.ifcGlobalId === s.selectedComparisonBarId.value).bounds.getCenter(new THREE.Vector3())
       assert.ok(s.controls.target.distanceTo(center) < 1e-10)
       const directionToCamera = s.activeCamera.position.clone().sub(center).normalize()
       assert.ok(directionToCamera.distanceTo(new THREE.Vector3(0, Math.cos(Math.PI / 10), Math.sin(Math.PI / 10))) < 1e-8)
@@ -116,6 +124,17 @@ for (const orthographic of [false, true]) {
       api.setPresetView(preset)
       assertUpright(s.activeCamera, s.controls.target)
     }
+  })
+}
+
+for (const action of ['fit', 'top']) {
+  test(`orthographic ${action} restores the full view after extreme zoom`, () => {
+    const { api, s } = fixture(true)
+    s.activeCamera.zoom = 1000
+    s.activeCamera.updateProjectionMatrix()
+    if (action === 'fit') api.fitCameraToBox(s.getVisibleContentBox())
+    else api.setPresetView('top')
+    assert.equal(s.activeCamera.zoom, 1)
   })
 }
 
@@ -143,6 +162,74 @@ test('manual focus recovers world up after a rolled or top cube view', () => {
   s.controls._rotateLeft(.7)
   s.controls.update()
   assertUpright(s.activeCamera, s.controls.target)
+})
+
+test('manual member selection keeps the current camera and starts no flight', () => {
+  const { api, s, pending } = fixture()
+  const position = s.activeCamera.position.clone(), quaternion = s.activeCamera.quaternion.clone(), target = s.controls.target.clone()
+  api.selectInspectionBarById('b')
+  assert.equal(s.selectedComparisonBarId.value, 'b')
+  assert.ok(s.activeCamera.position.equals(position))
+  assert.ok(s.activeCamera.quaternion.equals(quaternion))
+  assert.ok(s.controls.target.equals(target))
+  assert.equal(pending(), 0)
+  assert.equal(s.controls.enabled, true)
+})
+
+test('manual selection resumes the spatial route and locks it through geometry and tolerance changes', () => {
+  const { api, s, bars } = fixture()
+  assert.equal(api.selectInspectionBarById('b'), true)
+  assert.deepEqual(Array.from(s.rebarInspectionOrderIds.value), ['c', 'b', 'a'])
+  bars[0].bounds.translate(new THREE.Vector3(-20, 3, -20))
+  s.c2mToleranceMm.value = 25
+  api.stepRebarInspection(1)
+  assert.equal(s.selectedComparisonBarId.value, 'a')
+  api.stepRebarInspection(-1)
+  assert.equal(s.selectedComparisonBarId.value, 'b')
+  assert.deepEqual(Array.from(s.rebarInspectionOrderIds.value), ['c', 'b', 'a'])
+  api.resetRebarInspection()
+  assert.equal(s.rebarInspectionOrderIds.value.length, 0)
+})
+
+test('abnormal filtering preserves the selected bar or continues to the next in the same route', () => {
+  const { api, s, bars } = fixture()
+  bars.forEach(item => { item.status = 'matched'; item.stats = { p95Abs: item.ifcGlobalId === 'b' ? .001 : .02 } })
+  api.selectInspectionBarById('c')
+  s.rebarInspectionAbnormalOnly.value = true
+  api.onInspectionFilterChange()
+  assert.equal(s.selectedComparisonBarId.value, 'c')
+  assert.deepEqual(Array.from(api.rebarInspectionBars.value, item => item.ifcGlobalId), ['c', 'a'])
+  s.rebarInspectionAbnormalOnly.value = false
+  api.onInspectionFilterChange()
+  api.stepRebarInspection(1)
+  assert.equal(s.selectedComparisonBarId.value, 'b')
+  s.rebarInspectionAbnormalOnly.value = true
+  api.onInspectionFilterChange()
+  assert.equal(s.selectedComparisonBarId.value, 'a', 'filtering must not restart at c')
+})
+
+test('an empty abnormal filter cancels focus animation and releases controls', () => {
+  const { api, s, bars, pending } = fixture()
+  bars.forEach(item => { item.status = 'matched'; item.stats = { p95Abs: .001 } })
+  api.stepRebarInspection(1)
+  assert.equal(pending(), 1)
+  s.rebarInspectionAbnormalOnly.value = true
+  api.onInspectionFilterChange()
+  assert.equal(pending(), 0)
+  assert.equal(s.controls.enabled, true)
+  assert.equal(s.selectedComparisonBarId.value, '')
+})
+
+test('manually picking a normal bar with abnormal-only enabled continues to its adjacent anomalies', () => {
+  const { api, s, bars } = fixture()
+  bars.forEach(item => { item.status = 'matched'; item.stats = { p95Abs: item.ifcGlobalId === 'b' ? .001 : .02 } })
+  s.rebarInspectionAbnormalOnly.value = true
+  api.selectInspectionBarById('b')
+  api.stepRebarInspection(1)
+  assert.equal(s.selectedComparisonBarId.value, 'a')
+  api.selectInspectionBarById('b')
+  api.stepRebarInspection(-1)
+  assert.equal(s.selectedComparisonBarId.value, 'c')
 })
 
 for (const orthographic of [false, true]) {

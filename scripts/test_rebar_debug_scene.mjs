@@ -5,6 +5,7 @@ import ts from 'typescript'
 import * as THREE from 'three'
 import { dimComparisonGeometry, filterComparisonGeometry } from '../packages/alignment/src/rebarComparison.ts'
 import { applyDenoisePreviewAppearance } from '../packages/denoise/src/denoisePreview.ts'
+import { createInspectionAppearance } from '../packages/alignment/src/rebarInspectionAppearance.ts'
 import { debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal } from '../packages/alignment/src/rebarDebug.ts'
 
 // Run the actual scene mutators on real Three.js objects; no WebGL or browser is required.
@@ -39,7 +40,7 @@ const context = {
   THREE, scene, bimPivot, c2mSceneGroup, denoisePreview,
   filterComparisonGeometry, dimComparisonGeometry, applyDenoisePreviewAppearance, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal,
   c2mAnalysisSession: null, c2mOriginalVertexColors: new WeakMap(), rebarInspectionMaterialState: new WeakMap(), rebarInspectionMaterialsClonedAny: false,
-  rebarInspectionActive: ref(false), clearPickedState() {},
+  rebarInspectionActive: ref(false), rebarInspectionContextTransparency: ref(80), rebarInspectionAppearance: createInspectionAppearance(), clearPickedState() {},
   rebarDebugActive: ref(true), rebarDebugBar: ref(barA), selectedComparisonBar: ref(undefined),
   comparison: ref({ bars: [barA, barB, missing] }), comparisonInventory: ref({ inventory: { bars: [barA, barB] } }),
   comparisonBimVisibility: new WeakMap(), rebarDebugSurface: ref('source'), rebarDebugScan: ref(true),

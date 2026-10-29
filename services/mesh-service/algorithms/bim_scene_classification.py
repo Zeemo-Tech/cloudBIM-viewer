@@ -6,11 +6,14 @@ structural fitting. No point coordinates, alignment, or IFC geometry are edited.
 """
 from __future__ import annotations
 import copy
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 import math
 import time
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation
+import geometry_accel
 
 VERSION = 'bim-scene-surface-v2'
 CLASS_IDS = {'fixture': 2, 'embedded': 5, 'pipe': 6}
@@ -97,7 +100,7 @@ class _CompatibleSurfaceIndex:
     Partition axes affect work only, not eligibility in a rotated scan frame.
     """
 
-    def __init__(self, meshes):
+    def __init__(self, meshes, *, workers=1):
         triangles=[]; owners=[]
         for vertices, faces, owner in meshes:
             tri=np.asarray(vertices, float)[np.asarray(faces)]
@@ -113,7 +116,10 @@ class _CompatibleSurfaceIndex:
         partition*=np.where(partition[np.arange(len(partition)),major]<0,-1.,1.)[:,None]
         self.partition=partition
         self.centers=self.triangles.mean(axis=1)
-        self.root=self._node(np.flatnonzero(length>1e-14))
+        valid=np.flatnonzero(length>1e-14)
+        self.workers=workers
+        self.native=geometry_accel.SurfaceIndex(self.triangles,self.normals,partition,valid) if geometry_accel.available() else None
+        self.root=None if self.native is not None else self._node(valid)
         self.query_count=0
 
     def _node(self, ids):
@@ -158,6 +164,12 @@ class _CompatibleSurfaceIndex:
 
     def query(self, points, normals, tolerance=.003, *, return_triangle_ids=False):
         points=np.asarray(points,float);normals=np.asarray(normals,float)
+        if self.native is not None:
+            best,chosen,count=self.native.query(points,normals,tolerance,self.workers)
+            self.query_count+=count
+            owners=np.zeros(len(points),np.uint32)
+            found=chosen>=0;owners[found]=self.owners[chosen[found]]
+            return (best,owners,chosen) if return_triangle_ids else (best,owners)
         best=np.full(len(points),tolerance);chosen=np.full(len(points),-1,np.int64)
         norm_length=np.linalg.norm(normals,axis=1)
         stack=[(self.root,np.arange(len(points)))]
@@ -186,14 +198,17 @@ class _CompatibleSurfaceIndex:
         return (best,owners,chosen) if return_triangle_ids else (best,owners)
 
 
-def classify_scene_surfaces(points, normals, table_mask, scene, inventory, *, progress=None, allow_fallback=True):
+def classify_scene_surfaces(points, normals, table_mask, scene, inventory, *, progress=None, allow_fallback=True, workers=1):
     import open3d as o3d
     started=time.perf_counter()
     points=np.asarray(points,float);normals=np.asarray(normals,float)
     if normals.shape != points.shape or np.shape(table_mask)!=(len(points),):
         raise ValueError('scene arrays must be source aligned')
     eligible=np.flatnonzero(~np.asarray(table_mask,bool) & np.isfinite(points).all(axis=1))
-    tree=cKDTree(points[eligible])
+    # Advanced indexing copies the full scan. Keep one aligned pair for every
+    # component fit, instead of copying both arrays for each IFC object.
+    fit_points=points[eligible];fit_normals=normals[eligible]
+    tree=cKDTree(fit_points)
     # All matching uses original source points. A separate full-index tree serves guards.
     full_tree=tree if len(eligible)==len(points) else cKDTree(points)
     protected=_rebar_guard(points,normals,inventory,full_tree)
@@ -203,20 +218,26 @@ def classify_scene_surfaces(points, normals, table_mask, scene, inventory, *, pr
     global_transform=np.eye(4)
     if fixture_samples:
         q=np.concatenate([s[0][::4] for s in fixture_samples]);n=np.concatenate([s[1][::4] for s in fixture_samples])
-        global_transform=_rigid_fit(q,n,tree,points[eligible],normals[eligible],max_shift=.08)
-    ray=o3d.t.geometry.RaycastingScene(nthreads=2)
+        global_transform=_rigid_fit(q,n,tree,fit_points,fit_normals,max_shift=.08)
+    workers=max(1,min(8,int(workers)))
+    ray=o3d.t.geometry.RaycastingScene(nthreads=workers)
     rows=[];geometry_map={};admitted_meshes=[]
-    for index,(obj,(q,n)) in enumerate(zip(objects,samples)):
+    def fit_component(item):
+        obj,(q,n)=item
+        if len(q)<32:return None
+        initial=global_transform if obj['category']=='fixture' else np.eye(4)
+        return _rigid_fit(q[::2],n[::2],tree,fit_points,fit_normals,initial,max_shift=.08)
+    with ThreadPoolExecutor(max_workers=workers) if workers>1 else nullcontext() as executor:
+        transforms=list(executor.map(fit_component,zip(objects,samples))) if executor else list(map(fit_component,zip(objects,samples)))
+    for index,(obj,(q,n),transform) in enumerate(zip(objects,samples,transforms)):
         if progress and index%30==0:progress('夹具与预埋件：局部表面验证',index,len(objects))
         row={k:obj[k] for k in ('globalId','name','ifcType','category')}
         row.update(id=index+1,status='insufficient-scan-evidence',pointCount=0)
         if len(q)<32:row['status']='model-parse-omission';rows.append(row);continue
-        initial=global_transform if obj['category']=='fixture' else np.eye(4)
         # Alternate deterministic samples are held out of local fitting.
-        transform=_rigid_fit(q[::2],n[::2],tree,points[eligible],normals[eligible],initial,max_shift=.08)
         held=q[1::2]@transform[:3,:3].T+transform[:3,3]
         distance,ids=tree.query(held,workers=1)
-        align=np.abs(np.einsum('ij,ij->i',n[1::2]@transform[:3,:3].T,normals[eligible[ids]]))
+        align=np.abs(np.einsum('ij,ij->i',n[1::2]@transform[:3,:3].T,fit_normals[ids]))
         support=(distance<.0045)&(align>.7)
         fraction=float(np.mean(support))
         pivot=q.mean(axis=0)
@@ -234,9 +255,12 @@ def classify_scene_surfaces(points, normals, table_mask, scene, inventory, *, pr
     labels=np.zeros(len(points),np.uint8);owners=np.zeros(len(points),np.uint32)
     conflicts=0;alternatives=None;recovered=0
     if geometry_map:
+        broad=geometry_accel.SurfaceIndex.broad_phase(admitted_meshes) if geometry_accel.available() else None
         for first in range(0,len(eligible),200000):
             ids=eligible[first:first+200000]
-            query=ray.compute_closest_points(o3d.core.Tensor(points[ids].astype(np.float32)),nthreads=2)
+            if broad is not None:ids=ids[broad.near(points[ids],.003,workers)]
+            if not len(ids):continue
+            query=ray.compute_closest_points(o3d.core.Tensor(points[ids].astype(np.float32)),nthreads=workers)
             closest=query['points'].numpy();face_normals=query['primitive_normals'].numpy();gids=query['geometry_ids'].numpy()
             distance=np.linalg.norm(points[ids]-closest,axis=1)
             alignment=np.abs(np.einsum('ij,ij->i',normals[ids],face_normals))
@@ -248,7 +272,7 @@ def classify_scene_surfaces(points, normals, table_mask, scene, inventory, *, pr
                 labels[chosen]=CLASS_IDS[rows[index]['category']];owners[chosen]=index+1
             retry=(distance<.003)&(alignment<=.75)&~protected[ids]
             if allow_fallback and np.any(retry):
-                if alternatives is None:alternatives=_CompatibleSurfaceIndex(admitted_meshes)
+                if alternatives is None:alternatives=_CompatibleSurfaceIndex(admitted_meshes,workers=workers)
                 retry_ids=ids[retry]
                 _,candidate_owners=alternatives.query(points[retry_ids],normals[retry_ids])
                 for owner in np.unique(candidate_owners[candidate_owners>0]):
@@ -280,7 +304,7 @@ def classify_scene_surfaces(points, normals, table_mask, scene, inventory, *, pr
 
 
 def recover_scene_alternatives(points, normals, table_mask, scene, inventory,
-                               report, labels, owners, *, excluded_mask=None):
+                               report, labels, owners, *, excluded_mask=None, workers=1):
     """Defer alternative faces until structural evidence has claimed its rows.
 
     Reuses admitted fitted triangles and GUIDs from ``report``; never refits or
@@ -298,7 +322,8 @@ def recover_scene_alternatives(points, normals, table_mask, scene, inventory,
             or labels.shape!=(len(points),) or owners.shape!=(len(points),) or excluded.shape!=(len(points),)):
         raise ValueError('scene recovery arrays must be source aligned')
     report=copy.deepcopy(report);rows=report['objects'];by_guid={r['globalId']:r for r in rows}
-    meshes=[];ray=o3d.t.geometry.RaycastingScene(nthreads=2)
+    workers=max(1,min(8,int(workers)))
+    meshes=[];ray=o3d.t.geometry.RaycastingScene(nthreads=workers)
     for obj in scene['objects']:
         row=by_guid.get(obj['globalId'])
         if (row is None or row['category'] not in CLASS_IDS or 'transform' not in row
@@ -312,14 +337,17 @@ def recover_scene_alternatives(points, normals, table_mask, scene, inventory,
     recovered=0;index=None
     if meshes and len(eligible):
         protected=_rebar_guard(points,normals,inventory,cKDTree(points))
+        broad=geometry_accel.SurfaceIndex.broad_phase(meshes) if geometry_accel.available() else None
         for first in range(0,len(eligible),200000):
             ids=eligible[first:first+200000]
-            out=ray.compute_closest_points(o3d.core.Tensor(points[ids].astype(np.float32)),nthreads=2)
+            if broad is not None:ids=ids[broad.near(points[ids],.003,workers)]
+            if not len(ids):continue
+            out=ray.compute_closest_points(o3d.core.Tensor(points[ids].astype(np.float32)),nthreads=workers)
             distance=np.linalg.norm(points[ids]-out['points'].numpy(),axis=1)
             alignment=np.abs(np.einsum('ij,ij->i',normals[ids],out['primitive_normals'].numpy()))
             retry=ids[(distance<.003)&(alignment<=.75)&~protected[ids]]
             if not len(retry):continue
-            if index is None:index=_CompatibleSurfaceIndex(meshes)
+            if index is None:index=_CompatibleSurfaceIndex(meshes,workers=workers)
             _,candidate=index.query(points[retry],normals[retry])
             for owner in np.unique(candidate[candidate>0]):
                 chosen=retry[candidate==owner]

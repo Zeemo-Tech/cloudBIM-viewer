@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import ts from 'typescript'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { NavigationOrbitControls as OrbitControls } from '../packages/viewer-core/src/viewer/NavigationOrbitControls.ts'
 import { operatorBarFrame, operatorFitDistance, operatorAxisHeading, wrappedAngle } from '../src/features/operator/operator-presentation.ts'
 import { parse } from '@vue/compiler-sfc'
 

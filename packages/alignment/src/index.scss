@@ -2357,7 +2357,7 @@
 .BimPointcloudAlign-container.calibration-page {
   --editor-panel-width: var(--viewer-panel-width, 360px);
   --editor-toolbar-width: 50px;
-  --editor-header-height: 72px;
+  --editor-header-height: 56px;
   height: 100vh;
   height: 100dvh;
   max-height: 100dvh;
@@ -2371,13 +2371,14 @@
 }
 
 .calibration-page .topbar.calibration-header {
+  box-sizing: border-box;
+  height: var(--editor-header-height);
   min-height: var(--editor-header-height);
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: 8px 14px 8px 10px;
+  gap: 12px;
+  padding: 8px 16px 8px 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-card);
   box-shadow: none;
@@ -2385,31 +2386,27 @@
   -webkit-backdrop-filter: none;
 }
 
-.calibration-page .topbar-left.title-block,
-.calibration-page .topbar-right.header-actions {
-  min-width: 0;
-  display: flex;
+.calibration-page .alignment-return {
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: var(--spacing-sm);
-}
-
-.calibration-page .topbar-left.title-block {
-  flex: 0 1 auto;
-}
-
-.calibration-page .alignment-title-context {
-  min-width: 0;
-  display: grid;
-  gap: var(--spacing-xs);
-}
-
-.calibration-page .alignment-file-context {
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: var(--font-size-xs);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.calibration-page .alignment-return:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .calibration-page .workflow-guidance {
@@ -2421,58 +2418,22 @@
   line-height: var(--line-height-relaxed);
 }
 
-.calibration-page .topbar-left.title-block > .el-button {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  margin: 0;
-  color: var(--text-secondary);
-}
-
-.calibration-page .topbar-left.title-block > .el-button:hover {
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-}
-
-.calibration-page .brand-title {
-  max-width: min(460px, 34vw);
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-family: var(--font-family-display);
-  font-size: var(--font-size-md);
-  font-weight: 650;
-  letter-spacing: 0;
-  line-height: var(--line-height-tight);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.calibration-page .topbar-center {
-  display: none;
-}
-
 .calibration-page .alignment-workflow-nav {
   min-width: 0;
-  max-width: 1500px;
-  height: 56px;
-  margin-inline: auto;
-  display: flex;
+  height: 36px;
   flex: 1 1 auto;
-  overflow-x: auto;
-  scrollbar-color: var(--border-color-hover) transparent;
-  scrollbar-width: thin;
 }
 
 .calibration-page .alignment-workflow-track {
   box-sizing: border-box;
   width: 100%;
-  min-width: 760px;
+  min-width: 0;
   height: 100%;
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
-  padding: 4px 0;
 }
 
 .calibration-page .alignment-workflow-step {
@@ -2480,21 +2441,17 @@
   min-width: 0;
   height: 36px;
   display: flex;
-  flex: 1 1 0;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
   border: 0;
-  padding: 0 20px 0 18px;
-  color: #334155;
-  background: #e8eef6;
-  cursor: pointer;
-  text-align: left;
-}
-
-.calibration-page .alignment-workflow-step:not(:first-child) {
-  margin-left: -9px;
-  padding-left: 27px;
+  padding: 0 18px;
+  color: var(--text-secondary);
+  background: var(--bg-control-hover);
+  font: inherit;
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
+  cursor: pointer;
+  text-align: center;
 }
 
 .calibration-page .alignment-workflow-step:first-child {
@@ -2502,9 +2459,19 @@
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
 }
 
+.calibration-page .alignment-workflow-step:last-child {
+  padding-right: 9px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 10px 50%);
+}
+
+.calibration-page .alignment-workflow-step:only-child {
+  padding-inline: 9px;
+  clip-path: none;
+}
+
 .calibration-page .alignment-workflow-step:hover:not(:disabled) {
-  color: #172b4d;
-  background: #dce7f4;
+  color: var(--text-primary);
+  background: var(--color-primary-soft);
 }
 
 .calibration-page .alignment-workflow-step.is-active {
@@ -2519,9 +2486,8 @@
 }
 
 .calibration-page .alignment-workflow-step.is-disabled {
-  opacity: 1;
-  color: #52657d;
-  background: #dce3ec;
+  color: var(--text-tertiary);
+  background: var(--bg-muted);
   cursor: not-allowed;
 }
 
@@ -2532,11 +2498,6 @@
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
-  opacity: 0.82;
-}
-
-.calibration-page .alignment-workflow-step.is-active .alignment-workflow-step__number {
-  opacity: 1;
 }
 
 .calibration-page .alignment-workflow-step__copy {
@@ -2544,61 +2505,19 @@
   display: block;
 }
 
-.calibration-page .alignment-workflow-step__copy strong,
-.calibration-page .alignment-workflow-step__copy small {
+.calibration-page .alignment-workflow-step__copy strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.calibration-page .alignment-workflow-step__copy strong {
   color: currentColor;
   font-size: 14px;
   font-weight: 650;
   line-height: 1.2;
 }
 
-.calibration-page .alignment-workflow-step__copy small {
-  margin-top: 2px;
-  color: currentColor;
-  font-size: 12px;
-  line-height: 1.2;
-  opacity: 0.9;
-}
-
-.calibration-page .topbar-right.header-actions {
-  flex: 0 0 auto;
-  justify-content: flex-end;
-}
-
-.calibration-page .topbar-right.header-actions > .el-button {
-  height: 34px;
-  min-height: 34px;
-  margin: 0;
-  border-radius: var(--radius-xs);
-  padding: 0 12px;
-  font-size: var(--font-size-xs);
-}
-
-.calibration-page .topbar-right.header-actions > .el-button:not(.el-button--primary) {
-  border-color: var(--border-color);
-  color: var(--text-secondary);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-}
-
-.calibration-page .topbar-right.header-actions > .el-button:not(.el-button--primary):hover {
-  border-color: var(--border-color-hover);
-  color: var(--text-primary);
-  background: var(--bg-control-hover);
-}
-
-.calibration-page .topbar-right.header-actions > .el-button--primary {
-  border-color: var(--color-primary);
-  color: #fff;
-  background: var(--color-primary);
-  box-shadow: var(--shadow-sm);
+.calibration-page .alignment-workflow-step__copy .alignment-workflow-step__compact {
+  display: none;
 }
 
 .calibration-page .main-content.calibration-main {
@@ -2640,10 +2559,25 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
-  padding: 0 22px 34px;
   background: #eef3f8;
+}
+
+.calibration-page .report-preview-scroll {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 66px 22px 34px;
 }
 
 .calibration-page .report-preview-workspace.is-report-fullscreen {
@@ -2652,28 +2586,38 @@
   z-index: 1000;
   width: 100vw;
   height: 100vh;
-  padding: 32px 8vw 42px;
   background: #eef3f8;
 }
 
-.calibration-page .report-reader-toolbar {
+/* Ported from TunnelReportPreview: dock outside the scrolling paper surface. */
+.calibration-page .report-reader-toolbar-dock {
   position: absolute;
-  z-index: 3;
+  z-index: 8;
   top: 14px;
   right: 0;
   left: 0;
-  display: inline-flex;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.calibration-page .report-reader-toolbar-dock.is-collapsed {
+  justify-content: flex-start;
+  padding-left: 14px;
+}
+
+.calibration-page .report-reader-toolbar {
+  min-height: 42px;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 auto;
+  gap: 7px;
   padding: 6px 8px;
-  width: max-content;
   border: 1px solid rgb(255 255 255 / 74%);
   border-radius: 16px;
   background: rgb(255 255 255 / 68%);
   box-shadow: 0 14px 34px rgb(48 74 93 / 15%);
   backdrop-filter: blur(18px) saturate(125%);
+  pointer-events: auto;
 }
 
 .calibration-page .report-reader-toolbar button {
@@ -2689,17 +2633,17 @@
   cursor: pointer;
 }
 
-.calibration-page .report-reader-toolbar button:hover,
+.calibration-page .report-reader-toolbar button:hover:not(:disabled),
 .calibration-page .report-reader-toolbar button.active {
-  color: #2c88a1;
-  background: #edf8fb;
+  color: #2f8ea3;
+  background: #fff;
 }
 
 .calibration-page .report-reader-toolbar strong {
   min-width: 42px;
   color: #45616e;
   font-family: var(--font-family-number);
-  font-size: 15px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -2708,42 +2652,41 @@
   min-width: 46px;
   height: auto;
   padding: 4px 8px;
-  border: 0;
-  border-radius: 0;
-  color: #39788b;
-  background: #d9eef0;
-  font-size: 12px;
+  border: 1px solid rgb(47 142 163 / 18%);
+  border-radius: 5px;
+  color: #2f6f7d;
+  background: rgb(239 249 250 / 82%);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .calibration-page .report-reader-divider {
   width: 1px;
-  height: 23px;
-  margin: 0 5px;
-  background: #e0e8ef;
+  height: 22px;
+  background: rgb(67 97 110 / 18%);
 }
 
 .calibration-page .report-reader-toolbar-reopen {
-  position: absolute;
-  z-index: 3;
-  top: 14px;
-  left: 14px;
-  width: 46px;
-  height: 34px;
+  width: 40px;
+  min-height: 34px;
   display: grid;
   place-items: center;
-  align-self: center;
-  margin: 0 auto 14px;
-  border: 1px solid #d5e3ed;
-  border-radius: 17px;
-  color: #5d788e;
-  background: rgb(255 255 255 / 88%);
+  padding: 2px 4px;
+  border: 1px solid rgb(255 255 255 / 74%);
+  border-radius: 12px;
+  color: #2f8ea3;
+  background: rgb(255 255 255 / 84%);
+  box-shadow: 0 14px 34px rgb(48 74 93 / 15%);
+  backdrop-filter: blur(18px) saturate(125%);
+  pointer-events: auto;
   cursor: pointer;
 }
 
 .calibration-page .report-paper-stage {
   position: relative;
   flex: 0 0 auto;
-  margin: 70px auto 0;
+  margin: 0 auto;
 }
 
 .calibration-page .report-paper-stage + .report-paper-stage {
@@ -2763,11 +2706,13 @@
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
-  border: 1px solid #cbd8da;
+  border: 1px solid rgb(255 255 255 / 74%);
   border-radius: 12px;
-  background: rgb(255 255 255 / 94%);
+  background: rgb(255 255 255 / 92%);
   box-shadow: 0 8px 22px rgb(48 74 93 / 16%);
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--report-page-nav-scale, 1));
+  transform-origin: top center;
+  pointer-events: auto;
 }
 
 .calibration-page .rebar-report-page-nav button {
@@ -2784,8 +2729,8 @@
 }
 
 .calibration-page .rebar-report-page-nav button:hover:not(:disabled) {
-  color: #2f6fb0;
-  background: #eaf2fb;
+  color: #2f8ea3;
+  background: #fff;
 }
 
 .calibration-page .rebar-report-page-nav button:disabled {
@@ -2794,10 +2739,10 @@
 }
 
 .calibration-page .rebar-report-page-nav-label {
-  min-width: 150px;
+  min-width: 132px;
   display: grid;
   gap: 1px;
-  color: #30464d;
+  color: #2d4650;
   font-size: 12px;
   font-weight: 700;
   text-align: center;
@@ -2805,8 +2750,8 @@
 }
 
 .calibration-page .rebar-report-page-nav-label small {
-  color: #6a7f86;
-  font-size: 12px;
+  color: #6a818b;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -2849,15 +2794,15 @@
   top: 0;
   left: 50%;
   box-sizing: border-box;
-  width: 794px;
-  height: 1123px;
-  min-height: 1123px;
+  width: 1123px;
+  height: 794px;
+  min-height: 794px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   margin: 0;
   transform-origin: top center;
-  padding: 58px 62px 42px;
+  padding: 28px 40px 26px;
   border: 1px solid #d7e1ed;
   background: #fff;
   box-shadow: 0 16px 34px rgb(65 88 115 / 12%);
@@ -2930,7 +2875,7 @@
 
 .calibration-page .cover-main {
   position: absolute;
-  top: 235px;
+  top: 165px;
   right: 70px;
   left: 70px;
   display: grid;
@@ -2973,7 +2918,7 @@
 
 .calibration-page .cover-details {
   position: absolute;
-  top: 650px;
+  top: 395px;
   right: 92px;
   left: 92px;
   display: grid;
@@ -3130,14 +3075,19 @@
 
 @media print {
   @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  @page rebarPortrait {
     size: A4 portrait;
     margin: 0;
   }
 
-  :global(body.is-printing-alignment-report),
-  :global(body.is-printing-alignment-report html) {
-    width: 210mm !important;
-    min-width: 210mm !important;
+  :global(html:has(body.is-printing-alignment-report)),
+  :global(body.is-printing-alignment-report) {
+    width: auto !important;
+    min-width: 0 !important;
     height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -3152,11 +3102,12 @@
   :global(body.is-printing-alignment-report .calibration-page),
   :global(body.is-printing-alignment-report .calibration-main),
   :global(body.is-printing-alignment-report .report-preview-workspace),
+  :global(body.is-printing-alignment-report .report-preview-scroll),
   :global(body.is-printing-alignment-report .report-paper-stage) {
     position: static !important;
     display: block !important;
-    width: 210mm !important;
-    min-width: 210mm !important;
+    width: auto !important;
+    min-width: 0 !important;
     max-width: none !important;
     height: auto !important;
     max-height: none !important;
@@ -3170,12 +3121,20 @@
     background: #fff !important;
   }
 
+  /* Only paper stages have a fixed width. A landscape-sized ancestor also
+     spans portrait pages and makes Chromium shrink the entire mixed report. */
+  :global(body.is-printing-alignment-report .report-paper-stage) {
+    width: 297mm !important;
+    min-width: 297mm !important;
+  }
+
   /* Printing only needs the report pages. Remove the application chrome from
      the flow rather than merely hiding it: a hidden topbar/toolbar still keeps
      its height and would push the first page down and spill it onto page two. */
   :global(body.is-printing-alignment-report .calibration-page > :not(.calibration-main)),
   :global(body.is-printing-alignment-report .calibration-main > :not(.report-preview-workspace)),
-  :global(body.is-printing-alignment-report .report-preview-workspace > :not(.report-paper-stage)) {
+  :global(body.is-printing-alignment-report .report-preview-workspace > :not(.report-preview-scroll)),
+  :global(body.is-printing-alignment-report .report-preview-scroll > :not(.report-paper-stage, .rebar-report-chapter)) {
     display: none !important;
   }
 
@@ -3190,13 +3149,13 @@
     display: flex !important;
     flex-direction: column !important;
     box-sizing: border-box !important;
-    width: 210mm !important;
-    min-width: 210mm !important;
+    width: 297mm !important;
+    min-width: 297mm !important;
     max-width: none !important;
-    height: 297mm !important;
-    min-height: 297mm !important;
+    height: 210mm !important;
+    min-height: 210mm !important;
     margin: 0 !important;
-    padding: 58px 62px 42px !important;
+    padding: 28px 40px 26px !important;
     overflow: hidden !important;
     transform: none !important;
     border: 0 !important;
@@ -3221,6 +3180,27 @@
 
   :global(body.is-printing-alignment-report .rebar-report-page-stage.is-report-page-hidden) {
     display: block !important;
+  }
+
+  :global(body.is-printing-alignment-report .rebar-report-chapter) {
+    display: contents !important;
+  }
+
+  :global(body.is-printing-alignment-report .rebar-report-chapter-divider) {
+    break-before: page;
+    break-inside: avoid;
+  }
+
+  :global(body.is-printing-alignment-report .report-paper-stage.is-portrait-stage),
+  :global(body.is-printing-alignment-report .report-preview-page.is-portrait) {
+    page: rebarPortrait;
+    width: 210mm !important;
+    min-width: 210mm !important;
+  }
+
+  :global(body.is-printing-alignment-report .report-preview-page.is-portrait) {
+    height: 297mm !important;
+    min-height: 297mm !important;
   }
 
   :global(body.is-printing-alignment-report .report-reader-toolbar),
@@ -3935,7 +3915,7 @@
 .calibration-page .right-panel-toggle {
   position: absolute;
   top: 50%;
-  right: 5px;
+  right: 8px;
   z-index: calc(var(--z-sticky) + 2);
   display: grid;
   width: 36px;
@@ -3948,14 +3928,14 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   background: var(--bg-control);
-  box-shadow: 4px 4px 10px rgb(169 184 210 / 24%), -4px -4px 10px rgb(255 255 255 / 92%);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
   transition: color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 
 .calibration-page .right-panel-toggle:hover {
   color: var(--color-primary);
-  box-shadow: 2px 2px 6px rgb(169 184 210 / 26%), -2px -2px 6px rgb(255 255 255 / 94%);
+  background: var(--color-primary-soft);
 }
 
 .calibration-page .right-panel-toggle:active {
@@ -3964,13 +3944,13 @@
 }
 
 .calibration-page .control-panel-header {
-  min-height: 72px;
+  min-height: 56px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-md);
-  padding: 14px 16px 13px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-muted);
 }
@@ -4334,8 +4314,8 @@
   background: #4479b8;
 }
 
-.calibration-page .registration-edit-panel .orientation-sliders .axis--rotation {
-  background: #428c61;
+.calibration-page .registration-edit-panel .orientation-sliders .slider .axis.axis--rotation {
+  background: #4479b8;
 }
 
 .calibration-page .registration-edit-panel .axis-number-input {
@@ -4706,23 +4686,6 @@
     overflow: auto;
   }
 
-  .calibration-page .topbar.calibration-header {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .calibration-page .topbar-right.header-actions {
-    width: 100%;
-    justify-content: flex-end;
-    order: 2;
-  }
-
-  .calibration-page .alignment-workflow-nav {
-    width: 100%;
-    flex: 0 0 100%;
-    order: 3;
-  }
-
   .calibration-page .main-content.calibration-main,
   .calibration-page .main-content.calibration-main.is-panel-hidden {
     min-height: 700px;
@@ -4779,17 +4742,38 @@
 }
 
 @media (max-width: 560px) {
-  .calibration-page .brand-title {
-    max-width: 190px;
-    font-size: var(--font-size-sm);
+  .calibration-page .topbar.calibration-header {
+    gap: 8px;
+    padding-inline: 8px;
   }
 
-  .calibration-page .topbar-right.header-actions {
-    gap: 5px;
+  .calibration-page .alignment-return {
+    width: 36px;
+    padding: 0;
   }
 
-  .calibration-page .topbar-right.header-actions > .el-button {
-    padding-inline: 9px;
+  .calibration-page .alignment-return span,
+  .calibration-page .alignment-workflow-step__copy .alignment-workflow-step__label {
+    display: none;
+  }
+
+  .calibration-page .alignment-workflow-step,
+  .calibration-page .alignment-workflow-step:first-child,
+  .calibration-page .alignment-workflow-step:last-child {
+    gap: 4px;
+    padding-inline: 6px;
+    clip-path: none;
+    border-radius: var(--radius-xs);
+  }
+
+  .calibration-page .alignment-workflow-step__copy .alignment-workflow-step__compact {
+    display: block;
+  }
+}
+
+@media (max-width: 360px) {
+  .calibration-page .alignment-workflow-step__number {
+    display: none;
   }
 }
 
@@ -4866,6 +4850,7 @@
   min-width: 104px;
   padding: 0 10px;
   font-size: 12px;
+  &.el-button--primary:not(.is-plain) { color: var(--el-color-white, #fff); }
 }
 .calibration-page .rebar-inspection__controls > .rebar-inspection__exit:not(:disabled) {
   border-color: #cbd5e1;
@@ -4876,9 +4861,35 @@
   color: #263b59;
   background: #eef2f7;
 }
+.calibration-page .rebar-inspection__order {
+  margin: 0;
+}
 .calibration-page .rebar-inspection__empty {
   margin: 0;
   color: #b45309 !important;
+}
+.calibration-page .rebar-inspection__hint {
+  margin: 0;
+  color: var(--color-text-secondary, #506585);
+  line-height: 1.6;
+}
+.calibration-page .rebar-inspection__transparency {
+  display: grid;
+  grid-template-columns: auto minmax(64px, 1fr) 36px;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-secondary, #506585);
+  font-size: 12px;
+
+  input {
+    width: 100%;
+    margin: 0;
+    min-height: 28px;
+    accent-color: var(--el-color-primary);
+    cursor: pointer;
+    &:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 3px; }
+  }
+  output { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .calibration-page .rebar-comparison-details {
   display: grid;
@@ -4886,7 +4897,7 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.calibration-page .rebar-report-page { gap: 0; padding: 58px 62px 42px; color: #1f2b30; background: #fff; }
+.calibration-page .rebar-report-page { gap: 0; padding: 28px 40px 26px; color: #1f2b30; background: #fff; }
 .calibration-page .rebar-report-page h2 { margin: 5px 0 4px; color: #182328; font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .calibration-page .rebar-report-page p { margin: 0; font-size: 12px; line-height: 1.6; }
 .calibration-page .rebar-report-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 26px 0 16px; }
@@ -5003,17 +5014,6 @@
 }
 
 
-.calibration-page .report-reader-toolbar button,
-
-.calibration-page .report-reader-toolbar button:hover:not(:disabled),
-
-.calibration-page .report-reader-format {
-  padding: 4px 8px;
-  color: var(--text-secondary);
-  background: var(--bg-muted);
-  font-size: 12px;
-}
-
 
 .calibration-page .cover-status > span { width: 8px; height: 28px; background: #2ca66f; }
 
@@ -5071,7 +5071,117 @@
 .pointcloud-tools-popover :is(button, input):focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 
-.calibration-page .rebar-report-page { gap: 14px; }
+.calibration-page .rebar-report-page { gap: 10px; }
+.calibration-page .rebar-report-page .rebar-report-heading { flex: none; margin: 12px 0 2px; }
+.calibration-page .rebar-report-page .rebar-report-meta {
+  margin-bottom: 0; padding: 6px 0; border: 0; border-radius: 0; background: #fff; color: #53636c;
+}
+
+/* Research figures share the physical page width; sections retain square axes. */
+.calibration-page .rebar-report-inline-views {
+  flex: 0 0 auto;
+  padding-top: 4px;
+}
+.calibration-page .rebar-report-inline-views .rebar-report-view-guide {
+  margin: 0 0 14px;
+  padding: 8px 0 10px;
+  gap: 24px;
+  border: 0;
+  border-bottom: 1px solid #c7cfd5;
+  border-radius: 0;
+  background: #fff;
+  color: #263238;
+  font-size: 12px;
+}
+.calibration-page .rebar-report-inline-views .rebar-report-view-guide__swatch.is-design {
+  height: 9px; border: 1px solid #246493; border-radius: 0; background: #d8e6f0; box-shadow: none;
+}
+.calibration-page .rebar-report-inline-views .rebar-report-view-guide__swatch.is-scan {
+  width: 5px; height: 5px; margin: 0 6px; border-radius: 50%; background: #bc6024;
+}
+.calibration-page .rebar-report-view-guide__swatch.is-fit {
+  height: 0; border-top: 2px dashed #bc6024; border-radius: 0; background: none;
+}
+.calibration-page .rebar-report-longitudinal {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;
+}
+.calibration-page .rebar-report-sections {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 8px;
+}
+.calibration-page .rebar-report-inline-card .rebar-report-model-svg {
+  display: block; flex: none; width: 100%; height: auto; border: 0; background: #fff;
+}
+.calibration-page .rebar-report-figure-caption {
+  margin: 14px 0 0; padding-top: 8px; border-top: 1px solid #d2d8dd;
+  color: #53636c; font-size: 11px; line-height: 1.7; text-align: justify;
+  p { margin: 0 0 5px; }
+}
+.calibration-page .rebar-report-page .rebar-report-figure-caption p { font-size: 11px; line-height: 1.6; }
+
+.calibration-page .rebar-report-overview {
+  display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start;
+}
+.calibration-page .rebar-report-locator {
+  min-width: 0; border-left: 1px solid #d2d8dd; padding-left: 8px;
+  svg { display: block; width: 100%; height: auto; }
+}
+.calibration-page .rebar-report-figure-page {
+  gap: 6px;
+  .report-preview-page__header { min-height: 0; padding-bottom: 7px; border-bottom-width: 1px; }
+  .report-preview-mark { width: 27px; height: 27px; flex-basis: 27px; img { width: 24px; height: 24px; } }
+  .rebar-report-member-title { gap: 3px; }
+  .rebar-report-member-title > div { display: flex; gap: 18px; align-items: baseline; }
+  .rebar-report-member-title h2 { margin: 0; font-size: 12px; font-weight: 500; color: #53636c; }
+  .rebar-report-member-title span { font-size: 12px; color: #823f68; }
+  .rebar-report-member-title strong { font-size: 17px; color: #263238; }
+  .rebar-report-sheet-title { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+  .rebar-report-sheet-title small { align-self: auto; color: #263238; letter-spacing: 0; }
+  .rebar-report-inline-views { padding-top: 0; }
+  .rebar-report-view-guide { margin-bottom: 6px; padding: 4px 0; font-size: 11px; border-bottom: 0; }
+  .rebar-report-view-guide small { font-size: 10px; }
+  .rebar-report-table { border: 0; }
+  .rebar-report-table col.rebar-report-table__member { width: 20%; }
+  .rebar-report-table col.rebar-report-table__status { width: 9%; }
+  .rebar-report-table col.rebar-report-table__coverage { width: 6%; }
+  .rebar-report-table col.rebar-report-table__metric { width: 9%; }
+  .rebar-report-table col.rebar-report-table__tolerance { width: 10%; }
+  .rebar-report-table col.rebar-report-table__diameter { width: 12%; }
+  .rebar-report-table col.rebar-report-table__diameter-delta { width: 16%; }
+  .rebar-report-table th, .rebar-report-table td { padding: 3px 6px; font-size: 11px; line-height: 1.2; border: 0; border-bottom: 1px solid #d2d8dd; }
+  .rebar-report-table th { font-weight: 500; color: #53636c; background: #f3f5f6; }
+  .rebar-report-table small { margin-top: 1px; font-size: 9px; line-height: 1.1; }
+  .rebar-report-status { padding: 0; font-size: 10px; background: none; }
+  .rebar-report-figure-caption { margin-top: 8px; padding-top: 5px; }
+  .rebar-report-figure-caption p { display: inline; font-size: 10px; line-height: 1.4; margin: 0; }
+  .rebar-report-figure-caption p + p::before { content: ' '; white-space: pre; }
+  .report-preview-page__footer { padding-top: 6px; font-size: 10px; }
+}
+.calibration-page .rebar-report-page-nav select {
+  max-width: 185px; min-height: 32px; padding: 4px 7px; color: #304a66; background: white;
+  border: 1px solid #c7d8ed; border-radius: 4px; font: inherit;
+}
+.calibration-page .rebar-report-page-stage { margin-top: 52px; }
+.calibration-page .report-chapter-index {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 12px 0;
+  button { display: grid; gap: 5px; padding: 10px 0; text-align: left; border: 0; border-block: 1px solid #c7cfd5; background: white; color: #263238; cursor: pointer; font-size: 12px; }
+  span { color: #53636c; font-size: 11px; }
+}
+.calibration-page .report-summary-page {
+  .report-preview-page__header { padding-bottom: 10px; }
+  .report-data-section { gap: 7px; }
+  .report-data-section + .report-data-section { margin-top: 4px; }
+  .report-statistics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+  .c2m-histogram { background: white; color: #263238; border: 1px solid #c7cfd5; border-radius: 0; box-shadow: none; }
+  :deep(.c2m-histogram__header), :deep(.c2m-histogram__legend-title) { color: #263238; }
+  :deep(.c2m-histogram__meta), :deep(.c2m-histogram__range-labels), :deep(.c2m-histogram__key), :deep(.c2m-histogram__tails), :deep(.c2m-histogram__tails span) { color: #53636c; }
+  :deep(.c2m-histogram__tails) { background: #f3f5f6; border-radius: 0; }
+  :deep(.c2m-histogram__zero), :deep(.c2m-histogram__axis) { stroke: #53636c; }
+}
+.calibration-page .rebar-projection-page {
+  .report-preview-page__header { padding-bottom: 10px; }
+  .rebar-projection-page__bars { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .rebar-projection-page__bars > section + section { padding-top: 0; border-top: 0; }
+}
 
 .calibration-page .rebar-report-page h2 { margin: 0; font-size: 22px; }
 
@@ -5098,23 +5208,17 @@
 
 .calibration-page .c2m-setting-row--plain > :deep(.el-input-number) { width: 104px; justify-self: end; }
 
-.calibration-page .alignment-workflow-step:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -3px;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 .calibration-page :is(button, summary, [contenteditable="true"]):focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: -2px;
 }
 
-.calibration-page .main-content.is-panel-hidden .right-panel-toggle { right: 8px; }
-
-.calibration-page .right-panel-toggle,
-
-.calibration-page .right-panel-toggle:hover,
+.calibration-page .alignment-workflow-step:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -3px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
 
 .calibration-page .pointcloud-view-cube { right: 56px; }
 
@@ -5163,18 +5267,110 @@
 
 .calibration-page .report-statistics dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; }
 
-.calibration-page .report-reader-toolbar button:disabled { opacity: .5; cursor: not-allowed; }
+.calibration-page .report-reader-toolbar button:disabled { opacity: .38; cursor: not-allowed; }
 
-@media (min-width: 821px) and (max-width: 1360px) {
-  .calibration-page .alignment-title-context { max-width: 220px; }
-  .calibration-page .alignment-workflow-track { min-width: 0; }
-  .calibration-page .alignment-workflow-step { padding-right: 12px; gap: 4px; }
-  .calibration-page .alignment-workflow-step__copy strong { font-size: 12px; }
+.calibration-page .report-summary-page { gap: 8px; }
+
+/* Each member family is a separate reader section with its own position. */
+.calibration-page .rebar-report-chapter {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 32px 0 0;
+  scroll-margin-top: 64px;
+}
+.calibration-page .rebar-report-chapter-divider-stage { margin-top: 0; }
+.calibration-page .rebar-report-chapter .rebar-report-page-stage { margin-top: 24px; }
+
+/* A chapter opener is a real paper page, like Tunnel ReportChapterDivider:
+   title, chapter metrics, header and footer all participate in pagination. */
+.calibration-page .rebar-report-chapter-divider {
+  color: #263238;
+
+  &.is-portrait { width: 794px; height: 1123px; min-height: 1123px; }
+
+  .report-preview-page__header strong,
+  .report-preview-page__header span { overflow-wrap: anywhere; }
+  .report-preview-page__header span,
+  .report-preview-page__footer { color: #53636c; }
+
+  .report-chapter-divider-content {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    gap: 36px;
+    padding: 32px 40px;
+  }
+  .report-chapter-divider-title {
+    h1 { margin: 0; color: #203957; font-size: 52px; font-weight: 750; line-height: 1.2; }
+    h1 span { display: block; margin-bottom: 16px; color: #2e5f92; font-size: 20px; font-weight: 650; }
+    p { margin: 20px 0 0; color: #53636c; font-size: 18px; line-height: 1.5; }
+  }
+  .report-chapter-divider-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+    border-top: 1px solid #b9c5c9;
+    font-variant-numeric: tabular-nums;
+    > div { display: grid; grid-template-columns: 132px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 18px 12px; border-bottom: 1px solid #d5dddf; }
+    dt { color: #53636c; font-size: 14px; }
+    dd { margin: 0; font-size: 16px; font-weight: 600; }
+  }
+  .report-chapter-divider-note { max-width: 72ch; margin: 0; color: #53636c; font-size: 13px; line-height: 1.9; }
+
+  &.is-portrait .report-chapter-divider-content { padding-inline: 24px; }
+  &.is-portrait .report-chapter-divider-metrics > div { grid-template-columns: 112px minmax(0, 1fr); padding-inline: 8px; }
+}
+.calibration-page .report-diameter-setting {
+  :deep(.el-input-number) { width: 100%; }
+  small { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+}
+.calibration-page .report-summary-page {
+  gap: 6px;
+  .report-summary-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 12px 24px; align-items: start; }
+  [data-summary-section="summary"] { grid-column: 1 / -1; }
+  [data-summary-section="histogram"] { grid-column: 2; grid-row: span 2; }
+  [data-summary-section="statistics"], [data-summary-section="conclusion"] { grid-column: 1; }
+  .report-data-section { gap: 5px; }
+  .report-data-section + .report-data-section { margin-top: 0; }
+  .report-data-section h2 { font-size: 17px; }
+  .report-quality-statistics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 4px 0; padding: 4px 0; border-block: 1px solid #c7cfd5; font-variant-numeric: tabular-nums; }
+  .report-quality-statistics dt { color: #53636c; font-size: 11px; }
+  .report-quality-statistics dd { margin: 4px 0 0; color: #263238; font-size: 18px; font-weight: 600; }
+  .report-quality-statistics dd small { display: block; color: #53636c; font-size: 10px; font-weight: 400; }
+  .report-quality-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .report-quality-table th, .report-quality-table td { padding: 4px 6px; border-bottom: 1px solid #d2d8dd; text-align: right; line-height: 1.2; }
+  .report-quality-table th:first-child { text-align: left; }
+  .report-quality-table thead { color: #53636c; background: #f3f5f6; }
+  .report-quality-table tfoot { font-weight: 600; }
+  .report-quality-rule { color: #53636c; font-size: 10px; line-height: 1.5; }
+  .report-statistics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: 12px; }
+  .report-statistics dd { margin-top: 2px; }
+  .report-chapter-index { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 2px 0; }
+  .report-chapter-index button { padding: 6px 0; }
+  .report-preview-page__footer { padding-top: 6px; font-size: 10px; }
 }
 
-.calibration-page .report-reader-toolbar-reopen { position: sticky; top: 8px; flex-shrink: 0; }
-
-.calibration-page .report-summary-page { gap: 16px; }
+/* Portrait stirrup sheet: upright elevations, location below, sections at right.
+ * A separate drawing basis keeps glyphs upright and all engineering axes explicit. */
+.calibration-page .rebar-report-figure-page.is-portrait {
+  width: 794px; height: 1123px; min-height: 1123px;
+  .rebar-report-sheet-title { flex-direction: column; align-items: flex-end; gap: 4px; }
+  .rebar-report-member-title strong { font-size: 15px; }
+  .rebar-report-member-title > div { gap: 12px; }
+  .rebar-report-table th, .rebar-report-table td { padding: 4px; font-size: 10px; }
+  .rebar-report-table small { white-space: normal; line-height: 1.3; }
+  .rebar-report-view-guide { gap: 8px 16px; }
+  .rebar-report-view-guide small { margin-left: 0; }
+  .rebar-report-inline-card { display: block; }
+  .rebar-report-overview { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 16px; }
+  .rebar-report-longitudinal { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .rebar-report-sidebar { display: flex; flex-direction: column; gap: 8px; padding-left: 8px; border-left: 1px solid #d2d8dd; }
+  .rebar-report-locator { width: 190px; align-self: center; padding: 0; border: 0; }
+  .rebar-report-hook-sections { display: grid; gap: 6px; }
+  .rebar-report-sections { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+  .rebar-report-figure-caption { margin-top: 8px; }
+}
 
 .calibration-page .registration-complete-button.el-button { margin-top: 16px; }
 
@@ -5275,6 +5471,37 @@
 }
 
 .calibration-page .registration-handle-control { margin-top: 16px; }
+
+.calibration-page .transform-handle-feedback {
+  position: absolute;
+  z-index: 5;
+  inset: auto auto 24px 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+
+  strong { font-size: 14px; font-weight: 600; }
+  &.is-dragging { border-color: var(--el-color-primary); }
+  &__cancel { color: var(--el-text-color-secondary); }
+}
+
+.calibration-page .viewport canvas:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
 
 .calibration-page .registration-handle-hint,
 
@@ -5398,4 +5625,3 @@
   .calibration-page .c2m-deviation-workspace .c2m-setting-row > :deep(.el-input-number),
   .calibration-page .c2m-deviation-workspace .c2m-setting-row > :deep(.el-select) { width: 100%; }
 }
-

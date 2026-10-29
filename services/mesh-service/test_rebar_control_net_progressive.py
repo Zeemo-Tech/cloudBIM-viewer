@@ -1,13 +1,33 @@
 import json
 import unittest
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
-from algorithms.rebar_control_net import fit_control_net
+from algorithms.rebar_control_net import fit_control_net, _fit_worker_init
 from test_rebar_control_net import inventory, tube
 
 
 class ProgressiveControlNetTests(unittest.TestCase):
+    def test_shared_pool_keeps_ownership_and_remains_caller_owned(self):
+        lines=[([0,0,0],[.6,0,0]),([0,.15,0],[.6,.15,0])]
+        clouds,normal_sets=zip(*(tube(a,b,along=90) for a,b in lines))
+        points,normals=np.vstack(clouds),np.vstack(normal_sets)
+        inv=inventory(lines,kinds=['straight','straight'])
+        table=np.zeros(len(points),bool)
+        serial,a=fit_control_net(points,table,inv,normals=normals)
+        with ProcessPoolExecutor(max_workers=2,mp_context=multiprocessing.get_context('spawn'),
+                                 initializer=_fit_worker_init) as pool:
+            parallel,b=fit_control_net(points,table,inv,normals=normals,
+                                      workers=2,curve_workers=2,worker_pool=pool)
+            self.assertEqual(pool.submit(abs,-13).result(),13)
+            with self.assertRaisesRegex(ValueError,'equal body and curve worker budgets'):
+                fit_control_net(points,table,inv,normals=normals,workers=2,worker_pool=pool)
+            self.assertEqual(pool.submit(abs,-17).result(),17)
+        self.assertEqual(serial['instances'],parallel['instances'])
+        for name in a:np.testing.assert_array_equal(a[name],b[name])
+
     def test_parallel_stages_and_recovery_match_serial_ownership(self):
         lines = [([0, 0, 0], [.6, 0, 0]), ([0, .15, 0], [.6, .15, 0]),
                  ([0, .4, 0], [.28, .4, 0]), ([0, 1.4, 0], [.28, 1.4, 0]),
@@ -51,7 +71,7 @@ class ProgressiveControlNetTests(unittest.TestCase):
         )
 
         row = report["instances"][0]
-        self.assertEqual(report["version"], "design-control-net-v25-scene-exclusion")
+        self.assertEqual(report["version"], "design-control-net-v26")
         self.assertEqual(row["status"], "fitted")
         self.assertEqual(row["lengthCheck"], "extended-observed-span")
         self.assertEqual(row["axisModel"], "evidence-extended-straight-cylinder")

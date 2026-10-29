@@ -1,0 +1,525 @@
+{
+  "comparison": {
+    "beforeVersion": "4fe488478654909ce3c8da86",
+    "afterVersion": "0ce5046a9503c294e45eab3f",
+    "beforeCounts": {
+      "embedded": 39431,
+      "fixture": 1707447,
+      "noise": 77628,
+      "pipe": 0,
+      "steel": 769738,
+      "table": 0,
+      "unknown": 1443897
+    },
+    "afterCounts": {
+      "embedded": 39433,
+      "fixture": 1707358,
+      "noise": 76482,
+      "pipe": 0,
+      "steel": 876936,
+      "table": 0,
+      "unknown": 1337932
+    },
+    "matchedPhysicalBefore": 76,
+    "matchedPhysicalAfter": 76,
+    "steelNetIncrease": 107198,
+    "newSteelFromPending": 112954,
+    "newSteelFromNoise": 1616,
+    "oldSteelReleased": 7525,
+    "cases": {
+      "70": {
+        "before": {
+          "pointCount": 12141,
+          "observedLengthM": 1.2539999999999965,
+          "axialCoverage": 0.7324766243505318,
+          "axisGrowth": 0
+        },
+        "after": {
+          "pointCount": 13640,
+          "observedLengthM": 1.4960000000000002,
+          "axialCoverage": 0.8738317623830932,
+          "axisGrowth": 6
+        }
+      },
+      "168": {
+        "before": {
+          "pointCount": 9995,
+          "observedLengthM": 0.9839999999999988,
+          "axialCoverage": 0.5747663463803225,
+          "axisGrowth": 0
+        },
+        "after": {
+          "pointCount": 14123,
+          "observedLengthM": 1.4760000000000002,
+          "axialCoverage": 0.862149519570485,
+          "axisGrowth": 4
+        }
+      }
+    },
+    "growthSectionsTotal": 216
+  },
+  "modelAudit": {
+    "path": "backend/data/assets/760731a0111181486425f189/denoise/13/0ce5046a9503c294e45eab3f",
+    "flexibleBodies": 46,
+    "ownedFlexiblePoints": 863243,
+    "unsupported": 0,
+    "interiorOver10mm": 0,
+    "rows": [
+      {
+        "id": 1,
+        "owned": 21505,
+        "body": 21071,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 3,
+        "owned": 15038,
+        "body": 15038,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 4,
+        "owned": 14407,
+        "body": 14407,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 5,
+        "owned": 13769,
+        "body": 13769,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 9,
+        "owned": 12176,
+        "body": 12044,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 13,
+        "owned": 24045,
+        "body": 24045,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 14,
+        "owned": 11634,
+        "body": 11484,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 18,
+        "owned": 18434,
+        "body": 18434,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 25,
+        "owned": 12209,
+        "body": 12209,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 29,
+        "owned": 6588,
+        "body": 6588,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 36,
+        "owned": 47664,
+        "body": 47664,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 40,
+        "owned": 9179,
+        "body": 9020,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 44,
+        "owned": 2509,
+        "body": 2509,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 57,
+        "owned": 19602,
+        "body": 19514,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 61,
+        "owned": 7645,
+        "body": 7645,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 62,
+        "owned": 20916,
+        "body": 20730,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 69,
+        "owned": 39793,
+        "body": 39793,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 70,
+        "owned": 13640,
+        "body": 13640,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 71,
+        "owned": 18910,
+        "body": 18659,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 72,
+        "owned": 10971,
+        "body": 10971,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 79,
+        "owned": 21162,
+        "body": 21162,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 83,
+        "owned": 14364,
+        "body": 14364,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 84,
+        "owned": 79962,
+        "body": 79947,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 85,
+        "owned": 25711,
+        "body": 25711,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 89,
+        "owned": 6566,
+        "body": 6566,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 102,
+        "owned": 38494,
+        "body": 38494,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 112,
+        "owned": 17680,
+        "body": 17680,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 116,
+        "owned": 4295,
+        "body": 4295,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 117,
+        "owned": 5837,
+        "body": 5837,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 118,
+        "owned": 16894,
+        "body": 16849,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 125,
+        "owned": 4679,
+        "body": 4679,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 126,
+        "owned": 25143,
+        "body": 25143,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 127,
+        "owned": 15002,
+        "body": 15002,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 132,
+        "owned": 57238,
+        "body": 57238,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 133,
+        "owned": 11405,
+        "body": 11405,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 146,
+        "owned": 5426,
+        "body": 5426,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 147,
+        "owned": 6803,
+        "body": 6803,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 154,
+        "owned": 20064,
+        "body": 20064,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 155,
+        "owned": 12361,
+        "body": 12361,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 156,
+        "owned": 21277,
+        "body": 20900,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 157,
+        "owned": 10367,
+        "body": 8765,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 161,
+        "owned": 75638,
+        "body": 75638,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 165,
+        "owned": 2369,
+        "body": 2369,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 166,
+        "owned": 4835,
+        "body": 4835,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 167,
+        "owned": 4914,
+        "body": 4914,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 168,
+        "owned": 14123,
+        "body": 13794,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      }
+    ],
+    "counts": {
+      "0": 1337932,
+      "2": 1707358,
+      "3": 876936,
+      "4": 76482,
+      "5": 39433
+    }
+  },
+  "synthetic": {
+    "rotated-local-competition": {
+      "v4": {
+        "truePoints": 16000,
+        "clutterPoints": 4672,
+        "trueRetained": 11245,
+        "trueRecall": 0.7028125,
+        "clutterAssigned": 0,
+        "sourceUnchanged": true,
+        "localTrueRecall": 0.0
+      },
+      "v5": {
+        "truePoints": 16000,
+        "clutterPoints": 4672,
+        "trueRetained": 15963,
+        "trueRecall": 0.9976875,
+        "clutterAssigned": 0,
+        "sourceUnchanged": true,
+        "localTrueRecall": 0.9955
+      }
+    },
+    "bowed-nearer-denser-clutter": {
+      "v4": {
+        "truePoints": 16000,
+        "clutterPoints": 21984,
+        "trueRetained": 8465,
+        "trueRecall": 0.5290625,
+        "clutterAssigned": 0,
+        "sourceUnchanged": true
+      },
+      "v5": {
+        "truePoints": 16000,
+        "clutterPoints": 21984,
+        "trueRetained": 15963,
+        "trueRecall": 0.9976875,
+        "clutterAssigned": 0,
+        "sourceUnchanged": true
+      }
+    },
+    "full-parallel-stale-owner": {
+      "v4": {
+        "truePoints": 16000,
+        "clutterPoints": 32000,
+        "trueRetained": 0,
+        "trueRecall": 0.0,
+        "clutterAssigned": 0,
+        "sourceUnchanged": true
+      },
+      "v5": {
+        "truePoints": 16000,
+        "clutterPoints": 32000,
+        "trueRetained": 15963,
+        "trueRecall": 0.9976875,
+        "clutterAssigned": 0,
+        "sourceUnchanged": true
+      }
+    }
+  },
+  "business": {
+    "version": "0ce5046a9503c294e45eab3f",
+    "requestSeconds": 63.12329450796824,
+    "alignmentUnchanged": true,
+    "preservedFiles": 98,
+    "historicalHashesUnchanged": true,
+    "latestFresh": true
+  },
+  "export": {
+    "version": "0ce5046a9503c294e45eab3f",
+    "sourcePoints": 4038141,
+    "exportedPoints": 876936,
+    "sourceDimensionsUnchanged": [
+      "X",
+      "Y",
+      "Z",
+      "intensity",
+      "return_number",
+      "number_of_returns",
+      "scan_direction_flag",
+      "edge_of_flight_line",
+      "classification",
+      "synthetic",
+      "key_point",
+      "withheld",
+      "scan_angle_rank",
+      "user_data",
+      "point_source_id",
+      "gps_time",
+      "red",
+      "green",
+      "blue",
+      "source_index",
+      "normal_x",
+      "normal_y",
+      "normal_z",
+      "normal_valid",
+      "normal_curvature",
+      "normal_radius",
+      "shared_table_mask"
+    ],
+    "previewPoints": 500000,
+    "previewLabelsAndOwnersExact": true,
+    "previewCoordinatesExactFloat32": true
+  },
+  "deployment": {
+    "container": "cloudbim-mesh-service-1",
+    "hashes": {
+      "bim_bent_bars.py": "b9b46737bda1cf7b68a87fe6e5098e95044a8bfa518d026b8ce83e6a4bef6992",
+      "bim_guided_classification.py": "cdaa07911afa12962c024a2d42c05f4cc079909655284833e6627bd0ad64df4b",
+      "rebar_control_net.py": "19968cf2fa7b711a7504fdc28a425350876af64063b386222a0349400e2263c7",
+      "rebar_control_curves.py": "aabaeb463e726d830da6c894bc3f4c78b8ba25d85f5156f56a6c5971fde2b0ef",
+      "rebar_control_endpoints.py": "b3ed6cdd395b6c4ddbd7b73978e38ba507c97ad8458737269d7a90f427dcdb67"
+    },
+    "containerMatchesWorkspace": true,
+    "health": {
+      "http://127.0.0.1:5173/": 200,
+      "http://127.0.0.1:8090/health": 200
+    }
+  },
+  "tests": {
+    "passed": 134,
+    "log": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/assessment-20261029-axial-growth/regression-final.log",
+    "priorWarnings": "NumPy empty-mean warnings also present before this revision"
+  },
+  "browserVisualAcceptance": false,
+  "browserReason": "Chrome DevTools profile already in use; no browser or profile was terminated",
+  "figureSource": "official versioned labels and original scan XYZ; same crop and background sampling in all panels"
+}

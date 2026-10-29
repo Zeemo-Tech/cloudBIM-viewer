@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import ifcopenshell
 import numpy as np
@@ -63,6 +64,67 @@ def fixture(folder, malformed=False):
 
 
 class SceneGeometryTests(unittest.TestCase):
+    def test_opening_subtraction_is_not_a_physical_glb_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, glb, _, rows, _ = fixture(Path(directory))
+            model = ifcopenshell.open(str(path))
+            host = model.by_guid(rows[0].GlobalId)
+            # Put the void outside the host so its independently constructed
+            # reference mesh stays unchanged. The opening has valid triangles,
+            # but a physical GLB export correctly omits this subtraction volume.
+            opening = model.create_entity('IfcOpeningElement',
+                GlobalId=ifcopenshell.guid.new(), Representation=host.Representation)
+            model.create_entity('IfcRelVoidsElement', GlobalId=ifcopenshell.guid.new(),
+                RelatingBuildingElement=host, RelatedOpeningElement=opening)
+            model.write(str(path))
+            result = load_scene_geometry(path, glb, IDENTITY)
+            d = result['diagnostics']
+            self.assertEqual(len(result['objects']), 6)
+            self.assertNotIn(opening.GlobalId, {row['globalId'] for row in result['objects']})
+            self.assertEqual(d['excludedSubtractionProducts'], 1)
+            self.assertEqual(d['excludedSubtractionGlobalIds'], [opening.GlobalId])
+            self.assertEqual(d['parseFailureCount'], 0)
+            self.assertTrue(d['coordinateValidation']['passed'])
+
+    def test_missing_physical_glb_object_still_rejects_scene(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, glb, _, rows, _ = fixture(Path(directory))
+            scene = trimesh.load(str(glb), force='scene', process=False)
+            scene.delete_geometry(scene.graph.get(rows[0].GlobalId)[1])
+            glb.write_bytes(scene.export(file_type='glb'))
+            with self.assertRaisesRegex(ValueError, 'coordinate validation failed'):
+                load_scene_geometry(path, glb, IDENTITY)
+
+    def test_cache_binds_contents_and_reapplies_complete_alignment(self):
+        import bim_scene_geometry as geometry
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            path,glb,_,_,_=fixture(root)
+            cache=root/'cache'
+            first=load_scene_geometry(path,glb,IDENTITY,cache_directory=cache)
+            matrix=np.eye(4)
+            from scipy.spatial.transform import Rotation
+            matrix[:3,:3]=Rotation.from_rotvec([.21,-.34,.67]).as_matrix()
+            matrix[:3,3]=[1.1,-2.3,.7]
+            with patch.object(geometry,'_load_scene_geometry',wraps=geometry._load_scene_geometry) as parse:
+                second=load_scene_geometry(path,glb,matrix.T.ravel().tolist(),cache_directory=cache)
+                parse.assert_not_called()
+            self.assertFalse(first['diagnostics']['modelCacheHit'])
+            self.assertTrue(second['diagnostics']['modelCacheHit'])
+            for a,b in zip(first['objects'],second['objects']):
+                expected=np.linalg.solve(matrix,np.c_[a['vertices'],np.ones(len(a['vertices']))].T).T[:,:3]
+                np.testing.assert_allclose(b['vertices'],expected,atol=1e-12,rtol=0)
+                np.testing.assert_array_equal(b['faces'],a['faces'])
+            self.assertEqual(second['diagnostics']['scanToBimMatrix'],matrix.T.ravel().tolist())
+            # Corrupt disposable entries are rebuilt, never treated as evidence.
+            next(cache.glob('scene-*.npz')).write_bytes(b'incomplete')
+            rebuilt=load_scene_geometry(path,glb,IDENTITY,cache_directory=cache)
+            self.assertFalse(rebuilt['diagnostics']['modelCacheHit'])
+            scene=trimesh.load(str(glb),force='scene',process=False)
+            scene.apply_translation([.1,0,0]);glb.write_bytes(scene.export(file_type='glb'))
+            with self.assertRaisesRegex(ValueError,'coordinate validation failed'):
+                load_scene_geometry(path,glb,IDENTITY,cache_directory=cache)
+
     def test_nested_mm_placement_full_inverse_and_preserved_duplicate_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             path, glb, reference, rows, _ = fixture(Path(directory))

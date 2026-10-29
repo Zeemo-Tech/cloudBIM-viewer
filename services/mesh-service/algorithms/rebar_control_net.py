@@ -23,7 +23,7 @@ from scipy.optimize import least_squares
 from rebar_prior_axis import fit_prior_axis
 
 
-VERSION = "design-control-net-v25-scene-exclusion"
+VERSION = "design-control-net-v26"
 _MAX_TREE_QUERIES = 256
 _NEIGHBOURS_PER_QUERY = 192
 _MAX_UNIT_CANDIDATES = 30_000
@@ -1430,11 +1430,13 @@ def _fit_worker_init():
 
 def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=None,
                     progress=None, fused_classes=None, layer_ids=None, layering=None,
-                    workers=1, curve_workers=1, excluded_mask=None):
+                    workers=1, curve_workers=1, excluded_mask=None, worker_pool=None,
+                    complete_members=True):
     """Fit physical design-unit control lines on post-table or fused steel input.
 
     Returns ``(JSON report, typed full-source attributes)``. Source coordinates
-    and ordering are never modified.
+    and ordering are never modified. A pipeline that will revise bodies must
+    defer dependent curves and cut faces with ``complete_members=False``.
     """
     started = time.perf_counter()
     points = np.asarray(points, dtype=float)
@@ -1451,6 +1453,8 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
             raise ValueError("normals must have shape (N, 3)")
     if isinstance(workers, bool) or not isinstance(workers, (int, np.integer)) or workers < 1:
         raise ValueError("workers must be a positive integer")
+    if worker_pool is not None and min(8, int(workers)) != min(8, int(curve_workers)):
+        raise ValueError("a shared fitting pool requires equal body and curve worker budgets")
     post_fusion = fused_classes is not None
     # The early post-table pass has no measured semantic layers. Keep that
     # absence explicit: design provenance must not invent a fitting partition
@@ -1658,7 +1662,7 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
     # coordinates are never deleted, and ambiguous points remain available.
     with ExitStack() as stack:
         pool_stack = stack.enter_context(ExitStack())
-        executor = None
+        executor = worker_pool
         for stage_kind, stage_label in (("straight", "长直筋"), ("short", "短筋"), ("web", "腹杆")):
             stage_tasks = [(number, unit) for number, unit in enumerate(transformed, 1)
                            if (unit["kind"] if unit["kind"] in ('short', 'web') else 'straight') == stage_kind]
@@ -1950,9 +1954,6 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
                 "elapsedS": float(time.perf_counter()-stage_started)})
         for number in cross_stage_ambiguous:
             instance_rows[number-1].update(status='pending', reason='ambiguous-design-support')
-        # Curves attach only after body identity and unique support are established.
-        # Their ownership is additive; accepted body points and nominal axes remain.
-        from algorithms.rebar_control_curves import fit_curved_pieces
         registered_inventory = _transformed_inventory(inventory, rotation, translation)
         # A different curve budget needs a different pool. Reap idle body
         # workers first so pools never coexist beyond the global cap and the
@@ -1960,13 +1961,18 @@ def fit_control_net(points, table_mask, inventory, *, mode="aligned", normals=No
         if executor is not None and min(8, int(workers)) != min(8, int(curve_workers)):
             pool_stack.close()
             executor = None
-        curved_pieces, curve_summary = fit_curved_pieces(
-            points, normals, registered_inventory, instance_rows, status, owner,
-            tree=tree, source_ids=source_ids, progress=progress, workers=curve_workers,
-            executor=executor)
-    from algorithms.rebar_control_endpoints import complete_end_faces
-    end_face_count = complete_end_faces(points, normals, instance_rows, curved_pieces,
-        owner, status, tree, source_ids)
+        curved_pieces, curve_summary = [], {}
+        if complete_members:
+            from algorithms.rebar_control_curves import fit_curved_pieces
+            curved_pieces, curve_summary = fit_curved_pieces(
+                points, normals, registered_inventory, instance_rows, status, owner,
+                tree=tree, source_ids=source_ids, progress=progress, workers=curve_workers,
+                executor=executor)
+    end_face_count = 0
+    if complete_members:
+        from algorithms.rebar_control_endpoints import complete_end_faces
+        end_face_count = complete_end_faces(points, normals, instance_rows, curved_pieces,
+            owner, status, tree, source_ids)
     fitted = sum(row["status"] == "fitted" for row in instance_rows)
     physical_bars = (len((inventory or {}).get("bars", []))
                      if "bars" in (inventory or {})

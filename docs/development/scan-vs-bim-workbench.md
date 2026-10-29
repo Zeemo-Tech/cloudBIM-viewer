@@ -10,6 +10,12 @@ scripts/cloudbim-dev.sh status
 
 本机入口：<http://127.0.0.1:8767/>。监听地址与显式允许的主机沿用点云练武场的 `POINTCLOUD_WORKBENCH_HOST` 和 `POINTCLOUD_WORKBENCH_ALLOW_HOST` 配置。当前开发机也可通过 <http://10.0.0.4:8767/> 访问。`start` 在输入快照存在时启动该服务，`stop` 同时停止它；不改变 5173、5174、8090、8766 端口。进程由现有 supervisor 管理，日志位于 `.cloudbim/scan-bim-workbench.log`。
 
+## 正式流程状态（2026-10-29 核验）
+
+下文保留练武场及早期实验的历史记录。正式业务链路现已采用 `c2m-rebar-instance-v4`：第二步保存柔性控制网中心线及实例归属，第三步使用控制网局部切向与真实扫描点建立同侧对应，第四步保存逐筋报告。`rebar_prior_axis.fit_prior_axis` 已被正式控制网求解器调用；练武场的逐簇独立入口与生产控制网仍是两个不同调用入口。
+
+本机运行服务与已保存报告均已核验，详见 [柔性配准与有符号偏差](scan-vs-bim-flexible-registration.md)。历史段落中的“仅练武场启用”指当时的独立簇实验，不代表当前正式流程未使用柔性拟合。
+
 ## 检查顺序
 
 1. **输入与实例归属**：按名称或 IFC ID 选钢筋，查看其完整扫描点与设计单元。`review` 或 `missing` 不会被强行匹配。
@@ -80,7 +86,7 @@ scripts/cloudbim-dev.sh status
 
 - `services/mesh-service/rebar_workbench.py`：固定输入、目录、单筋计算与数据序列化。
 - `rebar_prior_axis.py`：已知半径的整单元平滑中心轴联合拟合。
-- `rebar_cluster_axis.py`：练武场逐簇独立拟合、与设计轴比较、设计网格面分组。生产默认仍为原截面方法。半径变化返回 null，避免把约束值当作实测无偏差。
+- `rebar_cluster_axis.py`：练武场逐簇独立拟合、与设计轴比较、设计网格面分组。该实验的半径变化返回 null，避免把约束值当作实测无偏差。正式 v4 使用 `rebar_control_comparison.py` 消费第二步保存的控制网证据。
 - `rebar_scan_surface.py`：可选真实候选 trace、完整点索引映射和实际径向输出；未开启 trace 的调用保留原返回契约。
 - `scripts/scan-bim-debug.py`：固定输入的本地 API；同源写请求和配置主机校验；只允许固定静态资源及已完成批次的结果文件。
 - `scripts/scan-bim-debug/`：独立 Three.js 练武场，依赖从本地 node_modules 提供。

@@ -1,0 +1,756 @@
+{
+  "business": {
+    "version": "4fe488478654909ce3c8da86",
+    "requestSeconds": 62.179693298065104,
+    "alignmentUnchanged": true,
+    "preservedFiles": 91,
+    "historicalHashesUnchanged": true,
+    "latestFresh": true
+  },
+  "geometry": {
+    "path": "backend/data/assets/760731a0111181486425f189/denoise/13/4fe488478654909ce3c8da86",
+    "flexibleBodies": 44,
+    "ownedFlexiblePoints": 723497,
+    "unsupported": 0,
+    "ambiguouslyOwned": 0,
+    "caseChecks": {
+      "70": {
+        "originalBadRows": 559,
+        "stillOwn": 0,
+        "pending": 559,
+        "noise": 0,
+        "otherOwner": 0
+      },
+      "168": {
+        "originalBadRows": 511,
+        "stillOwn": 0,
+        "pending": 511,
+        "noise": 0,
+        "otherOwner": 0
+      }
+    },
+    "rows": [
+      {
+        "id": 1,
+        "owned": 19691,
+        "body": 18918,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 2,
+        "owned": 1522,
+        "body": 1522,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 3,
+        "owned": 13576,
+        "body": 13576,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 5,
+        "owned": 13523,
+        "body": 13523,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 9,
+        "owned": 11075,
+        "body": 11075,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 13,
+        "owned": 22199,
+        "body": 22199,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 14,
+        "owned": 10565,
+        "body": 10565,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 18,
+        "owned": 12780,
+        "body": 12780,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 25,
+        "owned": 11336,
+        "body": 11336,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 29,
+        "owned": 6064,
+        "body": 6064,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 36,
+        "owned": 45133,
+        "body": 45133,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 40,
+        "owned": 8804,
+        "body": 8645,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 44,
+        "owned": 2321,
+        "body": 2321,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 57,
+        "owned": 18113,
+        "body": 17888,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 61,
+        "owned": 7440,
+        "body": 7440,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 69,
+        "owned": 26042,
+        "body": 26042,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 70,
+        "owned": 12141,
+        "body": 12141,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 71,
+        "owned": 18217,
+        "body": 18217,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 72,
+        "owned": 10227,
+        "body": 10227,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 79,
+        "owned": 16076,
+        "body": 16076,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 83,
+        "owned": 12515,
+        "body": 12515,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 84,
+        "owned": 70158,
+        "body": 70143,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 85,
+        "owned": 23345,
+        "body": 23345,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 89,
+        "owned": 5768,
+        "body": 5768,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 102,
+        "owned": 28535,
+        "body": 28535,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 112,
+        "owned": 14980,
+        "body": 14980,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 116,
+        "owned": 3836,
+        "body": 3836,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 117,
+        "owned": 5450,
+        "body": 5450,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 118,
+        "owned": 15699,
+        "body": 15699,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 126,
+        "owned": 21518,
+        "body": 21518,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 127,
+        "owned": 13878,
+        "body": 13878,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 132,
+        "owned": 52259,
+        "body": 52259,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 133,
+        "owned": 10994,
+        "body": 10994,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 146,
+        "owned": 5085,
+        "body": 5085,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 147,
+        "owned": 6499,
+        "body": 6499,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 154,
+        "owned": 15784,
+        "body": 15784,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 155,
+        "owned": 9610,
+        "body": 9610,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 156,
+        "owned": 18210,
+        "body": 17930,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 157,
+        "owned": 8887,
+        "body": 8887,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 161,
+        "owned": 71708,
+        "body": 71708,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 165,
+        "owned": 2364,
+        "body": 2364,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 166,
+        "owned": 4607,
+        "body": 4607,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 167,
+        "owned": 4968,
+        "body": 4968,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 168,
+        "owned": 9995,
+        "body": 9995,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      }
+    ],
+    "counts": {
+      "0": 1443897,
+      "2": 1707447,
+      "3": 769738,
+      "4": 77628,
+      "5": 39431
+    }
+  },
+  "baselineGeometry": {
+    "path": "backend/data/assets/760731a0111181486425f189/denoise/13/986434c34d2d2a6f76877076",
+    "flexibleBodies": 46,
+    "ownedFlexiblePoints": 919961,
+    "unsupported": 70746,
+    "ambiguouslyOwned": 0,
+    "caseChecks": {
+      "70": {
+        "originalBadRows": 559,
+        "stillOwn": 559,
+        "pending": 0,
+        "noise": 0,
+        "otherOwner": 0
+      },
+      "168": {
+        "originalBadRows": 511,
+        "stillOwn": 511,
+        "pending": 0,
+        "noise": 0,
+        "otherOwner": 0
+      }
+    },
+    "rows": [
+      {
+        "id": 1,
+        "owned": 23101,
+        "body": 20308,
+        "unsupported": 2251,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 2,
+        "owned": 2881,
+        "body": 1639,
+        "unsupported": 1242,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 3,
+        "owned": 16331,
+        "body": 14863,
+        "unsupported": 1468,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 4,
+        "owned": 15040,
+        "body": 13912,
+        "unsupported": 1128,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 5,
+        "owned": 14355,
+        "body": 13759,
+        "unsupported": 596,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 9,
+        "owned": 12932,
+        "body": 11939,
+        "unsupported": 861,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 13,
+        "owned": 24765,
+        "body": 23717,
+        "unsupported": 1048,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 14,
+        "owned": 12627,
+        "body": 11468,
+        "unsupported": 1044,
+        "over10mmInBody": 1
+      },
+      {
+        "id": 18,
+        "owned": 21154,
+        "body": 17942,
+        "unsupported": 3212,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 25,
+        "owned": 13027,
+        "body": 12206,
+        "unsupported": 821,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 29,
+        "owned": 7540,
+        "body": 6300,
+        "unsupported": 1240,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 36,
+        "owned": 48530,
+        "body": 47453,
+        "unsupported": 1077,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 40,
+        "owned": 9407,
+        "body": 8857,
+        "unsupported": 390,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 44,
+        "owned": 3395,
+        "body": 2405,
+        "unsupported": 990,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 57,
+        "owned": 22327,
+        "body": 19287,
+        "unsupported": 2952,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 61,
+        "owned": 7912,
+        "body": 7643,
+        "unsupported": 269,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 62,
+        "owned": 23110,
+        "body": 19606,
+        "unsupported": 3026,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 69,
+        "owned": 41456,
+        "body": 38989,
+        "unsupported": 2467,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 70,
+        "owned": 16259,
+        "body": 13483,
+        "unsupported": 2776,
+        "over10mmInBody": 559
+      },
+      {
+        "id": 71,
+        "owned": 21128,
+        "body": 18894,
+        "unsupported": 2234,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 72,
+        "owned": 11709,
+        "body": 10888,
+        "unsupported": 821,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 79,
+        "owned": 21794,
+        "body": 20787,
+        "unsupported": 1007,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 83,
+        "owned": 16536,
+        "body": 14040,
+        "unsupported": 2496,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 84,
+        "owned": 80835,
+        "body": 78866,
+        "unsupported": 1943,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 85,
+        "owned": 27699,
+        "body": 25485,
+        "unsupported": 2214,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 89,
+        "owned": 7350,
+        "body": 6428,
+        "unsupported": 922,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 102,
+        "owned": 39560,
+        "body": 38344,
+        "unsupported": 1216,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 112,
+        "owned": 20061,
+        "body": 16914,
+        "unsupported": 3147,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 117,
+        "owned": 7457,
+        "body": 5772,
+        "unsupported": 1685,
+        "over10mmInBody": 37
+      },
+      {
+        "id": 118,
+        "owned": 18800,
+        "body": 16884,
+        "unsupported": 1916,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 125,
+        "owned": 5517,
+        "body": 4452,
+        "unsupported": 1065,
+        "over10mmInBody": 16
+      },
+      {
+        "id": 126,
+        "owned": 28701,
+        "body": 25464,
+        "unsupported": 3237,
+        "over10mmInBody": 47
+      },
+      {
+        "id": 127,
+        "owned": 15593,
+        "body": 14954,
+        "unsupported": 278,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 132,
+        "owned": 57789,
+        "body": 57168,
+        "unsupported": 621,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 133,
+        "owned": 12357,
+        "body": 11373,
+        "unsupported": 984,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 146,
+        "owned": 6124,
+        "body": 5304,
+        "unsupported": 820,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 147,
+        "owned": 7126,
+        "body": 6710,
+        "unsupported": 416,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 154,
+        "owned": 22358,
+        "body": 19863,
+        "unsupported": 2495,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 155,
+        "owned": 14482,
+        "body": 10996,
+        "unsupported": 3486,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 156,
+        "owned": 22127,
+        "body": 20514,
+        "unsupported": 1236,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 157,
+        "owned": 11180,
+        "body": 10139,
+        "unsupported": 693,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 161,
+        "owned": 77088,
+        "body": 74823,
+        "unsupported": 2265,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 165,
+        "owned": 2362,
+        "body": 2362,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 166,
+        "owned": 5353,
+        "body": 4760,
+        "unsupported": 593,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 167,
+        "owned": 6093,
+        "body": 5026,
+        "unsupported": 1067,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 168,
+        "owned": 16633,
+        "body": 13602,
+        "unsupported": 3031,
+        "over10mmInBody": 511
+      }
+    ],
+    "counts": {
+      "0": 1279742,
+      "2": 1707062,
+      "3": 935379,
+      "4": 76554,
+      "5": 39404
+    }
+  },
+  "export": {
+    "version": "4fe488478654909ce3c8da86",
+    "sourcePoints": 4038141,
+    "exportedPoints": 769738,
+    "sourceDimensionsUnchanged": [
+      "X",
+      "Y",
+      "Z",
+      "intensity",
+      "return_number",
+      "number_of_returns",
+      "scan_direction_flag",
+      "edge_of_flight_line",
+      "classification",
+      "synthetic",
+      "key_point",
+      "withheld",
+      "scan_angle_rank",
+      "user_data",
+      "point_source_id",
+      "gps_time",
+      "red",
+      "green",
+      "blue",
+      "source_index",
+      "normal_x",
+      "normal_y",
+      "normal_z",
+      "normal_valid",
+      "normal_curvature",
+      "normal_radius",
+      "shared_table_mask"
+    ],
+    "previewPoints": 500000,
+    "previewLabelsAndOwnersExact": true,
+    "previewCoordinatesExactFloat32": true
+  },
+  "codeHashes": {
+    "algorithms/bim_bent_bars.py": "b8bd6b6e4d2059a6257f453425b3cfc8ace195e0e1e90ffac290c32b324d61d1",
+    "algorithms/bim_guided_classification.py": "cdaa07911afa12962c024a2d42c05f4cc079909655284833e6627bd0ad64df4b",
+    "algorithms/rebar_control_net.py": "19968cf2fa7b711a7504fdc28a425350876af64063b386222a0349400e2263c7",
+    "algorithms/rebar_control_curves.py": "e8973f031af524300d705494b285c6dae2c076242630b262073536e075c71fee",
+    "algorithms/rebar_control_endpoints.py": "1ebf64250d310462f9029afda557f2eb092e9347579f82844311e85ca04c27a3",
+    "algorithms/rebar_ownership.py": "f2ca76db6ac2a60ca414d8902e6f162804862b0bda8ae12bd6a05fa36bd443d4"
+  },
+  "tests": {
+    "mainRegression": 111,
+    "rotatedPartialAmbiguity": 1,
+    "downstream": 19,
+    "totalDistinctPassed": 131
+  },
+  "browserVisualAcceptance": "not performed: Chrome DevTools profile unavailable; CUA browser inventory empty"
+}

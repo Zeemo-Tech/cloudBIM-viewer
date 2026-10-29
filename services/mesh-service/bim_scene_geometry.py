@@ -9,9 +9,15 @@ recentering, name inference, geometry deduplication or scan support is involved.
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
+import importlib.metadata
+import json
+import os
 from pathlib import Path
+import tempfile
 import time
 from typing import Any
+import zipfile
 
 import numpy as np
 
@@ -78,12 +84,12 @@ def _validation_sample(vertices: np.ndarray) -> np.ndarray:
     return vertices[ids]
 
 
-def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
-                        scan_to_bim: list[float]) -> dict[str, Any]:
+def _load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
+                        scan_to_bim: list[float], *, workers=1) -> dict[str, Any]:
     """Return IFC objects with float64 Nx3 vertices / int64 Mx3 triangle faces.
 
     Categories use repaired IFC entity types only. ``diagnostics.errors`` lists
-    each represented non-rebar product whose IFC geometry failed; no missing
+    each represented physical non-rebar product whose IFC geometry failed; no missing
     scan support is inferred. Spatial products without representations are
     separately counted. A missing/mismatched GLB or invalid alignment raises
     ValueError because the output coordinate frame cannot then be confirmed.
@@ -105,6 +111,20 @@ def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
     settings = ifcopenshell.geom.settings()
     settings.set(settings.USE_WORLD_COORDS, True)
     settings.set(settings.CONVERT_BACK_UNITS, False)
+    # One iterator shares IFC mapping/shape caches across occurrences. Repeated
+    # create_shape calls rebuilt that state for every bolt and plate.
+    products = sorted(model.by_type("IfcProduct"), key=lambda row: row.id())
+    # Openings/voids are Boolean cutters applied to their hosts, not physical
+    # surfaces. IfcConvert omits them from GLB; including them both rejects a
+    # correct export and would classify scan points inside empty holes as solid.
+    represented = [p for p in products if not p.is_a("IfcReinforcingBar")
+                   and not p.is_a("IfcFeatureElementSubtraction") and p.Representation is not None]
+    shapes = {}
+    if represented:
+        iterator = ifcopenshell.geom.iterator(settings, model, max(1, int(workers)), include=represented)
+        for shape in ifcopenshell.geom.consume_iterator(iterator):
+            shapes[shape.id] = (np.asarray(shape.geometry.verts, dtype=np.float64).reshape(-1, 3),
+                                np.asarray(shape.geometry.faces, dtype=np.int64).reshape(-1, 3))
     diagnostics: dict[str, Any] = {
         "schema": SCHEMA, "ifcPath": str(ifc_path), "modelPath": str(model_path),
         "ifcLengthUnitToM": float(ifcopenshell.util.unit.calculate_unit_scale(model)),
@@ -115,6 +135,7 @@ def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
         "ifcToGlbDeterminant": float(np.linalg.det(IFC_TO_GLB[:3, :3])),
         "scanToBimDeterminant": float(np.linalg.det(matrix[:3, :3])),
         "representedNonRebarProducts": 0, "excludedRebarProducts": 0,
+        "excludedSubtractionProducts": 0, "excludedSubtractionGlobalIds": [],
         "productsWithoutRepresentation": 0, "errors": [],
         "coordinateValidation": {"toleranceM": _GLB_TOLERANCE_M,
             "method": "full world AABB and bidirectional sampled nearest vertices; no fitted transform",
@@ -124,9 +145,13 @@ def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
     objects = []
     validation = diagnostics["coordinateValidation"]
     category_counts, type_counts = Counter(), Counter()
-    for product in sorted(model.by_type("IfcProduct"), key=lambda row: row.id()):
+    for product in products:
         if product.is_a("IfcReinforcingBar"):
             diagnostics["excludedRebarProducts"] += 1
+            continue
+        if product.is_a("IfcFeatureElementSubtraction"):
+            diagnostics["excludedSubtractionProducts"] += 1
+            diagnostics["excludedSubtractionGlobalIds"].append(str(product.GlobalId))
             continue
         if product.Representation is None:
             diagnostics["productsWithoutRepresentation"] += 1
@@ -135,9 +160,14 @@ def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
         gid, ifc_type = str(product.GlobalId), product.is_a()
         category = next((value for key, value in _CATEGORY_TYPES.items() if product.is_a(key)), "other")
         try:
-            shape = ifcopenshell.geom.create_shape(settings, product)
-            vertices = np.asarray(shape.geometry.verts, dtype=np.float64).reshape(-1, 3)
-            faces = np.asarray(shape.geometry.faces, dtype=np.int64).reshape(-1, 3)
+            if product.id() in shapes:
+                vertices, faces = shapes[product.id()]
+            else:
+                # Iterator omissions still get the original per-product error
+                # diagnostics, including represented but non-triangulated items.
+                shape = ifcopenshell.geom.create_shape(settings, product)
+                vertices = np.asarray(shape.geometry.verts, dtype=np.float64).reshape(-1, 3)
+                faces = np.asarray(shape.geometry.faces, dtype=np.int64).reshape(-1, 3)
             if (not len(vertices) or not len(faces) or not np.isfinite(vertices).all()
                     or np.any(faces < 0) or np.any(faces >= len(vertices))):
                 raise ValueError("IFC mesh is empty, non-finite or has invalid triangle indices")
@@ -182,3 +212,61 @@ def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
                          f"{len(checks)} matched objects, {len(validation['missingGlbGlobalIds'])} missing; "
                          f"bbox error {validation['bboxMaxErrorM']}, vertex error {validation['sampleMaxVertexDistanceM']}", diagnostics)
     return {"schema": SCHEMA, "objects": objects, "diagnostics": diagnostics}
+
+
+def load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
+                        scan_to_bim: list[float], *, workers=1, cache_directory=None) -> dict[str, Any]:
+    """Reuse validated IFC/GLB geometry, then apply this request's full inverse.
+
+    The optional cache contains only design vertices, faces and parse evidence;
+    it contains no scan rows, fitted poses, labels or registration results.
+    Both file contents, reader version and extraction contract bind each entry.
+    """
+    started=time.monotonic()
+    matrix=_scan_matrix(scan_to_bim);inverse=np.linalg.inv(matrix)
+    ifc_path,model_path=Path(ifc_path),Path(model_path)
+    if not ifc_path.is_file() or not model_path.is_file():
+        raise ValueError('existing ifc_path and model_path are required')
+    cached=None;path=None
+    if cache_directory is not None:
+        hashes=[]
+        for source in (ifc_path,model_path):
+            with source.open('rb') as stream:hashes.append(hashlib.file_digest(stream,'sha256').hexdigest())
+        identity=['validated-scene-model-v2',SCHEMA,importlib.metadata.version('ifcopenshell'),*hashes]
+        key=hashlib.sha256(json.dumps(identity,separators=(',',':')).encode()).hexdigest()
+        directory=Path(cache_directory);directory.mkdir(parents=True,exist_ok=True,mode=0o700)
+        path=directory/f'scene-{key}.npz'
+        try:
+            with np.load(path,allow_pickle=False) as archive:
+                cached=json.loads(archive['metadata'].item())
+                if cached['identity']!=identity or not cached['diagnostics']['coordinateValidation']['passed']:
+                    raise ValueError('invalid scene cache identity or validation')
+                for i,row in enumerate(cached['objects']):
+                    row['vertices']=archive[f'v{i}'];row['faces']=archive[f'f{i}']
+                    vertices,faces=row['vertices'],row['faces']
+                    if (vertices.ndim!=2 or vertices.shape[1]!=3 or not np.isfinite(vertices).all()
+                            or faces.ndim!=2 or faces.shape[1]!=3 or not np.issubdtype(faces.dtype,np.integer)
+                            or np.any(faces<0) or np.any(faces>=len(vertices))):
+                        raise ValueError('invalid scene cache arrays')
+        except (OSError,ValueError,KeyError,TypeError,zipfile.BadZipFile):
+            cached=None
+    hit=cached is not None
+    if cached is None:
+        cached=_load_scene_geometry(ifc_path,model_path,np.eye(4).T.ravel().tolist(),workers=workers)
+        if path is not None:
+            metadata={**cached,'identity':identity,
+                      'objects':[{k:v for k,v in row.items() if k not in ('vertices','faces')} for row in cached['objects']]}
+            arrays={'metadata':np.asarray(json.dumps(metadata,allow_nan=False))}
+            for i,row in enumerate(cached['objects']):arrays.update({f'v{i}':row['vertices'],f'f{i}':row['faces']})
+            descriptor,temporary=tempfile.mkstemp(prefix='.scene-',suffix='.npz',dir=path.parent)
+            try:
+                with os.fdopen(descriptor,'wb') as stream:np.savez(stream,**arrays)
+                os.replace(temporary,path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+    objects=[{**row,'vertices':_apply(row['vertices'],inverse)} for row in cached['objects']]
+    diagnostics={**cached['diagnostics'],'ifcPath':str(ifc_path),'modelPath':str(model_path),
+                 'scanToBimMatrix':matrix.T.ravel().tolist(),'bimToScanMatrix':inverse.T.ravel().tolist(),
+                 'scanToBimDeterminant':float(np.linalg.det(matrix[:3,:3])),
+                 'elapsedS':time.monotonic()-started,'modelCacheHit':hit}
+    return {'schema':SCHEMA,'objects':objects,'diagnostics':diagnostics}

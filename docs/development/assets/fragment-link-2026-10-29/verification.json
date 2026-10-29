@@ -1,0 +1,617 @@
+{
+  "date": "2026-10-29",
+  "algorithm": "bim-flexible-axis-v6",
+  "business": {
+    "version": "6af026a1a7dc9300ac351728",
+    "requestSeconds": 63.44664647197351,
+    "alignmentUnchanged": true,
+    "preservedFiles": 105,
+    "historicalHashesUnchanged": true,
+    "latestFresh": true
+  },
+  "comparison": {
+    "beforeVersion": "0ce5046a9503c294e45eab3f",
+    "afterVersion": "6af026a1a7dc9300ac351728",
+    "inputPoints": 4038141,
+    "beforeSteel": 876936,
+    "afterSteel": 885699,
+    "addedSteel": 8911,
+    "releasedSteel": 148,
+    "changedSteelOwner": 0,
+    "beforeIntervals": 302,
+    "afterIntervals": 174,
+    "examples": [
+      {
+        "id": 70,
+        "beforePoints": 13640,
+        "afterPoints": 14129,
+        "beforeCoverage": 0.8738317623830932,
+        "afterCoverage": 0.9485981163837857,
+        "beforeIntervals": 8,
+        "afterIntervals": 4
+      },
+      {
+        "id": 168,
+        "beforePoints": 14123,
+        "afterPoints": 14813,
+        "beforeCoverage": 0.862149519570485,
+        "afterCoverage": 0.9345794250086559,
+        "beforeIntervals": 9,
+        "afterIntervals": 4
+      }
+    ],
+    "linkedSections": 5,
+    "bridgedSections": 215,
+    "sourceClassOfAdded": {
+      "0": 8679,
+      "2": 88,
+      "4": 144
+    },
+    "releasedDestinationClass": {
+      "0": 117,
+      "4": 31
+    }
+  },
+  "export": {
+    "version": "6af026a1a7dc9300ac351728",
+    "sourcePoints": 4038141,
+    "exportedPoints": 885699,
+    "sourceDimensionsUnchanged": [
+      "X",
+      "Y",
+      "Z",
+      "intensity",
+      "return_number",
+      "number_of_returns",
+      "scan_direction_flag",
+      "edge_of_flight_line",
+      "classification",
+      "synthetic",
+      "key_point",
+      "withheld",
+      "scan_angle_rank",
+      "user_data",
+      "point_source_id",
+      "gps_time",
+      "red",
+      "green",
+      "blue",
+      "source_index",
+      "normal_x",
+      "normal_y",
+      "normal_z",
+      "normal_valid",
+      "normal_curvature",
+      "normal_radius",
+      "shared_table_mask"
+    ],
+    "previewPoints": 500000,
+    "previewLabelsAndOwnersExact": true,
+    "previewCoordinatesExactFloat32": true
+  },
+  "modelAudit": {
+    "path": "backend/data/assets/760731a0111181486425f189/denoise/13/6af026a1a7dc9300ac351728",
+    "flexibleBodies": 46,
+    "ownedFlexiblePoints": 872006,
+    "unsupported": 0,
+    "interiorOver10mm": 0,
+    "rows": [
+      {
+        "id": 1,
+        "owned": 21742,
+        "body": 21308,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 3,
+        "owned": 15184,
+        "body": 15184,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 4,
+        "owned": 14466,
+        "body": 14466,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 5,
+        "owned": 13844,
+        "body": 13844,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 9,
+        "owned": 12213,
+        "body": 12081,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 13,
+        "owned": 24195,
+        "body": 24195,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 14,
+        "owned": 11726,
+        "body": 11576,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 18,
+        "owned": 18545,
+        "body": 18545,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 25,
+        "owned": 12287,
+        "body": 12287,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 29,
+        "owned": 6705,
+        "body": 6705,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 36,
+        "owned": 47664,
+        "body": 47664,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 40,
+        "owned": 9231,
+        "body": 9072,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 44,
+        "owned": 2625,
+        "body": 2625,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 57,
+        "owned": 19878,
+        "body": 19790,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 61,
+        "owned": 7661,
+        "body": 7661,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 62,
+        "owned": 21195,
+        "body": 21009,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 69,
+        "owned": 40155,
+        "body": 40155,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 70,
+        "owned": 14129,
+        "body": 14129,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 71,
+        "owned": 19197,
+        "body": 18946,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 72,
+        "owned": 11027,
+        "body": 11027,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 79,
+        "owned": 21292,
+        "body": 21292,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 83,
+        "owned": 15043,
+        "body": 15043,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 84,
+        "owned": 80028,
+        "body": 80013,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 85,
+        "owned": 25861,
+        "body": 25861,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 89,
+        "owned": 6665,
+        "body": 6665,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 102,
+        "owned": 38961,
+        "body": 38961,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 112,
+        "owned": 17903,
+        "body": 17903,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 116,
+        "owned": 4295,
+        "body": 4295,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 117,
+        "owned": 6079,
+        "body": 6079,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 118,
+        "owned": 17345,
+        "body": 17300,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 125,
+        "owned": 4761,
+        "body": 4761,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 126,
+        "owned": 25850,
+        "body": 25850,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 127,
+        "owned": 15051,
+        "body": 15051,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 132,
+        "owned": 57396,
+        "body": 57396,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 133,
+        "owned": 11495,
+        "body": 11495,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 146,
+        "owned": 5527,
+        "body": 5527,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 147,
+        "owned": 6825,
+        "body": 6825,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 154,
+        "owned": 20284,
+        "body": 20284,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 155,
+        "owned": 12675,
+        "body": 12675,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 156,
+        "owned": 21328,
+        "body": 20951,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 157,
+        "owned": 10367,
+        "body": 8765,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 161,
+        "owned": 75864,
+        "body": 75864,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 165,
+        "owned": 2552,
+        "body": 2552,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 166,
+        "owned": 4912,
+        "body": 4912,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 167,
+        "owned": 5165,
+        "body": 5165,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      },
+      {
+        "id": 168,
+        "owned": 14813,
+        "body": 14484,
+        "unsupported": 0,
+        "over10mmInBody": 0
+      }
+    ],
+    "counts": {
+      "0": 1329370,
+      "2": 1707270,
+      "3": 885699,
+      "4": 76369,
+      "5": 39433
+    }
+  },
+  "httpBefore": {
+    "status": 200,
+    "requestSeconds": 48.52370582695585,
+    "algorithmSeconds": 48.49677031603642,
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v5+bim-embedded-extent-v2+execution-v4",
+    "stageTimingsSeconds": {
+      "sourceHash": 0.11590191593859345,
+      "designSnapshot": 0.09792386391200125,
+      "designInputs": 0.006366015993990004,
+      "loadPositions": 0.052966357907280326,
+      "sceneGeometry": 0.11586706596426666,
+      "preprocess": 0.9900455740280449,
+      "sceneSurfaces": 7.832731859060004,
+      "controlNet": 4.474776269984432,
+      "shortConnectors": 1.3528394049499184,
+      "bentBars": 20.47835917910561,
+      "curvedPieces": 7.9144860309315845,
+      "endFaces": 0.01282347901724279,
+      "sceneAlternatives": 2.4253131289733574,
+      "embeddedExtent": 0.6998197430511937,
+      "exportArtifacts": 1.2049964900361374
+    },
+    "modelCacheHits": {
+      "design": true,
+      "alignment": false,
+      "scene": true
+    }
+  },
+  "httpAfter": {
+    "status": 200,
+    "requestSeconds": 48.77228552498855,
+    "algorithmSeconds": 48.744426015997306,
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v6+bim-embedded-extent-v2+execution-v4",
+    "stageTimingsSeconds": {
+      "sourceHash": 0.11564092093612999,
+      "designSnapshot": 0.0970838270150125,
+      "designInputs": 0.006332146003842354,
+      "loadPositions": 0.05295916099566966,
+      "sceneGeometry": 0.11293530697003007,
+      "preprocess": 0.9947347339475527,
+      "sceneSurfaces": 7.880273445043713,
+      "controlNet": 4.564168205950409,
+      "shortConnectors": 1.3448875549947843,
+      "bentBars": 20.619188811047934,
+      "curvedPieces": 7.8048433950170875,
+      "endFaces": 0.012866030912846327,
+      "sceneAlternatives": 2.4738181240390986,
+      "embeddedExtent": 0.6893699140055105,
+      "exportArtifacts": 1.2477914850460365
+    },
+    "modelCacheHits": {
+      "design": true,
+      "alignment": false,
+      "scene": true
+    }
+  },
+  "httpSourceRowEquivalence": [
+    {
+      "version": "0ce5046a9503c294e45eab3f",
+      "replay": "old-warm-1",
+      "rowDifferences": {
+        "classes": 0,
+        "instances": 0,
+        "sceneInstances": 0
+      }
+    },
+    {
+      "version": "6af026a1a7dc9300ac351728",
+      "replay": "new-warm-1",
+      "rowDifferences": {
+        "classes": 0,
+        "instances": 0,
+        "sceneInstances": 0
+      }
+    }
+  ],
+  "isolatedReplayBefore": {
+    "seconds": 45.587556467042305,
+    "timings": {
+      "sceneSurfaces": 8.485005133901723,
+      "controlNet": 4.404716029996052,
+      "shortConnectors": 1.3321107169613242,
+      "bentBars": 20.725103614036925,
+      "curvedPieces": 6.837135018082336,
+      "endFaces": 0.01194324204698205,
+      "sceneAlternatives": 2.427810452063568,
+      "embeddedExtent": 0.6787913630250841
+    },
+    "points": 4038141,
+    "counts": {
+      "input": 4038141,
+      "table": 0,
+      "matched": 876569,
+      "pending": 1349753,
+      "removed": 76268,
+      "excluded": 1735551,
+      "designUnits": 174,
+      "fittedUnits": 75,
+      "designBars": 90,
+      "endFaceMatchedPoints": 0,
+      "candidateFittedUnits": 0,
+      "extendedShortUnits": 0,
+      "surfaceRefinedUnits": 15,
+      "surfaceResampledUnits": 3,
+      "longBodyRefinedUnits": 1,
+      "lengthReviewUnits": 0
+    },
+    "growthSeconds": 0.34604261291678995,
+    "growthUnconnected": 11,
+    "maxRssKiB": 1049384,
+    "processCpuSeconds": 213.617378,
+    "examples": [
+      {
+        "id": 70,
+        "points": 13592,
+        "coverage": 0.8785046595081367
+      },
+      {
+        "id": 168,
+        "points": 14268,
+        "coverage": 0.8714953138205717
+      }
+    ]
+  },
+  "isolatedReplayAfter": {
+    "seconds": 45.169488796032965,
+    "timings": {
+      "sceneSurfaces": 8.43744260596577,
+      "controlNet": 4.321093812934123,
+      "shortConnectors": 1.3226632529404014,
+      "bentBars": 20.401858992991038,
+      "curvedPieces": 6.9035089439712465,
+      "endFaces": 0.012030381010845304,
+      "sceneAlternatives": 2.410012178006582,
+      "embeddedExtent": 0.6743919659638777
+    },
+    "points": 4038141,
+    "counts": {
+      "input": 4038141,
+      "table": 0,
+      "matched": 886358,
+      "pending": 1340184,
+      "removed": 76079,
+      "excluded": 1735520,
+      "designUnits": 174,
+      "fittedUnits": 75,
+      "designBars": 90,
+      "endFaceMatchedPoints": 0,
+      "candidateFittedUnits": 0,
+      "extendedShortUnits": 0,
+      "surfaceRefinedUnits": 15,
+      "surfaceResampledUnits": 3,
+      "longBodyRefinedUnits": 1,
+      "lengthReviewUnits": 0
+    },
+    "growthSeconds": 0.32827089889906347,
+    "growthUnconnected": 5,
+    "maxRssKiB": 1048908,
+    "processCpuSeconds": 213.211819,
+    "examples": [
+      {
+        "id": 70,
+        "points": 14141,
+        "coverage": 0.9556074620713507
+      },
+      {
+        "id": 168,
+        "points": 14874,
+        "coverage": 0.9275700793210909
+      }
+    ]
+  },
+  "tests": {
+    "core": 29,
+    "integration": 69,
+    "passed": 98
+  },
+  "deployment": {
+    "algorithmSha256": "19ddc84d04bf3ca94e1c0112990881f6958ae850860bb3382f5159e8c043dd68",
+    "containerMatchesWorkspace": true,
+    "workers": 8,
+    "health": {
+      "http://127.0.0.1:5173/": 200,
+      "http://127.0.0.1:8090/health": 200
+    }
+  },
+  "scope": "local source preservation and geometry consistency; no independent field pointwise truth or browser WebGL acceptance"
+}

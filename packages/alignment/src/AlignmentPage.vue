@@ -33,6 +33,11 @@ import {
   ZoomOut,
 } from '@element-plus/icons-vue'
 import * as THREE from 'three'
+import { createInspectionClickGesture, pickInspectionCandidates } from './rebarInspectionInteraction'
+import { createInspectionAppearance } from './rebarInspectionAppearance'
+import { commonReportScales, formatReportDiameterMm, prepareRebarReportFigure, renderRebarReportFigure, reportDiameterStatistics, reportScanToModel, type PreparedReportFigure, type RebarFigure, type ReportFigureScales, type ReportMesh, type ReportScanPoint } from './rebarReportFigure'
+import { buildRebarReportLayout, buildReportLocator, type RebarReportLayout, type ReportChapter, type ReportChapterId } from './rebarReportLayout'
+import { summarizeReportMembers } from './rebarReportSummary'
 // InfiniteGroundGrid 随 core 发布（dev-hong 侧新增，已归入 viewer-core）。
 import { InfiniteGroundGrid, getTilesetWorldBounds } from '@cloudbim/viewer-core'
 import {
@@ -44,7 +49,7 @@ import {
   WebGPURenderer,
 } from 'three/webgpu'
 import { color as tslColor, float, vertexColor as tslVertexColor } from 'three/tsl'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { NavigationOrbitControls as OrbitControls } from '@cloudbim/viewer-core'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
@@ -74,6 +79,7 @@ import {
   computeFineAlignment,
   computePointcloudPreprocess,
   createBimAlignment,
+  createPointcloudLoadLifecycle,
   createMeasurement,
   createUploadHeaders,
   deleteMeasurement,
@@ -124,6 +130,7 @@ import {
   type MeasurementKind,
   type PointcloudColorRamp,
   type PointcloudColorRange,
+  type PointcloudLoadLifecycle,
   type PointcloudPreprocessResult,
   type RebarComparisonBar,
   type RemeshStats,
@@ -135,6 +142,7 @@ import {
   type ViewerStepProps,
 } from '@cloudbim/viewer-core'
 import { bindTransformChangeEvents } from './transformChangeEvents'
+import { bindTransformHandleInteraction, styleEngineeringTransformHandles, type TransformHandleState } from './transformHandleInteraction'
 // 配准矩阵换算（保存 / 恢复共用同一套数学与测试）：
 // packages/viewer-core/src/features/alignment/matrix.ts
 import {
@@ -156,6 +164,7 @@ import {
   type DenoiseColorMode,
 } from '@cloudbim/denoise'
 import { dimComparisonGeometry, rememberComparisonGeometryColors, filterComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
+import { orderRebarInspection, REBAR_INSPECTION_TILT } from './rebarInspectionOrder'
 // dev-hong 侧新增的钢筋巡检、调试与报告组件。
 import RebarDebugPanel from './RebarDebugPanel.vue'
 import { debugInventoryBars, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal, type RebarDebugInventory } from './rebarDebug'
@@ -241,10 +250,10 @@ const emit = defineEmits<ViewerPageEmits>()
 type RegistrationStage = 'coarse' | 'fine'
 type WorkflowStepId = 1 | 2 | 3 | 4
 const workflowSteps = [
-  { id: 1 as const, title: '点云与工程坐标配准', subtitle: '调整 BIM 与点云位置' },
-  { id: 2 as const, title: '点云分类与去噪', subtitle: '基于设计模型清理扫描点云' },
-  { id: 3 as const, title: '偏差对比', subtitle: '查看 Scan vs BIM 偏差' },
-  { id: 4 as const, title: '出报告', subtitle: '生成分析成果报告' },
+  { id: 1 as const, title: '坐标配准', compactTitle: '配准' },
+  { id: 2 as const, title: '分类去噪', compactTitle: '去噪' },
+  { id: 3 as const, title: '偏差对比', compactTitle: '对比' },
+  { id: 4 as const, title: '报告', compactTitle: '报告' },
 ]
 const ALL_WORKFLOW_STEP_IDS: WorkflowStepId[] = [1, 2, 3, 4]
 /** 宿主可用 `steps` 只开放部分步骤（例如 `:steps="[1, 2]"` 只要配准 + 去噪）。 */
@@ -262,10 +271,6 @@ const activeWorkflowStep = ref<WorkflowStepId>(1)
 const activeWorkflowStepMeta = computed(() =>
   workflowSteps.find((step) => step.id === activeWorkflowStep.value),
 )
-const titleBlockSubtitle = computed(() => {
-  const file = props.pointcloudDisplayName || '未选择点云'
-  return activeWorkflowStepMeta.value ? `${activeWorkflowStepMeta.value.subtitle} · ${file}` : file
-})
 const workflowRouteReady = ref(false)
 const reportEditing = ref(false)
 const reportToolbarCollapsed = ref(false)
@@ -279,6 +284,7 @@ const reportInspectors = ref('未填写')
 const reportReviewer = ref('未填写')
 const reportDate = ref(new Date().toLocaleDateString('zh-CN'))
 const reportFormat = ref<'pdf' | 'docx' | 'xls' | 'dxf' | 'json'>('pdf')
+const reportDiameterToleranceMm = ref<number | undefined>(2)
 const reportContents = ref([
   { id: 'cover', title: '报告封面', enabled: true, locked: false, group: '基础信息' },
   { id: 'summary', title: '偏差对比摘要', enabled: true, locked: false, group: '基础信息' },
@@ -286,7 +292,7 @@ const reportContents = ref([
   { id: 'histogram', title: '偏差直方图', enabled: true, locked: false, group: '偏差分析' },
   { id: 'conclusion', title: '结论与建议', enabled: true, locked: false, group: '结论' },
   { id: 'rebar-table', title: '逐钢筋偏差明细', enabled: true, locked: false, group: '逐钢筋明细' },
-  { id: 'rebar-projection', title: '逐钢筋投影与偏差', enabled: true, locked: false, group: '逐钢筋明细' },
+  { id: 'rebar-projection', title: '轴线测量补充附录', enabled: false, locked: false, group: '附录' },
 ])
 const reportEnabledCount = computed(() => reportContents.value.filter((item) => item.enabled).length)
 const REPORT_SUMMARY_SECTION_IDS = ['summary', 'statistics', 'histogram', 'conclusion']
@@ -466,7 +472,7 @@ const alignmentMatrixRawText = computed(() =>
 )
 const canRunFineAlignment = computed(() =>
   registrationStage.value === 'fine' && !!props.bimAssetId && !!props.pointcloudAssetId &&
-  hasSavedAlignmentMatrix.value && !coarseAlignmentDirty.value && !fineAlignLoading.value,
+  hasSavedAlignmentMatrix.value && !coarseAlignmentDirty.value && !fineAlignLoading.value && !transformHandleState.value?.dragging,
 )
 const fineRunBlockedReason = computed(() => {
   if (registrationStage.value !== 'fine') return ''
@@ -477,16 +483,16 @@ const fineRunBlockedReason = computed(() => {
   return ''
 })
 const canSaveCalibration = computed(() => !!bimLoaded.value && !!pointcloudLoaded.value &&
-  !savingCalibration.value && !fineAlignLoading.value &&
+  !savingCalibration.value && !fineAlignLoading.value && !transformHandleState.value?.dragging &&
   (registrationStage.value === 'coarse' || !!fineAlignResult.value))
 const canSaveFineAlignment = computed(() =>
   registrationStage.value === 'fine' && !!fineAlignResult.value && !fineAlignLoading.value,
 )
 const canSaveCoarseAlignment = computed(() =>
-  !!bimLoaded.value && !!pointcloudLoaded.value && registrationStage.value === 'coarse' && !savingCalibration.value,
+  !!bimLoaded.value && !!pointcloudLoaded.value && registrationStage.value === 'coarse' && !savingCalibration.value && !transformHandleState.value?.dragging,
 )
 const canOpenDenoiseStep = computed(() =>
-  Boolean(props.bimAssetId && props.pointcloudAssetId && pointcloudLoaded.value && !pointcloudPreprocessRequired.value && hasSavedAlignmentMatrix.value && sceneAlignmentReady.value && !coarseAlignmentDirty.value),
+  Boolean(props.bimAssetId && props.pointcloudAssetId && pointcloudLoaded.value && !pointcloudPreprocessRequired.value && hasSavedAlignmentMatrix.value && sceneAlignmentReady.value && !coarseAlignmentDirty.value && !transformHandleState.value?.dragging),
 )
 
 const denoiseResult = ref<DenoiseResult | null>(null)
@@ -529,6 +535,7 @@ function openWorkflowStep(step: WorkflowStepId) {
   reportEditing.value = false
   reportFullscreen.value = false
   activeWorkflowStep.value = step
+  if (step >= 3 && !c2mResult.value) void loadLatestC2M()
   showPanel.value = true
   if (step === 1) editMode.value = true
   if (step >= 2) {
@@ -744,12 +751,22 @@ async function exportReport() {
   if (reportFormat.value === 'xls') { downloadRebarReport(); return }
   if (reportFormat.value === 'json') { await downloadInspectionJSON(); return }
   if (reportFormat.value !== 'pdf') { ElMessage.info('当前支持 PDF 和 CSV 导出'); return }
-  document.body.classList.add('is-printing-alignment-report')
-  await nextTick()
-  window.setTimeout(() => {
+  if (reportPreparing.value) return
+  reportPreparing.value = true
+  try {
+    await renderReportModelViews(true)
+    if (comparisonBars.value.some(bar => !reportFigures.value[bar.ifcGlobalId])) throw new Error('报告图形尚未就绪，请稍后重试')
+    document.body.classList.add('is-printing-alignment-report')
+    await nextTick()
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     window.print()
-    window.setTimeout(() => document.body.classList.remove('is-printing-alignment-report'), 300)
-  }, 0)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '报告图形生成失败')
+  } finally {
+    document.body.classList.remove('is-printing-alignment-report')
+    reportPreparing.value = false
+    void renderReportModelViews()
+  }
 }
 
 function fitReportPage() {
@@ -757,12 +774,40 @@ function fitReportPage() {
   if (!workspace) return
   const availableWidth = Math.max(1, workspace.clientWidth - 48)
   const availableHeight = Math.max(1, workspace.clientHeight - 88)
-  reportZoom.value = Math.max(10, Math.min(140, Math.floor(Math.min(availableWidth / 794, availableHeight / 1123) * 100)))
+  const maxHeight = reportTableEnabled.value && reportLayout.value.chapters.some(chapter => chapter.id === 'connector') ? 1123 : 794
+  reportZoom.value = Math.max(10, Math.min(140, Math.floor(Math.min(availableWidth / 1123, availableHeight / maxHeight) * 100)))
   workspace.scrollTo({ top: 0, left: 0 })
 }
 
+let reportZoomAnchorPending = false
 function changeReportZoom(delta: number) {
-  reportZoom.value = Math.min(140, Math.max(10, reportZoom.value + delta))
+  const previousZoom = reportZoom.value
+  const nextZoom = Math.min(140, Math.max(10, previousZoom + delta))
+  if (nextZoom === previousZoom) return
+  reportZoom.value = nextZoom
+  const scrollHost = reportWorkspaceEl.value
+  if (!scrollHost || reportZoomAnchorPending) return
+  // Port TunnelReportPreview.setReportScale's paper-coordinate anchor. This
+  // reader has one frame per sheet, so anchor the sheet nearest the viewport centre.
+  const hostRect = scrollHost.getBoundingClientRect()
+  const centreY = hostRect.top + scrollHost.clientTop + scrollHost.clientHeight / 2
+  const stages = [...scrollHost.querySelectorAll<HTMLElement>('.report-paper-stage:not(.is-report-page-hidden)')]
+  const stage = stages.reduce<HTMLElement | undefined>((nearest, candidate) => {
+    const distance = (element: HTMLElement) => { const rect = element.getBoundingClientRect(); return Math.max(rect.top - centreY, centreY - rect.bottom, 0) }
+    return !nearest || distance(candidate) < distance(nearest) ? candidate : nearest
+  }, undefined)
+  if (!stage || !scrollHost.clientWidth || !scrollHost.clientHeight) return
+  const stageRect = stage.getBoundingClientRect()
+  const x = (hostRect.left + scrollHost.clientLeft + scrollHost.clientWidth / 2 - stageRect.left) / previousZoom
+  const y = (centreY - stageRect.top) / previousZoom
+  reportZoomAnchorPending = true
+  void nextTick(() => {
+    reportZoomAnchorPending = false
+    if (!scrollHost.contains(stage)) return
+    const updatedHost = scrollHost.getBoundingClientRect(), updatedStage = stage.getBoundingClientRect()
+    scrollHost.scrollLeft += updatedStage.left + x * reportZoom.value - updatedHost.left - scrollHost.clientLeft - scrollHost.clientWidth / 2
+    scrollHost.scrollTop += updatedStage.top + y * reportZoom.value - updatedHost.top - scrollHost.clientTop - scrollHost.clientHeight / 2
+  })
 }
 
 function toggleReportFullscreen() {
@@ -832,12 +877,44 @@ const canUseC2MResult = computed(() => Boolean(c2mResult.value && c2mResultIsFre
 const comparison = computed(() => canUseC2MResult.value ? c2mResult.value?.diagnostics?.rebarComparison : undefined)
 const comparisonBars = computed(() => comparisonBarsAtTolerance(comparison.value?.bars ?? [], c2mDistances.value, c2mToleranceMm.value / 1000))
 const comparisonReportToleranceMm = computed(() => c2mDistances.value ? c2mToleranceMm.value : (c2mResult.value?.visualization?.toleranceLimit ?? 0.01) * 1000)
-// 逐钢筋偏差明细沿用 chen 分支的分页：每页一根钢筋，便于逐根核对；
-// dev-hong 的逐钢筋投影页仍按 reportBarsPerPage 单独分页。
-const REPORT_ROWS_PER_PAGE = 1
-const comparisonReportPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / REPORT_ROWS_PER_PAGE) }, (_, page) => comparisonBars.value.slice(page * REPORT_ROWS_PER_PAGE, (page + 1) * REPORT_ROWS_PER_PAGE)))
+const reportLayout = computed(() => {
+  const values = comparison.value?.inspection?.provenance.alignmentMatrix ?? latestAlignmentResult.value?.modelMatrix
+  const alignment = values?.length === 16 && values.every(Number.isFinite) ? new THREE.Matrix4().fromArray(values) : undefined
+  // Older measurements without an explicit model frame must not define layer heights.
+  const bars = comparison.value?.measurement?.coordinateFrame === 'model' ? comparisonBars.value
+    : comparisonBars.value.map(bar => ({ ...bar, measurement: undefined }))
+  return buildRebarReportLayout(bars, comparisonInventory.value?.inventory, alignment)
+})
+const reportOrderedBars = computed(() => {
+  const byId = new Map(comparisonBars.value.map(bar => [bar.ifcGlobalId, bar]))
+  return reportLayout.value.orderedKeys.flatMap(key => byId.get(key) ? [byId.get(key)!] : [])
+})
+const reportDiameters = computed(() => new Map(reportOrderedBars.value.map(bar => [bar.ifcGlobalId,
+  reportDiameterStatistics(bar.measurement?.longitudinalProfile ?? [],
+    comparisonInventory.value?.inventory.bars.find(row => row.ifcGlobalId === bar.ifcGlobalId)?.radiusM),
+])))
+const comparisonReportPages = computed(() => reportOrderedBars.value.map(bar => [bar]))
+const reportMemberSummary = computed(() => summarizeReportMembers(comparisonBars.value, reportDiameters.value, comparisonReportToleranceMm.value, reportDiameterToleranceMm.value))
+const reportChapters = computed(() => reportLayout.value.chapters.map(chapter => {
+  const bars = reportOrderedBars.value.slice(chapter.start, chapter.start + chapter.keys.length)
+  return { ...chapter, pages: bars.map(bar => [bar]), summary: summarizeReportMembers(bars, reportDiameters.value, comparisonReportToleranceMm.value, reportDiameterToleranceMm.value) }
+}))
+const reportChapterPageIndices = reactive<Record<ReportChapterId, number>>({ transverse: 0, longitudinal: 0, connector: 0, unresolved: 0 })
+function reportChapterPageIndex(chapter: ReportChapter) {
+  return Math.min(Math.max(reportChapterPageIndices[chapter.id], 0), Math.max(0, chapter.keys.length - 1))
+}
+async function changeReportChapterPage(chapter: ReportChapter, delta: number) {
+  reportChapterPageIndices[chapter.id] = Math.min(Math.max(reportChapterPageIndex(chapter) + delta, 0), chapter.keys.length - 1)
+  await nextTick()
+  // Carry keyboard focus to the floating controls on the newly visible paper.
+  const nav = reportWorkspaceEl.value?.querySelector<HTMLElement>(`[data-report-chapter="${chapter.id}"] .rebar-report-page-stage:not(.is-report-page-hidden) .rebar-report-chapter-nav`)
+  const adjacent = nav?.querySelector<HTMLButtonElement>(`[data-report-direction="${delta > 0 ? 'next' : 'previous'}"]`)
+  const target = adjacent && !adjacent.disabled ? adjacent : nav?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+  target?.focus({ preventScroll: true })
+}
+const reportActiveMemberKeys = computed(() => reportChapters.value.flatMap(chapter => chapter.keys[reportChapterPageIndex(chapter)] ?? []))
 const reportBarsPerPage = ref(2)
-const comparisonDetailPages = computed(() => Array.from({ length: Math.ceil(comparisonBars.value.length / reportBarsPerPage.value) }, (_, page) => comparisonBars.value.slice(page * reportBarsPerPage.value, (page + 1) * reportBarsPerPage.value)))
+const comparisonDetailPages = computed(() => Array.from({ length: Math.ceil(reportOrderedBars.value.length / reportBarsPerPage.value) }, (_, page) => reportOrderedBars.value.slice(page * reportBarsPerPage.value, (page + 1) * reportBarsPerPage.value)))
 const comparisonDetailPageIndex = ref(0)
 const comparisonDetailPageCount = computed(() => comparisonDetailPages.value.length)
 function changeComparisonDetailPage(delta: number) {
@@ -853,20 +930,17 @@ const comparisonMeasurementLabel = computed(() => {
     ? `同侧表面的法向偏差（朝向容差 ${comparison.value.effective.normalMaxAngleDeg}°）`
     : `法向约束的垂直轴向偏差（双向 ${comparison.value.effective.normalMaxAngleDeg}°）`
 })
-// chen side report paging state stays available for the existing template.
-const comparisonReportPageIndex = ref(0)
-const comparisonReportPageCount = computed(() => comparisonReportPages.value.length)
-function changeComparisonReportPage(delta: number) {
-  comparisonReportPageIndex.value = Math.min(
-    Math.max(comparisonReportPageIndex.value + delta, 0),
-    Math.max(comparisonReportPageCount.value - 1, 0),
-  )
+function reportChapterFor(key: string) {
+  return reportLayout.value.chapters.find(chapter => chapter.id === reportLayout.value.members.get(key)?.chapterId)
 }
-// 报告正文页码跟随内容配置动态重排：封面 / 分析摘要 / 逐钢筋明细 / 逐钢筋投影
+function jumpReportChapter(id: ReportChapterId) {
+  void nextTick(() => reportWorkspaceEl.value?.querySelector(`[data-report-chapter="${id}"]`)?.scrollIntoView({ block: 'start' }))
+}
+// 报告正文页码跟随内容配置动态重排：封面 / 分析摘要 / 章节页及逐筋明细 / 逐钢筋投影
 // 被隐藏或删除后，后续页面的页码与总页数同步收缩。
 const reportCoverPageCount = computed(() => (reportCoverEnabled.value ? 1 : 0))
 const reportSummaryPageCount = computed(() => (reportSummaryVisible.value ? 1 : 0))
-const reportTablePageCount = computed(() => (reportTableEnabled.value ? comparisonReportPages.value.length : 0))
+const reportTablePageCount = computed(() => (reportTableEnabled.value ? comparisonReportPages.value.length + reportChapters.value.length : 0))
 const reportProjectionPageCount = computed(() => (reportProjectionEnabled.value ? comparisonDetailPages.value.length : 0))
 const reportTotalPageCount = computed(() =>
   reportCoverPageCount.value + reportSummaryPageCount.value + reportTablePageCount.value + reportProjectionPageCount.value,
@@ -874,8 +948,12 @@ const reportTotalPageCount = computed(() =>
 function reportSummaryPageNumber() {
   return reportCoverPageCount.value + 1
 }
-function reportTablePageNumber(page: number) {
-  return reportCoverPageCount.value + reportSummaryPageCount.value + page + 1
+function reportChapterPageNumber(chapter: ReportChapter) {
+  // start counts members only; number adds this and all preceding chapter pages.
+  return reportCoverPageCount.value + reportSummaryPageCount.value + chapter.start + chapter.number
+}
+function reportTablePageNumber(chapter: ReportChapter, page: number) {
+  return reportChapterPageNumber(chapter) + page + 1
 }
 function reportProjectionPageNumber(page: number) {
   return reportCoverPageCount.value + reportSummaryPageCount.value + reportTablePageCount.value + page + 1
@@ -883,10 +961,23 @@ function reportProjectionPageNumber(page: number) {
 const selectedComparisonBar = computed(() => comparisonBars.value.find(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const rebarInspectionActive = ref(false)
 const rebarInspectionManualSelect = ref(false)
+const rebarInspectionContextTransparency = ref(80)
+const rebarInspectionClick = createInspectionClickGesture()
+const rebarInspectionAppearance = createInspectionAppearance()
 const rebarInspectionAbnormalOnly = ref(false)
+const rebarInspectionOrderIds = ref<string[]>([])
+const rebarInspectionOrderedBars = computed(() => {
+  const byId = new Map(comparisonBars.value.map(bar => [bar.ifcGlobalId, bar]))
+  const ordered: RebarComparisonBar[] = []
+  for (const id of rebarInspectionOrderIds.value) {
+    const bar = byId.get(id)
+    if (bar) { ordered.push(bar); byId.delete(id) }
+  }
+  return [...ordered, ...byId.values()]
+})
 const rebarInspectionBars = computed(() => rebarInspectionAbnormalOnly.value
-  ? comparisonBars.value.filter(bar => isRebarInspectionAbnormal(bar, c2mToleranceMm.value / 1000))
-  : comparisonBars.value)
+  ? rebarInspectionOrderedBars.value.filter(bar => isRebarInspectionAbnormal(bar, c2mToleranceMm.value / 1000))
+  : rebarInspectionOrderedBars.value)
 const rebarInspectionIndex = computed(() => rebarInspectionBars.value.findIndex(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const comparisonBimVisibility = new WeakMap<THREE.Object3D, boolean>()
 let rebarCameraAnimationFrame: number | null = null
@@ -1110,9 +1201,10 @@ function applyComparisonSelection() {
   const comparisonResult = comparison.value
   // 预先建一次 id 集合，供遍历时做 O(1) 归属判断。
   const comparisonIds = new Set((comparisonResult?.bars ?? []).map(item => item.ifcGlobalId))
-  // 巡检沿用手动巡视的阅读方式：所有钢筋保持可见，只把非选中钢筋变暗；
-  // 逐根对比的高亮过滤只在调试面板里生效。
-  const inspectionSelected = !debugging && rebarInspectionActive.value
+  // Keep spatial context translucent while the selected model and scan stay opaque.
+  const inspectionSelected = !debugging && rebarInspectionActive.value && Boolean(bar) && activeWorkflowStep.value === 3
+  const contextOpacity = 1 - rebarInspectionContextTransparency.value / 100
+  if (!inspectionSelected) rebarInspectionAppearance.clear()
   const visibleInstanceIds = inspectionSelected ? (bar?.instanceIds ?? []) : undefined
   if (denoisePreview && activeWorkflowStep.value >= 3) {
     const ids = debugging ? !bar ? [] : rebarDebugCluster.value === 'review' ? bar.reviewInstanceIds ?? []
@@ -1124,9 +1216,15 @@ function applyComparisonSelection() {
       ids,
       { dimUnselected: inspectionSelected },
     )
+    if (inspectionSelected) {
+      const instances = denoisePreview.geometry.getAttribute('instance')
+      const selectedInstances = new Set(bar?.instanceIds ?? [])
+      rebarInspectionAppearance.fade(denoisePreview, contextOpacity,
+        index => Boolean(instances && selectedInstances.has(instances.getX(index))))
+    }
   }
   if (c2mSceneGroup && comparisonResult) c2mSceneGroup.traverse(object => {
-    if (!(object instanceof THREE.Mesh)) return
+    if (!(object instanceof THREE.Mesh) || object.userData.__inspectionForeground) return
     if (c2mAnalysisSession) {
       // 分析网格逐构件加载，直接改顶点色即可在不隐藏任何构件的前提下变暗。
       const colors = object.geometry.getAttribute('color')
@@ -1154,6 +1252,16 @@ function applyComparisonSelection() {
     if (!debugging) {
       // 逐根过滤只在调试态生效；退出调试后必须恢复完整索引，否则构件会停留在上次裁剪。
       filterComparisonGeometry(object.geometry, undefined)
+      if (inspectionSelected && bar) {
+        if (c2mAnalysisSession) {
+          if (objectMatchesAnyComparisonBar(object, comparisonIds) && !objectMatchesComparisonBar(object, bar.ifcGlobalId)) {
+            rebarInspectionAppearance.fade(object, contextOpacity)
+          } else rebarInspectionAppearance.restore(object)
+        } else {
+          rebarInspectionAppearance.fade(object, contextOpacity,
+            index => index >= bar.vertexStart && index < bar.vertexStart + bar.vertexCount)
+        }
+      }
       return
     }
     filterComparisonGeometry(object.geometry, resultBar)
@@ -1207,9 +1315,11 @@ function applyComparisonSelection() {
         } else if (saved?.color && !sameColor(material.color, `#${saved.color.getHexString()}`)) {
           material.color.copy(saved.color); material.needsUpdate = true
         }
-        if (material.opacity !== (saved?.opacity ?? 1)) { material.opacity = saved?.opacity ?? 1; material.needsUpdate = true }
-        if (material.transparent !== (saved?.transparent ?? false)) { material.transparent = saved?.transparent ?? false; material.needsUpdate = true }
-        if (material.depthWrite !== (saved?.depthWrite ?? true)) { material.depthWrite = saved?.depthWrite ?? true; material.needsUpdate = true }
+        const faded = inspectionSelected && isComparisonRebar && !matched
+        material.opacity = (saved?.opacity ?? 1) * (faded ? contextOpacity : 1)
+        const transparent = faded || (saved?.transparent ?? false)
+        if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true }
+        material.depthWrite = faded ? false : (saved?.depthWrite ?? true)
       })
     })
   }
@@ -1299,7 +1409,7 @@ function comparisonBarBounds(bar: RebarComparisonBar) {
     let found = false
     c2mSceneGroup.updateMatrixWorld(true)
     c2mSceneGroup.traverse(object => {
-      if (!(object instanceof THREE.Mesh)) return
+      if (!(object instanceof THREE.Mesh) || object.userData.__inspectionForeground) return
       const positions = object.geometry.getAttribute('position')
       const start = Math.max(0, bar.vertexStart)
       const end = Math.min(positions.count, start + bar.vertexCount)
@@ -1347,7 +1457,7 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
   //相机只平移、缩放到当前构件，连续巡检时阅读方向保持不变。
   // Keep the top-oriented reading direction, but expose a little depth so
   // the inspected member is not rendered as a perfectly flat plan view.
-  const tilt = THREE.MathUtils.degToRad(18)
+  const tilt = REBAR_INSPECTION_TILT
   const viewDirection = new THREE.Vector3(0, Math.cos(tilt), Math.sin(tilt)).normalize()
   const cameraDirection = viewDirection.clone().multiplyScalar(-1)
   // Project world up only to measure the screen-space extent. It is not the
@@ -1430,7 +1540,14 @@ function pauseRebarInspection() {
   applyComparisonSelection()
 }
 
+function lockRebarInspectionOrder() {
+  if (rebarInspectionOrderIds.value.length) return
+  rebarInspectionOrderIds.value = orderRebarInspection(comparisonBars.value, comparisonBarBounds)
+    .map(bar => bar.ifcGlobalId)
+}
+
 function selectInspectionBar(index: number) {
+  lockRebarInspectionOrder()
   const bars = rebarInspectionBars.value
   if (!bars.length) return false
   const normalized = Math.min(bars.length - 1, Math.max(0, index))
@@ -1442,18 +1559,34 @@ function selectInspectionBar(index: number) {
 }
 
 function stepRebarInspection(direction: -1 | 1) {
+  lockRebarInspectionOrder()
   if (!rebarInspectionBars.value.length) {
     ElMessage.warning(rebarInspectionAbnormalOnly.value ? '当前没有异常钢筋' : '暂无可巡检钢筋')
     return
   }
   rebarInspectionActive.value = true
   const current = rebarInspectionIndex.value
-  const next = current < 0 ? 0 : Math.min(rebarInspectionBars.value.length - 1, Math.max(0, current + direction))
+  let next = current < 0 ? 0 : Math.min(rebarInspectionBars.value.length - 1, Math.max(0, current + direction))
+  if (current < 0 && selectedComparisonBarId.value) {
+    // A manual pick may be outside the abnormal filter. Continue from its
+    // position in the full route instead of restarting at the first anomaly.
+    const all = rebarInspectionOrderedBars.value
+    const anchor = all.findIndex(bar => bar.ifcGlobalId === selectedComparisonBarId.value)
+    if (anchor >= 0) {
+      const candidates = direction > 0 ? all.slice(anchor + 1) : all.slice(0, anchor).reverse()
+      const visible = new Set(rebarInspectionBars.value.map(bar => bar.ifcGlobalId))
+      const neighbour = candidates.find(bar => visible.has(bar.ifcGlobalId))
+      next = neighbour ? rebarInspectionBars.value.findIndex(bar => bar.ifcGlobalId === neighbour.ifcGlobalId)
+        : direction > 0 ? rebarInspectionBars.value.length - 1 : 0
+    }
+  }
   selectInspectionBar(next)
 }
 
 function resetRebarInspection() {
+  rebarInspectionClick.cancel()
   stopRebarCameraAnimation()
+  rebarInspectionOrderIds.value = []
   rebarInspectionActive.value = false
   rebarInspectionManualSelect.value = false
   selectedComparisonBarId.value = ''
@@ -1466,17 +1599,10 @@ function exitRebarInspection() {
 }
 
 function toggleRebarManualSelection() {
+  rebarInspectionClick.cancel()
   rebarInspectionManualSelect.value = !rebarInspectionManualSelect.value
-  if (import.meta.env.DEV) {
-    console.debug('[rebar-inspection] manual selection', {
-      enabled: rebarInspectionManualSelect.value,
-      workflowStep: activeWorkflowStep.value,
-      hasComparison: Boolean(comparison.value),
-      pointcloudVisible: Boolean(denoisePreview?.visible || pointcloudGroup?.visible),
-    })
-  }
   if (rebarInspectionManualSelect.value) {
-    ElMessage.info('手动选择已开启，请在视口中点击钢筋构件')
+    ElMessage.info('单击选择钢筋，拖动旋转；Alt + 单击可切换重叠钢筋')
   } else {
     stopRebarCameraAnimation()
     ElMessage.info('已退出手动选择')
@@ -1486,8 +1612,20 @@ function toggleRebarManualSelection() {
 
 function onInspectionFilterChange() {
   if (rebarInspectionActive.value) {
-    if (rebarInspectionBars.value.length) selectInspectionBar(0)
+    if (rebarInspectionBars.value.length) {
+      // Keep the selected member when possible; otherwise continue forward in
+      // the same spatial route instead of jumping back to the first member.
+      const current = rebarInspectionIndex.value
+      const all = rebarInspectionOrderedBars.value
+      const anchor = all.findIndex(bar => bar.ifcGlobalId === selectedComparisonBarId.value)
+      const visible = new Set(rebarInspectionBars.value.map(bar => bar.ifcGlobalId))
+      const next = all.slice(Math.max(0, anchor)).find(bar => visible.has(bar.ifcGlobalId))
+      selectInspectionBar(current >= 0 ? current : next
+        ? rebarInspectionBars.value.findIndex(bar => bar.ifcGlobalId === next.ifcGlobalId)
+        : rebarInspectionBars.value.length - 1)
+    }
     else {
+      stopRebarCameraAnimation()
       selectedComparisonBarId.value = ''
       applyComparisonSelection()
     }
@@ -1497,22 +1635,25 @@ function onInspectionFilterChange() {
 function selectInspectionBarById(ifcGlobalId: string) {
   const bar = comparisonBars.value.find(item => item.ifcGlobalId === ifcGlobalId)
   if (!bar) return false
+  stopRebarCameraAnimation()
+  lockRebarInspectionOrder()
   rebarInspectionActive.value = true
   selectedComparisonBarId.value = bar.ifcGlobalId
   applyComparisonSelection()
-  void nextTick(() => focusComparisonBar(bar, { manual: true }))
+  // A direct pick keeps the angle the inspector deliberately navigated to.
+  // Camera flights belong to route navigation and the explicit locate action.
   return true
 }
 
 function getComparisonBarIdFromHit(hit: THREE.Intersection) {
   let current: THREE.Object3D | null = hit.object
   while (current) {
-    const candidate = [
+    const candidates = [
       String(current.userData?.ifcGlobalId ?? '').trim(),
       String(current.name || '').trim(),
       guessIfcId(current.userData),
-    ].find(Boolean)
-    if (candidate) {
+    ].filter(Boolean)
+    for (const candidate of candidates) {
       const direct = comparisonBars.value.find(bar => bar.ifcGlobalId === candidate)
       if (direct) return direct.ifcGlobalId
       const metadataId = findMetadataElementById(candidate)?.id
@@ -1545,75 +1686,52 @@ function getComparisonBarIdFromHit(hit: THREE.Intersection) {
       if (bar) return bar.ifcGlobalId
     }
   }
+  // Legacy C2M PLYs have a stable global vertex stream, without per-mesh IDs.
+  // Only this result root may resolve by range: a BIM mesh has local indices.
+  let owner: THREE.Object3D | null = hit.object
+  while (owner && owner !== c2mSceneGroup) owner = owner.parent
+  if (owner && !c2mAnalysisSession && geometry && typeof hit.faceIndex === 'number') {
+    const index = geometry.getIndex()
+    const vertices = hit.face ? [hit.face.a, hit.face.b, hit.face.c]
+      : [0, 1, 2].map(offset => index ? index.getX(hit.faceIndex! * 3 + offset) : hit.faceIndex! * 3 + offset)
+    return comparisonBars.value.find(bar => vertices.every(vertex => vertex >= bar.vertexStart && vertex < bar.vertexStart + bar.vertexCount))?.ifcGlobalId ?? ''
+  }
   return ''
 }
 
+function canPickInspectionBar(event: PointerEvent) {
+  return event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && analysisMode.value === 'none' &&
+    activeWorkflowStep.value === 3 && Boolean(comparison.value) && rebarInspectionManualSelect.value && Boolean(activeCamera)
+}
+
+function cancelInspectionPointerGesture() {
+  rebarInspectionClick.cancel()
+}
+
 function handleRebarInspectionPointerDown(event: PointerEvent) {
-  if (import.meta.env.DEV) {
-    console.debug('[rebar-inspection] pointerdown', {
-      button: event.button,
-      workflowStep: activeWorkflowStep.value,
-      analysisMode: analysisMode.value,
-      manualSelection: rebarInspectionManualSelect.value,
-      hasComparison: Boolean(comparison.value),
-    })
-  }
-  if (
-    event.button !== 0 || event.shiftKey || analysisMode.value !== 'none' ||
-    activeWorkflowStep.value !== 3 || !comparison.value || !rebarInspectionManualSelect.value ||
-    !raycaster || !activeCamera
-  ) return false
+  if (rebarInspectionActive.value) stopRebarCameraAnimation()
+  if (!canPickInspectionBar(event)) { rebarInspectionClick.cancel(); return false }
+  rebarInspectionClick.begin(event)
+  // Do not capture or prevent the event: OrbitControls owns navigation.
+  return true
+}
+
+function handleRebarInspectionClick(event: PointerEvent) {
+  if (!canPickInspectionBar(event) || !activeCamera) return false
+  const rect = renderer?.domElement.getBoundingClientRect()
+  if (!rect || event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return false
   const pointer = getPointerNdc(event)
   if (!pointer) return false
-  // Point-cloud hit testing uses a world-space threshold. Scale it with the
-  // current camera distance so manual selection remains usable after zooming.
-  const viewportHeight = Math.max(viewportEl.value?.clientHeight || 1, 1)
-  const viewDistance = controls?.target
-    ? activeCamera.position.distanceTo(controls.target)
-    : activeCamera.position.length()
-  const worldUnitsPerPixel = isPerspectiveCamera(activeCamera)
-    ? (2 * Math.max(viewDistance, 0.001) * Math.tan(THREE.MathUtils.degToRad(activeCamera.fov) * 0.5)) / viewportHeight
-    : (2 * Math.max(orthoViewSize, 0.001)) / viewportHeight
-  raycaster.params.Points.threshold = THREE.MathUtils.clamp(
-    worldUnitsPerPixel * Math.max(pointcloudPointSize.value * 2, 6),
-    1e-4,
-    Math.max(pointcloudMaxDim * 0.05, 0.01),
-  )
-  raycaster.setFromCamera(pointer, activeCamera)
   const targets: THREE.Object3D[] = []
   if (c2mSceneGroup?.visible) targets.push(c2mSceneGroup)
   if (denoisePreview?.visible) targets.push(denoisePreview)
   if (pointcloudGroup?.visible) targets.push(pointcloudGroup)
   if (bimPivot?.visible) targets.push(bimPivot)
-  if (!targets.length) return false
-  const intersections = raycaster.intersectObjects(targets, true).filter(intersection => {
-    const object = intersection.object as THREE.Object3D
-    return !(object.userData as any)?.__viewerPickIgnore
-  })
-  // The nearest hit can be an unrelated shell or a mesh without metadata.
-  // Resolve every hit from front to back so one click still selects the first
-  // actual comparison member behind it.
-  const resolvedHit = intersections
-    .map((intersection) => ({ intersection, ifcGlobalId: getComparisonBarIdFromHit(intersection) }))
-    .find((item) => Boolean(item.ifcGlobalId))
-  const hit = resolvedHit?.intersection
-  const ifcGlobalId = resolvedHit?.ifcGlobalId ?? ''
-  if (import.meta.env.DEV) {
-    console.debug('[rebar-inspection] hit test', {
-      targets: targets.length,
-      intersections: intersections.length,
-      hit: Boolean(hit),
-      object: hit?.object?.name || hit?.object?.type || '',
-      distance: hit?.distance,
-      pointsThreshold: raycaster.params.Points.threshold,
-    })
-  }
-  if (!hit) return false
-  if (import.meta.env.DEV) console.debug('[rebar-inspection] resolved member', ifcGlobalId || '(none)')
-  if (!ifcGlobalId) return false
-  selectInspectionBarById(ifcGlobalId)
-  event.preventDefault()
-  return true
+  const candidates = pickInspectionCandidates(targets, activeCamera, pointer, rect, getComparisonBarIdFromHit)
+  if (!candidates.length) return false
+  const current = candidates.findIndex(item => item.id === selectedComparisonBarId.value)
+  const selected = candidates[event.altKey ? (current + 1) % candidates.length : 0]
+  return selectInspectionBarById(selected.id)
 }
 
 const c2mSceneLoaded = ref(false)
@@ -1641,6 +1759,7 @@ let c2mDistancesRequestId = 0
 let c2mSceneLoadRequestId = 0
 let c2mAnalysisPollingTimer: number | null = null
 let bimVisibilityBeforeC2M: boolean | null = null
+watch(() => comparison.value?.bars, () => { rebarInspectionOrderIds.value = [] })
 const remeshLoading = ref(false)
 const remeshMeshLoaded = ref(false)
 const remeshRestoreAvailable = ref(false)
@@ -1680,11 +1799,8 @@ const meshTaskActive = computed(() =>
 const meshControlsDisabled = computed(() => meshRunning.value || meshTaskActive.value)
 const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && !!props.bimAssetId)
 const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && canOpenDeviationStep.value && meshReady.value && !c2mRunning.value))
-watch(comparisonReportPages, (pages) => {
-  comparisonReportPageIndex.value = Math.min(
-    comparisonReportPageIndex.value,
-    Math.max(pages.length - 1, 0),
-  )
+watch(reportChapters, (chapters) => {
+  for (const chapter of chapters) reportChapterPageIndices[chapter.id] = reportChapterPageIndex(chapter)
 })
 watch(comparisonDetailPages, (pages) => {
   comparisonDetailPageIndex.value = Math.min(
@@ -1893,7 +2009,7 @@ function previewC2MVisualization() {
   if (!distances || !c2mSceneGroup) return
   const meshes: THREE.Mesh[] = []
   c2mSceneGroup.traverse((child) => {
-    if (child instanceof THREE.Mesh) meshes.push(child)
+    if (child instanceof THREE.Mesh && !child.userData.__inspectionForeground) meshes.push(child)
   })
   // distances.bin is defined against one indexed remesh geometry. Do not
   // duplicate the full array across arbitrary multi-mesh scene graphs.
@@ -1931,7 +2047,7 @@ function recolorAnalysisC2MScene() {
   if (!c2mSceneGroup || !c2mTileset) return
   c2mSceneGroup.traverse((object) => {
     const mesh = object as THREE.Mesh
-    if (!mesh.isMesh || !mesh.geometry) return
+    if (!mesh.isMesh || !mesh.geometry || mesh.userData.__inspectionForeground) return
     const distances = mesh.geometry.getAttribute('distance')?.array
     if (!(distances instanceof Float32Array)) return
     applyAnalysisC2MVertexColors(mesh.geometry, distances)
@@ -1983,517 +2099,107 @@ function formatReportInstanceIds(instanceIds: readonly number[]) {
   return instanceIds.length > 8 ? `${visible} 等，共 ${instanceIds.length} 个` : visible
 }
 
-type ReportViewProjection = 'top' | 'front' | 'side'
-
-// SVG remains responsive for PDF export while preserving substantially more
-// of each matched rebar's measured point cloud than the previous sparse view.
-const REPORT_POINT_SOURCE_LIMIT = 16000
-const REPORT_POINT_DRAW_LIMIT = 8000
-
-function reportGeometryPointsForBar(bar: RebarComparisonBar, source: 'design' | 'pointcloud') {
-  const points: THREE.Vector3[] = []
-  const addMeshPoints = (mesh: THREE.Mesh) => {
-    const positions = mesh.geometry?.getAttribute('position')
-    if (!positions) return
-    const stride = Math.max(1, Math.ceil(positions.count / 300))
-    mesh.updateMatrixWorld(true)
-    for (let index = 0; index < positions.count; index += 1) {
-      points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(mesh.matrixWorld))
-    }
-  }
-  if (source === 'design') {
-    if (c2mAnalysisSession) c2mAnalysisSession.forEachComponentMesh(bar.ifcGlobalId, addMeshPoints)
-    if (!points.length && bimPivot) {
-      bimPivot.updateMatrixWorld(true)
-      bimPivot.traverse((object) => {
-        if (object instanceof THREE.Mesh && objectMatchesComparisonBar(object, bar.ifcGlobalId)) addMeshPoints(object)
-      })
-    }
-  } else {
-    const geometry = denoisePreview?.geometry
-    const positions = geometry?.getAttribute('position')
-    const instances = geometry?.getAttribute('instance')
-    const labels = geometry?.getAttribute('label')
-    if (!positions || !instances) return points
-    const instanceIds = new Set(bar.instanceIds)
-    denoisePreview?.updateMatrixWorld(true)
-    const matrixWorld = denoisePreview?.matrixWorld ?? new THREE.Matrix4()
-    let matchingCount = 0
-    for (let index = 0; index < positions.count; index += 1) {
-      if (labels && labels.getX(index) !== 3) continue
-      if (instanceIds.has(Math.round(instances.getX(index)))) matchingCount += 1
-    }
-    const stride = Math.max(1, Math.ceil(matchingCount / REPORT_POINT_SOURCE_LIMIT))
-    let matchingIndex = 0
-    for (let index = 0; index < positions.count; index += 1) {
-      if (labels && labels.getX(index) !== 3) continue
-      if (!instanceIds.has(Math.round(instances.getX(index)))) continue
-      if (matchingIndex++ % stride !== 0) continue
-      points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld))
-    }
-  }
-  return points
-}
-
-function reportPrincipalAxis(points: THREE.Vector3[]) {
-  if (points.length < 2) return new THREE.Vector3(1, 0, 0)
-  const center = points.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / points.length)
-  const covariance = new THREE.Matrix3()
-  const values = new Array<number>(9).fill(0)
-  points.forEach((point) => {
-    const delta = point.clone().sub(center)
-    values[0] += delta.x * delta.x; values[1] += delta.x * delta.y; values[2] += delta.x * delta.z
-    values[4] += delta.y * delta.y; values[5] += delta.y * delta.z; values[8] += delta.z * delta.z
-  })
-  values[3] = values[1]; values[6] = values[2]; values[7] = values[5]
-  covariance.fromArray(values.map((value) => value / points.length))
-  let axis = new THREE.Vector3(1, 0, 0)
-  for (let iteration = 0; iteration < 12; iteration += 1) {
-    const next = axis.clone().applyMatrix3(covariance)
-    if (next.lengthSq() < 1e-12) break
-    axis.copy(next.normalize())
-  }
-  return axis.lengthSq() > 1e-8 ? axis : new THREE.Vector3(1, 0, 0)
-}
-
-const reportCanvasRefs = new Map<string, HTMLCanvasElement>()
-const reportSvgMarkup = new Map<string, string>()
-const reportSvgRevision = ref(0)
-const reportViewRenderers = new Map<string, THREE.WebGLRenderer>()
-const reportViewScenes = new Map<string, THREE.Scene>()
-const reportViewCameras = new Map<string, THREE.OrthographicCamera>()
-
-function reportCanvasKey(ifcGlobalId: string, projection: ReportViewProjection) {
-  return `${ifcGlobalId}:${projection}`
-}
-
-function setReportCanvasRef(ifcGlobalId: string, projection: ReportViewProjection, element: Element | null) {
-  const key = reportCanvasKey(ifcGlobalId, projection)
-  if (element instanceof HTMLCanvasElement) reportCanvasRefs.set(key, element)
-  else reportCanvasRefs.delete(key)
-}
-
-function disposeReportView(key: string) {
-  reportViewRenderers.get(key)?.dispose()
-  reportViewRenderers.delete(key)
-  const sceneToDispose = reportViewScenes.get(key)
-  if (sceneToDispose) {
-    sceneToDispose.traverse((object) => {
-      const renderable = object as THREE.Mesh | THREE.Points | THREE.Line
-      if (!renderable.geometry) return
-      renderable.geometry.dispose()
-      const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material]
-      materials.forEach((material) => material?.dispose())
-    })
-  }
-  reportViewScenes.delete(key)
-  reportViewCameras.delete(key)
-}
+const reportFigures = ref<Record<string, RebarFigure>>({})
+const reportPreparing = ref(false)
+let reportRenderRequestId = 0
+let reportPreparedCache: { signature: string; layout: RebarReportLayout; figures: Map<string, PreparedReportFigure>; scales: Map<string, ReportFigureScales> } | null = null
 
 function disposeReportModelViews() {
-  Array.from(reportViewScenes.keys()).forEach(disposeReportView)
+  reportRenderRequestId += 1
+  reportFigures.value = {}
+  reportPreparedCache = null
 }
 
-function subsetReportGeometry(source: THREE.BufferGeometry, start: number, count: number) {
-  const positions = source.getAttribute('position')
-  if (!positions || count <= 0 || start < 0 || start + count > positions.count) return null
-  const end = start + count
-  const geometry = new THREE.BufferGeometry()
-  for (const name of ['position', 'normal', 'color', 'uv']) {
-    const attribute = source.getAttribute(name)
-    if (!attribute || attribute.itemSize <= 0 || start + count > attribute.count) continue
-    const values = new Float32Array(count * attribute.itemSize)
-    for (let index = start; index < end; index += 1) {
-      for (let component = 0; component < attribute.itemSize; component += 1) {
-        values[(index - start) * attribute.itemSize + component] = attribute.getComponent(index, component)
-      }
-    }
-    geometry.setAttribute(name, new THREE.BufferAttribute(values, attribute.itemSize, attribute.normalized))
-  }
-  const originalIndex = source.getIndex()
-  if (originalIndex) {
-    const indices: number[] = []
-    for (let index = 0; index + 2 < originalIndex.count; index += 3) {
-      const a = originalIndex.getX(index)
-      const b = originalIndex.getX(index + 1)
-      const c = originalIndex.getX(index + 2)
-      if (a >= start && a < end && b >= start && b < end && c >= start && c < end) {
-        indices.push(a - start, b - start, c - start)
-      }
-    }
-    if (indices.length) geometry.setIndex(indices)
-  }
-  geometry.computeBoundingBox()
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-function addReportDesignMeshes(root: THREE.Group, bar: RebarComparisonBar, points: THREE.Vector3[]) {
-  const addMesh = (mesh: THREE.Mesh) => {
-    const positions = mesh.geometry?.getAttribute('position')
+function reportDesignMeshes(bar: RebarComparisonBar): ReportMesh[] {
+  if (!bimPivot) return []
+  bimPivot.updateWorldMatrix(true, true)
+  const worldToModel = getRawMatrixWorldForCalibration(bimPivot).invert()
+  const meshes: ReportMesh[] = []
+  const add = (mesh: THREE.Mesh) => {
+    const positions = mesh.geometry.getAttribute('position')
     if (!positions) return
-    mesh.updateMatrixWorld(true)
-    const geometry = mesh.geometry.clone()
-    geometry.applyMatrix4(mesh.matrixWorld)
-    const material = new THREE.MeshBasicMaterial({
-      color: '#3678c9',
-      transparent: true,
-      opacity: 0.34,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      toneMapped: false,
-    })
-    const copy = new THREE.Mesh(geometry, material)
-    copy.renderOrder = 1
-    root.add(copy)
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry, 24),
-      new THREE.LineBasicMaterial({ color: '#1f5fb8', transparent: true, opacity: 1, toneMapped: false }),
-    )
-    edges.renderOrder = 2
-    root.add(edges)
-    const stride = Math.max(1, Math.ceil(positions.count / 300))
-    for (let index = 0; index < positions.count; index += stride) {
-      points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(mesh.matrixWorld))
+    mesh.updateWorldMatrix(true, false)
+    const transform = worldToModel.clone().multiply(mesh.matrixWorld)
+    const vertices = Array.from({ length: positions.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(transform))
+    const index = mesh.geometry.getIndex()
+    // Use the original triangle stream, independent of viewport selection.
+    const indices = index ? Array.from(index.array) : Array.from({ length: positions.count }, (_, i) => i)
+    meshes.push({ vertices, indices })
+  }
+  bimPivot.traverse(object => {
+    if (object instanceof THREE.Mesh && objectMatchesComparisonBar(object, bar.ifcGlobalId)) add(object)
+  })
+  if (!meshes.length && c2mAnalysisSession) c2mAnalysisSession.forEachComponentMesh(bar.ifcGlobalId, add)
+  return meshes
+}
+
+async function renderReportModelViews(allPages = false) {
+  const requestId = ++reportRenderRequestId
+  const result = c2mResult.value, denoise = denoiseResult.value
+  if (!canUseC2MResult.value || !result || !denoise?.fresh) { reportFigures.value = {}; return }
+  const version = result.resultVersion
+  if (!denoisePreview) await showDenoisePreview('cleaned')
+  if (!comparisonInventory.value) await loadComparisonInventory(denoise, denoisePreviewRequestId)
+  if (requestId !== reportRenderRequestId || version !== c2mResult.value?.resultVersion || denoise.version !== denoiseResult.value?.version) return
+  const inspection = comparison.value?.inspection
+  const savedMatrix = inspection?.provenance.alignmentMatrix ?? latestAlignmentResult.value?.modelMatrix
+  if (!savedMatrix || savedMatrix.length !== 16 || !savedMatrix.every(Number.isFinite)) { reportFigures.value = {}; return }
+  const layout = reportLayout.value
+  const signature = [version, denoise.version, reportGeometryRevision.value, denoisePreview?.geometry.getAttribute('position')?.count].join(':')
+  const current = () => requestId === reportRenderRequestId && version === c2mResult.value?.resultVersion && denoise.version === denoiseResult.value?.version
+  let cache = reportPreparedCache
+  if (!cache || cache.signature !== signature || cache.layout !== layout) {
+    const scanToModel = new THREE.Matrix4().fromArray(savedMatrix)
+    const pointsByInstance = new Map<number, ReportScanPoint[]>()
+    const positions = denoisePreview?.geometry.getAttribute('position')
+    const labels = denoisePreview?.geometry.getAttribute('label')
+    const instances = denoisePreview?.geometry.getAttribute('instance')
+    if (positions && instances) for (let i = 0; i < positions.count; i++) {
+      if (labels && labels.getX(i) !== 3) continue
+      const instanceId = Math.round(instances.getX(i))
+      const points = pointsByInstance.get(instanceId) ?? []
+      points.push({ instanceId, position: reportScanToModel(new THREE.Vector3().fromBufferAttribute(positions, i), denoise.result.previewOrigin, scanToModel) })
+      pointsByInstance.set(instanceId, points)
     }
+    const instanceUnits = new Map((comparisonInventory.value?.instances ?? []).flatMap(row => row.designUnitId ? [[row.id, row.designUnitId] as const] : []))
+    const prepared = new Map<string, PreparedReportFigure>()
+    for (const [index, bar] of reportOrderedBars.value.entries()) {
+      prepared.set(bar.ifcGlobalId, prepareRebarReportFigure({
+        key: bar.ifcGlobalId, design: reportDesignMeshes(bar),
+        sectionLayout: layout.members.get(bar.ifcGlobalId)?.chapterId === 'connector' ? 'stirrup' : undefined,
+        designRadiusM: comparisonInventory.value?.inventory.bars.find(row => row.ifcGlobalId === bar.ifcGlobalId)?.radiusM,
+        scan: bar.instanceIds.flatMap(id => pointsByInstance.get(id) ?? []),
+        profile: comparison.value?.measurement?.coordinateFrame === 'model' ? bar.measurement?.longitudinalProfile ?? [] : [],
+        fitted: inspection?.coordinateFrame === 'bim' && inspection.lengthUnit === 'm'
+          ? inspection.bars.find(row => row.ifcGlobalId === bar.ifcGlobalId)?.observedSegments ?? [] : [],
+        instanceUnits,
+      }))
+      if (index % 8 === 7) await new Promise(resolve => window.setTimeout(resolve, 0))
+      if (!current()) return
+    }
+    const scales = new Map(layout.chapters.map(chapter => [chapter.id, commonReportScales(chapter.keys.flatMap(key => prepared.get(key) ? [prepared.get(key)!] : []))]))
+    cache = { signature, layout, figures: prepared, scales }
+    reportPreparedCache = cache
   }
-  if (c2mAnalysisSession) c2mAnalysisSession.forEachComponentMesh(bar.ifcGlobalId, addMesh)
-  if (!points.length && c2mSceneGroup) {
-    c2mSceneGroup.updateMatrixWorld(true)
-    c2mSceneGroup.traverse((object) => {
-      if (!(object instanceof THREE.Mesh) || points.length) return
-      const subset = subsetReportGeometry(object.geometry, bar.vertexStart, bar.vertexCount)
-      if (!subset) return
-      const matrixWorld = object.matrixWorld.clone()
-      const positions = subset.getAttribute('position')
-      const material = new THREE.MeshBasicMaterial({
-        color: '#3678c9', transparent: true, opacity: 0.34,
-        side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
-      })
-      const copy = new THREE.Mesh(subset, material)
-      copy.applyMatrix4(matrixWorld)
-      copy.renderOrder = 1
-      root.add(copy)
-      const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(subset, 24),
-        new THREE.LineBasicMaterial({ color: '#1f5fb8', transparent: true, opacity: 1, toneMapped: false }),
-      )
-      edges.applyMatrix4(matrixWorld)
-      edges.renderOrder = 2
-      root.add(edges)
-      const stride = Math.max(1, Math.ceil(positions.count / 300))
-      for (let index = 0; index < positions.count; index += stride) {
-        points.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld))
-      }
-    })
+  const bars = allPages ? reportOrderedBars.value : reportOrderedBars.value.filter(bar => reportActiveMemberKeys.value.includes(bar.ifcGlobalId))
+  const figures: Record<string, RebarFigure> = {}
+  for (const [index, bar] of bars.entries()) {
+    const prepared = cache.figures.get(bar.ifcGlobalId)
+    if (prepared) {
+      const chapter = layout.members.get(bar.ifcGlobalId)?.chapterId ?? 'unresolved'
+      figures[bar.ifcGlobalId] = { ...renderRebarReportFigure(prepared, cache.scales.get(chapter), chapter === 'connector' ? 'portrait' : 'landscape'), locator: buildReportLocator(layout, bar.ifcGlobalId) }
+    }
+    if (allPages && index % 8 === 7) await new Promise(resolve => window.setTimeout(resolve, 0))
+    if (!current()) return
   }
-  if (!points.length && bimPivot) {
-    bimPivot.updateMatrixWorld(true)
-    bimPivot.traverse((object) => {
-      if (object instanceof THREE.Mesh && objectMatchesComparisonBar(object, bar.ifcGlobalId)) addMesh(object)
-    })
-  }
-}
-
-function addReportPointCloud(root: THREE.Group, bar: RebarComparisonBar, points: THREE.Vector3[]) {
-  const geometry = denoisePreview?.geometry
-  const positions = geometry?.getAttribute('position')
-  const instances = geometry?.getAttribute('instance')
-  const labels = geometry?.getAttribute('label')
-  if (!positions || !instances || !denoisePreview) return
-  const instanceIds = new Set(bar.instanceIds)
-  denoisePreview.updateMatrixWorld(true)
-  const matrixWorld = denoisePreview.matrixWorld
-  const selected: number[] = []
-  let matchingCount = 0
-  for (let index = 0; index < positions.count; index += 1) {
-    if (labels && labels.getX(index) !== 3) continue
-    if (instanceIds.has(Math.round(instances.getX(index)))) matchingCount += 1
-  }
-  const stride = Math.max(1, Math.ceil(matchingCount / REPORT_POINT_SOURCE_LIMIT))
-  let matchingIndex = 0
-  for (let index = 0; index < positions.count; index += 1) {
-    if (labels && labels.getX(index) !== 3) continue
-    if (!instanceIds.has(Math.round(instances.getX(index)))) continue
-    if (matchingIndex++ % stride !== 0) continue
-    const point = new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(matrixWorld)
-    points.push(point)
-    selected.push(point.x, point.y, point.z)
-  }
-  if (!selected.length) return
-  const pointGeometry = new THREE.BufferGeometry()
-  pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(selected, 3))
-  root.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial({
-    color: '#176b43',
-    // Keep measured points legible at every zoom level in the report sheet.
-    // A fixed pixel size avoids the sparse/near-invisible appearance caused
-    // by perspective attenuation in small orthographic canvases.
-    size: 5,
-    sizeAttenuation: false,
-    transparent: true,
-    opacity: 1,
-    depthTest: false,
-    depthWrite: false,
-    toneMapped: false,
-  })))
-}
-
-function reportViewLabel(projection: ReportViewProjection) {
-  // The report uses a member-local frame: local Y is the design axis and
-  // local X/Z span the rebar cross-section.  Keep the labels tied to the
-  // actual projection semantics so the circular end section is never shown
-  // as the "正视" elevation.
-  return projection === 'front' ? '正视图（从正面）' : projection === 'top' ? '俯视图（从上方）' : '侧视图（沿设计轴）'
-}
-
-function reportViewHint(projection: ReportViewProjection) {
-  return projection === 'front'
-    ? '设计轴 × 高程'
-    : projection === 'top'
-      ? '设计轴 × 横向'
-      : '局部横向 × 局部高程（截面）'
-}
-
-type ReportPoint2D = { x: number; y: number }
-
-function reportSvgFor(ifcGlobalId: string, projection: ReportViewProjection) {
-  return reportSvgMarkup.get(reportCanvasKey(ifcGlobalId, projection)) ?? '<text x="200" y="380" text-anchor="middle" fill="#78909c" font-size="16">暂无可用构件数据</text>'
-}
-
-function reportConvexHull(points: ReportPoint2D[]) {
-  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y)
-  if (sorted.length <= 2) return sorted
-  const cross = (o: ReportPoint2D, a: ReportPoint2D, b: ReportPoint2D) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-  const lower: ReportPoint2D[] = []
-  sorted.forEach((point) => { while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, point) <= 0) lower.pop(); lower.push(point) })
-  const upper: ReportPoint2D[] = []
-  sorted.slice().reverse().forEach((point) => { while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, point) <= 0) upper.pop(); upper.push(point) })
-  return lower.slice(0, -1).concat(upper.slice(0, -1))
-}
-
-function reportSvgMarkupFor(bar: RebarComparisonBar, projection: ReportViewProjection) {
-  const designPoints: THREE.Vector3[] = []
-  const scanPoints: THREE.Vector3[] = []
-  const root = new THREE.Group()
-  addReportDesignMeshes(root, bar, designPoints)
-  addReportPointCloud(root, bar, scanPoints)
-  root.updateMatrixWorld(true)
-  const all = [...designPoints, ...scanPoints]
-  if (!all.length) return '<text x="200" y="380" text-anchor="middle" fill="#78909c" font-size="16">暂无可用构件数据</text>'
-
-  // The viewer recentres BIM, tiles and preview PLY independently to avoid
-  // float32 precision loss.  Their render-space origins can therefore differ
-  // by metres even though the C2M calculation itself is in one source frame.
-  // Detect that pure-origin jump and remove it for the report drawing only;
-  // never let it become a fake 1–5 m "deviation" arrow.  Real construction
-  // deviations (the table's millimetre values) remain untouched.
-  const centroid3D = (items: THREE.Vector3[]) => items.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / Math.max(items.length, 1))
-  const designOrigin3D = centroid3D(designPoints.length ? designPoints : all)
-  const scanOrigin3D = scanPoints.length ? centroid3D(scanPoints) : designOrigin3D.clone()
-  const originDelta = scanOrigin3D.clone().sub(designOrigin3D)
-  const designBox3D = new THREE.Box3().setFromPoints(designPoints.length ? designPoints : all)
-  const designDiagonal = designBox3D.getSize(new THREE.Vector3()).length()
-  // Anything above half a metre is an origin/normalisation jump for a
-  // millimetre-level rebar inspection.  Keep the diagonal referenced so the
-  // intent is explicit and avoid linting this diagnostic value away.
-  const originJumpThreshold = Math.max(0.5, Math.min(2, designDiagonal * 0.1))
-  const alignedScanPoints = scanPoints.length && originDelta.length() > originJumpThreshold
-    ? scanPoints.map((point) => point.clone().sub(originDelta))
-    : scanPoints
-
-  // Establish a stable local frame per member: local Y follows the design
-  // principal axis; local X/Z span its cross-section. All three projections
-  // use this frame instead of world XY/XZ/YZ, so rotated members remain clear.
-  const axis = reportPrincipalAxis(designPoints.length ? designPoints : all).normalize()
-  const helper = Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1)
-  const localX = new THREE.Vector3().crossVectors(helper, axis).normalize()
-  const localZ = new THREE.Vector3().crossVectors(axis, localX).normalize()
-  const local = (point: THREE.Vector3) => ({ x: point.dot(localX), y: point.dot(axis), z: point.dot(localZ) })
-  // Projection contract:
-  //   front = 正视：设计轴 × 高程 (local Y × local Z)
-  //   top   = 俯视：设计轴 × 横向 (local Y × local X)
-  //   side  = 侧视（沿设计轴）：截面 (local X × local Z)
-  // The names are retained for compatibility with the existing template and
-  // cache keys, but the mapping is intentionally explicit here.
-  const project = (p: { x: number; y: number; z: number }): ReportPoint2D => projection === 'front'
-    ? { x: p.y, y: p.z }
-    : projection === 'top'
-      ? { x: p.y, y: p.x }
-      : { x: p.x, y: p.z }
-  const design2D = designPoints.map(local).map(project)
-  const scan2D = alignedScanPoints.map(local).map(project)
-  const points = [...design2D, ...scan2D]
-  let minX = Math.min(...points.map((p) => p.x)); let maxX = Math.max(...points.map((p) => p.x))
-  let minY = Math.min(...points.map((p) => p.y)); let maxY = Math.max(...points.map((p) => p.y))
-  const spanX = Math.max(maxX - minX, 0.02)
-  const spanY = Math.max(maxY - minY, 0.02)
-  const centerX = (minX + maxX) / 2
-  const centerY = (minY + maxY) / 2
-  // One shared scale for both axes is essential: using independent X/Y
-  // scales turns round bar sections into ellipses. The portrait viewBox lets
-  // the three panels use the page's remaining height without distorting data.
-  const plotWidth = 352
-  const plotHeight = 700
-  const scale = Math.min(plotWidth / spanX, plotHeight / spanY)
-  const sx = (x: number) => 200 + (x - centerX) * scale
-  const sy = (y: number) => 380 - (y - centerY) * scale
-  const designHull = reportConvexHull(design2D)
-  const centroid = (items: ReportPoint2D[]) => items.reduce((sum, p) => ({ x: sum.x + p.x, y: sum.y + p.y }), { x: 0, y: 0 })
-  // A real rebar is often thousands of millimetres long but only a few
-  // millimetres thick.  Keep one uniform geometric scale (so circles never
-  // become ellipses), then use a fixed-pixel outline/centreline for print
-  // readability.  This changes only the drawing stroke, never the source
-  // coordinates or deviation values.
-  const projectedThickness = Math.max(0, maxY - minY)
-  const designStroke = Math.max(8, Math.min(14, projectedThickness * scale * 0.42))
-  const designPath = designHull.length >= 3
-    ? `<polygon points="${designHull.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ')}" fill="#3678c9" fill-opacity=".2" stroke="#1f5fb8" stroke-width="${designStroke.toFixed(1)}" stroke-linejoin="round"/>`
-    : design2D.map((p) => `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="${Math.max(4, designStroke / 2).toFixed(1)}" fill="#3678c9"/>`).join('')
-  const designCenter = design2D.length ? centroid(design2D) : { x: 0, y: 0 }
-  if (design2D.length) {
-    designCenter.x /= design2D.length
-    designCenter.y /= design2D.length
-  }
-  const designCenterline = projection === 'side' || design2D.length < 2
-    ? ''
-    : (() => {
-        const axisPoints = design2D.filter((point) => Number.isFinite(point.x))
-        if (axisPoints.length < 2) return ''
-        const axisMin = Math.min(...axisPoints.map((point) => point.x))
-        const axisMax = Math.max(...axisPoints.map((point) => point.x))
-        const y = sy(designCenter.y).toFixed(1)
-        return `<line x1="${sx(axisMin).toFixed(1)}" y1="${y}" x2="${sx(axisMax).toFixed(1)}" y2="${y}" stroke="#1f5fb8" stroke-width="5" stroke-linecap="round" opacity=".92"/>`
-      })()
-  const designAxisLine = projection === 'side' || design2D.length < 2
-    ? ''
-    : (() => {
-        const axisPoints = design2D.filter((point) => Number.isFinite(point.x))
-        if (axisPoints.length < 2) return ''
-        const axisMin = Math.min(...axisPoints.map((point) => point.x))
-        const axisMax = Math.max(...axisPoints.map((point) => point.x))
-        const y = sy(designCenter.y).toFixed(1)
-        return `<line x1="${sx(axisMin).toFixed(1)}" y1="${y}" x2="${sx(axisMax).toFixed(1)}" y2="${y}" stroke="#d97706" stroke-width="4" stroke-dasharray="14 9" stroke-linecap="round" opacity="1"/>`
-      })()
-  const scanDots = scan2D
-    .filter((_, index) => index % Math.max(1, Math.ceil(scan2D.length / REPORT_POINT_DRAW_LIMIT)) === 0)
-    .map((p) => `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2.8" fill="#0b8f5b" fill-opacity=".86"/>`)
-    .join('')
-  const scanCenter = scan2D.length ? centroid(scan2D) : { ...designCenter }
-  if (scan2D.length) {
-    scanCenter.x /= scan2D.length
-    scanCenter.y /= scan2D.length
-  }
-  const dx = scanCenter.x - designCenter.x; const dy = scanCenter.y - designCenter.y
-  const deviationMm = Math.hypot(dx, dy) * 1000
-  const deviationColor = deviationMm > (c2mToleranceMm.value || 10) ? '#dc2626' : '#e8790c'
-  // This arrow is a visual displacement between the design and measured
-  // centroids. The authoritative C2M mean/RMSE/P95 values remain in the table;
-  // label the diagram explicitly so it is not mistaken for meanAbs.
-  const arrow = Math.hypot(dx, dy) > 1e-6 ? `<line x1="${sx(designCenter.x).toFixed(1)}" y1="${sy(designCenter.y).toFixed(1)}" x2="${sx(scanCenter.x).toFixed(1)}" y2="${sy(scanCenter.y).toFixed(1)}" stroke="${deviationColor}" stroke-width="3" marker-end="url(#report-arrow)"/><text x="${((sx(designCenter.x) + sx(scanCenter.x)) / 2).toFixed(1)}" y="${((sy(designCenter.y) + sy(scanCenter.y)) / 2 - 8).toFixed(1)}" text-anchor="middle" fill="${deviationColor}" font-size="14" font-weight="700">质心偏移 ${deviationMm.toFixed(1)} mm</text>` : ''
-  const grid = [0, 1, 2, 3, 4, 5, 6].map((i) => `<line x1="${(24 + i * 58.67).toFixed(1)}" y1="30" x2="${(24 + i * 58.67).toFixed(1)}" y2="730" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 7"/><line x1="24" y1="${(30 + i * 116.67).toFixed(1)}" x2="376" y2="${(30 + i * 116.67).toFixed(1)}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 7"/>`).join('')
-  root.traverse((object) => { const geometry = (object as THREE.Object3D & { geometry?: THREE.BufferGeometry }).geometry; geometry?.dispose?.(); const material = (object as THREE.Object3D & { material?: THREE.Material | THREE.Material[] }).material; (Array.isArray(material) ? material : material ? [material] : []).forEach((item) => item.dispose()) })
-  return `<defs><marker id="report-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="${deviationColor}"/></marker></defs><rect x="0" y="0" width="400" height="760" fill="#f8fafc"/>${grid}<line x1="24" y1="730" x2="376" y2="730" stroke="#94a3b8"/><line x1="24" y1="30" x2="24" y2="730" stroke="#94a3b8"/>${designPath}${designCenterline}${designAxisLine}${scanDots}${arrow}<circle cx="${sx(designCenter.x).toFixed(1)}" cy="${sy(designCenter.y).toFixed(1)}" r="6" fill="#fff" stroke="#1f5fb8" stroke-width="2.5"/>`
-}
-
-function reportViewCorners(box: THREE.Box3) {
-  const { min, max } = box
-  return [
-    new THREE.Vector3(min.x, min.y, min.z), new THREE.Vector3(max.x, min.y, min.z),
-    new THREE.Vector3(min.x, max.y, min.z), new THREE.Vector3(max.x, max.y, min.z),
-    new THREE.Vector3(min.x, min.y, max.z), new THREE.Vector3(max.x, min.y, max.z),
-    new THREE.Vector3(min.x, max.y, max.z), new THREE.Vector3(max.x, max.y, max.z),
-  ]
-}
-
-function renderReportModelView(bar: RebarComparisonBar, projection: ReportViewProjection) {
-  const key = reportCanvasKey(bar.ifcGlobalId, projection)
-  const canvas = reportCanvasRefs.get(key)
-  if (!canvas || canvas.clientWidth < 2 || canvas.clientHeight < 2) return
-  disposeReportView(key)
-  const designPoints: THREE.Vector3[] = []
-  const scanPoints: THREE.Vector3[] = []
-  const root = new THREE.Group()
-  addReportDesignMeshes(root, bar, designPoints)
-  addReportPointCloud(root, bar, scanPoints)
-  if (!designPoints.length && !scanPoints.length) return
-  root.updateMatrixWorld(true)
-  const bounds = new THREE.Box3().setFromObject(root)
-  const center = bounds.getCenter(new THREE.Vector3())
-  const size = bounds.getSize(new THREE.Vector3())
-  const maxDim = Math.max(size.x, size.y, size.z, 0.001)
-  const axis = reportPrincipalAxis(designPoints.length ? designPoints : scanPoints)
-  const viewDirection = projection === 'front'
-    ? new THREE.Vector3(0, 0, 1)
-    : projection === 'top'
-      ? new THREE.Vector3(0, 1, 0)
-      : axis.clone().normalize()
-  if (viewDirection.lengthSq() < 1e-8) viewDirection.set(1, 0, 0)
-  const viewUp = projection === 'front' ? new THREE.Vector3(0, 1, 0) : projection === 'top' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0)
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.001, maxDim * 20)
-  camera.position.copy(center).addScaledVector(viewDirection, maxDim * 4)
-  camera.up.copy(viewUp)
-  camera.lookAt(center)
-  camera.updateMatrixWorld(true)
-  const aspect = Math.max(canvas.clientWidth / Math.max(canvas.clientHeight, 1), 0.1)
-  let halfHeight = 0.001
-  let halfWidth = 0.001
-  reportViewCorners(bounds).forEach((corner) => {
-    const local = camera.worldToLocal(corner.clone())
-    halfWidth = Math.max(halfWidth, Math.abs(local.x))
-    halfHeight = Math.max(halfHeight, Math.abs(local.y))
-  })
-  halfHeight = Math.max(halfHeight, halfWidth / aspect) * 1.16
-  halfWidth = halfHeight * aspect
-  camera.left = -halfWidth
-  camera.right = halfWidth
-  camera.top = halfHeight
-  camera.bottom = -halfHeight
-  camera.updateProjectionMatrix()
-
-  if (projection === 'front' && designPoints.length > 1) {
-    const designCenter = designPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / designPoints.length)
-    const axisOffsets = designPoints.map((point) => point.clone().sub(designCenter).dot(axis))
-    const axisStart = designCenter.clone().addScaledVector(axis, Math.min(...axisOffsets))
-    const axisEnd = designCenter.clone().addScaledVector(axis, Math.max(...axisOffsets))
-    const axisGeometry = new THREE.BufferGeometry().setFromPoints([axisStart, axisEnd])
-    const axisMaterial = new THREE.LineDashedMaterial({ color: '#c47a25', dashSize: maxDim * 0.045, gapSize: maxDim * 0.025, transparent: true, opacity: 0.95, toneMapped: false })
-    const axisLine = new THREE.Line(axisGeometry, axisMaterial)
-    axisLine.computeLineDistances()
-    axisLine.renderOrder = 4
-    root.add(axisLine)
-  }
-
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
-  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)
-  renderer.setClearColor('#f7fafb', 1)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  const viewScene = new THREE.Scene()
-  viewScene.add(root)
-  viewScene.add(new THREE.AmbientLight(0xffffff, 1))
-  renderer.render(viewScene, camera)
-  reportViewRenderers.set(key, renderer)
-  reportViewScenes.set(key, viewScene)
-  reportViewCameras.set(key, camera)
-}
-
-async function renderReportModelViews() {
+  reportFigures.value = figures
   await nextTick()
-  disposeReportModelViews()
-  reportSvgMarkup.clear()
-  const bars = comparisonReportPages.value[comparisonReportPageIndex.value] ?? []
-  bars.forEach((bar) => {
-    ;(['front', 'top', 'side'] as ReportViewProjection[]).forEach((projection) => {
-      reportSvgMarkup.set(reportCanvasKey(bar.ifcGlobalId, projection), reportSvgMarkupFor(bar, projection))
-    })
-  })
-  reportSvgRevision.value += 1
 }
 
 watch(
-  [activeWorkflowStep, comparisonReportPageIndex, comparisonReportPages, reportGeometryRevision],
+  [activeWorkflowStep, reportActiveMemberKeys, comparisonReportPages, reportGeometryRevision, sceneAlignmentReady],
   () => {
-    if (activeWorkflowStep.value === 4) void renderReportModelViews()
+    if (activeWorkflowStep.value === 4 && !reportPreparing.value) void renderReportModelViews()
   },
   { deep: true },
 )
@@ -2893,6 +2599,7 @@ async function loadC2MSceneAttempt(retryOnConflict: boolean) {
 }
 
 function clearC2MScene(invalidateLoad = true) {
+  rebarInspectionAppearance.clear()
   clearRebarDebugOverlay()
   rebarDebugMaterials.clear()
   if (invalidateLoad) {
@@ -3294,6 +3001,22 @@ const clipRange = ref({ min: -1, max: 1 })
 // 粗配准默认进入几何载体编辑态，模型加载后自动显示组合变换 Gizmo。
 const editMode = ref(true)
 const showTransformHandles = ref(true)
+const transformHandleState = ref<TransformHandleState | null>(null)
+const transformHandleSize = ref(1)
+const transformHandleLabel = computed(() => {
+  const state = transformHandleState.value
+  if (!state) return ''
+  if (state.mode === 'rotate') return '绕工程 Z 轴旋转'
+  const labels: Record<string, string> = { X: '沿工程 X 轴平移', Y: '沿工程 Z 轴平移', Z: '沿工程 Y 轴平移',
+    XY: '工程 XZ 平面平移', YZ: '工程 YZ 平面平移', XZ: '工程 XY 平面平移', XYZ: '视平面平移' }
+  return labels[state.axis] ?? '平移'
+})
+const transformHandleDelta = computed(() => {
+  const state = transformHandleState.value
+  if (!state?.dragging) return '拖动调整'
+  if (state.angle !== undefined) return `${state.angle.toFixed(2)}°`
+  return state.translation?.map((value, i) => `${'XYZ'[i]} ${Math.abs(value) < .00005 ? '0.0000' : value.toFixed(4)} m`).join(' · ') ?? ''
+})
 const selectedItemId = ref<SelectedItemId>('bim')
 const transformMode = ref<TransformMode>('translate')
 const positionOffsetX = ref(0)
@@ -3417,6 +3140,7 @@ let transformControls: ViewerTransformControls | null = null
 let transformHelper: THREE.Object3D | null = null
 let rotationControls: ViewerTransformControls | null = null
 let rotationHelper: THREE.Object3D | null = null
+let transformHandleInteraction: ReturnType<typeof bindTransformHandleInteraction> | null = null
 let selectionHelper: THREE.BoxHelper | null = null
 let pickedElementHelper: THREE.BoxHelper | null = null
 let bimPivot: THREE.Group | null = null
@@ -3424,6 +3148,8 @@ let bimRoot: THREE.Object3D | null = null
 let pointcloudWrapper: THREE.Group | null = null
 let pointcloudGroup: THREE.Group | null = null
 let tileset: TilesRenderer | null = null
+let pointcloudLoadLifecycle: PointcloudLoadLifecycle | null = null
+let pointcloudCameraFramed = false
 let boundsBoxHelper: THREE.Box3Helper | null = null
 let clipHandlesGroup: THREE.Group | null = null
 let clipHandlePickers: THREE.Object3D[] = []
@@ -3444,11 +3170,11 @@ let pointcloudLoadToken = 0
 let pointcloudLoadPromise: Promise<void> | null = null
 let pointcloudLoadAssetId: number | null = null
 let pointcloudRootReady = false
-// Do not present the intermediate BIM-only camera pose while the point cloud
-// and saved alignment are still being restored. The first visible frame should
-// already represent the final combined scene.
+// Only the BIM waits for its saved pose; point-cloud tiles can render as soon
+// as they arrive, framed by the full tileset bounds rather than a partial LOD.
 let initialSceneReady = false
 let loggedSavedAlignmentKey = ''
+let savedAlignmentLoadPromise: Promise<void> | null = null
 let restoredSavedAlignmentKey = ''
 let raycaster: THREE.Raycaster | null = null
 let pointcloudMaxDim = 1
@@ -5443,30 +5169,25 @@ function requestRender() {
     syncMeasurementBadges()
     syncPointcloudCameraPose()
 
-    // BIM and point-cloud loading finish independently. Until the final
-    // combined pose has been restored, suppress the content group for this
-    // frame so the user never sees the transient BIM-only camera/placement.
-    // The group is restored immediately after rendering; bounds, tile LOD,
-    // and camera preparation can therefore continue while the scene loads.
-    const contentWasVisible = contentGroup?.visible ?? true
-    const waitingForCombinedScene = Boolean(props.pointcloudAssetId) && !initialSceneReady && (
-      loadingBim.value ||
-      loadingPointcloud.value ||
-      // A failed/blocked point-cloud load should still leave the BIM visible
-      // so the page can present its actionable error state.
-      (!pointcloudRootReady && !pointcloudPreprocessRequired.value) ||
-      (pointcloudRootReady && !loggedSavedAlignmentKey)
+    transformHandleInteraction?.updateSize()
+
+    // Keep streaming the scan while the BIM's saved pose is being restored.
+    // Hiding their shared parent used to conceal every downloaded tile.
+    const bimWasVisible = bimPivot?.visible ?? true
+    const waitingForBimPose = Boolean(props.pointcloudAssetId) && !initialSceneReady && (
+      loadingPointcloud.value || (pointcloudRootReady && !loggedSavedAlignmentKey)
     )
-    if (waitingForCombinedScene && contentGroup) contentGroup.visible = false
+    if (waitingForBimPose && bimPivot) bimPivot.visible = false
     try {
-      if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera)) {
+      if (edlPipeline && edlEnabled.value && isPerspectiveCamera(activeCamera) &&
+        (!pointcloudLoadLifecycle || pointcloudLoadLifecycle.allowEdl)) {
         const renderedWithEdl = edlPipeline.render(scene, activeCamera)
         if (!renderedWithEdl && !edlPipeline.enabled) edlEnabled.value = false
       } else {
         renderer.render(scene, activeCamera)
       }
     } finally {
-      if (contentGroup) contentGroup.visible = contentWasVisible
+      if (bimPivot) bimPivot.visible = bimWasVisible
     }
   }
 
@@ -5483,6 +5204,8 @@ function stopRenderLoop() {
 function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera) {
   if (!renderer) return
 
+  transformHandleInteraction?.dispose()
+  transformHandleInteraction = null
   const currentTarget = controls?.target.clone() ?? new THREE.Vector3(0, 0, 0)
   const currentPosition = camera.position.clone()
   const currentUp = camera.up.clone()
@@ -5533,28 +5256,19 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
           obj.material.depthTest = false
         }
       })
-      controller.addEventListener('dragging-changed', (event: any) => {
-        const dragging = !!event?.value
-        const anyDragging = dragging || Boolean(transformControls?.dragging || rotationControls?.dragging)
-        if (controls) controls.enabled = !anyDragging
-        if (!anyDragging) {
-          syncTransformFixFromSelected()
-          if (enableClipping.value) {
-            updateClipRangeFromContent({ preserveT: true })
-            applyClippingState()
-          }
-        }
-      })
+      styleEngineeringTransformHandles(controller)
       bindTransformChangeEvents(
         controller,
         () => {
-          if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
-        },
-        () => {
-          syncTransformFixFromSelected()
+          // A cancelled preview must not invalidate existing analysis results.
+          if (registrationStage.value === 'coarse' && !transformHandleState.value?.dragging) coarseAlignmentDirty.value = true
+          syncAllTransformFixValuesFromSelected()
           syncBoundsHelpers()
           requestRender()
         },
+        // Hover and per-frame handle sizing do not change the model bounds or
+        // numeric pose. Avoid traversing the BIM again for display-only events.
+        requestRender,
       )
       scene?.add(helper)
       return helper
@@ -5562,10 +5276,31 @@ function mountControls(camera: THREE.PerspectiveCamera | THREE.OrthographicCamer
 
     transformControls = new TransformControls(camera, renderer.domElement) as ViewerTransformControls
     rotationControls = new TransformControls(camera, renderer.domElement) as ViewerTransformControls
-    // The two helpers share the same target, so the viewport reads as one
-    // manipulator with arrows/planes plus a single green yaw ring.
+    // Shared visual manipulator; input is arbitrated before any canvas listener.
     transformHelper = configureTransformController(transformControls, 'translate', 1.35)
     rotationHelper = configureTransformController(rotationControls, 'rotate', 1.55)
+    let dirtyBeforeDrag = coarseAlignmentDirty.value
+    transformHandleInteraction = bindTransformHandleInteraction({
+      element: renderer.domElement, translate: transformControls, rotate: rotationControls,
+      orbit: controls, initialSize: transformHandleSize.value,
+      onState: state => { transformHandleState.value = state },
+      onStart: mode => {
+        dirtyBeforeDrag = coarseAlignmentDirty.value
+        transformMode.value = mode
+      },
+      onFinish: (cancelled, changed) => {
+        if (cancelled) coarseAlignmentDirty.value = dirtyBeforeDrag
+        else if (changed && registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
+        syncAllTransformFixValuesFromSelected()
+        if (enableClipping.value) {
+          updateClipRangeFromContent({ preserveT: true })
+          applyClippingState()
+        }
+      },
+      onSize: size => { transformHandleSize.value = size },
+    })
+    renderer.domElement.tabIndex = 0
+    renderer.domElement.setAttribute('aria-label', '三维配准视图；拖动箭头平移、圆环旋转，Esc 取消本次拖拽')
     applyTransformSelection()
     syncAllTransformFixValuesFromSelected()
   }
@@ -5606,6 +5341,8 @@ async function initScene() {
       renderer.domElement.addEventListener('pointermove', onViewportPointerMove)
       renderer.domElement.addEventListener('pointerup', onViewportPointerUp)
       renderer.domElement.addEventListener('pointercancel', onViewportPointerCancel)
+      renderer.domElement.addEventListener('lostpointercapture', cancelInspectionPointerGesture)
+      renderer.domElement.addEventListener('wheel', cancelInspectionPointerGesture, { passive: true })
       renderer.domElement.addEventListener('contextmenu', handleViewportContextMenu)
 
       if (clippingGroup) {
@@ -5688,6 +5425,7 @@ function fitCameraToBox(box: THREE.Box3) {
 
   if (projectionMode.value === 'orthographic' && isOrthographicCamera(activeCamera)) {
     orthoViewSize = maxDim * 0.72
+    activeCamera.zoom = 1
     updateOrthographicFrustum()
     activeCamera.position.set(center.x, center.y + maxDim * 1.4, center.z + maxDim * 1.6)
     activeCamera.near = 0.01
@@ -5723,6 +5461,7 @@ function fitCameraToObject(object: THREE.Object3D | null) {
 
   if (isOrthographicCamera(activeCamera)) {
     orthoViewSize = maxDim * 0.5 * 1.2
+    activeCamera.zoom = 1
     updateOrthographicFrustum()
     activeCamera.position.set(0, maxDim * 0.15, maxDim * 2.2)
     activeCamera.near = Math.max(0.01, maxDim / 100)
@@ -5787,6 +5526,11 @@ function setPresetView(kind: 'front' | 'top' | 'side') {
   const maxDim = Math.max(size.x, size.y, size.z, 1)
   const distance = maxDim * 1.45
   controls.target.copy(center)
+  if (isOrthographicCamera(activeCamera)) {
+    orthoViewSize = maxDim * 0.72
+    activeCamera.zoom = 1
+    updateOrthographicFrustum()
+  }
 
   if (kind === 'front') {
     activeCamera.position.set(center.x, center.y, center.z + distance)
@@ -6641,7 +6385,12 @@ function syncOrientationFixFromSelected() {
 
   const base = ensureOrientationBase(target)
   if (!base) return
-  const offsetQuat = target.quaternion.clone().multiply(base.clone().invert())
+  // Numeric yaw and the blue ring share viewport world +Y (engineering +Z).
+  // The BIM's parent is the rotated engineeringRoot, not the viewport scene.
+  target.parent?.updateWorldMatrix(true, false)
+  const parentQuat = target.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
+  const offsetQuat = parentQuat.clone().multiply(target.quaternion)
+    .multiply(base.clone().invert()).multiply(parentQuat.clone().invert())
   if (transformMode.value === 'rotate') {
     const offsetEuler = new THREE.Euler().setFromQuaternion(offsetQuat, 'YXZ')
     orientationDegX.value = THREE.MathUtils.radToDeg(offsetEuler.x)
@@ -6670,9 +6419,11 @@ function syncPositionFixFromSelected() {
 
   const base = ensurePositionBase(target)
   if (!base) return
-  const offset = target.position.clone().sub(base)
+  target.parent?.updateWorldMatrix(true, false)
+  const parentWorld = target.parent?.matrixWorld ?? new THREE.Matrix4()
+  const offset = target.position.clone().applyMatrix4(parentWorld).sub(base.clone().applyMatrix4(parentWorld))
   positionOffsetX.value = Number(offset.x.toFixed(6))
-  positionOffsetY.value = Number(offset.z.toFixed(6))
+  positionOffsetY.value = Number((-offset.z).toFixed(6))
   positionOffsetZ.value = Number(offset.y.toFixed(6))
 }
 
@@ -6701,13 +6452,20 @@ function syncTransformHandleVisibility() {
   for (const helper of [transformHelper, rotationHelper]) {
     if (helper) helper.visible = visible
   }
+  transformHandleInteraction?.refresh()
   requestRender()
+}
+
+function resetTransformHandleSize() {
+  transformHandleInteraction?.resetSize()
 }
 
 function applyTransformSelection() {
   const target = getSelectedObject()
+  if (transformControls?.object && transformControls.object !== target) transformHandleInteraction?.cancel()
   if (transformControls && rotationControls) {
     if (!editMode.value || !selectedItemId.value || !target) {
+      transformHandleInteraction?.cancel()
       transformControls.detach()
       rotationControls.detach()
       transformControls.visible = false
@@ -6730,7 +6488,7 @@ function applyTransformSelection() {
     rotationControls.setSpace?.('world')
     rotationControls.setMode('rotate')
 
-    // 组合 Gizmo：平移箭头/平面 + 仅绕 Three Y（业务 Z）旋转的绿色环。
+    // 保持工程 Z 竖直的配准约束：平移箭头/平面 + 工程 Z 蓝色旋转环。
     transformControls.showX = true
     transformControls.showY = true
     transformControls.showZ = true
@@ -6766,6 +6524,7 @@ function setTransformMode(mode: TransformMode) {
 }
 
 function onEditModeChange() {
+  if (!editMode.value) transformHandleInteraction?.cancel()
   if (editMode.value && !selectedItemId.value) {
     selectedItemId.value = hasModel.value ? 'bim' : ''
   }
@@ -6837,6 +6596,20 @@ function getTopLevelSceneObjectFromIntersection(object: THREE.Object3D | null) {
 
 function handleViewportPointerDown(event: PointerEvent) {
   if (!viewportEl.value || !activeCamera || !raycaster || !contentGroup) return
+  // A visible clipping handle owns the gesture before manual member picking.
+  if (event.button === 0 && analysisMode.value === 'none' && enableClipping.value && showBounds.value && clipHandlePickers.length) {
+    const pointer = getPointerNdc(event)
+    if (pointer) {
+      raycaster.setFromCamera(pointer, activeCamera)
+      const hit = raycaster.intersectObjects(clipHandlePickers, true)[0]
+      if (hit?.object.userData.__viewerClipHandle) {
+        rebarInspectionClick.cancel()
+        stopRebarCameraAnimation()
+        beginClipDrag(event, { axis: hit.object.userData.axis, invert: !!hit.object.userData.invert })
+        return
+      }
+    }
+  }
   if (handleRebarInspectionPointerDown(event)) return
   if (event.shiftKey && event.button === 0 && c2mSceneGroup) {
     const pointer = getPointerNdc(event)
@@ -6879,18 +6652,6 @@ function handleViewportPointerDown(event: PointerEvent) {
   if (!pointer) return
 
   raycaster.setFromCamera(pointer, activeCamera)
-  if (enableClipping.value && showBounds.value && clipHandlePickers.length) {
-    const handleHits = raycaster.intersectObjects(clipHandlePickers, true)
-    const handleHit = handleHits[0] as any
-    if (handleHit?.object?.userData?.__viewerClipHandle) {
-      beginClipDrag(event, {
-        axis: handleHit.object.userData.axis,
-        invert: !!handleHit.object.userData.invert,
-      })
-      return
-    }
-  }
-
   const hits = raycaster.intersectObjects(contentGroup.children, true)
   if (!hits.length) return
 
@@ -6937,6 +6698,7 @@ function handleViewportPointerDown(event: PointerEvent) {
 }
 
 function onViewportPointerMove(event: PointerEvent) {
+  rebarInspectionClick.move(event)
   if ((event.buttons & 2) !== 0) return
   if (analysisMode.value === 'distance' && analysisStartPoint) {
     const point = pickAnalysisPoint(event)
@@ -6971,6 +6733,7 @@ function notifyMeasurementPickUnavailable() {
 }
 
 function onViewportPointerUp(event: PointerEvent) {
+  if (rebarInspectionClick.end(event)) handleRebarInspectionClick(event)
   if (analysisMode.value !== 'none' && analysisPointerDown) {
     const down = analysisPointerDown
     analysisPointerDown = null
@@ -7016,6 +6779,7 @@ function onViewportPointerUp(event: PointerEvent) {
 }
 
 function onAnalysisKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') rebarInspectionClick.cancel()
   if (event.key === 'Enter' && analysisMode.value === 'area') {
     completeAnalysisArea()
     return
@@ -7027,6 +6791,7 @@ function onAnalysisKeydown(event: KeyboardEvent) {
 }
 
 function onViewportPointerCancel(event: PointerEvent) {
+  rebarInspectionClick.cancel()
   if (analysisMode.value !== 'none' && analysisPointerDown) {
     analysisPointerDown = null
     if (controls) controls.enabled = true
@@ -7043,13 +6808,11 @@ function applyPositionFixRealtime() {
   const base = ensurePositionBase(target)
   if (!base) return
 
-  target.position.copy(base).add(
-    new THREE.Vector3(
-      positionOffsetX.value,
-      positionOffsetZ.value,
-      positionOffsetY.value,
-    ),
-  )
+  target.parent?.updateWorldMatrix(true, false)
+  const parentWorld = target.parent?.matrixWorld ?? new THREE.Matrix4()
+  target.position.copy(base).applyMatrix4(parentWorld)
+    .add(new THREE.Vector3(positionOffsetX.value, positionOffsetZ.value, -positionOffsetY.value))
+    .applyMatrix4(parentWorld.clone().invert())
   target.updateMatrixWorld(true)
   if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
   transformHelper?.updateMatrixWorld?.(true)
@@ -7142,7 +6905,9 @@ function applyOrientationFixRealtime() {
           'XYZ',
         ),
       )
-  target.quaternion.copy(delta).multiply(base)
+  target.parent?.updateWorldMatrix(true, false)
+  const parentQuat = target.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
+  target.quaternion.copy(parentQuat).invert().multiply(delta).multiply(parentQuat).multiply(base)
   target.updateMatrixWorld(true)
   if (registrationStage.value === 'coarse') coarseAlignmentDirty.value = true
   transformHelper?.updateMatrixWorld?.(true)
@@ -7203,6 +6968,7 @@ function focusSelected() {
 }
 
 function clearPickedState() {
+  transformHandleInteraction?.cancel()
   editMode.value = false
   selectedItemId.value = ''
   if (transformControls) {
@@ -7221,6 +6987,7 @@ function clearPickedState() {
 
 // 退出对比步骤时把巡检期克隆的材质还原并释放，避免显存长期累积。
 function releaseRebarInspectionMaterials() {
+  rebarInspectionAppearance.clear()
   if (!rebarInspectionMaterialsClonedAny || !bimPivot) return
   rebarInspectionMaterialsClonedAny = false
   bimPivot.traverse(object => {
@@ -7414,6 +7181,8 @@ function recenterLoadedContentAsWhole() {
   contentGroup.updateMatrixWorld(true)
 
   const box = new THREE.Box3().setFromObject(contentGroup)
+  const cloudBox = tileset && pointcloudRootReady ? getTilesetWorldBounds(tileset) : null
+  if (cloudBox) box.union(cloudBox)
   if (box.isEmpty()) {
     contentGroup.position.copy(previousPosition)
     contentGroup.updateMatrixWorld(true)
@@ -7423,6 +7192,13 @@ function recenterLoadedContentAsWhole() {
   const center = box.getCenter(new THREE.Vector3())
   contentGroup.position.copy(center).negate()
   contentGroup.updateMatrixWorld(true)
+  if (pointcloudCameraFramed && activeCamera && controls) {
+    // Whole-scene recentering must not move an already visible scan on screen.
+    const delta = contentGroup.position.clone().sub(previousPosition)
+    activeCamera.position.add(delta)
+    controls.target.add(delta)
+    controls.update()
+  }
   syncDenoisePreviewTransform()
 }
 
@@ -7674,7 +7450,7 @@ function revealInitialSceneWhenReady() {
   const needsPointcloud = Boolean(props.pointcloudAssetId)
   if (needsPointcloud && (!pointcloudRootReady || !loggedSavedAlignmentKey)) return
   initialSceneReady = true
-  fitCameraToContent()
+  if (!pointcloudCameraFramed) fitCameraToContent()
   syncBoundsHelpers()
   requestRender()
 }
@@ -7759,34 +7535,42 @@ function tryRestoreSavedAlignment(alignment: BimAlignmentResult) {
 }
 
 async function fetchAndLogSavedAlignmentIfExists() {
-  if (!props.pointcloudAssetId || !props.bimAssetId) {
+  const { pointcloudAssetId, bimAssetId } = props
+  if (!pointcloudAssetId || !bimAssetId) {
     return
   }
 
   // 1. 优先拉取后端保存的配准数据，解除对 3D 渲染完成时机的强依赖
-  if (!hasSavedAlignmentMatrix.value && !latestAlignmentResult.value) {
-    try {
-      const response = await getBimAlignment({
-        modelScanFileId: props.pointcloudAssetId,
-        modelBimFileId: props.bimAssetId,
-      })
+  const pairKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
+  if (!hasSavedAlignmentMatrix.value && !latestAlignmentResult.value && loggedSavedAlignmentKey !== pairKey) {
+    if (!savedAlignmentLoadPromise) savedAlignmentLoadPromise = (async () => {
+      try {
+        const response = await getBimAlignment({
+          modelScanFileId: pointcloudAssetId,
+          modelBimFileId: bimAssetId,
+        })
 
-      if (response?.data && !latestAlignmentResult.value) {
-        latestAlignmentResult.value = response.data
-        logSavedAlignmentMatrix(response.data)
-        hasSavedAlignmentMatrix.value = true
-        coarseAlignmentDirty.value = false
-      }
-    } catch (error: any) {
-      const status = error?.response?.status
-      if ((status === 400 || status === 404) && !latestAlignmentResult.value) {
-        hasSavedAlignmentMatrix.value = false
-        loggedSavedAlignmentKey = `${props.pointcloudAssetId}:${props.bimAssetId}`
-        revealInitialSceneWhenReady()
-        return
-      }
+        if (response?.data && !latestAlignmentResult.value) {
+          latestAlignmentResult.value = response.data
+          logSavedAlignmentMatrix(response.data)
+          hasSavedAlignmentMatrix.value = true
+          coarseAlignmentDirty.value = false
+        }
+      } catch (error: any) {
+        const status = error?.response?.status
+        if ((status === 400 || status === 404) && !latestAlignmentResult.value) {
+          hasSavedAlignmentMatrix.value = false
+          loggedSavedAlignmentKey = pairKey
+          revealInitialSceneWhenReady()
+          return
+        }
 
-      console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
+        console.error('[BimPointcloudAlign] 获取后端校准矩阵失败', error)
+      }
+    })()
+    const pending = savedAlignmentLoadPromise
+    try { await pending } finally {
+      if (savedAlignmentLoadPromise === pending) savedAlignmentLoadPromise = null
     }
   }
 
@@ -8061,14 +7845,14 @@ async function handleLoadBimFromApi(silent = false) {
     const glbUrl = getBimGlbUrl(assetDetail.glbUrl)
 
     if (assetDetail.metadataUrl) {
-      try {
-        const metadata = await getBimMetadata(assetDetail.metadataUrl)
+      // Picking metadata is independent of the geometry download and parsing.
+      void getBimMetadata(assetDetail.metadataUrl).then((metadata) => {
         if (token === bimLoadToken) {
           bimMetadata.value = metadata
         }
-      } catch (error) {
+      }).catch((error) => {
         console.error('[BimPointcloudAlign] 加载 BIM metadata 失败:', error)
-      }
+      })
     }
     if (token !== bimLoadToken) return
 
@@ -8118,7 +7902,7 @@ async function handleLoadBimFromApi(silent = false) {
           updateClipRangeFromContent({ preserveT: true })
           applyClippingState()
           syncBoundsHelpers()
-          fitCameraToObject(bimPivot)
+          if (!pointcloudCameraFramed) fitCameraToObject(bimPivot)
           revealInitialSceneWhenReady()
           // 粗配准默认选中 BIM 几何载体，视口显示组合平移/旋转 Gizmo。
           if (editMode.value) {
@@ -8206,6 +7990,7 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
 
   const token = ++pointcloudLoadToken
   loadingPointcloud.value = true
+  let tilesStarted = false
 
   try {
     if (pointcloudWrapper) {
@@ -8220,13 +8005,21 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
     }
     pointcloudMaxDim = 1
     pointcloudRootReady = false
+    pointcloudCameraFramed = false
+    pointcloudLoadLifecycle = null
     sceneAlignmentReady.value = false
     clearDenoisePreview()
     pointcloudPreprocessRequired.value = false
     pointcloudPreprocessError.value = ''
     pointcloudPreprocessResult.value = null
-    const assetDetailResult = await getAssetDetail(assetId)
-    const assetDetail = assetDetailResult.data
+    const [assetDetailResult, representationsResult, preprocessResult] = await Promise.allSettled([
+      getAssetDetail(assetId),
+      getAssetRepresentations(assetId),
+      getPointcloudPreprocess(assetId),
+    ])
+    if (token !== pointcloudLoadToken) return
+    if (assetDetailResult.status === 'rejected') throw assetDetailResult.reason
+    const assetDetail = assetDetailResult.value.data
     if (
       assetDetail.type !== 'pointcloud' ||
       assetDetail.status !== 'ready'
@@ -8234,10 +8027,6 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
       throw new Error('点云资源尚未就绪，暂时无法加载')
     }
 
-    const [representationsResult, preprocessResult] = await Promise.allSettled([
-      getAssetRepresentations(assetId),
-      getPointcloudPreprocess(assetId),
-    ])
     if (preprocessResult.status === 'fulfilled') {
       pointcloudPreprocessResult.value = preprocessResult.value.data
     }
@@ -8266,6 +8055,13 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
 
     const url = getPointcloudTilesetUrl(selectedRepresentation.url)
     const nextTileset = new TilesRenderer(url)
+    const loadLifecycle = createPointcloudLoadLifecycle()
+    pointcloudLoadLifecycle = loadLifecycle
+    let loadedTileCount = 0
+    let tilesLoading = false
+    // Network work need not wait for a rendered frame. Keep parsing on the
+    // renderer's frame queue so each completed batch can become visible.
+    nextTileset.downloadQueue.schedulingCallback = (callback) => queueMicrotask(callback)
     // Keep the parent tile visible while finer children load so zooming never
     // causes a temporary drop in point density.
     nextTileset.displayActiveTiles = true
@@ -8279,15 +8075,16 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
     dracoLoader.preload()
     nextTileset.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader }))
     nextTileset.setCamera(activeCamera)
-    updateTilesetResolution()
 
     const wrapper = new THREE.Group()
-  wrapper.add(nextTileset.group)
-  ;(engineeringRoot ?? nextContentGroup).add(wrapper)
+    wrapper.add(nextTileset.group)
+    ;(engineeringRoot ?? nextContentGroup).add(wrapper)
 
     pointcloudWrapper = wrapper
     pointcloudGroup = nextTileset.group
     tileset = nextTileset
+    tilesStarted = true
+    updateTilesetResolution()
     pointcloudLoaded.value = true
     pointcloudVisible.value = true
     ensureInitialTransformState(pointcloudWrapper)
@@ -8298,10 +8095,16 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
 
     nextTileset.addEventListener('tiles-load-start', () => {
       if (token !== pointcloudLoadToken) return
+      tilesLoading = true
+      statusText.value = loadedTileCount ? `点云细化中，已载入 ${loadedTileCount} 个分块` : '正在加载点云首批分块…'
     })
     nextTileset.addEventListener('tiles-load-end', () => {
       if (token !== pointcloudLoadToken) return
-      statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
+      tilesLoading = false
+      if (loadLifecycle.hasRenderableModel) {
+        loadLifecycle.markInitialLoadSettled()
+        statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
+      }
     })
     nextTileset.addEventListener('load-root-tileset', () => {
       if (token !== pointcloudLoadToken) return
@@ -8316,14 +8119,22 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
       recenterLoadedContentAsWhole()
       pointcloudWrapper?.updateMatrixWorld(true)
       nextTileset.group.updateMatrixWorld(true)
+      const cloudBox = getTilesetWorldBounds(nextTileset)
+      if (cloudBox) {
+        pointcloudMaxDim = Math.max(...cloudBox.getSize(new THREE.Vector3()).toArray(), 1)
+        fitCameraToBox(cloudBox)
+        pointcloudCameraFramed = true
+      }
       scheduleClipRangeUpdate()
       ensureInitialTransformState(pointcloudWrapper)
       updateClipRangeFromContent({ preserveT: true })
       applyClippingState()
       syncBoundsHelpers()
-      statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
+      statusText.value = '正在加载点云首批分块…'
       logScenePoseDiagnostics('after-pointcloud-root-load')
       void fetchAndLogSavedAlignmentIfExists()
+      activeCamera.updateMatrixWorld()
+      nextTileset.update()
     })
     nextTileset.addEventListener('load-model', ({ scene: tileScene }: any) => {
       if (token !== pointcloudLoadToken || !tileScene) return
@@ -8332,14 +8143,27 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
       }
       collectPointcloudColorStats(tileScene)
       applyPointcloudDisplay(tileScene)
+      loadedTileCount += 1
+      if (loadLifecycle.markModelReady()) loadingPointcloud.value = false
+      // Some loader promises emit load-model just after tiles-load-end.
+      if (!tilesLoading) loadLifecycle.markInitialLoadSettled()
+      statusText.value = tilesLoading
+        ? `点云细化中，已载入 ${loadedTileCount} 个分块`
+        : `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
     })
     nextTileset.addEventListener('load-error', (event: any) => {
+      if (token !== pointcloudLoadToken) return
+      loadingPointcloud.value = false
+      statusText.value = loadLifecycle.hasRenderableModel ? '部分点云分块加载失败，请刷新重试' : '加载点云失败，请刷新重试'
       console.error(event)
     })
 
-    statusText.value = `已加载点云：${props.pointcloudDisplayName || assetDetail.sourceName}`
+    statusText.value = '正在加载点云首批分块…'
+    nextTileset.update()
   } catch (error) {
+    if (token !== pointcloudLoadToken) return
     console.error(error)
+    loadingPointcloud.value = false
     pointcloudRootReady = false
     if (pointcloudPreprocessRequired.value) {
       pointcloudPreprocessError.value = '当前资产尚无可用于分析的无台面点云，请先补充预处理。'
@@ -8349,7 +8173,7 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
     }
     statusText.value = '加载点云失败'
   } finally {
-    loadingPointcloud.value = false
+    if (token === pointcloudLoadToken && !tilesStarted) loadingPointcloud.value = false
   }
 }
 
@@ -8413,6 +8237,7 @@ watch(tilesErrorTarget, () => {
 
 watch(pointcloudPointSize, () => {
   if (denoisePreview) denoisePreview.material.size = pointcloudPointSize.value
+  rebarInspectionAppearance.setPointSize(pointcloudPointSize.value)
   applyPointcloudPointSize(pointcloudGroup)
 })
 
@@ -8455,7 +8280,7 @@ watch(enableElementPicking, () => {
 })
 
 watch(transformMode, () => {
-  setTransformMode(transformMode.value)
+  syncAllTransformFixValuesFromSelected()
 })
 
 watch(coarseAlignmentDirty, (dirty) => {
@@ -8491,6 +8316,7 @@ watch([() => props.initialStep, workflowRouteReady, bimLoaded, pointcloudLoaded,
   if (step !== available) notifyStepChange(available)
 })
 watch([activeWorkflowStep, viewportEl], ([step]) => {
+  rebarInspectionClick.cancel()
   if (workflowRouteReady.value && String(route.query.step || 1) !== String(step)) {
     void router.replace({ query: { ...route.query, step: String(step) } })
   }
@@ -8501,12 +8327,14 @@ watch([activeWorkflowStep, viewportEl], ([step]) => {
 
 onMounted(async () => {
   window.addEventListener('keydown', onAnalysisKeydown)
+  window.addEventListener('blur', cancelInspectionPointerGesture)
   syncPositionStepPreset()
   syncRotationStepPreset()
-  await refreshMeshStatus()
   await initScene()
+  void refreshMeshStatus()
+  void fetchAndLogSavedAlignmentIfExists()
   await preloadFromRoute()
-  await Promise.all([loadLatestC2M(), loadLatestDenoise()])
+  await loadLatestDenoise()
   // Tile loading and GLTF loading finish independently. Make one final
   // restore attempt after both route preload tasks have settled.
   await fetchAndLogSavedAlignmentIfExists()
@@ -8515,11 +8343,11 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposeReportModelViews()
-  reportCanvasRefs.clear()
   resetRebarInspection()
   denoiseRequestId++
   clearDenoisePreview()
   window.removeEventListener('keydown', onAnalysisKeydown)
+  window.removeEventListener('blur', cancelInspectionPointerGesture)
   bimLoadToken++
   pointcloudLoadToken++
   pointcloudLoadPromise = null
@@ -8538,6 +8366,8 @@ onBeforeUnmount(() => {
   stopRenderLoop()
   resizeObserver?.disconnect()
   observedViewportEl = null
+  transformHandleInteraction?.dispose()
+  transformHandleInteraction = null
   controls?.dispose()
   gridHelper?.dispose()
   gridHelper = null
@@ -8554,6 +8384,8 @@ onBeforeUnmount(() => {
   renderer?.domElement?.removeEventListener?.('pointermove', onViewportPointerMove)
   renderer?.domElement?.removeEventListener?.('pointerup', onViewportPointerUp)
   renderer?.domElement?.removeEventListener?.('pointercancel', onViewportPointerCancel)
+  renderer?.domElement?.removeEventListener?.('lostpointercapture', cancelInspectionPointerGesture)
+  renderer?.domElement?.removeEventListener?.('wheel', cancelInspectionPointerGesture)
   renderer?.domElement?.removeEventListener?.('contextmenu', handleViewportContextMenu)
   renderer?.dispose()
   raycaster = null
@@ -8596,15 +8428,12 @@ onBeforeUnmount(() => {
       @reset-position="resetMeasurementBadge(badge.id)"
     />
     <header class="topbar calibration-header">
-      <div class="topbar-left title-block">
-        <el-button text :icon="ArrowLeft" aria-label="返回扫描点云" title="返回扫描点云" @click="closePage" />
-        <div class="alignment-title-context">
-          <h1 class="brand-title">{{ activeWorkflowStepMeta?.title || 'BIM 与点云校准' }}</h1>
-          <span class="alignment-file-context" :title="titleBlockSubtitle">{{ titleBlockSubtitle }}</span>
-        </div>
-      </div>
+      <button type="button" class="alignment-return" aria-label="返回扫描点云" title="返回扫描点云" @click="closePage">
+        <el-icon aria-hidden="true"><ArrowLeft /></el-icon>
+        <span>返回</span>
+      </button>
 
-      <nav class="alignment-workflow-nav" aria-label="BIM 与点云分析流程">
+      <nav class="alignment-workflow-nav" aria-label="分析步骤">
         <div class="alignment-workflow-track">
           <button
             v-for="step in visibleWorkflowSteps"
@@ -8617,16 +8446,17 @@ onBeforeUnmount(() => {
               'is-disabled': workflowStepDisabled(step.id),
             }"
             :disabled="workflowStepDisabled(step.id)"
+            :aria-label="`第 ${step.id} 步：${step.title}`"
             :aria-current="activeWorkflowStep === step.id ? 'step' : undefined"
             :title="workflowStepDisabled(step.id)
-              ? step.id >= 3 ? '请先完成当前配准下的点云去噪' : '需先完成并保存点云与工程坐标配准'
-              : undefined"
+              ? denoiseRunning || c2mRunning ? '计算中，请等待当前任务完成' : step.id >= 3 ? '请先完成当前配准下的点云去噪' : '请先完成并保存坐标配准'
+              : step.title"
             @click="openWorkflowStep(step.id)"
           >
-            <span class="alignment-workflow-step__number">{{ String(step.id).padStart(2, '0') }}</span>
-            <span class="alignment-workflow-step__copy">
-              <strong>{{ step.title }}</strong>
-              <small>{{ step.subtitle }}</small>
+            <span class="alignment-workflow-step__number" aria-hidden="true">{{ String(step.id).padStart(2, '0') }}</span>
+            <span class="alignment-workflow-step__copy" aria-hidden="true">
+              <strong class="alignment-workflow-step__label">{{ step.title }}</strong>
+              <strong class="alignment-workflow-step__compact">{{ step.compactTitle }}</strong>
             </span>
           </button>
         </div>
@@ -8852,6 +8682,11 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-show="activeWorkflowStep !== 4" ref="viewportEl" class="viewport viewport-shell three-view-pane">
+        <div v-if="transformHandleState" class="transform-handle-feedback" :class="{ 'is-dragging': transformHandleState.dragging }">
+          <strong>{{ transformHandleLabel }}</strong>
+          <span>{{ transformHandleDelta }}</span>
+          <span v-if="transformHandleState.dragging" class="transform-handle-feedback__cancel">Esc 取消</span>
+        </div>
         <PointcloudViewCube
           :pose="pointcloudCameraPose"
           @home="resetView"
@@ -8862,6 +8697,7 @@ onBeforeUnmount(() => {
         <PointcloudAxesTriad
           v-show="pointcloudShowAxes"
           class="alignment-pointcloud-axes-triad"
+          coordinate-frame="engineering"
           :pose="pointcloudCameraPose"
         />
         <PointcloudColorRangeBar
@@ -8872,26 +8708,26 @@ onBeforeUnmount(() => {
           :histogram="pointcloudIntensityHistogram"
           @update:range="updatePointcloudColorRange"
         />
+        <button
+          v-if="activeWorkflowStep !== 4"
+          type="button"
+          class="right-panel-toggle"
+          aria-controls="alignment-control-panel"
+          :aria-expanded="showPanel"
+          :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
+          :title="showPanel ? '收起控制面板' : '展开控制面板'"
+          @click="showPanel = !showPanel"
+        >
+          <el-icon :size="16"><component :is="showPanel ? DArrowRight : DArrowLeft" /></el-icon>
+        </button>
       </div>
 
-      <button
-        v-if="activeWorkflowStep !== 4"
-        type="button"
-        class="right-panel-toggle"
-        aria-controls="alignment-control-panel"
-        :aria-expanded="showPanel"
-        :aria-label="showPanel ? '收起控制面板' : '展开控制面板'"
-        :title="showPanel ? '收起控制面板' : '展开控制面板'"
-        @click="showPanel = !showPanel"
-      >
-        <el-icon :size="16"><component :is="showPanel ? DArrowRight : DArrowLeft" /></el-icon>
-      </button>
-
-      <section v-if="activeWorkflowStep === 4" ref="reportWorkspaceEl" class="report-preview-workspace" :class="{ 'is-report-fullscreen': reportFullscreen }" aria-label="报告预览">
+      <section v-if="activeWorkflowStep === 4" class="report-preview-workspace" :class="{ 'is-report-fullscreen': reportFullscreen }" aria-label="报告预览">
+        <div class="report-reader-toolbar-dock" :class="{ 'is-collapsed': reportToolbarCollapsed }">
         <div v-if="!reportToolbarCollapsed" class="report-reader-toolbar" aria-label="报告预览工具栏">
-          <button type="button" title="缩小" aria-label="缩小" @click="changeReportZoom(-10)"><el-icon><ZoomOut /></el-icon></button>
+          <button type="button" title="缩小" aria-label="缩小" :disabled="reportZoom <= 10" @click="changeReportZoom(-10)"><el-icon><ZoomOut /></el-icon></button>
           <strong>{{ reportZoom }}%</strong>
-          <button type="button" title="放大" aria-label="放大" @click="changeReportZoom(10)"><el-icon><ZoomIn /></el-icon></button>
+          <button type="button" title="放大" aria-label="放大" :disabled="reportZoom >= 140" @click="changeReportZoom(10)"><el-icon><ZoomIn /></el-icon></button>
           <span class="report-reader-format" title="当前导出格式">{{ reportFormat === 'xls' ? 'CSV' : reportFormat.toUpperCase() }}</span>
           <button type="button" title="适应页面" aria-label="适应页面" @click="fitReportPage"><el-icon><View /></el-icon></button>
           <span class="report-reader-divider"></span>
@@ -8900,11 +8736,13 @@ onBeforeUnmount(() => {
           <button v-if="reportEditing" type="button" title="重置报告文字与图片" aria-label="重置报告文字与图片" :disabled="!reportEditDirty" @click="resetReportEdits"><el-icon><RefreshLeft /></el-icon></button>
           <button v-if="reportEditing" type="button" title="撤回上一步编辑（Ctrl/Cmd+Z）" aria-label="撤回上一步编辑" :disabled="!canUndoReportEdit" @click="undoReportEdit"><el-icon><Back /></el-icon></button>
           <button type="button" :title="reportFullscreen ? '退出全屏预览' : '全屏预览'" :aria-label="reportFullscreen ? '退出全屏预览' : '全屏预览'" :aria-pressed="reportFullscreen" :class="{ active: reportFullscreen }" @click="toggleReportFullscreen"><el-icon><FullScreen /></el-icon></button>
-          <button type="button" title="下载报告" aria-label="下载报告" :disabled="!canUseC2MResult" @click="reportAction('export')"><el-icon><Download /></el-icon></button>
+          <button type="button" :title="reportPreparing ? '正在生成全部构件图形' : '下载报告'" aria-label="下载报告" :disabled="!canUseC2MResult || reportPreparing" @click="reportAction('export')"><el-icon><Download /></el-icon></button>
           <button type="button" title="收起工具栏" aria-label="收起工具栏" @click="reportToolbarCollapsed = true"><el-icon><ArrowUp /></el-icon></button>
         </div>
         <button v-else type="button" class="report-reader-toolbar-reopen" title="展开报告工具栏" aria-label="展开报告工具栏" @click="reportToolbarCollapsed = false"><el-icon><ArrowDown /></el-icon></button>
-        <div v-if="reportCoverEnabled" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        </div>
+        <div ref="reportWorkspaceEl" class="report-preview-scroll">
+        <div v-if="reportCoverEnabled" class="report-paper-stage" :style="{ width: `${1123 * reportZoom / 100}px`, height: `${794 * reportZoom / 100}px` }">
           <div class="report-preview-page cover-paper" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
             <header class="cover-header">
               <div class="cover-brand">
@@ -8926,7 +8764,7 @@ onBeforeUnmount(() => {
             </div>
             <dl class="cover-details">
               <ReportEditable v-if="!isReportBlockRemoved('cover-detail-project')" tag="div" :edit="reportEditing" :editable="false" label="项目名称行" @remove="removeReportBlock('cover-detail-project')"><dt>项目名称</dt><dd :contenteditable="reportEditing" @blur="updateReportField('project', $event)">{{ reportProjectName }}</dd></ReportEditable>
-              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-pointcloud')" tag="div" :edit="reportEditing" :editable="false" label="扫描点云文件行" @remove="removeReportBlock('cover-detail-pointcloud')"><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || '未选择' }}</dd></ReportEditable>
+              <ReportEditable v-if="!isReportBlockRemoved('cover-detail-pointcloud')" tag="div" :edit="reportEditing" :editable="false" label="扫描点云文件行" @remove="removeReportBlock('cover-detail-pointcloud')"><dt>扫描点云文件</dt><dd>{{ pointcloudDisplayName || (pointcloudAssetId ? '点云 #' + pointcloudAssetId : '未选择') }}</dd></ReportEditable>
               <ReportEditable v-if="!isReportBlockRemoved('cover-detail-organization')" tag="div" :edit="reportEditing" :editable="false" label="检测单位行" @remove="removeReportBlock('cover-detail-organization')"><dt>检测单位</dt><dd :contenteditable="reportEditing" @blur="updateReportField('organization', $event)">{{ reportOrganization }}</dd></ReportEditable>
               <ReportEditable v-if="!isReportBlockRemoved('cover-detail-inspectors')" tag="div" :edit="reportEditing" :editable="false" label="检测人员行" @remove="removeReportBlock('cover-detail-inspectors')"><dt>检测人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('inspectors', $event)">{{ reportInspectors }}</dd></ReportEditable>
               <ReportEditable v-if="!isReportBlockRemoved('cover-detail-reviewer')" tag="div" :edit="reportEditing" :editable="false" label="审核人员行" @remove="removeReportBlock('cover-detail-reviewer')"><dt>审核人员</dt><dd :contenteditable="reportEditing" @blur="updateReportField('reviewer', $event)">{{ reportReviewer }}</dd></ReportEditable>
@@ -8942,7 +8780,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        <div v-if="canUseC2MResult && reportSummaryVisible" class="report-paper-stage" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        <div v-if="canUseC2MResult && reportSummaryVisible" class="report-paper-stage" :style="{ width: `${1123 * reportZoom / 100}px`, height: `${794 * reportZoom / 100}px` }">
           <article class="report-preview-page rebar-report-page report-summary-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
             <header class="report-preview-page__header">
               <ReportEditable v-if="!isReportBlockRemoved('summary-mark')" tag="div" class="report-preview-mark" :edit="reportEditing" :editable="false" label="页眉标识" @remove="removeReportBlock('summary-mark')"><img :src="reportBrandMark" alt="系统标识" /></ReportEditable>
@@ -8952,97 +8790,169 @@ onBeforeUnmount(() => {
               </div>
               <small>REPORT / 001 · {{ reportSummaryPageNumber() }} / {{ reportTotalPageCount }}</small>
             </header>
-            <section v-for="item in reportSummarySections" :key="item.id" class="report-data-section">
+            <div class="report-summary-content">
+            <section v-for="item in reportSummarySections" :key="item.id" class="report-data-section" :data-summary-section="item.id">
               <ReportEditable tag="h2" :edit="reportEditing" :removable="false" :text="reportText('summary-heading-' + item.id, item.title)" label="章节标题" @update:text="setReportTextValue('summary-heading-' + item.id, $event)" />
               <template v-if="item.id === 'summary'">
-                <ReportEditable v-if="!isReportBlockRemoved('summary-line-project')" tag="p" :edit="reportEditing" :text="reportText('summary-line-project', `${reportProjectName} · ${pointcloudDisplayName}`)" label="摘要项目行" @update:text="setReportTextValue('summary-line-project', $event)" @remove="removeReportBlock('summary-line-project')" />
+                <ReportEditable v-if="!isReportBlockRemoved('summary-line-project')" tag="p" :edit="reportEditing" :text="reportText('summary-line-project', `${reportProjectName} · ${pointcloudDisplayName || ('点云 #' + pointcloudAssetId)}`)" label="摘要项目行" @update:text="setReportTextValue('summary-line-project', $event)" @remove="removeReportBlock('summary-line-project')" />
                 <ReportEditable v-if="!isReportBlockRemoved('summary-line-overview')" tag="p" :edit="reportEditing" :text="reportText('summary-line-overview', `共 ${comparisonBars.length} 根设计钢筋，复核阈值 ±${comparisonReportToleranceMm} mm。测量方式：${comparisonMeasurementLabel}。`)" label="摘要说明" @update:text="setReportTextValue('summary-line-overview', $event)" @remove="removeReportBlock('summary-line-overview')" />
+                <dl class="report-quality-statistics" aria-label="钢筋合格统计">
+                  <div><dt>表面偏差合格</dt><dd>{{ reportMemberSummary.surfacePass }} <small>/ {{ reportMemberSummary.surfaceEligible }} 根可评定</small></dd></div>
+                  <div><dt>表面偏差合格率</dt><dd>{{ formatC2MPercentage(reportMemberSummary.surfacePassRatio ?? undefined) }}</dd></div>
+                  <div><dt>直径合格</dt><dd>{{ reportMemberSummary.diameterToleranceMm === null ? '—' : reportMemberSummary.diameterPass }} <small>/ {{ reportMemberSummary.diameterMeasured }} 根可测径</small></dd></div>
+                  <div><dt>直径合格率</dt><dd>{{ formatC2MPercentage(reportMemberSummary.diameterPassRatio ?? undefined) }}</dd></div>
+                  <div><dt>两项均合格</dt><dd>{{ reportMemberSummary.bothPass }} <small>/ {{ reportMemberSummary.bothEligible }} 根两项可评定</small></dd></div>
+                  <div><dt>有效测径截面</dt><dd>{{ reportMemberSummary.validSections }} <small>处</small></dd></div>
+                </dl>
+                <table class="report-quality-table" aria-label="分类型钢筋统计">
+                  <thead><tr><th scope="col">钢筋类别</th><th scope="col">设计总数</th><th scope="col">已对应</th><th scope="col">缺测</th><th scope="col">待复核</th><th scope="col">表面合格</th><th scope="col">表面超限</th><th scope="col">可测径</th><th scope="col">直径合格</th><th scope="col">直径超限</th></tr></thead>
+                  <tbody><tr v-for="chapter in reportChapters" :key="chapter.id" :data-summary-chapter="chapter.id">
+                    <th scope="row">{{ chapter.title }}</th><td>{{ chapter.summary.total }}</td><td>{{ chapter.summary.matched }}</td><td>{{ chapter.summary.missing }}</td><td>{{ chapter.summary.review }}</td><td>{{ chapter.summary.surfacePass }}</td><td>{{ chapter.summary.surfaceFail }}</td><td>{{ chapter.summary.diameterMeasured }}</td><td>{{ chapter.summary.diameterToleranceMm === null ? '—' : chapter.summary.diameterPass }}</td><td>{{ chapter.summary.diameterToleranceMm === null ? '—' : chapter.summary.diameterFail }}</td>
+                  </tr></tbody>
+                  <tfoot><tr><th scope="row">合计 / 根</th><td>{{ reportMemberSummary.total }}</td><td>{{ reportMemberSummary.matched }}</td><td>{{ reportMemberSummary.missing }}</td><td>{{ reportMemberSummary.review }}</td><td>{{ reportMemberSummary.surfacePass }}</td><td>{{ reportMemberSummary.surfaceFail }}</td><td>{{ reportMemberSummary.diameterMeasured }}</td><td>{{ reportMemberSummary.diameterToleranceMm === null ? '—' : reportMemberSummary.diameterPass }}</td><td>{{ reportMemberSummary.diameterToleranceMm === null ? '—' : reportMemberSummary.diameterFail }}</td></tr></tfoot>
+                </table>
+                <p class="report-quality-rule">表面偏差：已对应且有有效数据的钢筋，P95 绝对偏差 ≤ {{ comparisonReportToleranceMm }} mm 为合格。直径：{{ reportMemberSummary.diameterToleranceMm === null ? '未设阈值，暂不评定' : `全部有效测径截面的最大 |ΔD| ≤ ${reportMemberSummary.diameterToleranceMm} mm 为合格` }}。缺测、待复核不计入合格率分母；表面未评定 {{ reportMemberSummary.surfaceUnknown }} 根，直径未评定 {{ reportMemberSummary.diameterUnknown }} 根。以上为当前阈值下的检测判定。</p>
               </template>
               <dl v-else-if="item.id === 'statistics'" class="report-statistics">
-                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="平均绝对偏差" @remove="removeReportBlock('stat-mean')"><dt>{{ reportText('stat-mean-label', '平均绝对偏差') }}</dt><dd>{{ ((c2mResult?.stats?.meanAbs ?? 0) * 1000).toFixed(2) }} mm</dd></ReportEditable>
-                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="RMSE" @remove="removeReportBlock('stat-rmse')"><dt>{{ reportText('stat-rmse-label', 'RMSE') }}</dt><dd>{{ ((c2mResult?.stats?.rmse ?? 0) * 1000).toFixed(2) }} mm</dd></ReportEditable>
-                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="P95 绝对偏差" @remove="removeReportBlock('stat-p95')"><dt>{{ reportText('stat-p95-label', 'P95 绝对偏差') }}</dt><dd>{{ ((c2mResult?.stats?.p95Abs ?? 0) * 1000).toFixed(2) }} mm</dd></ReportEditable>
-                <ReportEditable tag="div" :edit="reportEditing" :editable="false" label="容差内（已覆盖）" @remove="removeReportBlock('stat-tolerance')"><dt>{{ reportText('stat-tolerance-label', '容差内（已覆盖）') }}</dt><dd>{{ formatC2MPercentage(c2mDisplayResult?.stats?.withinToleranceRatio) }}</dd></ReportEditable>
+                <ReportEditable v-if="!isReportBlockRemoved('stat-mean')" tag="div" :edit="reportEditing" :editable="false" label="平均绝对偏差" @remove="removeReportBlock('stat-mean')"><dt>{{ reportText('stat-mean-label', '平均绝对偏差') }}</dt><dd>{{ formatReportDiameterMm(c2mResult?.stats?.meanAbs == null ? null : c2mResult.stats.meanAbs * 1000) }} mm</dd></ReportEditable>
+                <ReportEditable v-if="!isReportBlockRemoved('stat-rmse')" tag="div" :edit="reportEditing" :editable="false" label="RMSE" @remove="removeReportBlock('stat-rmse')"><dt>{{ reportText('stat-rmse-label', 'RMSE') }}</dt><dd>{{ formatReportDiameterMm(c2mResult?.stats?.rmse == null ? null : c2mResult.stats.rmse * 1000) }} mm</dd></ReportEditable>
+                <ReportEditable v-if="!isReportBlockRemoved('stat-p95')" tag="div" :edit="reportEditing" :editable="false" label="P95 绝对偏差" @remove="removeReportBlock('stat-p95')"><dt>{{ reportText('stat-p95-label', 'P95 绝对偏差') }}</dt><dd>{{ formatReportDiameterMm(c2mResult?.stats?.p95Abs == null ? null : c2mResult.stats.p95Abs * 1000) }} mm</dd></ReportEditable>
+                <ReportEditable v-if="!isReportBlockRemoved('stat-tolerance')" tag="div" :edit="reportEditing" :editable="false" label="容差内（已覆盖）" @remove="removeReportBlock('stat-tolerance')"><dt>{{ reportText('stat-tolerance-label', '容差内（已覆盖）') }}</dt><dd>{{ formatC2MPercentage(c2mDisplayResult?.stats?.withinToleranceRatio) }}</dd></ReportEditable>
               </dl>
-              <ReportEditable v-else-if="item.id === 'histogram' && c2mDisplayResult && !isReportBlockRemoved('summary-histogram')" tag="div" :edit="reportEditing" :editable="false" label="直方图" @remove="removeReportBlock('summary-histogram')"><C2MHistogramLegend :result="c2mDisplayResult" :color-mode="c2mColorMode" :band-count="c2mBandCount" /></ReportEditable>
+              <ReportEditable v-else-if="item.id === 'histogram' && c2mDisplayResult && !isReportBlockRemoved('summary-histogram')" tag="div" :edit="reportEditing" :editable="false" label="直方图" @remove="removeReportBlock('summary-histogram')"><C2MHistogramLegend :result="c2mDisplayResult" compact :color-mode="c2mColorMode" :band-count="c2mBandCount" /></ReportEditable>
               <ReportEditable v-else-if="item.id === 'conclusion'" tag="p" :edit="reportEditing" :text="reportText('summary-conclusion', '本报告提供实例约束的偏差预估。缺测与待复核钢筋不出具偏差结论，请结合逐筋明细复核；容差内比例仅统计已覆盖顶点。')" label="结论内容" @update:text="setReportTextValue('summary-conclusion', $event)" @remove="removeReportBlock('summary-conclusion')" />
             </section>
+            </div>
+            <section v-if="reportTableEnabled" class="report-chapter-index" aria-label="逐筋章节目录">
+              <button v-for="chapter in reportLayout.chapters" :key="chapter.id" type="button" @click="jumpReportChapter(chapter.id)">
+                <strong>{{ chapter.number }} · {{ chapter.title }}</strong><span>{{ chapter.keys.length }} 根 · 第 {{ reportChapterPageNumber(chapter) }}–{{ reportTablePageNumber(chapter, chapter.keys.length - 1) }} 页</span>
+              </button>
+            </section>
             <footer class="report-preview-page__footer">
-              <ReportEditable v-if="!isReportBlockRemoved('summary-footer-left')" tag="span" :edit="reportEditing" :text="reportText('summary-footer-left', '分析摘要')" label="页脚文字" @update:text="setReportTextValue('summary-footer-left', $event)" @remove="removeReportBlock('summary-footer-left')" />
+              <ReportEditable v-if="!isReportBlockRemoved('summary-footer-left')" tag="span" :edit="reportEditing" :text="reportText('summary-footer-left', `分析摘要 · 结果版本 ${c2mResult?.resultVersion ?? '—'}`)" label="页脚文字" @update:text="setReportTextValue('summary-footer-left', $event)" @remove="removeReportBlock('summary-footer-left')" />
               <span>第 {{ reportSummaryPageNumber() }} / {{ reportTotalPageCount }} 页</span>
             </footer>
           </article>
         </div>
-        <div v-if="reportTableEnabled" v-for="(bars, page) in comparisonReportPages" :key="`table-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonReportPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
-          <nav v-if="comparisonReportPageCount > 1 && page === comparisonReportPageIndex" class="rebar-report-page-nav" aria-label="表格翻页">
-            <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonReportPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
-            <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonReportPageCount }} 页</strong><small>钢筋 {{ page * REPORT_ROWS_PER_PAGE + 1 }}–{{ page * REPORT_ROWS_PER_PAGE + bars.length }} / {{ comparisonBars.length }}</small></span>
-            <button type="button" aria-label="下一页" title="下一页" :disabled="page >= comparisonReportPageCount - 1" @click="changeComparisonReportPage(1)"><el-icon><ArrowRight /></el-icon></button>
+        <template v-if="reportTableEnabled">
+        <section v-for="chapter in reportChapters" :key="chapter.id" class="rebar-report-chapter" :data-report-chapter="chapter.id" :aria-label="`第 ${chapter.number} 章 ${chapter.title}`">
+          <div class="report-paper-stage rebar-report-chapter-divider-stage" :class="{ 'is-portrait-stage': chapter.id === 'connector' }" :style="{ width: `${(chapter.id === 'connector' ? 794 : 1123) * reportZoom / 100}px`, height: `${(chapter.id === 'connector' ? 1123 : 794) * reportZoom / 100}px` }">
+            <article class="report-preview-page rebar-report-chapter-divider" :class="{ 'is-portrait': chapter.id === 'connector' }" :data-chapter="chapter.id" :aria-label="`${chapter.title}章节页`" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
+              <header class="report-preview-page__header">
+                <div class="report-preview-mark"><img :src="reportBrandMark" alt="系统标识" /></div>
+                <div><strong>{{ reportTitle }}</strong><span>{{ reportProjectName }}</span></div>
+              </header>
+              <div class="report-chapter-divider-content">
+                <div class="report-chapter-divider-title">
+                  <h1><span>第 {{ chapter.number }} 章</span>{{ chapter.title }}</h1>
+                  <p>{{ chapter.keys.length }} 根钢筋 · 逐筋明细第 {{ reportTablePageNumber(chapter, 0) }}–{{ reportTablePageNumber(chapter, chapter.keys.length - 1) }} 页</p>
+                </div>
+                <dl class="report-chapter-divider-metrics">
+                  <div><dt>已对应</dt><dd>{{ chapter.summary.matched }} 根</dd></div>
+                  <div><dt>缺测 / 待复核</dt><dd>{{ chapter.summary.missing }} / {{ chapter.summary.review }} 根</dd></div>
+                  <div><dt>表面偏差合格</dt><dd>{{ chapter.summary.surfaceEligible ? `${chapter.summary.surfacePass} / ${chapter.summary.surfaceEligible} 根` : '—' }}</dd></div>
+                  <div><dt>直径合格</dt><dd>{{ chapter.summary.diameterEligible ? `${chapter.summary.diameterPass} / ${chapter.summary.diameterEligible} 根` : '—' }}</dd></div>
+                  <div><dt>两项均合格</dt><dd>{{ chapter.summary.bothEligible ? `${chapter.summary.bothPass} / ${chapter.summary.bothEligible} 根` : '—' }}</dd></div>
+                  <div><dt>有效测径截面</dt><dd>{{ chapter.summary.validSections }} 处</dd></div>
+                </dl>
+                <p class="report-chapter-divider-note">表面允许偏差 ±{{ comparisonReportToleranceMm }} mm；直径允许偏差{{ chapter.summary.diameterToleranceMm === null ? '未设置' : ` ±${chapter.summary.diameterToleranceMm} mm` }}。合格根数的分母为本章具备相应评定依据的钢筋，缺测与待复核不计入；具体判定口径与逐筋明细一致。</p>
+              </div>
+              <footer class="report-preview-page__footer">
+                <span>第 {{ chapter.number }} 章 · {{ chapter.title }}</span>
+                <span>第 {{ reportChapterPageNumber(chapter) }} / {{ reportTotalPageCount }} 页</span>
+              </footer>
+            </article>
+          </div>
+        <div v-for="(bars, page) in chapter.pages" :key="bars[0]!.ifcGlobalId" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== reportChapterPageIndex(chapter), 'is-portrait-stage': chapter.id === 'connector' }" :style="{ width: `${(chapter.id === 'connector' ? 794 : 1123) * reportZoom / 100}px`, height: `${(chapter.id === 'connector' ? 1123 : 794) * reportZoom / 100}px` }">
+          <nav v-if="chapter.keys.length > 1" class="rebar-report-page-nav rebar-report-chapter-nav" :aria-label="chapter.title + '翻页'" :style="chapter.id === 'connector' ? { '--report-page-nav-scale': Math.min(1, reportZoom / 80) } : undefined">
+            <button type="button" data-report-direction="previous" :aria-label="chapter.title + '上一根'" title="上一根" :disabled="page === 0" @click="changeReportChapterPage(chapter, -1)"><el-icon><ArrowLeft /></el-icon></button>
+            <span class="rebar-report-page-nav-label" aria-live="polite" aria-atomic="true">{{ bars[0]!.name || bars[0]!.designBarId }}<small>{{ page + 1 }} / {{ chapter.keys.length }}</small></span>
+            <button type="button" data-report-direction="next" :aria-label="chapter.title + '下一根'" title="下一根" :disabled="page >= chapter.keys.length - 1" @click="changeReportChapterPage(chapter, 1)"><el-icon><ArrowRight /></el-icon></button>
           </nav>
-          <article class="report-preview-page rebar-report-page" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
-            <header class="report-preview-page__header">
+          <article class="report-preview-page rebar-report-page rebar-report-figure-page" :class="{ 'is-portrait': chapter.id === 'connector' }" :data-member-id="bars[0]!.ifcGlobalId" :data-chapter="chapter.id" :style="{ transform: `translateX(-50%) scale(${reportZoom / 100})` }">
+            <header class="report-preview-page__header rebar-report-compact-header">
               <ReportEditable v-if="!isReportBlockRemoved('table-mark')" tag="div" class="report-preview-mark" :edit="reportEditing" :editable="false" label="页眉标识" @remove="removeReportBlock('table-mark')"><img :src="reportBrandMark" alt="系统标识" /></ReportEditable>
-              <div>
-                <strong>{{ reportTitle }}</strong>
-                <span>{{ reportProjectName }}</span>
+              <div class="rebar-report-member-title">
+                <div><h2>第 {{ reportChapterFor(bars[0]!.ifcGlobalId)?.number ?? '—' }} 章 · {{ reportChapterFor(bars[0]!.ifcGlobalId)?.title ?? '钢筋对比' }}</h2><span>{{ reportLayout.members.get(bars[0]!.ifcGlobalId)?.layerLabel }}</span></div>
+                <strong>{{ bars[0]!.name || bars[0]!.designBarId }}</strong>
               </div>
-              <small>REPORT / 001 · {{ reportTablePageNumber(page) }} / {{ reportTotalPageCount }}</small>
+              <div class="rebar-report-sheet-title"><span>{{ reportProjectName }} · {{ reportTableTitle }}</span><small>{{ reportTablePageNumber(chapter, page) }} / {{ reportTotalPageCount }}</small></div>
             </header>
-            <div class="rebar-report-heading">
-              <div>
-                <ReportEditable tag="h2" :edit="reportEditing" :removable="false" :text="reportText('table-heading', reportTableTitle)" label="章节标题" @update:text="setReportTextValue('table-heading', $event)" />
-              </div>
-            </div>
-            <div class="rebar-report-meta">
-              <span><ReportEditable tag="span" :edit="reportEditing" :removable="false" :text="reportText('table-meta-tolerance', '容差')" label="容差标签" @update:text="setReportTextValue('table-meta-tolerance', $event)" /> <strong>±{{ comparisonReportToleranceMm }} mm</strong></span>
-              <span><ReportEditable tag="span" :edit="reportEditing" :removable="false" :text="reportText('table-meta-direction', '测量方向')" label="测量方向标签" @update:text="setReportTextValue('table-meta-direction', $event)" /> <strong>设计顶点 → 对应扫描实例最近点</strong></span>
-              <ReportEditable tag="span" :edit="reportEditing" :text="reportText('table-meta-note', '已排除设计夹具')" label="补充说明" @update:text="setReportTextValue('table-meta-note', $event)" @remove="removeReportBlock('table-meta-note')" />
-            </div>
             <table class="rebar-report-table">
-              <colgroup><col class="rebar-report-table__member" /><col class="rebar-report-table__status" /><col class="rebar-report-table__coverage" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__tolerance" /></colgroup>
-              <thead><tr><th scope="col">钢筋信息</th><th scope="col">状态 / 点数</th><th scope="col">覆盖率</th><th scope="col">平均绝对偏差<br /><small>mm</small></th><th scope="col">RMSE<br /><small>mm</small></th><th scope="col">P95 绝对偏差<br /><small>mm</small></th><th scope="col">容差内<br /><small>已覆盖</small></th></tr></thead>
+              <colgroup><col class="rebar-report-table__member" /><col class="rebar-report-table__status" /><col class="rebar-report-table__coverage" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__metric" /><col class="rebar-report-table__tolerance" /><col class="rebar-report-table__diameter" /><col class="rebar-report-table__diameter-delta" /></colgroup>
+              <thead><tr><th scope="col">构件标识</th><th scope="col">状态 / 点数</th><th scope="col">覆盖率</th><th scope="col">平均绝对偏差 / mm</th><th scope="col">RMSE / mm</th><th scope="col">P95 绝对偏差 / mm</th><th scope="col">容差内（已覆盖）</th><th scope="col">直径 D / mm</th><th scope="col">直径偏差 ΔD / mm</th></tr></thead>
               <tbody><tr v-for="bar in bars" :key="bar.ifcGlobalId">
-                <td><strong>{{ bar.name || bar.designBarId }}</strong><small>{{ bar.ifcGlobalId }}</small><small>实例 {{ formatReportInstanceIds(bar.instanceIds) }}</small></td>
+                <td><small>{{ bar.ifcGlobalId }}</small><small>实例 {{ formatReportInstanceIds(bar.instanceIds) }}</small></td>
                 <td><span class="rebar-report-status" :class="`is-${bar.status}`">{{ rebarStatusLabel(bar.status) }}</span><small>{{ bar.pointCount.toLocaleString() }} 点</small></td>
                 <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.vertexCount ? bar.knownCount / bar.vertexCount : undefined) }}</td>
                 <td class="rebar-report-table__number">{{ bar.stats?.meanAbs === undefined ? '--' : (bar.stats.meanAbs * 1000).toFixed(2) }}</td>
                 <td class="rebar-report-table__number">{{ bar.stats?.rmse === undefined ? '--' : (bar.stats.rmse * 1000).toFixed(2) }}</td>
                 <td class="rebar-report-table__number">{{ bar.stats?.p95Abs === undefined ? '--' : (bar.stats.p95Abs * 1000).toFixed(2) }}</td>
                 <td class="rebar-report-table__number">{{ formatC2MPercentage(bar.stats?.withinToleranceRatio) }}</td>
+                <td class="rebar-report-table__number" data-report-diameter>
+                  <small>设计 {{ formatReportDiameterMm(reportDiameters.get(bar.ifcGlobalId)?.designMm) }}</small>
+                  <small>测量均值 {{ formatReportDiameterMm(reportDiameters.get(bar.ifcGlobalId)?.measuredMeanMm) }}</small>
+                </td>
+                <td class="rebar-report-table__number" data-report-diameter-delta :data-valid-sections="reportDiameters.get(bar.ifcGlobalId)?.count">
+                  <small>均值 {{ formatReportDiameterMm(reportDiameters.get(bar.ifcGlobalId)?.meanDeltaMm, true) }} · k = {{ reportDiameters.get(bar.ifcGlobalId)?.count ?? 0 }}</small>
+                  <small>最大 |ΔD| {{ formatReportDiameterMm(reportDiameters.get(bar.ifcGlobalId)?.maxAbsDeltaMm) }}</small>
+                </td>
               </tr></tbody>
             </table>
-            <div v-if="bars[0]?.status === 'matched'" class="rebar-report-inline-views" aria-label="对应钢筋构件三视图">
-              <ReportEditable v-if="!isReportBlockRemoved('table-view-guide')" tag="div" class="rebar-report-view-guide" :edit="reportEditing" :editable="false" label="三视图图例" aria-label="三视图图例" @remove="removeReportBlock('table-view-guide')">
-                <span><i class="rebar-report-view-guide__swatch is-design"></i><b>蓝色实体/轮廓</b> BIM 设计模型</span>
-                <span><i class="rebar-report-view-guide__swatch is-scan"></i><b>绿色离散点</b> 当前钢筋实测点云</span>
-                <span><i class="rebar-report-view-guide__swatch is-axis"></i><b>橙色虚线</b> 设计轴（正视/俯视）</span>
-              </ReportEditable>
-              <section v-for="bar in bars" :key="`inline-view-${bar.ifcGlobalId}`" class="rebar-report-inline-card">
-                <div class="rebar-report-views" aria-label="钢筋构件三视图">
-                  <ReportEditable
-                    v-for="projection in (['front', 'top', 'side'] as ReportViewProjection[])"
-                    v-show="!isReportBlockRemoved(`view-${bar.ifcGlobalId}-${projection}`)"
-                    :key="projection"
-                    tag="div"
-                    class="rebar-report-view"
-                    :edit="reportEditing"
-                    :editable="false"
-                    :label="`${reportViewLabel(projection)}视图`"
-                    @remove="removeReportBlock(`view-${bar.ifcGlobalId}-${projection}`)"
-                  >
-                    <strong class="rebar-report-view__label">{{ reportViewLabel(projection) }}</strong>
-                    <svg :key="reportSvgRevision" class="rebar-report-model-svg" viewBox="0 0 400 760" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`${reportViewLabel(projection)}设计与实测偏差视图`" v-html="reportSvgFor(bar.ifcGlobalId, projection)"></svg>
-                  </ReportEditable>
-                </div>
+            <div class="rebar-report-inline-views" aria-label="实测点云、拟合钢筋轴线与设计模型对比">
+              <div class="rebar-report-view-guide" aria-label="图例">
+                <span><i class="rebar-report-view-guide__swatch is-design"></i>设计模型</span>
+                <span><i class="rebar-report-view-guide__swatch is-scan"></i>实测点云</span>
+                <span><i class="rebar-report-view-guide__swatch is-fit"></i>拟合钢筋轴线</span>
+                <small>主视图章内同尺度 · 截面局部放大 · 表面偏差容差 ±{{ comparisonReportToleranceMm }} mm</small>
+              </div>
+              <section v-for="bar in bars" :key="bar.ifcGlobalId" class="rebar-report-inline-card">
+                <template v-if="reportFigures[bar.ifcGlobalId]">
+                  <div class="rebar-report-overview">
+                  <div class="rebar-report-longitudinal" aria-label="工程坐标正交视图">
+                    <ReportEditable v-for="panel in reportFigures[bar.ifcGlobalId]!.longitudinal" :key="panel.id"
+                      v-show="!isReportBlockRemoved(`view-${bar.ifcGlobalId}-${panel.id}`)" tag="div" class="rebar-report-view"
+                      :edit="reportEditing" :editable="false" :label="panel.title"
+                      @remove="removeReportBlock(`view-${bar.ifcGlobalId}-${panel.id}`)">
+                      <svg class="rebar-report-model-svg" :viewBox="panel.viewBox" role="img" :aria-label="panel.title" v-html="panel.markup"></svg>
+                    </ReportEditable>
+                  </div>
+                  <aside class="rebar-report-sidebar">
+                    <div v-if="reportFigures[bar.ifcGlobalId]!.locator" class="rebar-report-locator" :aria-label="'全局位置 · ' + reportLayout.members.get(bar.ifcGlobalId)?.layerLabel">
+                      <svg :viewBox="reportFigures[bar.ifcGlobalId]!.locator!.viewBox" role="img" aria-label="设计模型俯视定位与层位" v-html="reportFigures[bar.ifcGlobalId]!.locator!.markup"></svg>
+                    </div>
+                    <div v-if="chapter.id === 'connector'" class="rebar-report-hook-sections" aria-label="两端弯钩的法向截面">
+                      <ReportEditable v-for="panel in reportFigures[bar.ifcGlobalId]!.sections.filter(panel => panel.sectionRole === 'hook')" :key="panel.id"
+                        v-show="!isReportBlockRemoved(`view-${bar.ifcGlobalId}-${panel.id}`)" tag="div" class="rebar-report-view"
+                        :edit="reportEditing" :editable="false" :label="panel.title"
+                        @remove="removeReportBlock(`view-${bar.ifcGlobalId}-${panel.id}`)">
+                        <svg class="rebar-report-model-svg" :viewBox="panel.viewBox" role="img" :aria-label="panel.title" v-html="panel.markup"></svg>
+                      </ReportEditable>
+                    </div>
+                  </aside>
+                  </div>
+                  <div class="rebar-report-sections" aria-label="不同位置的局部截面">
+                    <ReportEditable v-for="panel in reportFigures[bar.ifcGlobalId]!.sections.filter(panel => panel.sectionRole !== 'hook')" :key="panel.id"
+                      v-show="!isReportBlockRemoved(`view-${bar.ifcGlobalId}-${panel.id}`)" tag="div" class="rebar-report-view"
+                      :edit="reportEditing" :editable="false" :label="panel.title"
+                      @remove="removeReportBlock(`view-${bar.ifcGlobalId}-${panel.id}`)">
+                      <svg class="rebar-report-model-svg" :viewBox="panel.viewBox" role="img" :aria-label="panel.title" v-html="panel.markup"></svg>
+                    </ReportEditable>
+                  </div>
+                  <div class="rebar-report-figure-caption"><p v-for="note in reportFigures[bar.ifcGlobalId]!.notes" :key="note">{{ note }}</p></div>
+                </template>
+                <p v-else class="rebar-report-figure-caption">正在读取当前版本的构件图形…</p>
               </section>
             </div>
             <footer class="report-preview-page__footer">
-              <ReportEditable v-if="!isReportBlockRemoved('table-footer-left')" tag="span" :edit="reportEditing" :text="reportText('table-footer-left', 'BIM 与点云校准 · 逐钢筋偏差与构件三视图报告')" label="页脚文字" @update:text="setReportTextValue('table-footer-left', $event)" @remove="removeReportBlock('table-footer-left')" />
-              <span>钢筋 {{ page + 1 }} / {{ comparisonBars.length }} · 第 {{ reportTablePageNumber(page) }} / {{ reportTotalPageCount }} 页</span>
+              <ReportEditable v-if="!isReportBlockRemoved('table-footer-left')" tag="span" :edit="reportEditing" :text="reportText('table-footer-left', '实测点云 · 拟合钢筋轴线 · 设计模型')" label="页脚文字" @update:text="setReportTextValue('table-footer-left', $event)" @remove="removeReportBlock('table-footer-left')" />
+              <span>{{ chapter.title }} · {{ page + 1 }} / {{ chapter.keys.length }} · 第 {{ reportTablePageNumber(chapter, page) }} / {{ reportTotalPageCount }} 页</span>
             </footer>
           </article>
         </div>
-        <div v-if="reportProjectionEnabled" v-for="(bars, page) in comparisonDetailPages" :key="`detail-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonDetailPageIndex }" :style="{ width: `${794 * reportZoom / 100}px`, height: `${1123 * reportZoom / 100}px` }">
+        </section>
+        </template>
+        <div v-if="reportProjectionEnabled" v-for="(bars, page) in comparisonDetailPages" :key="`detail-${page}`" class="report-paper-stage rebar-report-page-stage" :class="{ 'is-report-page-hidden': page !== comparisonDetailPageIndex }" :style="{ width: `${1123 * reportZoom / 100}px`, height: `${794 * reportZoom / 100}px` }">
           <nav v-if="comparisonDetailPageCount > 1 && page === comparisonDetailPageIndex" class="rebar-report-page-nav" aria-label="投影表格翻页">
             <button type="button" aria-label="上一页" title="上一页" :disabled="page === 0" @click="changeComparisonDetailPage(-1)"><el-icon><ArrowLeft /></el-icon></button>
             <span class="rebar-report-page-nav-label"><strong>第 {{ page + 1 }} / {{ comparisonDetailPageCount }} 页</strong><small>钢筋 {{ page * reportBarsPerPage + 1 }}–{{ page * reportBarsPerPage + bars.length }} / {{ comparisonBars.length }}</small></span>
@@ -9058,8 +8968,8 @@ onBeforeUnmount(() => {
               <small>REPORT / 001 · {{ reportProjectionPageNumber(page) }} / {{ reportTotalPageCount }}</small>
             </header>
             <ReportEditable tag="h2" :edit="reportEditing" :removable="false" :text="reportText('projection-heading', reportProjectionTitle)" label="章节标题" @update:text="setReportTextValue('projection-heading', $event)" />
-            <ReportEditable v-if="!isReportBlockRemoved('projection-description')" tag="p" :edit="reportEditing" :text="reportText('projection-description', `${reportProjectName} · ${comparisonMeasurementLabel} · 图形等比例，尺寸单位 mm`)" label="说明文字" @update:text="setReportTextValue('projection-description', $event)" @remove="removeReportBlock('projection-description')" />
-            <div class="rebar-projection-page__bars">
+            <ReportEditable v-if="!isReportBlockRemoved('projection-description')" tag="p" :edit="reportEditing" :text="reportText('projection-description', `${reportProjectName} · ${comparisonMeasurementLabel} · 各图独立定标，图内等比例，尺寸单位 mm`)" label="说明文字" @update:text="setReportTextValue('projection-description', $event)" @remove="removeReportBlock('projection-description')" />
+            <div class="rebar-projection-page__bars" :style="{ gridTemplateColumns: `repeat(${reportBarsPerPage}, minmax(0, 1fr))` }">
               <ReportEditable
                 v-for="bar in bars"
                 v-show="!isReportBlockRemoved(`detail-${bar.ifcGlobalId}`)"
@@ -9081,12 +8991,13 @@ onBeforeUnmount(() => {
             </footer>
           </article>
         </div>
+        </div>
       </section>
 
       <aside v-if="(showPanel && activeWorkflowStep !== 4) || (activeWorkflowStep === 4 && !reportEditing)" id="alignment-control-panel" class="right-panel control-panel is-workflow-panel">
         <div class="control-panel-header">
           <div class="panel-heading">
-            <strong>{{ activeWorkflowStep === 2 ? '点云分类与去噪' : activeWorkflowStep === 3 ? '偏差对比' : activeWorkflowStep === 4 ? '出报告' : '配准控制' }}</strong>
+            <strong>{{ activeWorkflowStep === 1 ? '配准控制' : activeWorkflowStepMeta?.title }}</strong>
           </div>
           <div class="panel-step-actions">
             <button v-if="activeWorkflowStep > 1" class="panel-step-count panel-next-step panel-prev-step" type="button"
@@ -9143,7 +9054,8 @@ onBeforeUnmount(() => {
             <div class="report-flow"><span class="done">配置</span><i></i><span class="done">预览</span><i></i><span>导出</span></div>
             <div class="workflow-form">
               <label class="field-block"><span>报告名称</span><el-input v-model="reportTitle" maxlength="40" /></label>
-              <div class="field-block"><span>每页钢筋投影</span><el-radio-group v-model="reportBarsPerPage" aria-label="每页显示的钢筋数量"><el-radio-button :value="1">1 根</el-radio-button><el-radio-button :value="2">2 根</el-radio-button><el-radio-button :value="3">3 根</el-radio-button></el-radio-group></div>
+              <label class="field-block report-diameter-setting"><span>直径允许偏差 ± / mm</span><el-input-number v-model="reportDiameterToleranceMm" aria-label="直径允许偏差（mm）" :min="0" :step="0.1" :precision="2" controls-position="right" /><small>按全部有效截面的最大绝对直径偏差判定；当前报告采用此阈值。</small></label>
+              <div v-if="reportProjectionEnabled" class="field-block"><span>每页附录构件</span><el-radio-group v-model="reportBarsPerPage" aria-label="每页显示的钢筋数量"><el-radio-button :value="1">1 根</el-radio-button><el-radio-button :value="2">2 根</el-radio-button><el-radio-button :value="3">3 根</el-radio-button></el-radio-group></div>
               <div class="field-block"><span>输出格式</span><el-radio-group v-model="reportFormat" class="compact-segment"><el-radio-button value="pdf">PDF</el-radio-button><el-radio-button value="json">检测 JSON</el-radio-button><el-radio-button value="docx" disabled title="Word 导出尚未开放">Word</el-radio-button><el-radio-button value="xls">CSV · Excel</el-radio-button><el-radio-button value="dxf" disabled title="DXF 导出尚未开放">DXF</el-radio-button></el-radio-group></div>
             </div>
             <div class="content-config-heading"><div><strong>报告内容配置</strong><span>{{ reportContents.length }} 项 · {{ reportEnabledCount }} 项显示</span></div><button type="button" class="reset-content-button" title="全部开启" aria-label="全部开启报告章节" @click="reportContents.forEach((item) => item.enabled = true)"><el-icon><RefreshLeft /></el-icon></button></div>
@@ -9165,7 +9077,7 @@ onBeforeUnmount(() => {
             <div class="panel-action-row report-actions"><el-button :icon="View" @click="fitReportPage">适应页面</el-button><el-button :icon="EditPen" :disabled="!canUseC2MResult" @click="enterReportEditor">编辑预览</el-button><el-button :icon="Check" disabled title="在线草稿保存尚未开放">保存草稿</el-button><el-button :icon="DocumentChecked" disabled title="正式归档尚未开放">发布终稿</el-button></div>
             <p class="report-local-note">编辑仅保留在当前页面。在线保存与发布尚未开放，请导出到本地。</p>
             <div class="report-mode-label">浏览器本地导出</div>
-            <div class="panel-action-row report-actions"><el-button type="primary" :icon="Download" :disabled="!canUseC2MResult" :loading="inspectionDownloading" @click="reportAction('export')">{{ reportFormat === 'json' ? '导出已保存检测 JSON' : reportFormat === 'xls' ? '导出逐筋明细 CSV' : '打印 / 导出 PDF' }}</el-button></div>
+            <div class="panel-action-row report-actions"><el-button type="primary" :icon="Download" :disabled="!canUseC2MResult" :loading="inspectionDownloading || reportPreparing" @click="reportAction('export')">{{ reportPreparing ? '正在生成全部构件图形…' : reportFormat === 'json' ? '导出已保存检测 JSON' : reportFormat === 'xls' ? '导出逐筋明细 CSV' : '打印 / 导出 PDF' }}</el-button></div>
           </div>
          <div v-if="activeWorkflowStep === 1" class="panel-section registration-edit-panel">
           <div class="registration-stage-row" role="group" aria-label="配准阶段">
@@ -9214,7 +9126,11 @@ onBeforeUnmount(() => {
               :disabled="!hasModel || !editMode || fineAlignLoading || savingCalibration"
               aria-label="显示配准操作手柄" />
           </div>
-          <p class="registration-handle-hint">{{ enableClipping ? '剖切时暂时隐藏配准手柄。' : '控制画布中的平移与旋转手柄；关闭后仍可输入数值调整。' }}</p>
+          <p class="registration-handle-hint">{{ enableClipping ? '剖切时暂时隐藏配准手柄。' : '拖动箭头沿轴平移，方块沿平面平移，蓝环绕竖直 Z 轴旋转。中心手柄沿视平面移动。' }}</p>
+          <p class="registration-handle-hint" v-if="showTransformHandles && !enableClipping">手柄大小随视图自适应。Ctrl + 滚轮微调（{{ Math.round(transformHandleSize * 100) }}%），Esc 取消拖拽。</p>
+          <button v-if="showTransformHandles && !enableClipping" type="button" class="fine-reset-link"
+            :disabled="!!transformHandleState?.dragging || !editMode || !hasModel"
+            @click="resetTransformHandleSize">恢复默认手柄大小</button>
           <div class="transform-mode" role="tablist" aria-label="变换方式">
             <button type="button" class="transform-mode-button" :class="{ 'is-active': transformMode === 'translate' }" role="tab" :aria-selected="transformMode === 'translate'" :disabled="!editMode || !hasModel" @click="setTransformMode('translate')">移动</button>
             <button type="button" class="transform-mode-button" :class="{ 'is-active': transformMode === 'rotate' }" role="tab" :aria-selected="transformMode === 'rotate'" :disabled="!editMode || !hasModel" @click="setTransformMode('rotate')">旋转</button>
@@ -9280,7 +9196,7 @@ onBeforeUnmount(() => {
                     @input="applyOrientationFixRealtime"
                   />
                   <div class="slider__controls slider__controls--rotation">
-                    <input class="axis-number-input axis-number-input--rotation" aria-label="Y 轴旋转，单位度" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-180" max="180" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
+                    <input class="axis-number-input axis-number-input--rotation" aria-label="Z 轴旋转，单位度" :value="formatRotationOffset(orientationDegY)" type="number" inputmode="decimal" min="-180" max="180" :step="rotationAdjustStep" :disabled="!editMode || !selectedItemId" @input="onOrientationNumberInput('y', $event)" @blur="onOrientationNumberBlur('y', $event)" @keydown="onOrientationNumberKeydown($event, 'y')" />
                     <span class="slider__hint">deg</span>
                   </div>
                 </label>
@@ -9514,6 +9430,7 @@ onBeforeUnmount(() => {
                   @change="onInspectionFilterChange"
                 />
               </div>
+              <p class="rebar-inspection__order">先短后长 · 每排从左到右 · 从上到下</p>
               <el-progress
                 :percentage="rebarInspectionBars.length && rebarInspectionIndex >= 0 ? ((rebarInspectionIndex + 1) / rebarInspectionBars.length) * 100 : 0"
                 :show-text="false"
@@ -9524,7 +9441,7 @@ onBeforeUnmount(() => {
                   aria-label="上一根钢筋"
                   title="上一根钢筋"
                   :icon="ArrowLeft"
-                  :disabled="!rebarInspectionBars.length || rebarInspectionIndex <= 0"
+                  :disabled="!rebarInspectionBars.length || rebarInspectionIndex === 0 || (rebarInspectionIndex < 0 && !selectedComparisonBarId)"
                   @click="stepRebarInspection(-1)"
                 />
                 <el-button
@@ -9545,6 +9462,13 @@ onBeforeUnmount(() => {
                   @click="stepRebarInspection(1)"
                 />
                 <el-button
+                  aria-label="定位当前钢筋"
+                  title="定位当前钢筋"
+                  :icon="Aim"
+                  :disabled="!selectedComparisonBar"
+                  @click="selectedComparisonBar && focusComparisonBar(selectedComparisonBar, { manual: true })"
+                />
+                <el-button
                   class="rebar-inspection__exit"
                   aria-label="退出巡检模式"
                   title="退出巡检模式"
@@ -9552,6 +9476,13 @@ onBeforeUnmount(() => {
                   :disabled="!rebarInspectionActive && !rebarInspectionManualSelect"
                   @click="exitRebarInspection"
                 />
+              </div>
+              <p v-if="rebarInspectionManualSelect" class="rebar-inspection__hint">单击选择 · 拖动旋转 · Alt + 单击切换重叠钢筋</p>
+              <div v-if="rebarInspectionActive && selectedComparisonBar" class="rebar-inspection__transparency">
+                <label for="rebar-context-transparency">周边透明度</label>
+                <input id="rebar-context-transparency" v-model.number="rebarInspectionContextTransparency" type="range"
+                  min="0" max="95" step="5" :aria-valuetext="`${rebarInspectionContextTransparency}%`" @input="applyComparisonSelection" />
+                <output for="rebar-context-transparency">{{ rebarInspectionContextTransparency }}%</output>
               </div>
               <p v-if="rebarInspectionAbnormalOnly && !rebarInspectionBars.length" class="rebar-inspection__empty">当前容差下没有异常钢筋。</p>
             </div>

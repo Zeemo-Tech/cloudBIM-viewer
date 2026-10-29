@@ -32,6 +32,7 @@ for (const scenario of ['new-version', 'same-version', 'stale-input', 'repeated-
       URL: { createObjectURL: () => 'blob:fixture', revokeObjectURL() {} },
       c2mResult: { value: old }, c2mResultRequestId: 0, c2mSceneLoadRequestId: 0,
       c2mSceneLoading: { value: false }, c2mSceneLoaded: { value: false }, c2mError: { value: '' },
+      engineeringRoot: null, contentGroup: null,
       c2mSceneArtifactAvailable: { value: true }, props: { pointcloudAssetId: 5, bimAssetId: 7 },
       scene: new THREE.Scene(), bimPivot: null, c2mSceneGroup: null,
       c2mDistances: { value: null }, c2mDistancesRequestId: 0,
@@ -270,6 +271,7 @@ test('gizmo visibility is independent of numeric edits and obeys clipping/workfl
     showTransformHandles: { value: true }, editMode: { value: true }, activeWorkflowStep: { value: 1 },
     enableClipping: { value: false }, analysisMode: { value: 'none' },
     getSelectedObject: () => ({}), transformControls: controller(), rotationControls: controller(),
+    transformHandleInteraction: null,
     transformHelper: { visible: true }, rotationHelper: { visible: true }, requestRender() {},
     positionOffsetX: { value: 1.234 }, coarseAlignmentDirty: { value: false },
   }

@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { InfiniteGroundGrid, getTilesetWorldBounds } from './InfiniteGroundGrid'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { NavigationOrbitControls as OrbitControls } from '../../viewer/NavigationOrbitControls'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
