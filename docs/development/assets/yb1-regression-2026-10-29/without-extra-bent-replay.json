@@ -1,0 +1,32 @@
+{
+  "tag": "without-extra-bent",
+  "classificationSeconds": 18.925889613106847,
+  "stageTimingsSeconds": {
+    "sceneSurfaces": 1.9859853710513562,
+    "controlNet": 9.646455372916535,
+    "shortConnectors": 0.7267705980921164,
+    "bentBars": 0.0013123039389029145,
+    "curvedPieces": 5.5519694309914485,
+    "endFaces": 0.06663746107369661,
+    "sceneAlternatives": 0.05123318207915872,
+    "embeddedExtent": 1.504004467278719e-05
+  },
+  "counts": {
+    "0": 2063591,
+    "3": 1836753,
+    "4": 29
+  },
+  "baselineLost": 0,
+  "baselineGained": 6,
+  "publishedClassDifferences": 80314,
+  "publishedInstanceDifferences": 81119,
+  "publishedSceneDifferences": 0,
+  "stageOwnership": {
+    "control": 1796043,
+    "before_bent": 1796043,
+    "after_bent": 1796043
+  },
+  "sceneObjects": 1,
+  "bentTargets": 0,
+  "bentRevised": 0
+}

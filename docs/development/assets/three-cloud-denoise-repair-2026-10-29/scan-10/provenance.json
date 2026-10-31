@@ -1,0 +1,885 @@
+{
+  "schema": "source-row-denoise-phone-album-v1",
+  "createdAt": "2026-10-29T12:05:33.100744+00:00",
+  "scanId": "10",
+  "comparisonIsSameResultDemo": false,
+  "name": "Lumos 单层",
+  "source": {
+    "path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/preprocess/2dcd72a4d592a86a0ee7ba3c/cleaned.las",
+    "sha256": "e9c4d271fad9c00aa2a339df864ba5420b3a8a08d145630d2ae1263b8bde7345",
+    "size": 88389305,
+    "mtimeNs": 1790523473951638433,
+    "pointFormat": 2,
+    "version": "1.2",
+    "scales": [
+      1e-06,
+      1e-06,
+      1e-06
+    ],
+    "offsets": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "crs": "None",
+    "pointCount": 1841337,
+    "boundsM": [
+      [
+        -5.739726,
+        -6.328018999999999,
+        0.003374
+      ],
+      [
+        7.953729,
+        5.271119,
+        1.230526
+      ]
+    ]
+  },
+  "coordinatePolicy": {
+    "frame": "original source LAS XYZ",
+    "units": "meters, matching mesh-service source-space contract; LAS CRS is recorded separately",
+    "savedAlignmentMatrixAsSupplied": [
+      -0.031748378122854026,
+      -3.885780586188048e-16,
+      0.9994958931814417,
+      0,
+      0.9994958931814417,
+      0,
+      0.03174837812285414,
+      0,
+      5.551115123125783e-17,
+      0.9999999999999999,
+      4.440892098500626e-16,
+      0,
+      0.3545937490709837,
+      0.005857000340717991,
+      -0.7983802954884622,
+      1
+    ],
+    "alignmentAppliedToPoints": false,
+    "alignmentExplanation": "The saved matrix is retained verbatim only. No BIM is overlaid, so no alignment/axis flip/unit conversion is applied. Camera projections are orthonormal and separately recorded.",
+    "geometryOperations": "orthographic projection/crop/depth ordering only; no smoothing, interpolation, point generation, coordinate edits, or re-registration"
+  },
+  "baseline": {
+    "resultDirectory": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/87bddbcab466b53622992a11",
+    "resultVersion": "87bddbcab466b53622992a11",
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v24",
+    "manifestSha256": "a40c6884a4d824fa35b1b0e690be3d5b356dae8cfb507b5de37173ba1d7a40db",
+    "instanceMapSha256": "fd71a5ba3d911a61f6901888d307676d4855d92dff6217e6599b0d4465e93eb7",
+    "coverage": "verified-preview-source-rows-only",
+    "labelArtifact": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/87bddbcab466b53622992a11/preview.ply",
+    "labelSha256": "e6aea0180aca139de76e1ce945fb220da0ab709e5a2d6de51dbe76a0bcf51e53",
+    "verifiedVertices": 500000,
+    "maximumFloat32CoordinateDifferenceM": 0.0,
+    "mapping": "linspace(0,N-1,previewPointCount,dtype=int64), every vertex checked against (LAS XYZ-previewOrigin).astype(float32)",
+    "previewOrigin": [
+      1.1070015,
+      -0.5284499999999999,
+      0.61695
+    ],
+    "missingRowsPolicy": "never inferred or filled as unknown",
+    "labeledRows": 500000,
+    "classCountsOnLabeledRows": {
+      "unknown": 300318,
+      "table": 0,
+      "fixture": 0,
+      "steel": 157272,
+      "noise": 42410,
+      "embedded": 0,
+      "pipe": 0
+    }
+  },
+  "new": {
+    "resultDirectory": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/b3983151f852919c73bdc8c5",
+    "resultVersion": "b3983151f852919c73bdc8c5",
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v9+bim-embedded-extent-v2+execution-v4",
+    "manifestSha256": "18e0d990edd3e995dd889cdb847700dcd4d4868ebff49f8b46824ec14a6655e9",
+    "instanceMapSha256": "2d4196a8524d2aecdfeb831b82b68147eba3542e43d90e6f0bcf278d01691751",
+    "coverage": "all-source-rows",
+    "labelArtifact": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/b3983151f852919c73bdc8c5/source-labels.npz",
+    "labelSha256": "fd87c33f4db86703eb346b37e5e5d69d5f45a6325964123327051f0dc58926f7",
+    "mapping": "source-labels.npz row i equals original LAS record i",
+    "labeledRows": 1841337,
+    "classCountsOnLabeledRows": {
+      "unknown": 1105539,
+      "table": 0,
+      "fixture": 0,
+      "steel": 578624,
+      "noise": 157174,
+      "embedded": 0,
+      "pipe": 0
+    }
+  },
+  "samples": {
+    "overview": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "1345d2250b7b0c017c2e3a8d94903ea7691c7d78f7097c91793956e64ec18412"
+    },
+    "comparison": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "4656c55e24fdcdec59a84fd717bda5aaff3a496b6829d0876c16e8f72e4f3b07"
+    },
+    "steel_only": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "b00b5d292260d9077d1de9aceedc97be77fb7cfca1182aaba7e86cdec279180d"
+    },
+    "specimen_all_source": {
+      "count": 1729184,
+      "sha256Int64LittleEndian": "7e622782ad483b83454a09f68aeb35febbbbab339bd8621bd40fc679f80f9d00"
+    },
+    "specimen_comparison": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "904a57a8f0fd9e322e50a2de9bc7d9feecd156b60059d037b152c0e8c5724da1"
+    },
+    "local1_all_source": {
+      "count": 61356,
+      "sha256Int64LittleEndian": "fdcae3db536502b0518d1ad074fdceda467f78f71e4c3a99f93e18694f29a397"
+    },
+    "local1_comparison": {
+      "count": 16637,
+      "sha256Int64LittleEndian": "05a9479cb4aada1f37d7aaafd2699255ee5a55741c3c527313eb750b0cd5dd22"
+    },
+    "local2_all_source": {
+      "count": 35570,
+      "sha256Int64LittleEndian": "b83ebb596ca0eb9b90faa2821d70f1e594668ce0fdc4ad655392bd2f799e4bad"
+    },
+    "local2_comparison": {
+      "count": 9672,
+      "sha256Int64LittleEndian": "eeeb717825b36ae1c2293ec47aae0957b2fbde8e569bc458114e36d119f947d3"
+    }
+  },
+  "sampling": {
+    "seed": null,
+    "randomSampling": false,
+    "overviewMethod": "linspace indices over original source row order",
+    "comparisonMethod": "linspace subset of baseline verified labeled source rows, identically used in both panels",
+    "steelMethod": "linspace subset of new class=3 original source rows; all nonsteel excluded only in explicitly titled steel-only figure",
+    "maxOverviewPoints": 240000,
+    "sourceRowsFile": "source-rows.npz",
+    "sourceRowsFileSha256": "29d776435ee6a3fc5be36111cad1e2926f96314c52631f434bf6f933f290471f"
+  },
+  "localCrops": [
+    {
+      "kind": "specimen-overview",
+      "selection": "baseline steel XY bounds padded by 8%; all classes and full depth retained",
+      "selectionUsesNewLabels": false,
+      "xyLimitsM": [
+        -1.3612980000000001,
+        1.284401,
+        -0.67816616,
+        2.27992316
+      ],
+      "allSourceRowsInCrop": 1729184,
+      "commonLabeledRows": 469546,
+      "drawnRows": 240000,
+      "comparisonSampling": "linspace over shared source rows"
+    },
+    {
+      "selection": "baseline-only mixed steel/unknown grid: >=20 each and steel fraction 0.15..0.85; spatial-median candidate then spatially separate opposite-half median",
+      "gridSideM": 0.24,
+      "candidateCount": 75,
+      "selectedGridCell": [
+        0,
+        3
+      ],
+      "baselineCellSteel": 3054,
+      "baselineCellUnknown": 2585,
+      "originM": [
+        0.12,
+        0.84,
+        0.038221
+      ],
+      "basis": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "sRangeM": [
+        -0.2,
+        0.2
+      ],
+      "tRangeM": [
+        -0.2,
+        0.2
+      ],
+      "depthRangeM": [
+        -0.12,
+        0.12
+      ],
+      "allSourceRowsInCrop": 61356,
+      "selectionUsesNewLabels": false,
+      "commonLabeledRows": 16637,
+      "comparisonSampling": "all shared labeled rows in the crop; no subsampling"
+    },
+    {
+      "selection": "baseline-only mixed steel/unknown grid: >=20 each and steel fraction 0.15..0.85; spatial-median candidate then spatially separate opposite-half median",
+      "gridSideM": 0.24,
+      "candidateCount": 75,
+      "selectedGridCell": [
+        -4,
+        3
+      ],
+      "baselineCellSteel": 3303,
+      "baselineCellUnknown": 1521,
+      "originM": [
+        -0.84,
+        0.84,
+        0.029872
+      ],
+      "basis": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "sRangeM": [
+        -0.2,
+        0.2
+      ],
+      "tRangeM": [
+        -0.2,
+        0.2
+      ],
+      "depthRangeM": [
+        -0.12,
+        0.12
+      ],
+      "allSourceRowsInCrop": 35570,
+      "selectionUsesNewLabels": false,
+      "commonLabeledRows": 9672,
+      "comparisonSampling": "all shared labeled rows in the crop; no subsampling"
+    }
+  ],
+  "classContract": [
+    {
+      "id": 0,
+      "key": "unknown",
+      "nameZh": "未知 / 待判",
+      "color": "#A0A7B2"
+    },
+    {
+      "id": 1,
+      "key": "table",
+      "nameZh": "台面",
+      "color": "#BF986A"
+    },
+    {
+      "id": 2,
+      "key": "fixture",
+      "nameZh": "夹具",
+      "color": "#F2AA38"
+    },
+    {
+      "id": 3,
+      "key": "steel",
+      "nameZh": "钢筋",
+      "color": "#36C9F2"
+    },
+    {
+      "id": 4,
+      "key": "noise",
+      "nameZh": "显式噪声",
+      "color": "#F15B82"
+    },
+    {
+      "id": 5,
+      "key": "embedded",
+      "nameZh": "预埋件",
+      "color": "#39D6A3"
+    },
+    {
+      "id": 6,
+      "key": "pipe",
+      "nameZh": "管件",
+      "color": "#C397F8"
+    }
+  ],
+  "physicalParentColorPolicy": "SHA256(IFC GlobalId) -> fixed HSV color, same physical parent across matching units and result versions; close colors remain possible, use parent map/target counts",
+  "figures": [
+    {
+      "file": "01-semantic-top.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 114632,
+      "sha256": "c61f890ac29dd6e8ad936ebd5ba3a6e34a99b47fe3ce8653b064144147f9d382",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 修复后整体语义",
+      "caption": "原坐标俯视 · 原始源点 1,841,337，等源行抽样 240,000 · 单位 m",
+      "sourceRows": 240000,
+      "rowsSha256": "1345d2250b7b0c017c2e3a8d94903ea7691c7d78f7097c91793956e64ec18412",
+      "semanticCounts": {
+        "unknown": 144091,
+        "table": 0,
+        "fixture": 0,
+        "steel": 75389,
+        "noise": 20520,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -6.218996925,
+          8.432999925,
+          -6.7339888299999995,
+          5.67708883
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "steelOnly": false
+    },
+    {
+      "file": "02-semantic-oblique.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 139390,
+      "sha256": "1af04d34ea49f44ae638e8278d3485c93dbcc9027a1cf8be5ec73ab63639dc95",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 修复后整体语义",
+      "caption": "斜视 · 原始源点 1,841,337，等源行抽样 240,000 · 单位 m",
+      "sourceRows": 240000,
+      "rowsSha256": "1345d2250b7b0c017c2e3a8d94903ea7691c7d78f7097c91793956e64ec18412",
+      "semanticCounts": {
+        "unknown": 144091,
+        "table": 0,
+        "fixture": 0,
+        "steel": 75389,
+        "noise": 20520,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "oblique",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            0.9510565162951536,
+            -0.14029077970429507,
+            0.27533615807315837
+          ],
+          [
+            0.30901699437494745,
+            0.43177062311338915,
+            -0.8473975608908427
+          ],
+          [
+            0.0,
+            0.8910065241883679,
+            0.4539904997395468
+          ]
+        ],
+        "projectedBoundsM": [
+          -4.688770750875957,
+          8.766077822275996,
+          -3.1209011527908896,
+          3.5371255790246563
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "steelOnly": false
+    },
+    {
+      "file": "03-physical-parents.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 317982,
+      "sha256": "a3fb4f183a9d127999af792784ba3ffec826e5ae2d173da98d08ef76e5db4d60",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 钢筋物理实例",
+      "caption": "仅绘钢筋，按 IFC 物理父构件固定配色；弯钩 / 直段单元共享父构件颜色。",
+      "sourceRows": 240000,
+      "rowsSha256": "b00b5d292260d9077d1de9aceedc97be77fb7cfca1182aaba7e86cdec279180d",
+      "semanticCounts": {
+        "unknown": 0,
+        "table": 0,
+        "fixture": 0,
+        "steel": 240000,
+        "noise": 0,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "oblique",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            0.9510565162951536,
+            -0.14029077970429507,
+            0.27533615807315837
+          ],
+          [
+            0.30901699437494745,
+            0.43177062311338915,
+            -0.8473975608908427
+          ],
+          [
+            0.0,
+            0.8910065241883679,
+            0.4539904997395468
+          ]
+        ],
+        "projectedBoundsM": [
+          -1.262524545473217,
+          1.6248796527156966,
+          -0.32635246585029404,
+          1.0646020376491607
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "steelOnly": true
+    },
+    {
+      "file": "04-before-after.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 193217,
+      "sha256": "e5de69376b8fab59503159ff7532275ae2c95617649ba55724e56b546f8c3063",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 整体修复前后",
+      "caption": "相同源行 240,000 / 1,841,337 · 相同俯视范围 · 标签覆盖：仅核验后的旧预览源行",
+      "sourceRows": 240000,
+      "rowsSha256": "4656c55e24fdcdec59a84fd717bda5aaff3a496b6829d0876c16e8f72e4f3b07",
+      "baselineCounts": {
+        "unknown": 144024,
+        "table": 0,
+        "fixture": 0,
+        "steel": 75490,
+        "noise": 20486,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 144024,
+        "table": 0,
+        "fixture": 0,
+        "steel": 75490,
+        "noise": 20486,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -6.218996925,
+          8.432999925,
+          -6.7339888299999995,
+          5.67708883
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "targetPhysicalParent": null
+    },
+    {
+      "file": "04b-workpiece-before-after.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 547241,
+      "sha256": "21774a49692bc01917c1c9f3cbc2abb7c07f740b2751fdab258ff1a358bb914a",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 试件范围修复前后",
+      "caption": "裁剪：基线钢筋包围框外扩 8% · 保留框内全部类别和深度 · 同源行 240,000",
+      "sourceRows": 240000,
+      "rowsSha256": "904a57a8f0fd9e322e50a2de9bc7d9feecd156b60059d037b152c0e8c5724da1",
+      "baselineCounts": {
+        "unknown": 137755,
+        "table": 0,
+        "fixture": 0,
+        "steel": 80646,
+        "noise": 21599,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 137755,
+        "table": 0,
+        "fixture": 0,
+        "steel": 80646,
+        "noise": 21599,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -1.3612980000000001,
+          1.284401,
+          -0.67816616,
+          2.27992316
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "targetPhysicalParent": null
+    },
+    {
+      "file": "05-local-1.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 492990,
+      "sha256": "b59a3f85254091606c792e6046b5029973d80fdc229618d921f921a1d5cb3c37",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 匹配 / 未知边界 1",
+      "caption": "裁剪内原源点 61,356，同源行对照 16,637 · 局部全标签行绘制 · 单位 m",
+      "sourceRows": 16637,
+      "rowsSha256": "05a9479cb4aada1f37d7aaafd2699255ee5a55741c3c527313eb750b0cd5dd22",
+      "baselineCounts": {
+        "unknown": 5831,
+        "table": 0,
+        "fixture": 0,
+        "steel": 9143,
+        "noise": 1663,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 5831,
+        "table": 0,
+        "fixture": 0,
+        "steel": 9143,
+        "noise": 1663,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-boundary",
+        "type": "orthographic",
+        "originM": [
+          0.12,
+          0.84,
+          0.038221
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.2,
+          0.2,
+          -0.2,
+          0.2
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "targetPhysicalParent": null
+    },
+    {
+      "file": "07-local-1-full-source.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 399492,
+      "sha256": "01f56fa150b84831a1078fc5dcda47eb15653c6519e010382636ada67c137ec6",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 匹配 / 未知边界 1全源细节",
+      "caption": "修复后裁剪内全部 61,356 个原 LAS 点；包含旧预览未覆盖的源行。",
+      "sourceRows": 61356,
+      "rowsSha256": "fdcae3db536502b0518d1ad074fdceda467f78f71e4c3a99f93e18694f29a397",
+      "semanticCounts": {
+        "unknown": 21466,
+        "table": 0,
+        "fixture": 0,
+        "steel": 33587,
+        "noise": 6303,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-boundary",
+        "type": "orthographic",
+        "originM": [
+          0.12,
+          0.84,
+          0.038221
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.2,
+          0.2,
+          -0.2,
+          0.2
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "steelOnly": false
+    },
+    {
+      "file": "06-local-2.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 399060,
+      "sha256": "bc9be62a6e2ba020c38108a150d2f1fa53dba51a3d8eea3276c1768767bb076b",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 匹配 / 未知边界 2",
+      "caption": "裁剪内原源点 35,570，同源行对照 9,672 · 局部全标签行绘制 · 单位 m",
+      "sourceRows": 9672,
+      "rowsSha256": "eeeb717825b36ae1c2293ec47aae0957b2fbde8e569bc458114e36d119f947d3",
+      "baselineCounts": {
+        "unknown": 2748,
+        "table": 0,
+        "fixture": 0,
+        "steel": 5816,
+        "noise": 1108,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 2748,
+        "table": 0,
+        "fixture": 0,
+        "steel": 5816,
+        "noise": 1108,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-boundary",
+        "type": "orthographic",
+        "originM": [
+          -0.84,
+          0.84,
+          0.029872
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.2,
+          0.2,
+          -0.2,
+          0.2
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "targetPhysicalParent": null
+    },
+    {
+      "file": "07-local-2-full-source.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 324672,
+      "sha256": "9c6381d2f7db337b55f74a03b4de4e4b3cfe4873b2919bfc85453a29f73ac5f2",
+      "encoding": "RGB PNG, lossless",
+      "title": "Lumos 单层 · 匹配 / 未知边界 2全源细节",
+      "caption": "修复后裁剪内全部 35,570 个原 LAS 点；包含旧预览未覆盖的源行。",
+      "sourceRows": 35570,
+      "rowsSha256": "b83ebb596ca0eb9b90faa2821d70f1e594668ce0fdc4ad655392bd2f799e4bad",
+      "semanticCounts": {
+        "unknown": 10237,
+        "table": 0,
+        "fixture": 0,
+        "steel": 21297,
+        "noise": 4036,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-boundary",
+        "type": "orthographic",
+        "originM": [
+          -0.84,
+          0.84,
+          0.029872
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.2,
+          0.2,
+          -0.2,
+          0.2
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "steelOnly": false
+    }
+  ],
+  "runtimeSeconds": 5.930032182019204,
+  "runtime": {
+    "python": "3.11.15",
+    "numpy": "1.26.4",
+    "matplotlib": "3.9.3",
+    "laspy": "2.5.4"
+  },
+  "script": {
+    "path": "/home/hong/hong_project/cloudBIM-viewer/scripts/qa/render_denoise_comparison.py",
+    "sha256": "e84d736f90dcf3b98b95c3affa31cd62c1cf0b40e70ff906d39deb97fffac10a"
+  },
+  "interpretation": "A real-data rendering for visual inspection, not independent ground truth or proof that every colored point is correctly classified; unknown is retained and never relabeled noise for display."
+}

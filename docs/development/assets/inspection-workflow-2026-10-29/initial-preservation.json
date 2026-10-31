@@ -1,0 +1,11 @@
+{
+  "initialDenoiseVersion": "903d8138e664cb81a2fe9aa0",
+  "finalDenoiseVersion": "5738627a95ef330e99f8304e",
+  "initialReportVersion": "89d54b743c3b675d4f2fc1f2d579ef91e7028a4128e75aadbd3b415b3ab8e0a3",
+  "finalReportVersion": "21cad5efeeb8f573cdd0d3ba086519a8255e829af03441400e85b4f554a1ec50",
+  "savedAlignmentUnchanged": true,
+  "fullDistanceBytesEqual": true,
+  "reportValuesEqualExcludingTimingAndLineage": true,
+  "originalDenoiseFileHashesVerified": true,
+  "originalHistoricalReportExact": true
+}

@@ -1,0 +1,29 @@
+{
+  "preservedInputAndHistoricalFiles": 28,
+  "unchangedSavedAlignmentAndAssetBindings": true,
+  "businessRepeatEquivalence": {
+    "5": {
+      "runs": 2,
+      "identicalSourceClassesOwnersAndSceneOwners": true
+    },
+    "10": {
+      "runs": 1,
+      "identicalSourceClassesOwnersAndSceneOwners": true
+    },
+    "14": {
+      "runs": 2,
+      "identicalSourceClassesOwnersAndSceneOwners": true
+    }
+  },
+  "candidateBusinessEquivalence": {
+    "5": true,
+    "10": true,
+    "14": true
+  },
+  "yb1HistoricalRegression": {
+    "oldSteelLost": 0,
+    "oldSteelInstanceChanges": 0,
+    "recoveredPreviouslyLost": 49044,
+    "additionalToHistorical": 6
+  }
+}

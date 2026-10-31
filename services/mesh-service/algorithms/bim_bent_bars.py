@@ -13,9 +13,81 @@ from scipy.spatial import cKDTree
 from scipy.optimize import least_squares, linear_sum_assignment
 from scipy.interpolate import BSpline
 from algorithms.rebar_control_net import _frame, _unit_rows
+from algorithms.rebar_control_curves import _project
 from rebar_prior_axis import fit_prior_axis
 
-VERSION = 'bim-flexible-axis-v8'
+VERSION = 'bim-flexible-axis-v9'
+
+
+def _existing_body_evidence(points, normals, owner, excluded, row, unit, units, envelope, excluded_tree=None):
+    """Audit a bounded, source-aligned sample before requesting another solve.
+
+    Coverage and surface normals matter together: a fitted flag or a low
+    residual on a small, self-selected fragment is not sufficient evidence.
+    The design frame makes this check independent of scene orientation.
+    """
+    ids = np.flatnonzero((owner == row['id']) & ~excluded)
+    curve = np.asarray(row.get('centerlineM', []), dtype=float)
+    evidence = {'samplePoints': 0, 'skipRefit': False, 'protectExistingRegions': False}
+    if (len(ids) < 100 or curve.ndim != 2 or curve.shape[1:] != (3,)
+            or len(curve) < 2 or not np.isfinite(curve).all()):
+        return evidence, np.empty(0), np.empty(0, dtype=bool)
+    ids = ids[np.linspace(0, len(ids)-1, min(len(ids), 4096), dtype=int)]
+    q, n = points[ids], normals[ids]
+    distance, radial, _, _, side = _project(q, curve)
+    tolerance = max(.0009, .36*unit['radius'])
+    error = abs(distance-unit['radius'])
+    alignment = abs(np.sum(radial*n, axis=1))/np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+    good = side & (error <= tolerance) & (alignment > .65) & np.isfinite(q).all(axis=1)
+    station = (q-unit['start'])@unit['direction']
+    bins = np.clip((station/unit['length']*24).astype(int), 0, 23)
+    counts = np.bincount(bins[good], minlength=24)
+    delta = curve-unit['start']
+    offset = np.linalg.norm(delta-np.outer(delta@unit['direction'], unit['direction']), axis=1)
+    identity_samples = curve[np.linspace(0, len(curve)-1, min(25, len(curve)), dtype=int)]
+    identity = all(_identity_allowed(c, unit, units, envelope) for c in identity_samples)
+    span = float(np.ptp(station[good])/unit['length']) if good.any() else 0.
+    fraction = float(np.mean(good))
+    median = float(np.median(error))
+    competing_surface = bool(excluded_tree is not None and
+        np.any(excluded_tree.query(curve)[0] <= max(.040, 6*unit['radius'])))
+    # Near measured fixtures/table surfaces, require almost all existing rows
+    # to agree in both geometry and normal. An isolated body can tolerate a
+    # small fraction of unstable scan normals at crossings and cut ends.
+    support_floor = .98 if competing_surface else .94
+    # Deliberately conservative. Missing/partial bodies, inconsistent normals,
+    # large displacement and competing identities still use the full solver.
+    protect = (fraction >= support_floor and median <= .4*tolerance
+               and float(np.max(offset)) <= .030)
+    skip = (protect and np.count_nonzero(counts >= 12) >= 21
+            and span >= .85 and identity)
+    evidence.update(samplePoints=len(ids), supportedFraction=fraction,
+                    supportedAxialBins=int(np.count_nonzero(counts >= 12)), axialBins=24,
+                    supportedSpanFraction=span, medianSurfaceErrorM=median,
+                    maximumDesignOffsetM=float(np.max(offset)), identityAllowed=identity,
+                    competingSurfaceNearby=competing_surface, requiredSupportedFraction=support_floor,
+                    skipRefit=bool(skip), protectExistingRegions=bool(protect))
+    return evidence, station, good
+
+
+def _loses_existing_region(station, good, unit, intervals):
+    """A locally validated prefix must not revoke another observed body region.
+
+    Compare axial coverage on fixed source rows outside the new fit's seeds.
+    This does not union obsolete point ownership into a revised model: a failed
+    revision leaves the previous model and its points intact, atomically.
+    Full-span corrections of a wrong axis remain possible.
+    """
+    if np.count_nonzero(good) < 64:
+        return False, []
+    bins = np.clip((station/unit['length']*24).astype(int), 0, 23)
+    covered = np.zeros(len(station), dtype=bool)
+    for lo, hi in intervals:
+        covered |= (station >= lo-.012) & (station <= hi+.012)
+    old = np.bincount(bins[good], minlength=24)
+    lost = np.bincount(bins[good & ~covered], minlength=24)
+    regressed = np.flatnonzero((old >= 12) & (lost > .5*old))
+    return bool(len(regressed)), regressed.tolist()
 
 
 def fixture_envelope(scene, scene_report, units):
@@ -744,9 +816,20 @@ def recover_bent_bars(points,normals,inventory,instances,status,owner,scene,scen
           ProcessPoolExecutor(max_workers=workers,mp_context=multiprocessing.get_context('spawn'),
                               initializer=_section_worker_init) if workers>1 else nullcontext(None))
     finite=np.isfinite(points).all(axis=1)
+    excluded_points=points[excluded&finite]
+    excluded_tree=cKDTree(excluded_points) if len(excluded_points) else None
+    targets=[];existing={}
+    for unit in units:
+        if unit['kind']!='straight' or unit['length']<.6:continue
+        row=rows[unit['source']['designUnitId']]
+        evidence,station,good=_existing_body_evidence(points,normals,owner,excluded|~finite,row,unit,units,envelope,excluded_tree)
+        existing[row['id']]=(evidence,station,good)
+        if evidence['skipRefit']:
+            results.append(dict(designUnitId=row['designUnitId'],designBarId=row['designBarId'],id=row['id'],
+                                status='existing-body-supported',points=0,existingBodyEvidence=evidence))
+        else:targets.append(unit)
     with pool as executor:
         prepared=None
-        targets=[unit for unit in units if unit['kind']=='straight' and unit['length']>=.6]
         for target_index,unit in enumerate(targets):
             row=rows[unit['source']['designUnitId']]
             if progress:progress('弯曲钢筋：IFC 轴线柔性拟合',len(results),len(units))
@@ -766,11 +849,18 @@ def recover_bent_bars(points,normals,inventory,instances,status,owner,scene,scen
                 prepared.prefetch(executor)
             candidate_ids=result.pop('_candidateIds')
             result.update(designUnitId=row['designUnitId'],designBarId=row['designBarId'],id=row['id'])
+            evidence,station,good=existing[row['id']]
+            result['existingBodyEvidence']=evidence
             if result['status']=='observed-trace' and len(ids)>=100:
                 model,reason,ids=_fit_ifc_axis(points,normals,ids,candidate_ids,unit,units,envelope,result,executor=executor,on_submitted=prepare_next,
                                              defer_refinement=True)
                 if model is None:
                     result.update(status='ifc-flexible-fit-rejected',reason=reason,points=0);results.append(result);continue
+                regressed,lost_bins=_loses_existing_region(station,good,unit,model['intervals'])
+                if regressed and evidence['protectExistingRegions']:
+                    result.update(status='ifc-flexible-fit-rejected',reason='existing-supported-region-regressed',
+                                  regressedAxialBins=lost_bins,points=0)
+                    results.append(result);continue
                 added=ids[owner[ids]==0]
                 previous=np.flatnonzero(owner==row['id'])
                 released=previous[~np.isin(previous,ids)]
@@ -808,12 +898,20 @@ def recover_bent_bars(points,normals,inventory,instances,status,owner,scene,scen
                 bodyDisplayCenterlineM=model['observedCentersM'],observedSupportIntervalsM=intervals,
                 axisEvidenceRangeM=[intervals[0][0],intervals[-1][1]],
                 traceEvidence={k:v for k,v in result.items() if k not in ('nodes','centerlineM','flexibleRegistration','observedCenterlineM')})
+    results.sort(key=lambda result:result['id'])
     return {'version':VERSION,'objects':results,'fixtureEnvelope':envelope,
             'policy':{'searchRadiusM':.15,'endpointMarginM':.04,'stationStepM':.012,'sectionHalfWidthM':.008,
                       'maximumLinkGapM':.09,'maximumOcclusionLinkGapM':'max(0.09m,min(0.30m,25% of design length))',
                       'transversePredictionGate':'min(30mm,max(3mm,1.5*radius)+2/m*axialGap^2)',
                       'neighbourIdentityMarginM':.003,
                       'radiusRatioRange':[.72,1.45],'heldOutFraction':.5,
+                      'existingBodyAudit':{'maximumSourceSamples':4096,'axialBins':24,
+                          'minimumSupportedSamplesPerBin':12,'minimumFastPathBins':21,
+                          'minimumFastPathSpanFraction':.85,'normalAlignment':.65,
+                          'supportedFraction':.94,'supportedFractionNearExcludedSurfaces':.98,
+                          'excludedSurfaceDistanceM':'max(0.040,6*radius)',
+                          'maximumMedianErrorFractionOfSurfaceGate':.4,'maximumDesignOffsetM':.030,
+                          'revisionGuard':'trusted existing source regions must remain within new observed axial intervals; reject atomically on a lost majority of any supported bin'},
                       'minimumBodySpan':'max(0.20m,min(0.60m,20% of design length)); at least20 supported stations',
                       'modelPolicy':'local sections initialize IFC axis degrees of freedom; final ownership uses the fitted fixed-radius IFC sweep and validated station intervals',
                       'ownership':'validated body revision replaces its previous source support; released rows become pending; other owners remain fixed; curves and cut faces follow final bodies',

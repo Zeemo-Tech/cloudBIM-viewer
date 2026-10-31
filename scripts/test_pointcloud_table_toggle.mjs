@@ -43,6 +43,7 @@ function setupComponent(path, input, dependencies = {}) {
       if (name === '3d-tiles-renderer/three/plugins') return TilePlugins
       if (name.endsWith('/segmentation')) return segmentation
       if (name.endsWith('/displayFrame')) return displayFrame
+      if (name.includes('/measurement/')) return viewerCore
       if (name.endsWith('/tableVisibility')) return tableVisibility
       if (name.endsWith('/instancePalette.js')) return { buildInstancePalette }
       if (name === './bimRemeshDisplay') return { useBimRemeshDisplay }

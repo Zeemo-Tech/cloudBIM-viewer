@@ -1,0 +1,152 @@
+{
+  "date": "2026-10-30",
+  "viewport": {
+    "width": 1920,
+    "height": 1080,
+    "dpr": 1.25
+  },
+  "checks": [
+    {
+      "surface": "bim",
+      "case": "coordinate-input-saves",
+      "sources": [
+        "construction"
+      ]
+    },
+    {
+      "surface": "bim",
+      "case": "three-point-angle",
+      "degrees": 90
+    },
+    {
+      "surface": "bim",
+      "case": "backend-reload",
+      "angleVisible": true
+    },
+    {
+      "surface": "bim",
+      "case": "drag-does-not-measure"
+    },
+    {
+      "surface": "pointcloud",
+      "case": "coordinate-input-saves",
+      "sources": [
+        "construction"
+      ]
+    },
+    {
+      "surface": "pointcloud",
+      "case": "three-point-angle",
+      "degrees": 90
+    },
+    {
+      "surface": "pointcloud",
+      "case": "backend-reload",
+      "angleVisible": true
+    },
+    {
+      "surface": "pointcloud",
+      "case": "drag-does-not-measure"
+    },
+    {
+      "surface": "pointcloud",
+      "case": "real-point-pick",
+      "vertexIndex": 632,
+      "dataLevel": "点云显示采样快照"
+    },
+    {
+      "surface": "pointcloud",
+      "case": "fixture-plane",
+      "rmse": 2.5741746185290165e-16,
+      "radius": 0.6,
+      "lens": {
+        "width": 180,
+        "height": 180,
+        "nonempty": 32400
+      }
+    },
+    {
+      "surface": "pointcloud",
+      "case": "fixture-corner",
+      "rmse": 2.2005157886995654e-16,
+      "lens": {
+        "width": 180,
+        "height": 180,
+        "nonempty": 32400
+      }
+    },
+    {
+      "surface": "pointcloud",
+      "case": "corner-local-frame",
+      "axes": [
+        [
+          -0.19536186589108506,
+          0.513819260228978,
+          0.835358311847856
+        ],
+        [
+          0.12112536705278547,
+          0.8578907853020123,
+          -0.4993516255608114
+        ],
+        [
+          -0.973222680999514,
+          0.0036288168378602165,
+          -0.2298356910413949
+        ]
+      ]
+    },
+    {
+      "surface": "pointcloud",
+      "case": "fixture-cylinder",
+      "rmse": 3.3261949953008966e-9,
+      "radius": 0.1499999998749165,
+      "lens": {
+        "width": 180,
+        "height": 180,
+        "nonempty": 32400
+      }
+    },
+    {
+      "surface": "pointcloud",
+      "case": "narrow-layout",
+      "bounds": {
+        "x": 12,
+        "y": 161,
+        "width": 330,
+        "height": 627
+      }
+    },
+    {
+      "surface": "pointcloud",
+      "case": "fitted-cylinder-reload",
+      "diameterM": 0.3,
+      "geometryRestored": true
+    },
+    {
+      "surface": "alignment",
+      "case": "coordinate-input-saves",
+      "sources": [
+        "construction"
+      ]
+    },
+    {
+      "surface": "alignment",
+      "case": "three-point-angle",
+      "degrees": 90
+    },
+    {
+      "surface": "alignment",
+      "case": "backend-reload",
+      "angleVisible": true
+    },
+    {
+      "surface": "alignment",
+      "case": "drag-does-not-measure"
+    }
+  ],
+  "errors": [],
+  "blockedWrites": [],
+  "testRecordsCreated": 11,
+  "testRecordsDeleted": 11
+}

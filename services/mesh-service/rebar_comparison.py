@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 import hashlib
 import json
+import os
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -193,6 +196,26 @@ def _bar_stats(values: np.ndarray, max_histogram_distance: float, histogram_bins
     return compute_statistics(finite, max_histogram_distance, histogram_bins, tolerance=tolerance)["stats"] if len(finite) else None
 
 
+def _instance_point_rows(owners: np.ndarray) -> tuple[dict[int, np.ndarray], dict[int, int]]:
+    """Group sparse instance IDs once, retaining source-row order within each ID."""
+    if not len(owners):
+        return {}, {}
+    order = np.argsort(owners, kind="stable")
+    grouped = owners[order]
+    starts = np.r_[0, np.flatnonzero(grouped[1:] != grouped[:-1]) + 1]
+    stops = np.r_[starts[1:], len(owners)]
+    rows = {int(grouped[start]): order[start:stop] for start, stop in zip(starts, stops)}
+    return rows, {instance_id: len(indices) for instance_id, indices in rows.items()}
+
+
+def _comparison_worker_count(bar_count: int) -> int:
+    try:
+        requested = int(os.environ.get("REBAR_COMPARISON_WORKERS", "4"))
+    except ValueError:
+        requested = 4
+    return max(1, min(requested, 8, os.cpu_count() or 1, bar_count))
+
+
 def compute_instance_comparison(
     scan_path: str, analysis_mesh_path: str, instance_map_path: str,
     alignment_matrix: list[float], *, voxel_size: float, downsample_enabled: bool,
@@ -229,30 +252,28 @@ def compute_instance_comparison(
     if len(points) == 0:
         raise C2MContractError("scan contains no rebar points")
     raw_bbox = {"min": points.min(axis=0).tolist(), "max": points.max(axis=0).tolist()}
+    instance_rows, instance_counts = _instance_point_rows(owners)
     declared_ids = {row["id"] for row in instance_map["instances"]}
-    undeclared = set(map(int, np.unique(owners))) - declared_ids - {0}
+    undeclared = set(instance_rows) - declared_ids - {0}
     if undeclared:
         raise C2MContractError("scan contains instance IDs absent from the instance map")
     matrix = np.asarray(alignment_matrix, dtype=np.float64).reshape(4, 4).T
     topology = _topology_segments(instance_map, matrix)
     transformed_by_instance: dict[int, np.ndarray] = {}
     for instance_id in matched_owner:
-        selected = points[owners == instance_id]
+        selected = points[instance_rows[instance_id]] if instance_id in instance_rows else np.empty((0, 3), dtype=np.float64)
         selected = _downsample(selected, voxel_size, downsample_enabled)
         if len(selected):
             selected = (matrix @ np.column_stack((selected, np.ones(len(selected)))).T).T[:, :3]
         transformed_by_instance[instance_id] = selected
-    matched_unit_points: dict[str, np.ndarray] = {}
+    matched_unit_points_by_bar: dict[str, dict[str, np.ndarray]] = {}
     for instance in instance_map["instances"]:
         unit_id = instance.get("designUnitId")
         instance_id = instance.get("id")
         if (instance.get("reviewStatus") == "matched" and isinstance(unit_id, str)
                 and instance_id in transformed_by_instance):
-            matched_unit_points[unit_id] = transformed_by_instance[instance_id]
-    try:
-        control_units = build_control_units(instance_map, matrix, matched_unit_points) if control is not None else {}
-    except ValueError as exc:
-        raise C2MContractError(str(exc)) from exc
+            matched_unit_points_by_bar.setdefault(instance["designBarId"], {})[unit_id] = transformed_by_instance[instance_id]
+    control_units: dict[str, list[dict[str, Any]]] = {}
     all_transformed = (matrix @ np.column_stack((points, np.ones(len(points)))).T).T[:, :3]
     transformed_bbox = {"min": all_transformed.min(axis=0).tolist(), "max": all_transformed.max(axis=0).tolist()}
 
@@ -262,11 +283,15 @@ def compute_instance_comparison(
     rows: list[dict[str, Any]] = []
     used_instance_ids: set[int] = set()
     phase_times = {"meshLoad": 0., "distanceQuery": 0., "measurements": 0.}
+    instances_by_id = {instance["id"]: instance for instance in instance_map["instances"]}
     radii = {u["designUnitId"]: u.get("diameterM", 0) / 2 for u in instance_map["inventory"]["units"] if isinstance(u.get("diameterM"), (int, float)) and u["diameterM"] > 0}
     vertex_start = 0
     desired_guids = {bar["ifcGlobalId"] for bar in bars}
-    for bar in bars:
+    worker_count = _comparison_worker_count(len(bars))
+
+    def compare_bar(bar):
         bar_started = perf_counter()
+        phase_times = {"meshLoad": 0., "distanceQuery": 0., "measurements": 0.}
         tile_meshes: list[trimesh.Trimesh] = []
         part_ids: list[str] = []
         for binding in by_guid.get(bar["ifcGlobalId"], []):
@@ -287,30 +312,36 @@ def compute_instance_comparison(
         status = "review" if requires_review else "matched" if matched_ids and after_count else "missing"
         used_ids = matched_ids if status == "matched" else []
         deferred_ids = review_ids + ([] if status == "matched" else matched_ids)
-        raw_count = int(np.count_nonzero(np.isin(owners, np.asarray(used_ids, dtype=np.uint32))))
-        review_count = int(np.count_nonzero(np.isin(owners, np.asarray(deferred_ids, dtype=np.uint32))))
+        raw_count = sum(instance_counts.get(instance_id, 0) for instance_id in used_ids)
+        review_count = sum(instance_counts.get(instance_id, 0) for instance_id in deferred_ids)
         if status != "matched":
             groups = []; after_count = 0
-        used_instance_ids.update(used_ids)
         bar_vertex_count = sum(len(tile.vertices) for tile in tile_meshes)
         values = np.full(bar_vertex_count, np.nan, dtype=np.float32)
         measurement_points = np.concatenate(groups, axis=0) if groups else np.empty((0, 3), dtype=np.float64)
         all_vertices = np.concatenate([np.asarray(tile.vertices, dtype=np.float64) for tile in tile_meshes], axis=0) if tile_meshes else np.empty((0, 3))
         bar_segments = topology.get(bar["designBarId"], [])
         unit_points = {}
-        for instance in instance_map["instances"]:
-            if instance["id"] in used_ids and instance.get("designUnitId"):
+        for instance_id in used_ids:
+            instance = instances_by_id[instance_id]
+            if instance.get("designUnitId"):
                 unit_points[instance["designUnitId"]] = transformed_by_instance[instance["id"]]
         # A bar-level instance is unambiguous only for a single design unit.
         # Multi-limb bars require explicit unit ownership; never borrow a limb.
         if len(bar_segments) == 1:
             unit_points[bar_segments[0][0]] = measurement_points
         measure_started = perf_counter()
+        # Control fitting and clipping are independent per unit. Keep the same
+        # saved evidence and point rows, but prepare each bar in its own task.
+        try:
+            bar_control_units = build_control_units(instance_map, matrix, matched_unit_points_by_bar.get(bar["designBarId"], {})) if control is not None else {}
+        except ValueError as exc:
+            raise C2MContractError(str(exc)) from exc
         measurement = measure_bar(values, all_vertices, bar_segments, measurement_points,
                                   unit_points=unit_points, radii=radii)
         if control is not None and normal_constraint_enabled:
             observed_surface = ControlNetObservedSurface(
-                bar_segments, {unit_id: control_units[unit_id] for unit_id in unit_points if unit_id in control_units})
+                bar_segments, {unit_id: bar_control_units[unit_id] for unit_id in unit_points if unit_id in bar_control_units})
         else:
             observed_surface = ObservedRebarSurface(bar_segments, unit_points, measurement['longitudinalProfile']) if normal_constraint_enabled else None
         phase_times["measurements"] += perf_counter() - measure_started
@@ -318,8 +349,7 @@ def compute_instance_comparison(
         constraint_known = 0
         constraint_fallback = 0
         if status == "matched" and bar_vertex_count:
-            scan_points = np.concatenate(groups, axis=0)
-            measurement_points = scan_points
+            scan_points = measurement_points
             tree = cKDTree(scan_points) if not normal_constraint_enabled else None
             cursor = 0
             for tile in tile_meshes:
@@ -332,7 +362,7 @@ def compute_instance_comparison(
                         max_search_distance=max_search_distance,
                     )
                 else:
-                    distances, indices = tree.query(vertices, k=1, workers=-1)
+                    distances, indices = tree.query(vertices, k=1, workers=1 if worker_count > 1 else -1)
                     signs = np.where(np.einsum("ij,ij->i", normals, scan_points[indices] - vertices) >= 0, 1.0, -1.0)
                     tile_values = signs * distances
                 tile_values[np.abs(tile_values) > max_search_distance] = np.nan
@@ -348,11 +378,11 @@ def compute_instance_comparison(
         known = int(np.count_nonzero(np.isfinite(values)))
         measurement['surface'] = surface_summary(values, all_vertices)
         phase_times["measurements"] += perf_counter() - measure_started
-        rows.append({
+        row = {
             **{key: bar[key] for key in ("designBarId", "ifcGlobalId", "name")},
             "instanceIds": used_ids, "reviewInstanceIds": deferred_ids,
             "pointCount": int(raw_count), "reviewPointCount": int(review_count), "pointsAfter": int(after_count),
-            "vertexStart": vertex_start, "vertexCount": bar_vertex_count,
+            "vertexStart": 0, "vertexCount": bar_vertex_count,
             "knownCount": known, "unknownCount": int(bar_vertex_count - known), "status": status,
             "stats": _bar_stats(values, max_histogram_distance, histogram_bins, tolerance),
             "measurement": measurement,
@@ -364,9 +394,23 @@ def compute_instance_comparison(
                            "fallbackKnownCount": constraint_fallback},
             "solid": solid.diagnostics if solid is not None else None,
             "scanSurface": observed_surface.diagnostics if observed_surface is not None else None,
-        })
-        vertex_start += bar_vertex_count
-        meshes.extend(tile_meshes); all_distances.append(values)
+        }
+        return tile_meshes, values, row, phase_times, bar_control_units
+
+    # Each bar owns its meshes, matcher and values. Consume in directory order so
+    # scheduling cannot alter mesh/vertex order, instance ownership, or tie rules.
+    with (ThreadPoolExecutor(max_workers=worker_count) if worker_count > 1 else nullcontext()) as executor:
+        comparisons = executor.map(compare_bar, bars) if executor is not None else map(compare_bar, bars)
+        for tile_meshes, values, row, bar_times, bar_control_units in comparisons:
+            row["vertexStart"] = vertex_start
+            vertex_start += row["vertexCount"]
+            used_instance_ids.update(row["instanceIds"])
+            rows.append(row)
+            meshes.extend(tile_meshes)
+            all_distances.append(values)
+            control_units.update(bar_control_units)
+            for key, value in bar_times.items():
+                phase_times[key] += value
     if not meshes:
         raise C2MContractError("analysis mesh contains no tiles for the rebar directory")
     combined_mesh = _as_open3d(meshes)
@@ -376,7 +420,7 @@ def compute_instance_comparison(
         "schema": SCHEMA, "bars": rows,
         "algorithmVersion": algorithm_version,
         "excludedComponentCount": len(set(by_guid) - desired_guids),
-        "unassignedPointCount": int(np.count_nonzero(~np.isin(owners, np.fromiter(used_instance_ids, dtype=np.uint32)))),
+        "unassignedPointCount": len(points) - sum(instance_counts.get(instance_id, 0) for instance_id in used_instance_ids),
         "knownVertexCount": known_count, "unknownVertexCount": int(len(distances) - known_count),
         "instanceMapHash": instance_hash,
         "measurement": {"schema": "rebar-measurement-v1", "coordinateFrame": "model",

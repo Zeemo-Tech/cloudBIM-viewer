@@ -205,8 +205,10 @@ def _load_scene_geometry(ifc_path: str | Path, model_path: str | Path,
     validation["matchedObjects"] = len(checks)
     validation["bboxMaxErrorM"] = max((row["bboxMaxErrorM"] for row in checks), default=None)
     validation["sampleMaxVertexDistanceM"] = max((row["sampleMaxVertexDistanceM"] for row in checks), default=None)
-    validation["passed"] = bool(checks) and not validation["missingGlbGlobalIds"] and all(
-        max(row["bboxMaxErrorM"], row["sampleMaxVertexDistanceM"]) <= _GLB_TOLERANCE_M for row in checks)
+    validation["passed"] = not represented or (bool(checks) and not validation["missingGlbGlobalIds"] and all(
+        max(row["bboxMaxErrorM"], row["sampleMaxVertexDistanceM"]) <= _GLB_TOLERANCE_M for row in checks))
+    validation["status"] = ("not-applicable-no-scene-products" if not represented else
+                            "validated" if validation["passed"] else "rejected")
     if not validation["passed"]:
         raise SceneGeometryError("IFC to GLB coordinate validation failed: "
                          f"{len(checks)} matched objects, {len(validation['missingGlbGlobalIds'])} missing; "

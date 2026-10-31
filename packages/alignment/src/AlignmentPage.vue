@@ -29,12 +29,16 @@ import {
   Moon,
   Sunny,
   View,
+  VideoPlay,
+  VideoPause,
   ZoomIn,
   ZoomOut,
 } from '@element-plus/icons-vue'
 import * as THREE from 'three'
+import { SectionBoxController } from '@cloudbim/viewer-core'
 import { createInspectionClickGesture, pickInspectionCandidates } from './rebarInspectionInteraction'
 import { createInspectionAppearance } from './rebarInspectionAppearance'
+import { appendInspectionMeshPoints, inspectionCameraFrame } from './rebarInspectionCamera'
 import { commonReportScales, formatReportDiameterMm, prepareRebarReportFigure, renderRebarReportFigure, reportDiameterStatistics, reportScanToModel, type PreparedReportFigure, type RebarFigure, type ReportFigureScales, type ReportMesh, type ReportScanPoint } from './rebarReportFigure'
 import { buildRebarReportLayout, buildReportLocator, type RebarReportLayout, type ReportChapter, type ReportChapterId } from './rebarReportLayout'
 import { summarizeReportMembers } from './rebarReportSummary'
@@ -64,6 +68,10 @@ import {
   C2MHistogramLegend,
   DEFAULT_REBAR_SWEEP_PARAMS,
   MeasurementToolbar,
+  MeasurementAssistPanel,
+  MeasurementAssistant,
+  defaultMeasurementState,
+  measurementPresentation,
   PointCloudEdlPipeline,
   PointcloudAxesTriad,
   PointcloudColorRangeBar,
@@ -164,17 +172,14 @@ import {
   type DenoiseColorMode,
 } from '@cloudbim/denoise'
 import { dimComparisonGeometry, rememberComparisonGeometryColors, filterComparisonGeometry, comparisonBarsAtTolerance, isRebarInspectionAbnormal, rebarStatusLabel, rebarReportCSV } from './rebarComparison'
-import { orderRebarInspection, REBAR_INSPECTION_TILT } from './rebarInspectionOrder'
+import { orderRebarInspection } from './rebarInspectionOrder'
 // dev-hong 侧新增的钢筋巡检、调试与报告组件。
 import RebarDebugPanel from './RebarDebugPanel.vue'
 import { debugInventoryBars, debugGeometryBounds, debugNormalArrows, debugFaceNormalArrows, debugMeshCounts, observedRadialNormal, type RebarDebugInventory } from './rebarDebug'
 import RebarDeviationDetail from './RebarDeviationDetail.vue'
 import ReportEditable from './ReportEditable.vue'
-import RebarInspectionSummary from './RebarInspectionSummary.vue'
 import RebarReportHistory from './RebarReportHistory.vue'
 // dev-hong 侧的视口工具按钮图标：随包发布（构建时按 assetsInlineLimit 内联）。
-import toushiIcon from './assets/images/toushi.png'
-import zhengjiaoIcon from './assets/images/zhengjiao.png'
 
 // ---------------------------------------------------------------------------
 // URL 查询参数垫片
@@ -224,19 +229,8 @@ function readNavigationRouteState(_path: string, query: Record<string, unknown>)
 
 type ProjectionMode = 'perspective' | 'orthographic'
 type MaterialMode = 'original' | 'unlit' | 'lambert'
-type ClipAxis = 'x' | 'y' | 'z'
-type ClipBoxOffsets = {
-  xMin: number
-  xMax: number
-  yMin: number
-  yMax: number
-  zMin: number
-  zMax: number
-}
-type ClipBoxState = {
-  baseBox: THREE.Box3
-  offsets: ClipBoxOffsets
-}
+
+
 type SelectedItemId = '' | 'bim'
 type TransformMode = 'translate' | 'rotate'
 type ViewerTransformControls = TransformControls &
@@ -274,7 +268,7 @@ const activeWorkflowStepMeta = computed(() =>
 const workflowRouteReady = ref(false)
 const reportEditing = ref(false)
 const reportToolbarCollapsed = ref(false)
-const reportZoom = ref(70)
+const reportZoom = ref(100)
 const reportWorkspaceEl = ref<HTMLElement | null>(null)
 const reportFullscreen = ref(false)
 const reportTitle = ref('BIM 与点云校准报告')
@@ -602,7 +596,8 @@ async function runDenoise() {
     const response = await computeDenoise(props.pointcloudAssetId!, props.bimAssetId!)
     if (id !== denoiseRequestId) return
     denoiseResult.value = response.data
-    invalidateC2MResult('点云去噪结果已更新，请重新计算偏差')
+    invalidateC2MResult('分类结果已更新')
+    c2mAutomaticAttempts.delete(c2mInputKey.value)
     if (response.data.fresh) await showDenoisePreview('cleaned')
     ElMessage.success('点云分类与去噪完成')
   } catch (error) {
@@ -960,7 +955,9 @@ function reportProjectionPageNumber(page: number) {
 }
 const selectedComparisonBar = computed(() => comparisonBars.value.find(bar => bar.ifcGlobalId === selectedComparisonBarId.value))
 const rebarInspectionActive = ref(false)
-const rebarInspectionManualSelect = ref(false)
+const rebarInspectionAutoplay = ref(false)
+let rebarInspectionTimer: number | null = null
+let rebarInspectionClickReady = false
 const rebarInspectionContextTransparency = ref(80)
 const rebarInspectionClick = createInspectionClickGesture()
 const rebarInspectionAppearance = createInspectionAppearance()
@@ -1436,66 +1433,51 @@ function comparisonBarBounds(bar: RebarComparisonBar) {
   return null
 }
 
+function comparisonBarPoints(bar: RebarComparisonBar) {
+  const points: THREE.Vector3[] = []
+  if (c2mAnalysisSession) {
+    c2mAnalysisSession.forEachComponentMesh(bar.ifcGlobalId, mesh => appendInspectionMeshPoints(mesh, points))
+  } else if (c2mSceneGroup) {
+    c2mSceneGroup.traverse(object => {
+      if (object instanceof THREE.Mesh && !object.userData.__inspectionForeground) {
+        appendInspectionMeshPoints(object, points, bar.vertexStart, bar.vertexCount)
+      }
+    })
+  }
+  if (!points.length && bimPivot) {
+    bimPivot.traverse(object => {
+      if (object instanceof THREE.Mesh && objectMatchesComparisonBar(object, bar.ifcGlobalId)) {
+        appendInspectionMeshPoints(object, points)
+      }
+    })
+  }
+  return points
+}
+
 function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean } = {}) {
   if (!activeCamera || !controls) return
-  const bounds = comparisonBarBounds(bar)
+  const points = comparisonBarPoints(bar)
+  const bounds = points.length ? new THREE.Box3().setFromPoints(points) : comparisonBarBounds(bar)
   if (!bounds) return
   stopRebarCameraAnimation()
 
-  const startPosition = activeCamera.position.clone()
   const startTarget = controls.target.clone()
-  const endTarget = bounds.getCenter(new THREE.Vector3())
-  const size = bounds.getSize(new THREE.Vector3())
-  const maxDim = Math.max(size.x, size.y, size.z, 0.1)
+  const startOrbit = new THREE.Spherical().setFromVector3(activeCamera.position.clone().sub(startTarget))
+  const startZoom = activeCamera.zoom
   const isManualFocus = options.manual === true
-  // Sequence navigation should show the whole member with breathing room;
-  // a direct mouse pick can remain a tighter close-up for detail inspection.
   const framingMargin = isManualFocus ? 1.1 : 1.3
-  const focusDim = Math.max(maxDim * framingMargin, 0.08)
-
-  //巡检序列固定使用斜俯视方向，避免每个构件根据自身包围盒改变为侧视。
-  //相机只平移、缩放到当前构件，连续巡检时阅读方向保持不变。
-  // Keep the top-oriented reading direction, but expose a little depth so
-  // the inspected member is not rendered as a perfectly flat plan view.
-  const tilt = REBAR_INSPECTION_TILT
-  const viewDirection = new THREE.Vector3(0, Math.cos(tilt), Math.sin(tilt)).normalize()
-  const cameraDirection = viewDirection.clone().multiplyScalar(-1)
-  // Project world up only to measure the screen-space extent. It is not the
-  // camera's orbit axis: engineering +Z is viewer +Y throughout inspection.
-  const worldUp = new THREE.Vector3(0, 1, 0)
-  const screenUp = worldUp.clone()
-    .addScaledVector(cameraDirection, -cameraDirection.dot(worldUp))
-    .normalize()
-  const cameraRight = cameraDirection.clone().cross(screenUp).normalize()
-  const projectedWidth = Math.max(
-    Math.abs(cameraRight.x) * size.x + Math.abs(cameraRight.y) * size.y + Math.abs(cameraRight.z) * size.z,
-    0.08,
-  )
-  const projectedHeight = Math.max(
-    Math.abs(screenUp.x) * size.x + Math.abs(screenUp.y) * size.y + Math.abs(screenUp.z) * size.z,
-    0.08,
-  )
-  let distance = Math.max(focusDim * 0.42, 0.08)
-  if (isPerspectiveCamera(activeCamera)) {
-    const verticalFov = THREE.MathUtils.degToRad(activeCamera.fov)
-    const aspect = Math.max(activeCamera.aspect || 1, 0.1)
-    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect)
-    const horizontalDistance = projectedWidth / 2 / Math.tan(horizontalFov / 2)
-    const verticalDistance = projectedHeight / 2 / Math.tan(verticalFov / 2)
-    distance = Math.max(
-      horizontalDistance * framingMargin,
-      verticalDistance * framingMargin,
-      focusDim * 0.42,
-    )
-  }
-  const endPosition = endTarget.clone().addScaledVector(viewDirection, distance)
-  const startOrthoSize = orthoViewSize
   const aspect = isPerspectiveCamera(activeCamera) ? Math.max(activeCamera.aspect || 1, 0.1) : Math.max(viewportEl.value?.clientWidth || 1, 1) / Math.max(viewportEl.value?.clientHeight || 1, 1)
-  const endOrthoSize = Math.max(projectedHeight * framingMargin, projectedWidth / aspect * framingMargin, 0.2)
+  const frame = inspectionCameraFrame(points, bounds, aspect, isPerspectiveCamera(activeCamera) ? activeCamera.fov : 50, framingMargin,
+    { upright: reportLayout.value.members.get(bar.ifcGlobalId)?.chapterId === 'connector' })
+  const endTarget = frame.target, endPosition = frame.position
+  const endOrbit = new THREE.Spherical().setFromVector3(endPosition.clone().sub(endTarget))
+  const azimuthChange = Math.atan2(Math.sin(endOrbit.theta - startOrbit.theta), Math.cos(endOrbit.theta - startOrbit.theta))
+  const startOrthoSize = orthoViewSize
+  const orbit = new THREE.Spherical(), direction = new THREE.Vector3()
   const startedAt = performance.now()
   // Give sequence navigation a little more time to read the member while still
   // feeling responsive for a direct mouse pick.
-  const duration = isManualFocus ? 680 : 860
+  const duration = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 1 : isManualFocus ? 680 : 860
   const wasControlsEnabled = controls.enabled
   controls.enabled = false
   rebarCameraControlsWasEnabled = wasControlsEnabled
@@ -1506,15 +1488,19 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
     // Smootherstep removes the small velocity kink at the midpoint and makes
     // the camera feel deliberate when stepping through a long inspection list.
     const eased = THREE.MathUtils.smootherstep(progress, 0, 1)
-    activeCamera.position.lerpVectors(startPosition, endPosition, eased)
     controls.target.lerpVectors(startTarget, endTarget, eased)
-    // OrbitControls caches the Y-up orbit basis when mounted. Changing up to
-    // the projected screen direction tilts the scene on subsequent orbit/pan.
-    activeCamera.up.copy(worldUp)
+    // Interpolate yaw/elevation around engineering vertical. Quaternion slerp
+    // introduces transient roll between views even if both endpoints are level.
+    orbit.set(THREE.MathUtils.lerp(startOrbit.radius, endOrbit.radius, eased),
+      THREE.MathUtils.lerp(startOrbit.phi, endOrbit.phi, eased), startOrbit.theta + azimuthChange * eased).makeSafe()
+    direction.setFromSpherical(orbit)
+    activeCamera.position.copy(controls.target).add(direction)
+    activeCamera.up.copy(frame.up)
+    activeCamera.zoom = THREE.MathUtils.lerp(startZoom, 1, eased)
     if (isOrthographicCamera(activeCamera)) {
-      orthoViewSize = THREE.MathUtils.lerp(startOrthoSize, endOrthoSize, eased)
+      orthoViewSize = THREE.MathUtils.lerp(startOrthoSize, frame.viewSize, eased)
       updateOrthographicFrustum()
-    }
+    } else activeCamera.updateProjectionMatrix()
     activeCamera.lookAt(controls.target)
     controls.update()
     requestRender()
@@ -1522,7 +1508,7 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
     else {
       activeCamera.position.copy(endPosition)
       controls.target.copy(endTarget)
-      activeCamera.up.copy(worldUp)
+      activeCamera.up.copy(frame.up)
       activeCamera.lookAt(controls.target)
       controls.update()
       rebarCameraAnimationFrame = null
@@ -1536,8 +1522,50 @@ function focusComparisonBar(bar: RebarComparisonBar, options: { manual?: boolean
 }
 
 function pauseRebarInspection() {
+  stopRebarAutoplay()
   rebarInspectionActive.value = false
   applyComparisonSelection()
+}
+
+function stopRebarAutoplay() {
+  if (rebarInspectionTimer !== null) window.clearTimeout(rebarInspectionTimer)
+  rebarInspectionTimer = null
+  rebarInspectionAutoplay.value = false
+}
+
+function scheduleRebarInspection() {
+  if (!rebarInspectionAutoplay.value) return
+  rebarInspectionTimer = window.setTimeout(() => {
+    rebarInspectionTimer = null
+    if (activeWorkflowStep.value !== 3 || !rebarInspectionBars.value.length || document.hidden) {
+      stopRebarAutoplay()
+      return
+    }
+    selectInspectionBar((rebarInspectionIndex.value + 1) % rebarInspectionBars.value.length)
+    scheduleRebarInspection()
+  }, 3000)
+}
+
+function toggleRebarAutoplay() {
+  if (rebarInspectionAutoplay.value) { exitRebarInspection(); return }
+  if (!comparison.value || !c2mSceneLoaded.value || !rebarInspectionBars.value.length) return
+  analysisMode.value = 'none'
+  cancelActiveAnalysis()
+  rebarInspectionAutoplay.value = true
+  selectInspectionBar(Math.max(0, rebarInspectionIndex.value))
+  scheduleRebarInspection()
+}
+
+function interruptRebarInspection() {
+  cancelInspectionPointerGesture()
+  stopRebarAutoplay()
+  stopRebarCameraAnimation()
+}
+
+function handleInspectionLostPointerCapture() {
+  // OrbitControls releases capture on pointerup, before the native dblclick.
+  // Cancel an unfinished press without discarding that completed click.
+  rebarInspectionClick.cancel()
 }
 
 function lockRebarInspectionOrder() {
@@ -1584,30 +1612,17 @@ function stepRebarInspection(direction: -1 | 1) {
 }
 
 function resetRebarInspection() {
-  rebarInspectionClick.cancel()
+  cancelInspectionPointerGesture()
+  stopRebarAutoplay()
   stopRebarCameraAnimation()
   rebarInspectionOrderIds.value = []
   rebarInspectionActive.value = false
-  rebarInspectionManualSelect.value = false
   selectedComparisonBarId.value = ''
   applyComparisonSelection()
 }
 
 function exitRebarInspection() {
   resetRebarInspection()
-  ElMessage.info('已退出巡检模式')
-}
-
-function toggleRebarManualSelection() {
-  rebarInspectionClick.cancel()
-  rebarInspectionManualSelect.value = !rebarInspectionManualSelect.value
-  if (rebarInspectionManualSelect.value) {
-    ElMessage.info('单击选择钢筋，拖动旋转；Alt + 单击可切换重叠钢筋')
-  } else {
-    stopRebarCameraAnimation()
-    ElMessage.info('已退出手动选择')
-  }
-  applyComparisonSelection()
 }
 
 function onInspectionFilterChange() {
@@ -1699,16 +1714,19 @@ function getComparisonBarIdFromHit(hit: THREE.Intersection) {
   return ''
 }
 
-function canPickInspectionBar(event: PointerEvent) {
+function canPickInspectionBar(event: MouseEvent) {
   return event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && analysisMode.value === 'none' &&
-    activeWorkflowStep.value === 3 && Boolean(comparison.value) && rebarInspectionManualSelect.value && Boolean(activeCamera)
+    activeWorkflowStep.value === 3 && Boolean(comparison.value) && !rebarDebugActive.value && Boolean(activeCamera)
 }
 
 function cancelInspectionPointerGesture() {
   rebarInspectionClick.cancel()
+  rebarInspectionClickReady = false
 }
 
 function handleRebarInspectionPointerDown(event: PointerEvent) {
+  rebarInspectionClickReady = false
+  stopRebarAutoplay()
   if (rebarInspectionActive.value) stopRebarCameraAnimation()
   if (!canPickInspectionBar(event)) { rebarInspectionClick.cancel(); return false }
   rebarInspectionClick.begin(event)
@@ -1716,22 +1734,37 @@ function handleRebarInspectionPointerDown(event: PointerEvent) {
   return true
 }
 
-function handleRebarInspectionClick(event: PointerEvent) {
-  if (!canPickInspectionBar(event) || !activeCamera) return false
+function inspectionCandidatesAt(event: MouseEvent) {
+  if (!canPickInspectionBar(event) || !activeCamera) return []
   const rect = renderer?.domElement.getBoundingClientRect()
-  if (!rect || event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return false
+  if (!rect || event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return []
   const pointer = getPointerNdc(event)
-  if (!pointer) return false
+  if (!pointer) return []
   const targets: THREE.Object3D[] = []
   if (c2mSceneGroup?.visible) targets.push(c2mSceneGroup)
   if (denoisePreview?.visible) targets.push(denoisePreview)
   if (pointcloudGroup?.visible) targets.push(pointcloudGroup)
   if (bimPivot?.visible) targets.push(bimPivot)
-  const candidates = pickInspectionCandidates(targets, activeCamera, pointer, rect, getComparisonBarIdFromHit)
+  return pickInspectionCandidates(targets, activeCamera, pointer, rect, getComparisonBarIdFromHit)
+}
+
+function handleRebarInspectionClick(event: PointerEvent) {
+  if (!rebarInspectionActive.value) return false
+  const candidates = inspectionCandidatesAt(event)
   if (!candidates.length) return false
   const current = candidates.findIndex(item => item.id === selectedComparisonBarId.value)
   const selected = candidates[event.altKey ? (current + 1) % candidates.length : 0]
   return selectInspectionBarById(selected.id)
+}
+
+function handleRebarInspectionDoubleClick(event: MouseEvent) {
+  if (!rebarInspectionClickReady || !canPickInspectionBar(event)) return
+  cancelInspectionPointerGesture()
+  const candidates = inspectionCandidatesAt(event)
+  if (!candidates.length) { exitRebarInspection(); return }
+  stopRebarAutoplay()
+  const bar = comparisonBars.value.find(item => item.ifcGlobalId === candidates[0].id)
+  if (bar && selectInspectionBarById(bar.ifcGlobalId)) focusComparisonBar(bar, { manual: true })
 }
 
 const c2mSceneLoaded = ref(false)
@@ -1799,6 +1832,27 @@ const meshTaskActive = computed(() =>
 const meshControlsDisabled = computed(() => meshRunning.value || meshTaskActive.value)
 const canLoadRemesh = computed(() => meshReady.value && !remeshLoading.value && !!props.bimAssetId)
 const canRunC2M = computed(() => Boolean(props.pointcloudAssetId && props.bimAssetId && canOpenDeviationStep.value && meshReady.value && !c2mRunning.value))
+const c2mInputKey = computed(() => [props.pointcloudAssetId, props.bimAssetId,
+  denoiseResult.value?.version, meshStatus.value?.contentHash ?? meshStatus.value?.finishedAt].join(':'))
+const c2mAutomaticAttempts = new Set<string>()
+let c2mLatestPromise: Promise<boolean> | null = null
+let comparisonDisposed = false
+
+async function ensureAutomaticC2M() {
+  if (comparisonDisposed || !workflowRouteReady.value || activeWorkflowStep.value < 2 || !canRunC2M.value) return
+  const key = c2mInputKey.value
+  if (c2mAutomaticAttempts.has(key)) return
+  c2mAutomaticAttempts.add(key)
+  // A stored fresh result wins. A failed read must never be treated as absence.
+  const loaded = await loadLatestC2M()
+  if (!loaded || comparisonDisposed) return
+  if (key !== c2mInputKey.value || !canRunC2M.value || activeWorkflowStep.value < 2) {
+    c2mAutomaticAttempts.delete(key)
+    return
+  }
+  if (!canUseC2MResult.value) await runC2M()
+}
+
 watch(reportChapters, (chapters) => {
   for (const chapter of chapters) reportChapterPageIndices[chapter.id] = reportChapterPageIndex(chapter)
 })
@@ -2253,7 +2307,16 @@ async function runC2M() {
   }
 }
 
-async function loadLatestC2M() {
+function loadLatestC2M(): Promise<boolean> {
+  if (c2mRunning.value || comparisonDisposed) return Promise.resolve(false)
+  if (c2mLatestPromise) return c2mLatestPromise
+  const promise = fetchLatestC2M()
+  c2mLatestPromise = promise
+  void promise.finally(() => { if (c2mLatestPromise === promise) c2mLatestPromise = null })
+  return promise
+}
+
+async function fetchLatestC2M(): Promise<boolean> {
   const requestId = ++c2mResultRequestId
   if (!props.pointcloudAssetId || !props.bimAssetId) {
     clearC2MAnalysisPolling()
@@ -2261,7 +2324,7 @@ async function loadLatestC2M() {
     c2mDistancesRequestId += 1
     c2mDistances.value = null
     clearC2MScene()
-    return
+    return false
   }
   const scanId = props.pointcloudAssetId
   const bimId = props.bimAssetId
@@ -2269,7 +2332,7 @@ async function loadLatestC2M() {
     const previousResultVersion = c2mResult.value?.resultVersion
     const upgradeLoadedScene = c2mSceneLoaded.value && !c2mTileset
     const response = await getLatestC2M(scanId, bimId)
-    if (requestId !== c2mResultRequestId) return
+    if (requestId !== c2mResultRequestId || comparisonDisposed) return false
     c2mResult.value = response.data
     if (previousResultVersion !== response.data.resultVersion) {
       clearC2MScene()
@@ -2281,13 +2344,20 @@ async function loadLatestC2M() {
     else if (activeWorkflowStep.value === 3 && !c2mSceneLoading.value &&
       ((!c2mSceneLoaded.value && c2mSceneArtifactAvailable.value) ||
         (upgradeLoadedScene && response.data.analysis?.status === 'ready'))) void loadC2MToScene()
-  } catch {
-    if (requestId !== c2mResultRequestId) return
+    return true
+  } catch (error) {
+    if (requestId !== c2mResultRequestId || comparisonDisposed) return false
+    const missing = (error as { response?: { status?: number } })?.response?.status === 404
+    if (!missing) {
+      c2mError.value = error instanceof Error ? error.message : '读取偏差结果失败'
+      return false
+    }
     c2mResult.value = null
     clearC2MAnalysisPolling()
     c2mDistancesRequestId += 1
     c2mDistances.value = null
     clearC2MScene()
+    return true
   }
 }
 
@@ -2986,7 +3056,7 @@ const meshWireframeTooltip = computed(() =>
   `${showMeshWireframe.value ? '关闭' : '显示'}${meshWireframeLabel.value}`,
 )
 const showBounds = ref(false)
-const backgroundColor = ref('#0b1020')
+const backgroundColor = ref('#0c1224')
 const isLightBackground = ref(false)
 const pointcloudColor = ref('#86898D')
 const persistedPointcloudColor = ref('#86898D')
@@ -2994,10 +3064,8 @@ const pointcloudColorOverridden = ref(false)
 const pointcloudColorSaving = ref(false)
 let pointcloudColorSaveTimer: number | null = null
 const enableClipping = ref(false)
-const clipAxis = ref<ClipAxis>('z')
-const clipInvert = ref(false)
-const clipPosition = ref(0)
-const clipRange = ref({ min: -1, max: 1 })
+const clipFeedback = ref<string | null>(null)
+
 // 粗配准默认进入几何载体编辑态，模型加载后自动显示组合变换 Gizmo。
 const editMode = ref(true)
 const showTransformHandles = ref(true)
@@ -3053,10 +3121,7 @@ const hasTileset = computed(() => pointcloudLoaded.value)
 const hasClippableContent = computed(() => hasModel.value || hasTileset.value)
 const clipBoundsDisabledReason = computed(() => {
   if (enableClipping.value || showBounds.value) return ''
-  if (loadingBim.value) return 'BIM 加载中，请稍候再开启剖切'
-  if (!hasModel.value) return '请先加载 BIM 模型'
-  if (loadingPointcloud.value) return '点云加载中，请等待加载完成后再开启剖切'
-  if (!hasTileset.value) return '请先加载点云'
+  if (!hasClippableContent.value) return '请先加载模型或点云'
   return ''
 })
 const clipBoundsTooltip = computed(() => {
@@ -3151,19 +3216,9 @@ let tileset: TilesRenderer | null = null
 let pointcloudLoadLifecycle: PointcloudLoadLifecycle | null = null
 let pointcloudCameraFramed = false
 let boundsBoxHelper: THREE.Box3Helper | null = null
-let clipHandlesGroup: THREE.Group | null = null
-let clipHandlePickers: THREE.Object3D[] = []
-let clipDragState: null | {
-  pointerId: number
-  axis: ClipAxis
-  invert: boolean
-  dragPlane: THREE.Plane
-  startPoint: THREE.Vector3
-  startPosition: number
-  min: number
-  max: number
-} = null
-let clipPointerCaptureId: number | null = null
+let sectionBox: SectionBoxController | null = null
+let editModeBeforeClipping = true
+
 let orthoViewSize = 10
 let bimLoadToken = 0
 let pointcloudLoadToken = 0
@@ -3181,7 +3236,6 @@ let pointcloudMaxDim = 1
 let rendererMode: 'webgpu' | 'webgl' | null = null
 let initPromise: Promise<void> | null = null
 let clipUpdateScheduled = false
-let clipBoxState: ClipBoxState | null = null
 let highlightedElement:
   | {
       mesh: THREE.Mesh
@@ -3417,7 +3471,7 @@ function onBackgroundColorChange() {
 
 function applyEditorTheme() {
   const light = isLightBackground.value
-  backgroundColor.value = light ? '#eef3f8' : '#0b1020'
+  backgroundColor.value = light ? '#eef3f8' : '#0c1224'
   if (gridHelper) {
     gridHelper.setColor(light ? '#6d8399' : '#2a6f82')
   }
@@ -3901,348 +3955,52 @@ function highlightPickedElement(target: THREE.Object3D) {
   if (pickedElementHelper) pickedElementHelper.visible = false
 }
 
+function getContentWorldBox() {
+  if (!contentGroup) return null
+  contentGroup.updateMatrixWorld(true)
+  const box = new THREE.Box3()
+  for (const object of getVisibleSceneObjects()) box.expandByObject(object)
+  const cloudBounds = pointcloudVisible.value && tileset ? getTilesetWorldBounds(tileset) : null
+  if (cloudBounds) box.union(cloudBounds)
+  return box.isEmpty() ? null : box
+}
+
+function ensureSectionBox() {
+  if (!sectionBox && renderer && scene) {
+    sectionBox = new SectionBoxController({
+      element: renderer.domElement, scene,
+      camera: () => activeCamera, orbit: () => controls,
+      bounds: getContentWorldBox,
+      canInteract: () => enableClipping.value && analysisMode.value === 'none' && activeWorkflowStep.value !== 4,
+      onStart: () => { interruptRebarInspection(); cancelActiveAnalysis() },
+      onFeedback: text => { clipFeedback.value = text },
+      onChange: planes => { applyMaterialClipping(planes); syncWebGpuClipping(planes); requestRender() },
+    })
+  }
+  return sectionBox
+}
+
+function resetSectionBox() { ensureSectionBox()?.fit() }
+
 function syncBoundsHelpers() {
   if (!scene) return
-
-  if (!showBounds.value) {
+  if (enableClipping.value) {
     if (boundsBoxHelper) boundsBoxHelper.visible = false
-    clearClipHandles()
-    updateGridPlacement()
-    updateSelectionHighlight()
-    return
-  }
-
-  const boundsBox =
-    enableClipping.value && showBounds.value
-      ? getCurrentClipBox()
-      : getContentWorldBox()
-
-  if (boundsBox && !boundsBox.isEmpty()) {
-    if (!boundsBoxHelper) {
-      boundsBoxHelper = new THREE.Box3Helper(boundsBox.clone(), 0x67e8f9)
-      scene.add(boundsBoxHelper)
+    sectionBox?.update()
+  } else if (showBounds.value) {
+    const box = getContentWorldBox()
+    if (box) {
+      if (!boundsBoxHelper) { boundsBoxHelper = new THREE.Box3Helper(box.clone(), 0x80bcc4); scene.add(boundsBoxHelper) }
+      boundsBoxHelper.box.copy(box)
+      boundsBoxHelper.visible = true
+      boundsBoxHelper.updateMatrixWorld(true)
     }
-    boundsBoxHelper.box.copy(boundsBox)
-    boundsBoxHelper.visible = true
-    boundsBoxHelper.updateMatrixWorld(true)
-    if (enableClipping.value) {
-      updateClipHandles(boundsBox)
-    } else {
-      clearClipHandles()
-    }
-  } else if (boundsBoxHelper) {
-    boundsBoxHelper.visible = false
-    clearClipHandles()
-  }
-
+  } else if (boundsBoxHelper) boundsBoxHelper.visible = false
   updateGridPlacement()
   updateSelectionHighlight()
 }
 
-function disposeObjectMaterial(target: any) {
-  if (Array.isArray(target?.material)) {
-    target.material.forEach((item: any) => item?.dispose?.())
-  } else {
-    target?.material?.dispose?.()
-  }
-}
-
-function clearClipHandles() {
-  clipHandlePickers = []
-  if (!scene || !clipHandlesGroup) {
-    clipHandlesGroup = null
-    return
-  }
-
-  scene.remove(clipHandlesGroup)
-  clipHandlesGroup.traverse((child: any) => {
-    child.geometry?.dispose?.()
-    disposeObjectMaterial(child)
-  })
-  clipHandlesGroup = null
-}
-
-function cloneBox3(box: THREE.Box3) {
-  return new THREE.Box3(box.min.clone(), box.max.clone())
-}
-
-function createDefaultClipOffsets(): ClipBoxOffsets {
-  return {
-    xMin: 0,
-    xMax: 0,
-    yMin: 0,
-    yMax: 0,
-    zMin: 0,
-    zMax: 0,
-  }
-}
-
-function getContentWorldBox() {
-  if (!contentGroup) return null
-  contentGroup.updateMatrixWorld(true)
-  const box = new THREE.Box3().setFromObject(contentGroup)
-  return box.isEmpty() ? null : box
-}
-
-function getClipOffsetKey(axis: ClipAxis, invert: boolean) {
-  return `${axis}${invert ? 'Max' : 'Min'}` as keyof ClipBoxOffsets
-}
-
-function clampClipOffsets(state: ClipBoxState) {
-  ;(['x', 'y', 'z'] as ClipAxis[]).forEach((axis) => {
-    const minKey = `${axis}Min` as keyof ClipBoxOffsets
-    const maxKey = `${axis}Max` as keyof ClipBoxOffsets
-    const span = Math.max(0, state.baseBox.max[axis] - state.baseBox.min[axis])
-    state.offsets[minKey] = THREE.MathUtils.clamp(state.offsets[minKey], 0, span)
-    state.offsets[maxKey] = THREE.MathUtils.clamp(state.offsets[maxKey], 0, span)
-    if (state.offsets[minKey] + state.offsets[maxKey] > span) {
-      state.offsets[maxKey] = Math.max(0, span - state.offsets[minKey])
-    }
-  })
-}
-
-function getOrCreateClipState() {
-  const baseBox = getContentWorldBox()
-  if (!baseBox) {
-    clipBoxState = null
-    return null
-  }
-
-  if (!clipBoxState) {
-    clipBoxState = {
-      baseBox: cloneBox3(baseBox),
-      offsets: createDefaultClipOffsets(),
-    }
-    return clipBoxState
-  }
-
-  clipBoxState.baseBox.copy(baseBox)
-  clampClipOffsets(clipBoxState)
-  return clipBoxState
-}
-
-function getCurrentClipBox() {
-  const state = getOrCreateClipState()
-  if (!state) return null
-
-  const box = cloneBox3(state.baseBox)
-  box.min.x += state.offsets.xMin
-  box.max.x -= state.offsets.xMax
-  box.min.y += state.offsets.yMin
-  box.max.y -= state.offsets.yMax
-  box.min.z += state.offsets.zMin
-  box.max.z -= state.offsets.zMax
-  return box
-}
-
-function getClipFacePosition(axis: ClipAxis, invert: boolean) {
-  const box = getCurrentClipBox()
-  if (!box) return 0
-  return invert ? box.max[axis] : box.min[axis]
-}
-
-function getClipFaceRange(axis: ClipAxis, invert: boolean) {
-  const state = getOrCreateClipState()
-  const box = getCurrentClipBox()
-  if (!state || !box) return { min: 0, max: 1 }
-
-  return invert
-    ? { min: box.min[axis], max: state.baseBox.max[axis] }
-    : { min: state.baseBox.min[axis], max: box.max[axis] }
-}
-
-function setClipFacePosition(axis: ClipAxis, invert: boolean, value: number) {
-  const state = getOrCreateClipState()
-  if (!state) return
-
-  const currentBox = getCurrentClipBox()
-  if (!currentBox) return
-
-  const baseMin = state.baseBox.min[axis]
-  const baseMax = state.baseBox.max[axis]
-  const minLimit = invert ? currentBox.min[axis] : baseMin
-  const maxLimit = invert ? baseMax : currentBox.max[axis]
-  const clamped = THREE.MathUtils.clamp(value, minLimit, maxLimit)
-  const key = getClipOffsetKey(axis, invert)
-
-  if (invert) state.offsets[key] = baseMax - clamped
-  else state.offsets[key] = clamped - baseMin
-
-  clampClipOffsets(state)
-}
-
-function syncClipUiFromFace() {
-  const range = getClipFaceRange(clipAxis.value, clipInvert.value)
-  clipRange.value = range
-  clipPosition.value = getClipFacePosition(clipAxis.value, clipInvert.value)
-}
-
-function ensureClipHandlesGroup() {
-  if (!scene) return null
-  if (clipHandlesGroup) return clipHandlesGroup
-
-  const activeColor = new THREE.Color('#ffd04b')
-  const idleColor = new THREE.Color('#409eff')
-  const baseAxis = new THREE.Vector3(0, 1, 0)
-  const group = new THREE.Group()
-  const faces: Array<{
-    axis: ClipAxis
-    invert: boolean
-    normal: THREE.Vector3
-    arrowDir: THREE.Vector3
-  }> = [
-    {
-      axis: 'x',
-      invert: false,
-      normal: new THREE.Vector3(-1, 0, 0),
-      arrowDir: new THREE.Vector3(-1, 0, 0),
-    },
-    {
-      axis: 'x',
-      invert: true,
-      normal: new THREE.Vector3(1, 0, 0),
-      arrowDir: new THREE.Vector3(1, 0, 0),
-    },
-    {
-      axis: 'y',
-      invert: false,
-      normal: new THREE.Vector3(0, -1, 0),
-      arrowDir: new THREE.Vector3(0, -1, 0),
-    },
-    {
-      axis: 'y',
-      invert: true,
-      normal: new THREE.Vector3(0, 1, 0),
-      arrowDir: new THREE.Vector3(0, 1, 0),
-    },
-    {
-      axis: 'z',
-      invert: false,
-      normal: new THREE.Vector3(0, 0, -1),
-      arrowDir: new THREE.Vector3(0, 0, -1),
-    },
-    {
-      axis: 'z',
-      invert: true,
-      normal: new THREE.Vector3(0, 0, 1),
-      arrowDir: new THREE.Vector3(0, 0, 1),
-    },
-  ]
-
-  clipHandlePickers = []
-  for (const face of faces) {
-    const handle = new THREE.Group()
-    const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(1, 1, 1, 12),
-      new THREE.MeshBasicMaterial({
-        color: idleColor,
-        transparent: true,
-        opacity: 0.82,
-        depthTest: false,
-        depthWrite: false,
-      }),
-    )
-    const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(1, 1, 16),
-      new THREE.MeshBasicMaterial({
-        color: idleColor,
-        transparent: true,
-        opacity: 0.9,
-        depthTest: false,
-        depthWrite: false,
-      }),
-    )
-    const hitArea = new THREE.Mesh(
-      new THREE.CylinderGeometry(1, 1, 1, 10),
-      new THREE.MeshBasicMaterial({
-        transparent: true,
-        opacity: 0,
-        depthTest: false,
-        depthWrite: false,
-      }),
-    )
-
-    hitArea.userData = {
-      __viewerClipHandle: true,
-      axis: face.axis,
-      invert: face.invert,
-    }
-
-    handle.userData = {
-      axis: face.axis,
-      invert: face.invert,
-      normal: face.normal,
-      arrowDir: face.arrowDir,
-      shaft,
-      cone,
-      hitArea,
-      idleColor,
-      activeColor,
-    }
-
-    shaft.scale.set(2, 30, 2)
-    shaft.position.y = 15
-    cone.scale.set(5, 18, 5)
-    cone.position.y = 39
-    hitArea.scale.set(9, 48, 9)
-    hitArea.position.y = 24
-    handle.add(shaft)
-    handle.add(cone)
-    handle.add(hitArea)
-    handle.quaternion.setFromUnitVectors(baseAxis, face.arrowDir)
-    handle.renderOrder = 10000
-    handle.traverse((obj: any) => {
-      obj.renderOrder = 10000
-    })
-    group.add(handle)
-    clipHandlePickers.push(hitArea)
-  }
-
-  clipHandlesGroup = group
-  scene.add(group)
-  return group
-}
-
-function clipHandleWorldUnitsPerPixel(anchor: THREE.Vector3): number {
-  const height = viewportEl.value?.clientHeight ?? 0
-  if (!activeCamera || height <= 0) return 0
-  activeCamera.updateMatrixWorld()
-  const projectionScale = activeCamera.projectionMatrix.elements[5]!
-  if (isPerspectiveCamera(activeCamera)) {
-    const depth = Math.max(activeCamera.near, -anchor.clone().applyMatrix4(activeCamera.matrixWorldInverse).z)
-    return 2 * depth / (height * projectionScale)
-  }
-  return 2 / (height * projectionScale)
-}
-
-function updateClipHandles(box: THREE.Box3) {
-  const group = ensureClipHandlesGroup()
-  if (!group) return
-  const center = box.getCenter(new THREE.Vector3())
-  group.visible = true
-  group.children.forEach((child) => {
-    const handle = child as THREE.Group
-    const { axis, invert, normal, shaft, cone, idleColor, activeColor } = handle.userData as any
-    const isActiveFace = axis === clipAxis.value && invert === clipInvert.value
-    const color = isActiveFace ? activeColor : idleColor
-    const anchor = axis === 'x'
-      ? new THREE.Vector3(invert ? box.max.x : box.min.x, center.y, center.z)
-      : axis === 'y'
-        ? new THREE.Vector3(center.x, invert ? box.max.y : box.min.y, center.z)
-        : new THREE.Vector3(center.x, center.y, invert ? box.max.z : box.min.z)
-    const worldPerPixel = clipHandleWorldUnitsPerPixel(anchor)
-    // 48px arrow + 8px face gap; neither depends on the clipping box dimensions.
-    handle.scale.setScalar(worldPerPixel)
-    handle.position.copy(anchor).addScaledVector(normal, worldPerPixel * 8)
-    shaft.material.color.copy(color)
-    shaft.material.opacity = isActiveFace ? 0.95 : 0.82
-    cone.material.color.copy(color)
-    cone.material.opacity = isActiveFace ? 1 : 0.9
-  })
-  group.updateMatrixWorld(true)
-}
-
-function getPointerNdc(ev: PointerEvent) {
+function getPointerNdc(ev: MouseEvent) {
   const rect = renderer?.domElement?.getBoundingClientRect?.()
   if (!rect) return null
   return new THREE.Vector2(
@@ -4284,27 +4042,45 @@ function clearAnalysis() {
   measurementBadges.value = []
 }
 
+let measurementLoadGeneration = 0
+const measurementContextKey = () => `alignment:${props.pointcloudAssetId ?? 0}:${props.bimAssetId ?? 0}`
+
+async function loadStoredMeasurements() {
+  const generation = ++measurementLoadGeneration, assetId = measurementAssetId(), context = measurementContextKey()
+  if (!assetId) return
+  try {
+    const response = await listMeasurements(assetId)
+    if (generation !== measurementLoadGeneration || context !== measurementContextKey()) return
+    const present = new Set([...analysisPoints.value, ...analysisDistances.value, ...analysisAreas.value].map(r => r.id))
+    for (const stored of response.data) {
+      const payload = stored.payload as AnalysisPoint | AnalysisDistance | AnalysisArea
+      // Preview coordinates and old unframed records must not be reinterpreted as alignment world coordinates.
+      if (!payload || payload.measurement?.contextKey !== context) continue
+      const id = payload.id || `${stored.kind}-${stored.id}`
+      measurementBackendIds.set(id, stored.id)
+      if (present.has(id)) continue
+      present.add(id)
+      if (stored.kind === 'locate') analysisPoints.value.push({ ...payload, id } as AnalysisPoint)
+      if (stored.kind === 'distance') analysisDistances.value.push({ ...payload, id } as AnalysisDistance)
+      if (stored.kind === 'area') analysisAreas.value.push({ ...payload, id } as AnalysisArea)
+    }
+    analysisPoint.value = analysisPoints.value.at(-1) ?? null
+    analysisDistance.value = analysisDistances.value.at(-1) ?? null
+    rebuildAnalysisVisualsFromState()
+    syncMeasurementBadges()
+  } catch (error) { ElMessage.error(`读取测量失败：${error instanceof Error ? error.message : String(error)}`) }
+}
+
 async function clearAllMeasurements() {
+  measurementLoadGeneration++
   clearAnalysis()
-  const ids = new Set<number>(measurementBackendIds.values())
+  measurementAssistant.reset()
+  // Clear only records loaded/created in this coordinate workspace.
+  const ids = [...new Set(measurementBackendIds.values())]
   measurementBackendIds.clear()
-  const assetIds = [props.bimAssetId, props.pointcloudAssetId].filter(
-    (id): id is number => typeof id === 'number' && id > 0,
-  )
-  await Promise.all(assetIds.map(async (assetId) => {
-    try {
-      const response = await listMeasurements(assetId)
-      response.data.forEach((record) => ids.add(record.id))
-    } catch (error) {
-      console.warn('[BimPointcloudAlign] 读取测量记录失败', error)
-    }
-  }))
-  await Promise.all([...ids].map(async (id) => {
-    try {
-      await deleteMeasurement(id)
-    } catch (error) {
-      console.warn('[BimPointcloudAlign] 删除测量记录失败', error)
-    }
+  await Promise.all(ids.map(async id => {
+    try { await deleteMeasurement(id) }
+    catch (error) { ElMessage.error(`删除测量失败：${error instanceof Error ? error.message : String(error)}`) }
   }))
 }
 
@@ -4320,9 +4096,12 @@ async function persistMeasurement(kind: MeasurementKind, payload: unknown) {
     : ''
   try {
     const response = await createMeasurement(assetId, kind, payload)
-    if (localId) measurementBackendIds.set(localId, response.data.id)
+    if (comparisonDisposed) return
+    if (localId && [...analysisPoints.value, ...analysisDistances.value, ...analysisAreas.value].some(r => r.id === localId)) measurementBackendIds.set(localId, response.data.id)
+    else if (localId) await deleteMeasurement(response.data.id)
   } catch (error) {
     console.warn('[BimPointcloudAlign] 保存测量记录失败', error)
+    ElMessage.error('测量保留在当前页面，但保存失败，请检查连接后重试')
   }
 }
 
@@ -4374,7 +4153,9 @@ function rebuildAnalysisVisualsFromState() {
   archivedAnalysisGroups.splice(0)
   analysisPoints.value.forEach((point) => {
     const group = new THREE.Group()
-    group.add(Object.assign(createMeasurementPinSprite('#22d3ee'), { position: new THREE.Vector3(point.x, point.y, point.z) }))
+    const marker = createMeasurementPinSprite('#22d3ee')
+    marker.position.set(point.x, point.y, point.z)
+    group.add(marker)
     currentScene.add(group)
     archivedAnalysisGroups.push(group)
   })
@@ -4510,6 +4291,7 @@ function formatMeasurementMeters(value: number, digits = 3) {
 }
 
 function syncMeasurementBadges() {
+  measurementAssistant.syncSaved([...analysisPoints.value, ...analysisDistances.value].filter(r => !hiddenMeasurementIds.has(r.id ?? "")))
   const next: typeof measurementBadges.value = []
   analysisPoints.value.forEach((point, index) => {
     const id = point.id || `point-${index}`
@@ -4523,9 +4305,10 @@ function syncMeasurementBadges() {
       title: `定位 #${index + 1}`,
       rows: [
         { label: 'X', value: formatMeasurementMeters(point.x) },
-        { label: 'Y', value: formatMeasurementMeters(point.z) },
-        { label: 'Z', value: formatMeasurementMeters(point.y) },
+        { label: 'Y', value: formatMeasurementMeters(point.y) },
+        { label: 'Z', value: formatMeasurementMeters(point.z) },
       ],
+      ...(measurementPresentation(point.measurement) ?? {}),
       overlay: { visible: true, x: screenPoint.x + measurementBadgeOffsetX + offset.x, y: screenPoint.y - 18 + offset.y },
     })
   })
@@ -4559,6 +4342,7 @@ function syncMeasurementBadges() {
         { label: '垂直距离', value: formatMeasurementMeters(Math.abs(dy)) },
         { label: '坡度', value: `${slope.toFixed(2)}°` },
       ],
+      ...(measurementPresentation(record.measurement) ?? {}),
       overlay: { visible: true, x: screenPoint.x + measurementBadgeOffsetX + offset.x, y: screenPoint.y - 18 + offset.y },
     })
   })
@@ -4626,69 +4410,47 @@ function createAreaMetrics(points: THREE.Vector3[]) {
   }
 }
 
-function pickAnalysisPoint(event: PointerEvent) {
-  if (!raycaster || !activeCamera || !contentGroup) return null
-  const pointer = getPointerNdc(event)
-  if (!pointer) return null
-  // Keep point-cloud picking usable at every zoom level. Three's default
-  // Points threshold is a fixed world-space value, so it becomes unreliable
-  // when the camera moves close to or far from a scan.
-  const viewportHeight = Math.max(viewportEl.value?.clientHeight || 1, 1)
-  const viewDistance = controls?.target
-    ? activeCamera.position.distanceTo(controls.target)
-    : activeCamera.position.length()
-  const worldUnitsPerPixel = isPerspectiveCamera(activeCamera)
-    ? (2 * Math.max(viewDistance, 0.001) * Math.tan(THREE.MathUtils.degToRad(activeCamera.fov) * 0.5)) / viewportHeight
-    : (2 * Math.max(orthoViewSize, 0.001)) / viewportHeight
-  raycaster.params.Points.threshold = THREE.MathUtils.clamp(
-    worldUnitsPerPixel * Math.max(pointcloudPointSize.value * 1.5, 5),
-    1e-4,
-    Math.max(pointcloudMaxDim * 0.05, 0.01),
-  )
-  contentGroup.updateMatrixWorld(true)
-  raycaster.setFromCamera(pointer, activeCamera)
-  const targets: THREE.Object3D[] = []
-  if (bimRoot) targets.push(bimRoot)
-  if (tileset?.group) targets.push(tileset.group)
-  if (c2mSceneGroup) targets.push(c2mSceneGroup)
-  if (!targets.length) targets.push(...contentGroup.children)
-  const hit = raycaster.intersectObjects(targets, true)[0]?.point?.clone() ?? null
-  if (!hit) return null
-
-  // Match the BIM preview's forgiving pick behavior: when the cursor is near
-  // an existing measurement point, reuse that exact point instead of creating
-  // a visually disconnected endpoint.
-  const rect = renderer?.domElement?.getBoundingClientRect?.()
-  if (!rect || !activeCamera) return hit
-  const candidates = [
-    analysisStartPoint,
-    analysisPoint.value
-      ? new THREE.Vector3(analysisPoint.value.x, analysisPoint.value.y, analysisPoint.value.z)
-      : null,
-    ...analysisPoints.value.map((point) => new THREE.Vector3(point.x, point.y, point.z)),
-    ...analysisDistances.value.flatMap((record) => [
-      new THREE.Vector3(record.start.x, record.start.y, record.start.z),
-      new THREE.Vector3(record.end.x, record.end.y, record.end.z),
-    ]),
-    ...analysisAreas.value.flatMap((record) =>
-      record.points.map((point) => new THREE.Vector3(point.x, point.y, point.z))),
-    ...analysisAreaPoints,
-  ].filter((point): point is THREE.Vector3 => !!point)
-  let snapped = hit
-  let nearest = 18
-  candidates.forEach((candidate) => {
-    const projected = candidate.clone().project(activeCamera!)
-    if (projected.z < -1 || projected.z > 1) return
-    const x = ((projected.x + 1) * 0.5) * rect.width
-    const y = ((-projected.y + 1) * 0.5) * rect.height
-    const distance = Math.hypot(x - (event.clientX - rect.left), y - (event.clientY - rect.top))
-    if (distance <= nearest) {
-      nearest = distance
-      snapped = candidate.clone()
+const measurementAssistState = ref(defaultMeasurementState())
+const measurementAssistPanel = ref<InstanceType<typeof MeasurementAssistPanel> | null>(null)
+const measurementAssistant = new MeasurementAssistant({
+  contextKey: measurementContextKey,
+  element: () => viewportEl.value, camera: () => activeCamera, scene: () => scene, orbit: () => controls,
+  targets: () => [
+    ...(bimRoot ? [{ object: bimRoot, kind: 'bim' as const, assetId: props.bimAssetId }] : []),
+    ...(tileset?.group ? [{ object: tileset.group, kind: 'pointcloud' as const, assetId: props.pointcloudAssetId }] : []),
+    ...(c2mSceneGroup ? [{ object: c2mSceneGroup, kind: 'pointcloud' as const, assetId: props.pointcloudAssetId }] : []),
+  ],
+  contains: point => sectionBox?.contains(point) ?? true,
+  references: () => [...analysisPoints.value, ...analysisDistances.value.flatMap(r => [r.start, r.end]),
+    ...analysisAreas.value.flatMap(r => r.points), ...analysisAreaPoints],
+  anchor: () => analysisStartPoint ?? analysisAreaPoints.at(-1) ?? null,
+  onState: state => { measurementAssistState.value = state },
+  onRecord: (kind, value) => {
+    if (kind === 'point') {
+      const record = value as AnalysisPoint
+      analysisPoint.value = record; analysisPoints.value = [...analysisPoints.value, record]
+      renderAnalysisPoint(new THREE.Vector3(record.x, record.y, record.z))
+      void persistMeasurement('locate', record)
+    } else {
+      const record = value as AnalysisDistance
+      analysisDistance.value = record; analysisDistances.value = [...analysisDistances.value, record]
+      updateAnalysisDistanceVisuals(new THREE.Vector3(record.start.x, record.start.y, record.start.z), new THREE.Vector3(record.end.x, record.end.y, record.end.z))
+      void persistMeasurement('distance', record)
     }
-  })
-  return snapped
-}
+    if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
+    analysisGroup = null; analysisDistanceLine = null; analysisDistanceStartMarker = null; analysisDistanceEndMarker = null; analysisDistanceHoverMarker = null
+    syncMeasurementBadges()
+  },
+  onCoordinates: point => { commitAnalysisPoint(point); measurementAssistant.refresh() },
+  onUndo: () => {
+    if (analysisAreaPoints.length) { analysisAreaPoints.pop(); updateAnalysisAreaVisuals(analysisAreaPoints) }
+    else cancelActiveAnalysis()
+  },
+  requestRender,
+})
+function resetMeasurementSession() { cancelActiveAnalysis(); measurementAssistant.reset() }
+watch(analysisMode, mode => { cancelActiveAnalysis(); measurementAssistant.setMode(mode) })
+function pickAnalysisPoint(event: PointerEvent) { return measurementAssistant.pick(event) }
 
 function renderAnalysisPoint(point: THREE.Vector3, color = '#22d3ee') {
   if (!scene) return
@@ -4762,7 +4524,7 @@ function completeAnalysisDistance(end: THREE.Vector3) {
   const dz = end.z - start.z
   const horizontalDistance = Math.hypot(dx, dz)
   const verticalDistance = Math.abs(dy)
-  const record: AnalysisDistance = {
+  const record: AnalysisDistance = measurementAssistant.annotate({
     id: globalThis.crypto?.randomUUID?.() || `distance-${Date.now()}`,
     start: { x: start.x, y: start.y, z: start.z },
     end: { x: end.x, y: end.y, z: end.z },
@@ -4773,7 +4535,7 @@ function completeAnalysisDistance(end: THREE.Vector3) {
     slopeDegrees: horizontalDistance <= 1e-8
       ? (verticalDistance <= 1e-8 ? 0 : 90)
       : Math.atan2(verticalDistance, horizontalDistance) * 180 / Math.PI,
-  }
+  }, 'distance')
   updateAnalysisDistanceVisuals(start, end)
   if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
   analysisGroup = null
@@ -4863,12 +4625,12 @@ function updateAnalysisAreaVisuals(points: THREE.Vector3[], previewPoint: THREE.
 function completeAnalysisArea() {
   const metrics = createAreaMetrics(analysisAreaPoints)
   if (!metrics) return
-  const record: AnalysisArea = {
+  const record: AnalysisArea = measurementAssistant.annotate({
     id: globalThis.crypto?.randomUUID?.() || `area-${Date.now()}`,
     points: analysisAreaPoints.map((point) => ({ x: point.x, y: point.y, z: point.z })),
     area: metrics.area,
     perimeter: metrics.perimeter,
-  }
+  }, 'area')
   updateAnalysisAreaVisuals(analysisAreaPoints)
   if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
   analysisGroup = null
@@ -4908,137 +4670,13 @@ function updateAnalysisDistancePreview(point: THREE.Vector3 | null) {
 }
 
 function selectAnalysisMode(mode: AnalysisMode) {
+  interruptRebarInspection()
   cancelActiveAnalysis()
   analysisMode.value = mode
+  analysisToolbarCollapsed.value = true
 }
 
-function buildClipDragPlane(axisKey: ClipAxis, anchor: THREE.Vector3) {
-  if (!activeCamera) return null
-  const axis =
-    axisKey === 'x'
-      ? new THREE.Vector3(1, 0, 0)
-      : axisKey === 'y'
-        ? new THREE.Vector3(0, 1, 0)
-        : new THREE.Vector3(0, 0, 1)
-  const cameraDir = new THREE.Vector3()
-  activeCamera.getWorldDirection(cameraDir)
-  let normal = cameraDir.sub(axis.clone().multiplyScalar(cameraDir.dot(axis)))
-  if (normal.lengthSq() < 1e-6) {
-    normal = new THREE.Vector3(0, 1, 0).cross(axis)
-  }
-  if (normal.lengthSq() < 1e-6) {
-    normal = new THREE.Vector3(0, 0, 1).cross(axis)
-  }
-  normal.normalize()
-  return new THREE.Plane().setFromNormalAndCoplanarPoint(normal, anchor)
-}
 
-function beginClipDrag(
-  ev: PointerEvent,
-  options: { axis: ClipAxis; invert: boolean },
-) {
-  if (!raycaster || !activeCamera || !renderer) return
-
-  clipAxis.value = options.axis
-  clipInvert.value = options.invert
-  syncClipUiFromFace()
-  applyClippingState()
-  syncBoundsHelpers()
-
-  const ndc = getPointerNdc(ev)
-  if (!ndc) return
-  raycaster.setFromCamera(ndc, activeCamera)
-
-  const box = getCurrentClipBox()
-  if (!box) return
-
-  const center = box.getCenter(new THREE.Vector3())
-  const anchor =
-    options.axis === 'x'
-      ? new THREE.Vector3(
-          options.invert ? box.max.x : box.min.x,
-          center.y,
-          center.z,
-        )
-      : options.axis === 'y'
-        ? new THREE.Vector3(
-            center.x,
-            options.invert ? box.max.y : box.min.y,
-            center.z,
-          )
-        : new THREE.Vector3(
-            center.x,
-            center.y,
-            options.invert ? box.max.z : box.min.z,
-          )
-
-  const dragPlane = buildClipDragPlane(options.axis, anchor)
-  if (!dragPlane) return
-
-  const startPoint = new THREE.Vector3()
-  if (!raycaster.ray.intersectPlane(dragPlane, startPoint)) return
-
-  const range = getClipFaceRange(options.axis, options.invert)
-  clipDragState = {
-    pointerId: ev.pointerId,
-    axis: options.axis,
-    invert: options.invert,
-    dragPlane,
-    startPoint,
-    startPosition: getClipFacePosition(options.axis, options.invert),
-    min: range.min,
-    max: range.max,
-  }
-  renderer.domElement.setPointerCapture?.(ev.pointerId)
-  clipPointerCaptureId = ev.pointerId
-  if (controls) controls.enabled = false
-}
-
-function onClipDragMove(ev: PointerEvent) {
-  if (!clipDragState || !raycaster || !activeCamera) return
-  const ndc = getPointerNdc(ev)
-  if (!ndc) return
-  raycaster.setFromCamera(ndc, activeCamera)
-  const point = new THREE.Vector3()
-  if (!raycaster.ray.intersectPlane(clipDragState.dragPlane, point)) return
-
-  const axisVec =
-    clipDragState.axis === 'x'
-      ? new THREE.Vector3(1, 0, 0)
-      : clipDragState.axis === 'y'
-        ? new THREE.Vector3(0, 1, 0)
-        : new THREE.Vector3(0, 0, 1)
-  const delta = point.clone().sub(clipDragState.startPoint).dot(axisVec)
-  const nextPosition = THREE.MathUtils.clamp(
-    clipDragState.startPosition + delta,
-    clipDragState.min,
-    clipDragState.max,
-  )
-
-  setClipFacePosition(clipDragState.axis, clipDragState.invert, nextPosition)
-  syncClipUiFromFace()
-  applyClippingState()
-  syncBoundsHelpers()
-  requestRender()
-}
-
-function endClipDrag(ev?: PointerEvent) {
-  if ((clipDragState || clipPointerCaptureId !== null) && renderer?.domElement && ev) {
-    const captureId = clipPointerCaptureId ?? clipDragState?.pointerId
-    try {
-      if (captureId !== null && captureId !== undefined) {
-        renderer.domElement.releasePointerCapture?.(captureId)
-      }
-    } catch {
-      // ignore pointer capture release errors
-    }
-  }
-  clipDragState = null
-  clipPointerCaptureId = null
-  if (controls) controls.enabled = true
-  syncBoundsHelpers()
-  requestRender()
-}
 
 function getVisibleContentBox() {
   if (rebarDebugActive.value) return rebarDebugBounds()
@@ -5186,6 +4824,7 @@ function requestRender() {
       } else {
         renderer.render(scene, activeCamera)
       }
+      measurementAssistPanel.value?.drawLens(renderer.domElement)
     } finally {
       if (bimPivot) bimPivot.visible = bimWasVisible
     }
@@ -5340,9 +4979,10 @@ async function initScene() {
       renderer.domElement.addEventListener('pointerdown', handleViewportPointerDown)
       renderer.domElement.addEventListener('pointermove', onViewportPointerMove)
       renderer.domElement.addEventListener('pointerup', onViewportPointerUp)
+      renderer.domElement.addEventListener('dblclick', handleRebarInspectionDoubleClick)
       renderer.domElement.addEventListener('pointercancel', onViewportPointerCancel)
-      renderer.domElement.addEventListener('lostpointercapture', cancelInspectionPointerGesture)
-      renderer.domElement.addEventListener('wheel', cancelInspectionPointerGesture, { passive: true })
+      renderer.domElement.addEventListener('lostpointercapture', handleInspectionLostPointerCapture)
+      renderer.domElement.addEventListener('wheel', interruptRebarInspection, { passive: true })
       renderer.domElement.addEventListener('contextmenu', handleViewportContextMenu)
 
       if (clippingGroup) {
@@ -5413,6 +5053,7 @@ async function initScene() {
 }
 
 function fitCameraToBox(box: THREE.Box3) {
+  stopRebarAutoplay()
   if (!activeCamera || !controls) return
   stopRebarCameraAnimation()
   activeCamera.up.set(0, 1, 0)
@@ -5514,6 +5155,7 @@ function setTopViewForPerspective(
 }
 
 function setPresetView(kind: 'front' | 'top' | 'side') {
+  stopRebarAutoplay()
   if (!activeCamera || !controls) return
 
   const box = getVisibleContentBox()
@@ -5568,6 +5210,7 @@ function syncPointcloudCameraPose() {
 }
 
 function setPointcloudViewDirection(direction: [number, number, number]) {
+  stopRebarAutoplay()
   if (!activeCamera || !controls) return
   const box = getVisibleContentBox()
   if (!box) return
@@ -5594,6 +5237,7 @@ function setPointcloudViewDirection(direction: [number, number, number]) {
 }
 
 function orbitPointcloudFromCube(delta: { lon: number; lat: number }) {
+  stopRebarAutoplay()
   if (!activeCamera || !controls) return
   stopRebarCameraAnimation()
   const offset = activeCamera.position.clone().sub(controls.target)
@@ -5614,6 +5258,7 @@ function orbitPointcloudFromCube(delta: { lon: number; lat: number }) {
 }
 
 function rollPointcloudView(direction: -1 | 1) {
+  stopRebarAutoplay()
   if (!activeCamera || !controls) return
   stopRebarCameraAnimation()
   const viewDirection = activeCamera.position.clone().sub(controls.target).normalize()
@@ -5645,6 +5290,7 @@ function applyPointcloudPointSize(root: THREE.Object3D | null) {
 }
 
 function setProjectionMode(nextMode: ProjectionMode) {
+  stopRebarAutoplay()
   if (!perspectiveCamera || !orthographicCamera || !activeCamera) return
   if (projectionMode.value === nextMode) return
   stopRebarCameraAnimation()
@@ -6016,36 +5662,20 @@ function applyPointcloudMaterialMode(root: THREE.Object3D | null) {
   applyPointcloudColor(root)
 }
 
-function updateClipRangeFromContent(
-  opts: { resetPosition?: boolean; preserveT?: boolean } = {},
-) {
-  void opts.preserveT
-  if (!contentGroup) return
-
-  const state = getOrCreateClipState()
-  if (!state) {
-    clipRange.value = { min: 0, max: 1 }
-    clipPosition.value = 0
-    return
-  }
-
-  if (opts.resetPosition) {
-    state.offsets = createDefaultClipOffsets()
-  }
-
-  clampClipOffsets(state)
-  syncClipUiFromFace()
+function updateClipRangeFromContent(_opts: { resetPosition?: boolean; preserveT?: boolean } = {}) {
+  // Progressive tiles never move an already selected clipping boundary.
+  if (enableClipping.value && !sectionBox?.bounds) ensureSectionBox()?.fit()
 }
 
 function applyMaterialClipping(planes: THREE.Plane[]) {
-  if (!contentGroup) return
-
-  contentGroup.traverse((obj: any) => {
+  const roots = new Set([contentGroup, c2mSceneGroup, remeshSceneGroup, denoisePreview, analysisGroup, ...archivedAnalysisGroups])
+  for (const root of roots) root?.traverse((obj: any) => {
     const material = obj?.material
     if (!material) return
 
     const applyToMaterial = (item: THREE.Material) => {
       item.clippingPlanes = planes.length ? planes : null
+      item.clipIntersection = false
       item.needsUpdate = true
     }
 
@@ -6058,31 +5688,17 @@ function applyMaterialClipping(planes: THREE.Plane[]) {
   })
 }
 
-function applyClippingState() {
-  const enabled = !!enableClipping.value && !!hasClippableContent.value && !!showBounds.value
-  const clipBox = enabled ? getCurrentClipBox() : null
-  const planes =
-    clipBox && !clipBox.isEmpty()
-      ? [
-          new THREE.Plane(new THREE.Vector3(1, 0, 0), -clipBox.min.x),
-          new THREE.Plane(new THREE.Vector3(-1, 0, 0), clipBox.max.x),
-          new THREE.Plane(new THREE.Vector3(0, 1, 0), -clipBox.min.y),
-          new THREE.Plane(new THREE.Vector3(0, -1, 0), clipBox.max.y),
-          new THREE.Plane(new THREE.Vector3(0, 0, 1), -clipBox.min.z),
-          new THREE.Plane(new THREE.Vector3(0, 0, -1), clipBox.max.z),
-        ]
-      : []
-
-  applyMaterialClipping(planes)
-
+function syncWebGpuClipping(planes: THREE.Plane[]) {
   if (rendererMode === 'webgpu' && clippingGroup) {
     clippingGroup.enabled = planes.length > 0
-    clippingGroup.clippingPlanes.length = 0
-    if (planes.length) {
-      clippingGroup.clippingPlanes.push(...planes)
-    }
+    clippingGroup.clippingPlanes.splice(0, clippingGroup.clippingPlanes.length, ...planes)
   }
+}
 
+function applyClippingState() {
+  const planes = enableClipping.value && showBounds.value ? sectionBox?.planes() ?? [] : []
+  applyMaterialClipping(planes)
+  syncWebGpuClipping(planes)
   requestRender()
 }
 
@@ -6121,43 +5737,19 @@ function onClippingButtonClick() {
 }
 
 function onClippingEnabledChange() {
-  if (!contentGroup) return
-
-  if (!enableClipping.value) {
-    if (!editMode.value) {
-      editMode.value = true
-    }
-    showBounds.value = false
-    syncBoundsHelpers()
-    applyClippingState()
-    return
-  }
-
-  if (editMode.value) {
+  if (enableClipping.value) {
+    editModeBeforeClipping = editMode.value
+    transformHandleInteraction?.cancel()
     editMode.value = false
-  }
-
-  if (enableClipping.value && !showBounds.value) {
     showBounds.value = true
+    ensureSectionBox()?.setEnabled(true)
+  } else {
+    sectionBox?.setEnabled(false)
+    showBounds.value = false
+    editMode.value = editModeBeforeClipping
   }
-
-  updateClipRangeFromContent({ resetPosition: true })
   syncBoundsHelpers()
-  applyClippingState()
-}
-
-function onClippingParamsChange() {
-  if (!contentGroup) return
-  setClipFacePosition(clipAxis.value, clipInvert.value, clipPosition.value)
-  syncClipUiFromFace()
-  syncBoundsHelpers()
-  applyClippingState()
-}
-
-function onClippingFaceChange() {
-  if (!contentGroup) return
-  updateClipRangeFromContent({ preserveT: true })
-  syncBoundsHelpers()
+  syncTransformHandleVisibility()
   applyClippingState()
 }
 
@@ -6596,20 +6188,8 @@ function getTopLevelSceneObjectFromIntersection(object: THREE.Object3D | null) {
 
 function handleViewportPointerDown(event: PointerEvent) {
   if (!viewportEl.value || !activeCamera || !raycaster || !contentGroup) return
-  // A visible clipping handle owns the gesture before manual member picking.
-  if (event.button === 0 && analysisMode.value === 'none' && enableClipping.value && showBounds.value && clipHandlePickers.length) {
-    const pointer = getPointerNdc(event)
-    if (pointer) {
-      raycaster.setFromCamera(pointer, activeCamera)
-      const hit = raycaster.intersectObjects(clipHandlePickers, true)[0]
-      if (hit?.object.userData.__viewerClipHandle) {
-        rebarInspectionClick.cancel()
-        stopRebarCameraAnimation()
-        beginClipDrag(event, { axis: hit.object.userData.axis, invert: !!hit.object.userData.invert })
-        return
-      }
-    }
-  }
+  // SectionBoxController owns clipping gestures in the capture phase.
+
   if (handleRebarInspectionPointerDown(event)) return
   if (event.shiftKey && event.button === 0 && c2mSceneGroup) {
     const pointer = getPointerNdc(event)
@@ -6642,7 +6222,6 @@ function handleViewportPointerDown(event: PointerEvent) {
   if (analysisMode.value !== 'none') {
     if (event.button === 0) {
       analysisPointerDown = { x: event.clientX, y: event.clientY }
-      if (controls) controls.enabled = false
     }
     return
   }
@@ -6652,7 +6231,7 @@ function handleViewportPointerDown(event: PointerEvent) {
   if (!pointer) return
 
   raycaster.setFromCamera(pointer, activeCamera)
-  const hits = raycaster.intersectObjects(contentGroup.children, true)
+  const hits = raycaster.intersectObjects(contentGroup.children, true).filter(hit => sectionBox?.contains(hit.point) ?? true)
   if (!hits.length) return
 
   const pickedHit =
@@ -6699,19 +6278,11 @@ function handleViewportPointerDown(event: PointerEvent) {
 
 function onViewportPointerMove(event: PointerEvent) {
   rebarInspectionClick.move(event)
-  if ((event.buttons & 2) !== 0) return
-  if (analysisMode.value === 'distance' && analysisStartPoint) {
-    const point = pickAnalysisPoint(event)
-    if (point) updateAnalysisDistancePreview(point)
-    return
-  }
-  if (analysisMode.value === 'area' && analysisAreaPoints.length) {
-    const point = pickAnalysisPoint(event)
-    if (point) updateAnalysisAreaVisuals(analysisAreaPoints, point)
-    return
-  }
-  if (!clipDragState) return
-  onClipDragMove(event)
+  if (analysisMode.value === 'none' || event.buttons) return
+  const point = measurementAssistant.hover(event)
+  if (!point) return
+  if (analysisMode.value === 'distance' && analysisStartPoint) updateAnalysisDistancePreview(point)
+  if (analysisMode.value === 'area' && analysisAreaPoints.length) updateAnalysisAreaVisuals(analysisAreaPoints, point)
 }
 
 function handleViewportContextMenu(event: MouseEvent) {
@@ -6733,53 +6304,63 @@ function notifyMeasurementPickUnavailable() {
 }
 
 function onViewportPointerUp(event: PointerEvent) {
-  if (rebarInspectionClick.end(event)) handleRebarInspectionClick(event)
+  rebarInspectionClickReady = rebarInspectionClick.end(event)
+  if (rebarInspectionClickReady) handleRebarInspectionClick(event)
   if (analysisMode.value !== 'none' && analysisPointerDown) {
     const down = analysisPointerDown
     analysisPointerDown = null
     if (controls) controls.enabled = true
     if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 6) return
+    if (analysisMode.value === 'geometry') { measurementAssistant.commit(event); return }
     const point = pickAnalysisPoint(event)
     if (!point) {
       notifyMeasurementPickUnavailable()
       return
     }
-    const toPoint = (value: THREE.Vector3): AnalysisPoint => ({ x: value.x, y: value.y, z: value.z })
-    if (analysisMode.value === 'locate') {
-      renderAnalysisPoint(point, '#22d3ee')
-      const record: AnalysisPoint = {
-        id: globalThis.crypto?.randomUUID?.() || `locate-${Date.now()}`,
-        ...toPoint(point),
-      }
-      if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
-      analysisGroup = null
-      analysisPoint.value = record
-      analysisPoints.value = [...analysisPoints.value, record]
-      syncMeasurementBadges()
-      void persistMeasurement('locate', record)
-    } else if (analysisMode.value === 'distance' && !analysisStartPoint) {
-      analysisStartPoint = point
-      analysisHoverPoint = null
-      updateAnalysisDistanceVisuals(point, null)
-    } else if (analysisMode.value === 'distance' && analysisStartPoint) {
-      completeAnalysisDistance(point)
-    } else if (analysisMode.value === 'area') {
-      const closeThreshold = Math.max(0.15, (activeCamera?.position.distanceTo(point) ?? 1) * 0.025)
-      if (analysisAreaPoints.length >= 3 && point.distanceTo(analysisAreaPoints[0]) < closeThreshold) {
-        completeAnalysisArea()
-      } else {
-        analysisAreaPoints.push(point.clone())
-        updateAnalysisAreaVisuals(analysisAreaPoints)
-      }
-    }
+    commitAnalysisPoint(point)
+    measurementAssistant.refresh()
     return
   }
-  if (!clipDragState && clipPointerCaptureId === null) return
-  endClipDrag(event)
+}
+
+function commitAnalysisPoint(point: THREE.Vector3) {
+  const toPoint = (value: THREE.Vector3): AnalysisPoint => ({ x: value.x, y: value.y, z: value.z })
+  if (analysisMode.value === 'locate') {
+    renderAnalysisPoint(point, '#22d3ee')
+    const record: AnalysisPoint = measurementAssistant.annotate({
+      id: globalThis.crypto?.randomUUID?.() || `locate-${Date.now()}`,
+      ...toPoint(point),
+    }, 'locate')
+    if (analysisGroup) archivedAnalysisGroups.push(analysisGroup)
+    analysisGroup = null
+    analysisPoint.value = record
+    analysisPoints.value = [...analysisPoints.value, record]
+    syncMeasurementBadges()
+    void persistMeasurement('locate', record)
+  } else if (analysisMode.value === 'distance' && !analysisStartPoint) {
+    analysisStartPoint = point
+    analysisHoverPoint = null
+    updateAnalysisDistanceVisuals(point, null)
+  } else if (analysisMode.value === 'distance' && analysisStartPoint) {
+    completeAnalysisDistance(point)
+  } else if (analysisMode.value === 'area') {
+    const closeThreshold = Math.max(0.15, (activeCamera?.position.distanceTo(point) ?? 1) * 0.025)
+    if (analysisAreaPoints.length >= 3 && point.distanceTo(analysisAreaPoints[0]) < closeThreshold) {
+      completeAnalysisArea()
+    } else {
+      analysisAreaPoints.push(point.clone())
+      updateAnalysisAreaVisuals(analysisAreaPoints)
+    }
+  }
 }
 
 function onAnalysisKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') rebarInspectionClick.cancel()
+  if ((event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true]')) return
+  if (event.key === 'Backspace' && analysisMode.value !== 'none') { event.preventDefault(); measurementAssistant.undo() }
+  if (event.key === 'Escape') {
+    cancelInspectionPointerGesture()
+    if (rebarInspectionActive.value || rebarInspectionAutoplay.value) exitRebarInspection()
+  }
   if (event.key === 'Enter' && analysisMode.value === 'area') {
     completeAnalysisArea()
     return
@@ -6791,14 +6372,12 @@ function onAnalysisKeydown(event: KeyboardEvent) {
 }
 
 function onViewportPointerCancel(event: PointerEvent) {
-  rebarInspectionClick.cancel()
+  cancelInspectionPointerGesture()
   if (analysisMode.value !== 'none' && analysisPointerDown) {
     analysisPointerDown = null
     if (controls) controls.enabled = true
     return
   }
-  if (!clipDragState && clipPointerCaptureId === null) return
-  endClipDrag(event)
 }
 
 function applyPositionFixRealtime() {
@@ -7010,14 +6589,8 @@ function applySceneVisibility() {
   if (remeshSceneGroup) remeshSceneGroup.visible = !steelOnly && !c2mSceneActive.value
   if (denoisePreview) {
     denoisePreview.visible = rebarDebugActive.value ? rebarDebugScan.value : pointcloudVisible.value && (steelOnly || denoiseView.value !== 'source')
-    // 偏差对比步骤保留扫描实例配色，便于与偏差色网格逐根对照；
-    // 若强制中性灰（#86898D + vertexColors=false）会让第三步点云看起来「没颜色」。
-    const material = denoisePreview.material
-    material.color.set('#ffffff')
-    if (!material.vertexColors) {
-      material.vertexColors = true
-      material.needsUpdate = true
-    }
+    // The inspection layer owns temporary scan materials; visibility updates
+    // must not overwrite its neutral palette or the source material for exit.
   }
   if (bimPivot) {
     const steelIds = new Set(rebarDebugActive.value ? (rebarDebugBar.value ? [rebarDebugBar.value.ifcGlobalId] : []) : comparisonInventory.value?.inventory.bars.map(bar => bar.ifcGlobalId) ?? [])
@@ -8143,6 +7716,7 @@ async function loadPointcloudFromApi(assetId: number, silent: boolean) {
       }
       collectPointcloudColorStats(tileScene)
       applyPointcloudDisplay(tileScene)
+      if (enableClipping.value) applyClippingState()
       loadedTileCount += 1
       if (loadLifecycle.markModelReady()) loadingPointcloud.value = false
       // Some loader promises emit load-model just after tiles-load-end.
@@ -8229,6 +7803,7 @@ watch(materialMode, () => {
   if (tileset?.group) {
     applyPointcloudMaterialMode(tileset.group)
   }
+  applyClippingState()
 })
 
 watch(tilesErrorTarget, () => {
@@ -8257,13 +7832,11 @@ watch(enableClipping, () => {
   onClippingEnabledChange()
 })
 
-watch([clipAxis, clipInvert], () => {
-  onClippingFaceChange()
-})
 
-watch(clipPosition, () => {
-  onClippingParamsChange()
-})
+
+
+
+
 
 watch(selectedItemId, () => {
   onSelectedItemChange()
@@ -8300,6 +7873,7 @@ watch([c2mColorRangeMm, c2mToleranceMm, c2mColorMode, c2mBandCount], ([colorRang
 
 // dev-hong 侧新增 sceneAlignmentReady 守卫（等场景恢复完再跳步）；
 // 步骤来源用 props.initialStep，保持包不依赖 vue-router。
+watch([c2mInputKey, canRunC2M, activeWorkflowStep, workflowRouteReady], () => { void ensureAutomaticC2M() })
 watch([() => props.initialStep, workflowRouteReady, bimLoaded, pointcloudLoaded, sceneAlignmentReady], () => {
   if (!workflowRouteReady.value || !bimLoaded.value || !pointcloudLoaded.value) return
   if (hasSavedAlignmentMatrix.value && !sceneAlignmentReady.value) return
@@ -8316,7 +7890,7 @@ watch([() => props.initialStep, workflowRouteReady, bimLoaded, pointcloudLoaded,
   if (step !== available) notifyStepChange(available)
 })
 watch([activeWorkflowStep, viewportEl], ([step]) => {
-  rebarInspectionClick.cancel()
+  if (step !== 3) resetRebarInspection()
   if (workflowRouteReady.value && String(route.query.step || 1) !== String(step)) {
     void router.replace({ query: { ...route.query, step: String(step) } })
   }
@@ -8327,7 +7901,8 @@ watch([activeWorkflowStep, viewportEl], ([step]) => {
 
 onMounted(async () => {
   window.addEventListener('keydown', onAnalysisKeydown)
-  window.addEventListener('blur', cancelInspectionPointerGesture)
+  window.addEventListener('blur', interruptRebarInspection)
+  document.addEventListener('visibilitychange', interruptRebarInspection)
   syncPositionStepPreset()
   syncRotationStepPreset()
   await initScene()
@@ -8339,15 +7914,20 @@ onMounted(async () => {
   // restore attempt after both route preload tasks have settled.
   await fetchAndLogSavedAlignmentIfExists()
   workflowRouteReady.value = true
+  await loadStoredMeasurements()
 })
 
 onBeforeUnmount(() => {
+  measurementLoadGeneration++
+  measurementAssistant.dispose()
+  comparisonDisposed = true
   disposeReportModelViews()
   resetRebarInspection()
   denoiseRequestId++
   clearDenoisePreview()
   window.removeEventListener('keydown', onAnalysisKeydown)
-  window.removeEventListener('blur', cancelInspectionPointerGesture)
+  window.removeEventListener('blur', interruptRebarInspection)
+  document.removeEventListener('visibilitychange', interruptRebarInspection)
   bimLoadToken++
   pointcloudLoadToken++
   pointcloudLoadPromise = null
@@ -8362,7 +7942,8 @@ onBeforeUnmount(() => {
   c2mDistances.value = null
   pointcloudRootReady = false
   loggedSavedAlignmentKey = ''
-  endClipDrag()
+  sectionBox?.dispose()
+  sectionBox = null
   stopRenderLoop()
   resizeObserver?.disconnect()
   observedViewportEl = null
@@ -8383,13 +7964,13 @@ onBeforeUnmount(() => {
   renderer?.domElement?.removeEventListener?.('pointerdown', handleViewportPointerDown)
   renderer?.domElement?.removeEventListener?.('pointermove', onViewportPointerMove)
   renderer?.domElement?.removeEventListener?.('pointerup', onViewportPointerUp)
+  renderer?.domElement?.removeEventListener?.('dblclick', handleRebarInspectionDoubleClick)
   renderer?.domElement?.removeEventListener?.('pointercancel', onViewportPointerCancel)
-  renderer?.domElement?.removeEventListener?.('lostpointercapture', cancelInspectionPointerGesture)
-  renderer?.domElement?.removeEventListener?.('wheel', cancelInspectionPointerGesture)
+  renderer?.domElement?.removeEventListener?.('lostpointercapture', handleInspectionLostPointerCapture)
+  renderer?.domElement?.removeEventListener?.('wheel', interruptRebarInspection)
   renderer?.domElement?.removeEventListener?.('contextmenu', handleViewportContextMenu)
   renderer?.dispose()
   raycaster = null
-  clearClipHandles()
   if (renderer?.domElement?.parentElement) {
     renderer.domElement.parentElement.removeChild(renderer.domElement)
   }
@@ -8472,7 +8053,7 @@ onBeforeUnmount(() => {
         'is-report-editor': activeWorkflowStep === 4 && reportEditing,
       }"
     >
-      <aside v-if="activeWorkflowStep !== 4" class="left-toolbar view-toolbar" aria-label="视图工具">
+      <aside v-if="activeWorkflowStep !== 4" class="left-toolbar view-toolbar" :style="!analysisToolbarCollapsed ? { zIndex: 90 } : undefined" aria-label="视图工具">
         <el-tooltip content="重置视角" placement="right">
           <div class="tool-item">
             <el-button class="tool-btn" circle text :icon="RefreshLeft" aria-label="重置视角" :disabled="!hasModel" @click="resetView" />
@@ -8489,8 +8070,18 @@ onBeforeUnmount(() => {
               circle text
               @click="setProjectionMode(projectionMode === 'perspective' ? 'orthographic' : 'perspective')"
             >
-              <img class="tool-btn__img1" :src="projectionMode === 'perspective' ? toushiIcon : zhengjiaoIcon" alt="" />
+              <ViewportToolGlyph :name="projectionMode === 'perspective' ? 'projectionPerspective' : 'projectionOrthographic'" />
             </el-button>
+          </div>
+        </el-tooltip>
+
+        <el-tooltip v-if="activeWorkflowStep === 3 && !rebarDebugActive" :content="rebarInspectionAutoplay ? '停止巡检 · Esc' : '自动巡检'" placement="right">
+          <div class="tool-item">
+            <el-button class="tool-btn" :class="{ 'is-on': rebarInspectionAutoplay }" circle text
+              :icon="rebarInspectionAutoplay ? VideoPause : VideoPlay"
+              :disabled="!comparison || !c2mSceneLoaded || c2mRunning"
+              :aria-label="rebarInspectionAutoplay ? '停止自动巡检' : '自动巡检'"
+              :aria-pressed="rebarInspectionAutoplay" @click="toggleRebarAutoplay" />
           </div>
         </el-tooltip>
 
@@ -8581,13 +8172,16 @@ onBeforeUnmount(() => {
           </div>
         </el-tooltip>
 
+        <el-tooltip v-if="enableClipping" content="重新贴合模型" placement="right">
+          <div class="tool-item"><el-button class="tool-btn" circle text aria-label="重新贴合模型" @click="resetSectionBox"><el-icon><RefreshLeft /></el-icon></el-button></div>
+        </el-tooltip>
+
         <div class="tool-item measurement-tool-item">
             <MeasurementToolbar
             v-model:collapsed="analysisToolbarCollapsed"
             class="alignment-measurement-toolbar"
             :mode="analysisMode"
             :disabled="!hasModel"
-            clear-on-toggle-off
             default-mode-on-open="distance"
             toggle-icon="fixed"
             placement="left"
@@ -8681,7 +8275,18 @@ onBeforeUnmount(() => {
         <button type="button" :class="{ 'is-active': materialMode === 'lambert' }" role="menuitemradio" :aria-checked="materialMode === 'lambert'" @click="materialMode = 'lambert'; showAdvancedSettings = false">漫反射</button>
       </div>
 
-      <div v-show="activeWorkflowStep !== 4" ref="viewportEl" class="viewport viewport-shell three-view-pane">
+      <div v-show="activeWorkflowStep !== 4" ref="viewportEl" class="viewport viewport-shell three-view-pane" @pointerleave="measurementAssistant.leave()">
+        <MeasurementAssistPanel ref="measurementAssistPanel" :state="measurementAssistState"
+          @settings="measurementAssistant.setSettings($event)" @tool="measurementAssistant.setTool($event)"
+          @undo="measurementAssistant.undo()" @reset="resetMeasurementSession"
+          @flip="measurementAssistant.flip()" @face-on="measurementAssistant.faceOn()"
+          @restore-view="measurementAssistant.restoreView()" @clear-frame="measurementAssistant.clearFrame()"
+          @coordinates="measurementAssistant.coordinates($event)" />
+        <div v-if="activeWorkflowStep === 3 && rebarInspectionActive && selectedComparisonBar" class="rebar-inspection-status"
+          role="status" :data-member-id="selectedComparisonBarId" :title="selectedComparisonBarId">
+          <strong>{{ rebarInspectionAutoplay ? '自动巡检' : '钢筋巡检' }} · {{ rebarInspectionIndex + 1 }} / {{ rebarInspectionBars.length }}</strong>
+          <span>{{ selectedComparisonBar.name || selectedComparisonBar.designBarId }}</span>
+        </div>
         <div v-if="transformHandleState" class="transform-handle-feedback" :class="{ 'is-dragging': transformHandleState.dragging }">
           <strong>{{ transformHandleLabel }}</strong>
           <span>{{ transformHandleDelta }}</span>
@@ -8694,6 +8299,7 @@ onBeforeUnmount(() => {
           @orbit="orbitPointcloudFromCube"
           @roll="rollPointcloudView"
         />
+        <div v-if="enableClipping" class="section-box-feedback" role="status">{{ clipFeedback || '剖切框 · 拖面调整范围，拖边旋转 · Shift 选择背面' }}</div>
         <PointcloudAxesTriad
           v-show="pointcloudShowAxes"
           class="alignment-pointcloud-axes-triad"
@@ -9013,16 +8619,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="panel-body">
-          <p v-if="activeWorkflowStep === 1" class="workflow-guidance">
-            调整模型位置并保存粗配准，再进行精细配准。完成校准后可进入点云分类与去噪。
-          </p>
           <div v-if="pointcloudPreprocessRequired" class="panel-section denoise-panel">
             <div class="section-heading">
               <h4>分析点云未就绪</h4>
               <span class="stage-state">需预处理</span>
             </div>
-            <p class="denoise-note">分析仅使用上传阶段生成的无台面点云。历史资产可在此补算法向量并识别、移除台面。</p>
-            <p v-if="pointcloudPreprocessResult" class="denoise-note">预处理记录包含 {{ pointcloudPreprocessResult.result.pointsAfter.toLocaleString() }} 个保留点，正在等待无台面切片就绪。</p>
+            <p class="denoise-note">补算法向量并移除台面后即可分析。</p>
+            <p v-if="pointcloudPreprocessResult" class="denoise-note">已保留 {{ pointcloudPreprocessResult.result.pointsAfter.toLocaleString() }} 点，切片生成中。</p>
             <el-button type="primary" :loading="pointcloudPreprocessRunning" @click="runPointcloudPreprocess">
               补充预处理
             </el-button>
@@ -9034,7 +8637,10 @@ onBeforeUnmount(() => {
             :running="denoiseRunning"
             :loading="denoiseLoading"
             :error="denoiseError"
-            :can-run="canOpenDenoiseStep"
+            :can-run="canOpenDenoiseStep && !c2mRunning"
+            :comparison-running="c2mRunning"
+            :comparison-ready="canUseC2MResult"
+            :comparison-error="c2mError"
             :can-inspect="canOpenDeviationStep"
             :view="denoiseView"
             :color-mode="denoiseColorMode"
@@ -9049,14 +8655,12 @@ onBeforeUnmount(() => {
           <div v-if="activeWorkflowStep === 4" class="panel-section report-config-panel">
             <div class="section-heading report-section-heading">
               <div><h2>报告配置</h2><span class="stage-state ready">{{ reportEnabledCount }} 项</span></div>
-              <span class="stage-state ready">待发布</span>
             </div>
-            <div class="report-flow"><span class="done">配置</span><i></i><span class="done">预览</span><i></i><span>导出</span></div>
             <div class="workflow-form">
               <label class="field-block"><span>报告名称</span><el-input v-model="reportTitle" maxlength="40" /></label>
-              <label class="field-block report-diameter-setting"><span>直径允许偏差 ± / mm</span><el-input-number v-model="reportDiameterToleranceMm" aria-label="直径允许偏差（mm）" :min="0" :step="0.1" :precision="2" controls-position="right" /><small>按全部有效截面的最大绝对直径偏差判定；当前报告采用此阈值。</small></label>
+              <label class="field-block report-diameter-setting"><span>直径允许偏差 ± / mm</span><el-input-number v-model="reportDiameterToleranceMm" aria-label="直径允许偏差（mm）" :min="0" :step="0.1" :precision="2" controls-position="right" /></label>
               <div v-if="reportProjectionEnabled" class="field-block"><span>每页附录构件</span><el-radio-group v-model="reportBarsPerPage" aria-label="每页显示的钢筋数量"><el-radio-button :value="1">1 根</el-radio-button><el-radio-button :value="2">2 根</el-radio-button><el-radio-button :value="3">3 根</el-radio-button></el-radio-group></div>
-              <div class="field-block"><span>输出格式</span><el-radio-group v-model="reportFormat" class="compact-segment"><el-radio-button value="pdf">PDF</el-radio-button><el-radio-button value="json">检测 JSON</el-radio-button><el-radio-button value="docx" disabled title="Word 导出尚未开放">Word</el-radio-button><el-radio-button value="xls">CSV · Excel</el-radio-button><el-radio-button value="dxf" disabled title="DXF 导出尚未开放">DXF</el-radio-button></el-radio-group></div>
+              <div class="field-block"><span>输出格式</span><el-radio-group v-model="reportFormat" class="compact-segment"><el-radio-button value="pdf">PDF</el-radio-button><el-radio-button value="json">检测 JSON</el-radio-button><el-radio-button value="xls">CSV · Excel</el-radio-button></el-radio-group></div>
             </div>
             <div class="content-config-heading"><div><strong>报告内容配置</strong><span>{{ reportContents.length }} 项 · {{ reportEnabledCount }} 项显示</span></div><button type="button" class="reset-content-button" title="全部开启" aria-label="全部开启报告章节" @click="reportContents.forEach((item) => item.enabled = true)"><el-icon><RefreshLeft /></el-icon></button></div>
             <div class="dynamic-content-list">
@@ -9066,18 +8670,16 @@ onBeforeUnmount(() => {
                   <el-switch v-model="item.enabled" :disabled="item.locked" :aria-label="`显示或隐藏${item.title}`" />
                   <el-input v-model="item.title" :disabled="item.locked || item.id === 'cover'" :aria-label="`${item.title}章节名称`" maxlength="40" />
                   <div class="content-actions"><button type="button" :title="`删除${item.title}章节`" :aria-label="`删除${item.title}章节`" :disabled="item.locked" @click="reportContents = reportContents.filter((entry) => entry.id !== item.id)"><el-icon><Delete /></el-icon></button></div>
-                  <small v-if="item.locked">模板固定内容</small>
-                  <small v-else-if="item.id === 'cover'">标题由“报告名称”控制</small>
                 </article>
               </section>
             </div>
-            <div class="report-source-status"><div><small>偏差项</small><strong>{{ c2mResult?.stats ? '已计算' : '待计算' }}</strong></div><div><small>已显示</small><strong>{{ reportEnabledCount }}</strong></div><div><small>状态</small><strong class="is-alert">草稿</strong></div></div>
-            <el-alert v-if="!canUseC2MResult" class="report-alert" type="info" :closable="false" show-icon title="请先完成有效的逐钢筋对比，再导出报告" />
+            <el-alert v-if="!canUseC2MResult" class="report-alert" type="info" :closable="false" show-icon title="偏差结果就绪后可导出报告" />
             <div class="report-mode-label">预览与编辑</div>
-            <div class="panel-action-row report-actions"><el-button :icon="View" @click="fitReportPage">适应页面</el-button><el-button :icon="EditPen" :disabled="!canUseC2MResult" @click="enterReportEditor">编辑预览</el-button><el-button :icon="Check" disabled title="在线草稿保存尚未开放">保存草稿</el-button><el-button :icon="DocumentChecked" disabled title="正式归档尚未开放">发布终稿</el-button></div>
-            <p class="report-local-note">编辑仅保留在当前页面。在线保存与发布尚未开放，请导出到本地。</p>
-            <div class="report-mode-label">浏览器本地导出</div>
-            <div class="panel-action-row report-actions"><el-button type="primary" :icon="Download" :disabled="!canUseC2MResult" :loading="inspectionDownloading || reportPreparing" @click="reportAction('export')">{{ reportPreparing ? '正在生成全部构件图形…' : reportFormat === 'json' ? '导出已保存检测 JSON' : reportFormat === 'xls' ? '导出逐筋明细 CSV' : '打印 / 导出 PDF' }}</el-button></div>
+            <div class="panel-action-row report-actions"><el-button :icon="View" @click="fitReportPage">适应页面</el-button><el-button :icon="EditPen" :disabled="!canUseC2MResult" @click="enterReportEditor">编辑预览</el-button></div>
+            <p class="report-local-note">编辑后请导出保存，关闭页面会丢失修改。</p>
+            <div class="report-mode-label">导出</div>
+            <div class="panel-action-row report-actions"><el-button type="primary" :icon="Download" :disabled="!canUseC2MResult" :loading="inspectionDownloading || reportPreparing" @click="reportAction('export')">{{ reportPreparing ? '正在生成全部构件图形…' : reportFormat === 'json' ? '导出检测 JSON' : reportFormat === 'xls' ? '导出逐筋明细 CSV' : '打印 / 导出 PDF' }}</el-button></div>
+            <RebarReportHistory v-if="pointcloudAssetId && bimAssetId" :scan-id="pointcloudAssetId" :bim-id="bimAssetId" :result-version="c2mResult?.resultVersion" />
           </div>
          <div v-if="activeWorkflowStep === 1" class="panel-section registration-edit-panel">
           <div class="registration-stage-row" role="group" aria-label="配准阶段">
@@ -9121,13 +8723,13 @@ onBeforeUnmount(() => {
           </template>
 
           <div class="registration-handle-control">
-            <label for="registration-handles">操作手柄</label>
+            <label for="registration-handles"><ViewportToolGlyph name="freeTransform" />操作手柄</label>
             <el-switch id="registration-handles" v-model="showTransformHandles"
               :disabled="!hasModel || !editMode || fineAlignLoading || savingCalibration"
               aria-label="显示配准操作手柄" />
           </div>
-          <p class="registration-handle-hint">{{ enableClipping ? '剖切时暂时隐藏配准手柄。' : '拖动箭头沿轴平移，方块沿平面平移，蓝环绕竖直 Z 轴旋转。中心手柄沿视平面移动。' }}</p>
-          <p class="registration-handle-hint" v-if="showTransformHandles && !enableClipping">手柄大小随视图自适应。Ctrl + 滚轮微调（{{ Math.round(transformHandleSize * 100) }}%），Esc 取消拖拽。</p>
+          <p v-if="enableClipping" class="registration-handle-hint">剖切中，配准手柄已隐藏。</p>
+          <p v-else-if="showTransformHandles" class="registration-handle-hint">Ctrl + 滚轮调整手柄大小（{{ Math.round(transformHandleSize * 100) }}%）· Esc 取消拖动</p>
           <button v-if="showTransformHandles && !enableClipping" type="button" class="fine-reset-link"
             :disabled="!!transformHandleState?.dragging || !editMode || !hasModel"
             @click="resetTransformHandleSize">恢复默认手柄大小</button>
@@ -9369,7 +8971,7 @@ onBeforeUnmount(() => {
           </el-button>
         </div>
         <div v-if="activeWorkflowStep === 3" class="panel-section c2m-panel c2m-deviation-workspace">
-          <RebarDebugPanel
+          <RebarDebugPanel v-if="rebarDebugEnabled"
             :bars="rebarDebugBars" :selected-id="selectedComparisonBarId" :active="rebarDebugActive"
             :surface="rebarDebugDisplaySurface" :scan="rebarDebugScan" :cluster="rebarDebugCluster"
             :normals="rebarDebugNormals" :scan-normals="rebarDebugScanNormals"
@@ -9407,101 +9009,9 @@ onBeforeUnmount(() => {
                 <el-input-number v-model="c2mMaxSearchDistanceMm" controls-position="right" :min="0.1" :max="200" :step="1" :precision="1" :value-on-clear="200" :disabled="c2mRunning" aria-label="最大搜索距离，单位毫米" />
               </label>
             </div>
-            <p class="c2m-search-hint">{{ c2mNormalConstraintEnabled ? '沿钢筋中心线辨别同侧方向；无可靠扫描支持的位置保留缺测' : '搜索范围限定在同一钢筋实例内' }}</p>
             <el-button class="c2m-run-button" type="primary" :loading="c2mRunning" :disabled="!canRunC2M" @click="runC2M">
-              {{ c2mResult ? '重新计算偏差' : '计算偏差' }}
+              {{ c2mRunning ? '正在计算偏差' : c2mResult ? '重新计算偏差' : '计算偏差' }}
             </el-button>
-          </section>
-
-          <section v-if="comparison" class="rebar-comparison-card" aria-label="逐钢筋比对">
-            <strong>逐钢筋比对 · {{ comparisonBars.length }} 根</strong>
-            <p>已排除 {{ comparison.excludedComponentCount }} 个非钢筋构件；{{ comparison.unassignedPointCount.toLocaleString() }} 个点未建立可靠对应。</p>
-            <div class="rebar-inspection" aria-label="逐钢筋手动巡视">
-              <div class="rebar-inspection__header">
-                <div>
-                  <strong>巡检模式</strong>
-                  <span>{{ rebarInspectionIndex >= 0 ? rebarInspectionIndex + 1 : 0 }} / {{ rebarInspectionBars.length }}</span>
-                </div>
-                <el-switch
-                  v-model="rebarInspectionAbnormalOnly"
-                  size="small"
-                  active-text="仅异常"
-                  aria-label="仅巡检异常钢筋"
-                  @change="onInspectionFilterChange"
-                />
-              </div>
-              <p class="rebar-inspection__order">先短后长 · 每排从左到右 · 从上到下</p>
-              <el-progress
-                :percentage="rebarInspectionBars.length && rebarInspectionIndex >= 0 ? ((rebarInspectionIndex + 1) / rebarInspectionBars.length) * 100 : 0"
-                :show-text="false"
-                :stroke-width="4"
-              />
-              <div class="rebar-inspection__controls">
-                <el-button
-                  aria-label="上一根钢筋"
-                  title="上一根钢筋"
-                  :icon="ArrowLeft"
-                  :disabled="!rebarInspectionBars.length || rebarInspectionIndex === 0 || (rebarInspectionIndex < 0 && !selectedComparisonBarId)"
-                  @click="stepRebarInspection(-1)"
-                />
-                <el-button
-                  class="rebar-inspection__manual-select"
-                  :type="rebarInspectionManualSelect ? 'primary' : 'default'"
-                  :plain="!rebarInspectionManualSelect"
-                  :aria-pressed="rebarInspectionManualSelect"
-                  :title="rebarInspectionManualSelect ? '退出手动选择' : '开启手动选择'"
-                  @click.stop="toggleRebarManualSelection"
-                >
-                  {{ rebarInspectionManualSelect ? '退出手动选择' : '手动选择' }}
-                </el-button>
-                <el-button
-                  aria-label="下一根钢筋"
-                  title="下一根钢筋"
-                  :icon="ArrowRight"
-                  :disabled="!rebarInspectionBars.length || rebarInspectionIndex >= rebarInspectionBars.length - 1"
-                  @click="stepRebarInspection(1)"
-                />
-                <el-button
-                  aria-label="定位当前钢筋"
-                  title="定位当前钢筋"
-                  :icon="Aim"
-                  :disabled="!selectedComparisonBar"
-                  @click="selectedComparisonBar && focusComparisonBar(selectedComparisonBar, { manual: true })"
-                />
-                <el-button
-                  class="rebar-inspection__exit"
-                  aria-label="退出巡检模式"
-                  title="退出巡检模式"
-                  :icon="Close"
-                  :disabled="!rebarInspectionActive && !rebarInspectionManualSelect"
-                  @click="exitRebarInspection"
-                />
-              </div>
-              <p v-if="rebarInspectionManualSelect" class="rebar-inspection__hint">单击选择 · 拖动旋转 · Alt + 单击切换重叠钢筋</p>
-              <div v-if="rebarInspectionActive && selectedComparisonBar" class="rebar-inspection__transparency">
-                <label for="rebar-context-transparency">周边透明度</label>
-                <input id="rebar-context-transparency" v-model.number="rebarInspectionContextTransparency" type="range"
-                  min="0" max="95" step="5" :aria-valuetext="`${rebarInspectionContextTransparency}%`" @input="applyComparisonSelection" />
-                <output for="rebar-context-transparency">{{ rebarInspectionContextTransparency }}%</output>
-              </div>
-              <p v-if="rebarInspectionAbnormalOnly && !rebarInspectionBars.length" class="rebar-inspection__empty">当前容差下没有异常钢筋。</p>
-            </div>
-            <div v-if="selectedComparisonBar" class="rebar-comparison-details">
-              <span>IFC：{{ selectedComparisonBar.ifcGlobalId }}</span>
-              <span>实例：{{ selectedComparisonBar.instanceIds.join('、') || '无可靠对应' }}</span>
-              <span v-if="selectedComparisonBar.reviewInstanceIds?.length">待复核实例：{{ selectedComparisonBar.reviewInstanceIds.join('、') }}（{{ selectedComparisonBar.reviewPointCount }} 点）</span>
-              <span>点数：{{ selectedComparisonBar.pointCount.toLocaleString() }}（预览 {{ denoiseVisiblePointCount.toLocaleString() }}）</span>
-              <span>覆盖率：{{ formatC2MPercentage(selectedComparisonBar.vertexCount ? selectedComparisonBar.knownCount / selectedComparisonBar.vertexCount : undefined) }}</span>
-              <span>平均绝对偏差：{{ formatC2MDistance(selectedComparisonBar.stats?.meanAbs) }}</span>
-              <span>RMSE / P95：{{ formatC2MDistance(selectedComparisonBar.stats?.rmse) }} / {{ formatC2MDistance(selectedComparisonBar.stats?.p95Abs) }}</span>
-              <span>容差内（已覆盖）：{{ formatC2MPercentage(selectedComparisonBar.stats?.withinToleranceRatio) }}</span>
-              <p v-if="!selectedComparisonBar.stats">缺测或待复核，暂不出具偏差结论。</p>
-            </div>
-            <p>浅灰色表示缺测或待复核；超出显示范围仍用蓝色 / 红色显示。容差内比例仅统计已覆盖顶点。</p>
-            <div class="panel-action-row">
-              <el-button size="small" @click="downloadRebarReport(false)">导出全部逐筋明细</el-button>
-              <el-button size="small" :disabled="!selectedComparisonBar" @click="downloadRebarReport(true)">导出当前钢筋</el-button>
-            </div>
             <div class="c2m-scene-status" role="status" aria-live="polite">
               <span v-if="!meshReady">{{ meshTaskActive ? '网格处理中…' : '请先完成 BIM 网格均匀化' }}</span>
               <span v-else-if="c2mRunning">正在计算…</span>
@@ -9515,7 +9025,6 @@ onBeforeUnmount(() => {
 
           <section class="c2m-color-controls" aria-label="配色调整">
             <div class="section-title">配色调整</div>
-            <p class="c2m-display-help">当前阈值用于问题筛选与配色，不作为构件验收阈值。</p>
             <div class="c2m-setting-row c2m-setting-row--plain">
               <span>复核阈值 ± <small>mm</small></span>
               <el-input-number :model-value="c2mToleranceMm" :value-on-clear="c2mToleranceMm" :min="0.1" :max="10000" :step="1" :precision="1" controls-position="right" aria-label="偏差复核阈值半宽，单位毫米" @change="onC2MToleranceChange" />
@@ -9566,12 +9075,6 @@ onBeforeUnmount(() => {
             </details>
           </section>
 
-          <RebarInspectionSummary v-if="comparison?.inspection" :inspection="comparison.inspection" :bars="comparisonBars" :selected-id="selectedComparisonBarId" @select="selectRebarDebugBar" />
-          <section v-if="comparison" class="c2m-primary-card" aria-label="检测数据">
-            <el-button :loading="inspectionDownloading" :disabled="!c2mResult?.resultVersion" @click="downloadInspectionJSON">导出已保存检测 JSON</el-button>
-            <p class="c2m-search-hint">包含全部钢筋、间距、观测质量及计算参数。修改容差后请先保存配色设置，再导出新批次。</p>
-            <RebarReportHistory v-if="pointcloudAssetId && bimAssetId" :scan-id="pointcloudAssetId" :bim-id="bimAssetId" :result-version="c2mResult?.resultVersion" />
-          </section>
           <div v-if="c2mError" class="mesh-remesh-error" role="alert">{{ c2mError }}</div>
           <div v-if="c2mResult" class="c2m-result-notices">
             <div v-if="!c2mResultIsFresh" class="c2m-result-warning c2m-result-warning--stale" role="alert">结果已过期，请重新计算。{{ c2mResult.staleReason }}</div>

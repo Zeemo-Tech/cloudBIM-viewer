@@ -1,0 +1,155 @@
+[
+  {
+    "scan": 5,
+    "version": "71011b623c59193acf73a914",
+    "httpSeconds": 23.980670667951927,
+    "elapsedSeconds": 23.359618349932134,
+    "counts": {
+      "embedded": 0,
+      "fixture": 0,
+      "noise": 29,
+      "pipe": 0,
+      "steel": 1836753,
+      "table": 0,
+      "unknown": 2063591
+    },
+    "stages": {
+      "bentBars": 2.3579919920302927,
+      "controlNet": 9.876656423904933,
+      "curvedPieces": 6.009664956945926,
+      "designInputs": 0.006150072091259062,
+      "designSnapshot": 0.27188152994494885,
+      "embeddedExtent": 1.590896863490343e-05,
+      "endFaces": 0.06964375707320869,
+      "exportArtifacts": 0.5552040720358491,
+      "loadPositions": 0.05544545594602823,
+      "preprocess": 0.8797484820242971,
+      "sceneAlternatives": 0.05078926600981504,
+      "sceneGeometry": 0.07756224006880075,
+      "sceneSurfaces": 1.4350813309429213,
+      "shortConnectors": 0.7278834849130362,
+      "sourceHash": 0.07122327096294612
+    }
+  },
+  {
+    "scan": 10,
+    "version": "b3983151f852919c73bdc8c5",
+    "httpSeconds": 7.996364454040304,
+    "elapsedSeconds": 7.264697909005918,
+    "counts": {
+      "embedded": 0,
+      "fixture": 0,
+      "noise": 157174,
+      "pipe": 0,
+      "steel": 578624,
+      "table": 0,
+      "unknown": 1105539
+    },
+    "stages": {
+      "controlNet": 6.345240011927672,
+      "designInputs": 0.0055777799570932984,
+      "designSnapshot": 0.08404238207731396,
+      "exportArtifacts": 0.3383359119761735,
+      "loadPositions": 0.021830568904988468,
+      "preprocess": 0.4020918470341712,
+      "sceneGeometry": 0.005565141094848514,
+      "sourceHash": 0.039333628956228495
+    }
+  },
+  {
+    "scan": 14,
+    "version": "7545adbb676a7c36fb1b768d",
+    "httpSeconds": 55.71759927703533,
+    "elapsedSeconds": 54.46757722902112,
+    "counts": {
+      "embedded": 39405,
+      "fixture": 1707247,
+      "noise": 76782,
+      "pipe": 0,
+      "steel": 887740,
+      "table": 0,
+      "unknown": 1326967
+    },
+    "stages": {
+      "bentBars": 16.619163189083338,
+      "controlNet": 4.495580806978978,
+      "curvedPieces": 7.793774836929515,
+      "designInputs": 0.006321709952317178,
+      "designSnapshot": 2.6571444990113378,
+      "embeddedExtent": 0.6923370630247518,
+      "endFaces": 0.012660100008361042,
+      "exportArtifacts": 1.1600754429819062,
+      "loadPositions": 0.05318699311465025,
+      "preprocess": 0.9922383020166308,
+      "sceneAlternatives": 2.409420602954924,
+      "sceneGeometry": 7.461888690944761,
+      "sceneSurfaces": 7.888614138006233,
+      "shortConnectors": 1.3826445989543572,
+      "sourceHash": 0.11275019508320838
+    }
+  },
+  {
+    "scan": 5,
+    "version": "44f70eab06324411c835d262",
+    "httpSeconds": 23.732397952931933,
+    "elapsedSeconds": 23.120665627066046,
+    "counts": {
+      "embedded": 0,
+      "fixture": 0,
+      "noise": 29,
+      "pipe": 0,
+      "steel": 1836753,
+      "table": 0,
+      "unknown": 2063591
+    },
+    "stages": {
+      "bentBars": 2.4507768839830533,
+      "controlNet": 9.882305825012736,
+      "curvedPieces": 6.048870119964704,
+      "designInputs": 0.006407189066521823,
+      "designSnapshot": 0.006689595989882946,
+      "embeddedExtent": 1.7889891751110554e-05,
+      "endFaces": 0.06838758592493832,
+      "exportArtifacts": 0.568587118992582,
+      "loadPositions": 0.04937690298538655,
+      "preprocess": 0.8668276920216158,
+      "sceneAlternatives": 0.04812492209021002,
+      "sceneGeometry": 0.002604384091682732,
+      "sceneSurfaces": 1.429562494973652,
+      "shortConnectors": 0.71953184902668,
+      "sourceHash": 0.07164782704785466
+    }
+  },
+  {
+    "scan": 14,
+    "version": "64f34a48d494bb3c7c848ca5",
+    "httpSeconds": 45.25096909399144,
+    "elapsedSeconds": 43.98413884697948,
+    "counts": {
+      "embedded": 39405,
+      "fixture": 1707247,
+      "noise": 76782,
+      "pipe": 0,
+      "steel": 887740,
+      "table": 0,
+      "unknown": 1326967
+    },
+    "stages": {
+      "bentBars": 16.40668572904542,
+      "controlNet": 4.4218105640029535,
+      "curvedPieces": 7.739394925069064,
+      "designInputs": 0.006623396999202669,
+      "designSnapshot": 0.043024127022363245,
+      "embeddedExtent": 0.6971937359776348,
+      "endFaces": 0.012501996010541916,
+      "exportArtifacts": 1.1519656450254843,
+      "loadPositions": 0.0521533889696002,
+      "preprocess": 0.9950546370819211,
+      "sceneAlternatives": 2.376087802927941,
+      "sceneGeometry": 0.07843006099574268,
+      "sceneSurfaces": 7.820364020997658,
+      "shortConnectors": 1.328151416964829,
+      "sourceHash": 0.11244643398094922
+    }
+  }
+]

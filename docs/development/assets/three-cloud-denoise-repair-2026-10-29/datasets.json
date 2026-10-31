@@ -1,0 +1,91 @@
+{
+  "datasets": [
+    {
+      "id": "5",
+      "name": "YB-1",
+      "scanId": 5,
+      "bimId": 7,
+      "source": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/preprocess/912d79094e68688290599732/cleaned.las",
+      "ifc": "/home/hong/hong_project/cloudBIM-viewer/backend/data/uploads/f51d87ced765177fdd1fbdee/source",
+      "model": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/88d5ff2f0b10c8507273a309/model.glb",
+      "transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        2.220446049250313e-16,
+        -1,
+        0,
+        0,
+        1,
+        2.220446049250313e-16,
+        0,
+        0.0036891412734982865,
+        -0.007170554220676695,
+        -1.246452331549186e-05,
+        1
+      ],
+      "baselineResult": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/768e44bbbcd504bd6153d412",
+      "result": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/44f70eab06324411c835d262"
+    },
+    {
+      "id": "10",
+      "name": "Lumos 单层",
+      "scanId": 10,
+      "bimId": 9,
+      "source": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/preprocess/2dcd72a4d592a86a0ee7ba3c/cleaned.las",
+      "ifc": "/home/hong/hong_project/cloudBIM-viewer/backend/data/uploads/a429e6a7f64a3f037a1ae480/source",
+      "model": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/594741a9ac16b58ed90bbf2d/model.glb",
+      "transform": [
+        -0.031748378122854026,
+        -3.885780586188048e-16,
+        0.9994958931814417,
+        0,
+        0.9994958931814417,
+        0,
+        0.03174837812285414,
+        0,
+        5.551115123125783e-17,
+        0.9999999999999999,
+        4.440892098500626e-16,
+        0,
+        0.3545937490709837,
+        0.005857000340717991,
+        -0.7983802954884622,
+        1
+      ],
+      "baselineResult": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/87bddbcab466b53622992a11",
+      "result": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/b3983151f852919c73bdc8c5"
+    },
+    {
+      "id": "14",
+      "name": "夹具双层钢筋",
+      "scanId": 14,
+      "bimId": 13,
+      "source": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/preprocess/145ef34ad531af851f1b013c/cleaned.las",
+      "ifc": "/home/hong/hong_project/cloudBIM-viewer/backend/data/uploads/6bd3de86ee7d09b01628bd79/source",
+      "model": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/dd711b95792dab628e7f08d5/model.glb",
+      "transform": [
+        0.9999886640635599,
+        0.0047547692020307826,
+        0.0002528126026517248,
+        0,
+        0.0002533272435929967,
+        -0.00010763483873343915,
+        -0.9999999621200238,
+        0,
+        -0.0047547418104765225,
+        0.9999886902283329,
+        -0.00010883813116757679,
+        0,
+        0.0040034419398021215,
+        0.00214138085007991,
+        -0.0037418881279510097,
+        1
+      ],
+      "baselineResult": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/5d33f4366ae247837caac71f",
+      "result": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/64f34a48d494bb3c7c848ca5"
+    }
+  ]
+}

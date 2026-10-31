@@ -1,0 +1,150 @@
+{
+  "views": [
+    {
+      "viewport": 1920,
+      "controls": {
+        "height": 38,
+        "buttonRows": 1,
+        "overflow": false
+      },
+      "columns": "162.5px 162.5px",
+      "width": 325,
+      "height": 131,
+      "rows": [
+        {
+          "x": 1578,
+          "y": 576.390625,
+          "nameY": 583.390625,
+          "countY": 583.390625,
+          "overlap": false
+        },
+        {
+          "x": 1740.5,
+          "y": 576.390625,
+          "nameY": 583.390625,
+          "countY": 583.390625,
+          "overlap": false
+        },
+        {
+          "x": 1578,
+          "y": 608.390625,
+          "nameY": 616.390625,
+          "countY": 616.390625,
+          "overlap": false
+        },
+        {
+          "x": 1740.5,
+          "y": 608.390625,
+          "nameY": 616.390625,
+          "countY": 616.390625,
+          "overlap": false
+        },
+        {
+          "x": 1578,
+          "y": 641.390625,
+          "nameY": 649.390625,
+          "countY": 649.390625,
+          "overlap": false
+        },
+        {
+          "x": 1740.5,
+          "y": 641.390625,
+          "nameY": 649.390625,
+          "countY": 649.390625,
+          "overlap": false
+        },
+        {
+          "x": 1578,
+          "y": 674.390625,
+          "nameY": 682.390625,
+          "countY": 682.390625,
+          "overlap": false
+        }
+      ],
+      "overflow": false,
+      "pageOverflow": false
+    },
+    {
+      "viewport": 1280,
+      "controls": {
+        "height": 38,
+        "buttonRows": 1,
+        "overflow": false
+      },
+      "columns": "162.5px 162.5px",
+      "width": 325,
+      "height": 131,
+      "rows": [
+        {
+          "x": 938,
+          "y": 576.390625,
+          "nameY": 583.390625,
+          "countY": 583.390625,
+          "overlap": false
+        },
+        {
+          "x": 1100.5,
+          "y": 576.390625,
+          "nameY": 583.390625,
+          "countY": 583.390625,
+          "overlap": false
+        },
+        {
+          "x": 938,
+          "y": 608.390625,
+          "nameY": 616.390625,
+          "countY": 616.390625,
+          "overlap": false
+        },
+        {
+          "x": 1100.5,
+          "y": 608.390625,
+          "nameY": 616.390625,
+          "countY": 616.390625,
+          "overlap": false
+        },
+        {
+          "x": 938,
+          "y": 641.390625,
+          "nameY": 649.390625,
+          "countY": 649.390625,
+          "overlap": false
+        },
+        {
+          "x": 1100.5,
+          "y": 641.390625,
+          "nameY": 649.390625,
+          "countY": 649.390625,
+          "overlap": false
+        },
+        {
+          "x": 938,
+          "y": 674.390625,
+          "nameY": 682.390625,
+          "countY": 682.390625,
+          "overlap": false
+        }
+      ],
+      "overflow": false,
+      "pageOverflow": false
+    }
+  ],
+  "counts": [
+    "887,740",
+    "39,405",
+    "0",
+    "1,707,247",
+    "0",
+    "76,782",
+    "1,326,967"
+  ],
+  "switchesPassed": true,
+  "onlyRemoved": true,
+  "narrowContainerFallbackPassed": true,
+  "intervals": [
+    2883,
+    3034
+  ],
+  "errors": [],
+  "writes": []
+}

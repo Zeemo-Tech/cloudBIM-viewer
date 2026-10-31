@@ -1,0 +1,34 @@
+{
+  "schema": "source-row-denoise-phone-album-v1",
+  "inputManifest": "/home/hong/hong_project/cloudBIM-viewer/.cloudbim/repair-20261029-three-clouds/datasets.json",
+  "inputManifestSha256": "5407e7e628408ab8f1d93901105880bfb7cc16b7e4c4733d0e7c0fc9dd651493",
+  "datasets": [
+    {
+      "id": "5",
+      "name": "YB-1",
+      "path": "scan-5/index.html",
+      "figureCount": 6,
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00",
+      "baselineCoverage": "all-source-rows",
+      "result": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/44f70eab06324411c835d262"
+    },
+    {
+      "id": "10",
+      "name": "Lumos 单层",
+      "path": "scan-10/index.html",
+      "figureCount": 9,
+      "sourceSha256": "e9c4d271fad9c00aa2a339df864ba5420b3a8a08d145630d2ae1263b8bde7345",
+      "baselineCoverage": "verified-preview-source-rows-only",
+      "result": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/3fe6993a04f5788841717ad9/denoise/9/b3983151f852919c73bdc8c5"
+    },
+    {
+      "id": "14",
+      "name": "夹具双层钢筋",
+      "path": "scan-14/index.html",
+      "figureCount": 6,
+      "sourceSha256": "5df73d4ebfd01e13cd26cdb1a2acef40b7ea76ce99f4a38dd9ef35ca687c44df",
+      "baselineCoverage": "all-source-rows",
+      "result": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/64f34a48d494bb3c7c848ca5"
+    }
+  ]
+}

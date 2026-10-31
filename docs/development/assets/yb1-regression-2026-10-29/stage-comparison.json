@@ -1,0 +1,40 @@
+{
+  "bentReleased": 45886,
+  "bentAdded": 32810,
+  "ablationOldInstanceDifferences": 0,
+  "9": {
+    "control": 64782,
+    "before_bent": 64782,
+    "after_bent": 46739,
+    "owners": 48191,
+    "withoutBent": 66325
+  },
+  "61": {
+    "control": 56453,
+    "before_bent": 56453,
+    "after_bent": 53612,
+    "owners": 53612,
+    "withoutBent": 56453
+  },
+  "62": {
+    "control": 64182,
+    "before_bent": 64182,
+    "after_bent": 68125,
+    "owners": 68125,
+    "withoutBent": 64182
+  },
+  "137": {
+    "control": 68066,
+    "before_bent": 68066,
+    "after_bent": 67190,
+    "owners": 67190,
+    "withoutBent": 68066
+  },
+  "138": {
+    "control": 57143,
+    "before_bent": 57143,
+    "after_bent": 53340,
+    "owners": 53340,
+    "withoutBent": 57143
+  }
+}

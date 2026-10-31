@@ -44,6 +44,7 @@ function setupComponent(path, input, dependencies = {}) {
       if (name === '3d-tiles-renderer/three/plugins') return TilePlugins
       if (name.endsWith('/segmentation')) return segmentation
       if (name.endsWith('/displayFrame')) return displayFrame
+      if (name.includes('/measurement/')) return viewerCore
       if (name.endsWith('/tableVisibility')) return tableVisibility
       if (name.endsWith('/instancePalette.js')) return { buildInstancePalette }
       if (name === './bimRemeshDisplay') return { useBimRemeshDisplay }
@@ -357,20 +358,20 @@ test('failed rerun keeps current result, reports error, and permits retry', asyn
 })
 
 
-test('BIM section switch passes the renderer state contract and applies six clipping planes', async () => {
+test('BIM section switch forwards enabled state to the shared clipping controller', async () => {
   const v = makeViewer()
   const page = setupComponent('../packages/bim-preview/src/BimPreviewPage.vue', { previewType: 'bim', assetId: 7 })
   const p = page.bindings
   try {
-    v.b.renderer = { clippingPlanes: [], localClippingEnabled: false }
+    // Plane membership and rendering are exercised with the real controller in test_section_box.mjs.
+    const enabled = []
+    v.b.sectionBox = { setEnabled: value => enabled.push(value), setRatio() {}, fit() {} }
     p.bimPanelRef.value = { setSectionState: v.b.setSectionState }
     p.bimControls.sectionEnabled = true
     p.applyPanelSettings()
-    assert.equal(v.b.renderer.clippingPlanes.length, 6)
-    assert.equal(v.b.renderer.localClippingEnabled, true)
+    assert.equal(enabled.at(-1), true)
     p.bimControls.sectionEnabled = false
     p.applyPanelSettings()
-    assert.equal(v.b.renderer.clippingPlanes.length, 0)
-    assert.equal(v.b.renderer.localClippingEnabled, false)
+    assert.equal(enabled.at(-1), false)
   } finally { page.stop(); v.stop() }
 })

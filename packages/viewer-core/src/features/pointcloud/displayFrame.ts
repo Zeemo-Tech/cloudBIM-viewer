@@ -1,5 +1,8 @@
 import * as THREE from 'three'
 // @ts-ignore Node's strip-types test runner uses explicit source extensions.
+import { transformMeasurementEvidence } from '../../viewer/measurement/evidence.ts'
+import type { MeasurementEvidence } from '../../viewer/measurement/types'
+// @ts-ignore Node's strip-types test runner uses explicit source extensions.
 import { validPointcloudTablePlane, type PointcloudTablePlane } from './tableVisibility.ts'
 
 /** Source LAS stays immutable. Only the single viewer parent is transformed. */
@@ -19,11 +22,14 @@ export function transformMeasurement(value: unknown, matrix: THREE.Matrix4): any
   if (Array.isArray(value)) return value.map(item => transformMeasurement(item, matrix))
   if (!value || typeof value !== 'object') return value
   const record = value as Record<string, unknown>
+  const measurement = record.measurement
+    ? transformMeasurementEvidence(record.measurement as MeasurementEvidence, matrix) : undefined
   if (['x', 'y', 'z'].every(key => typeof record[key] === 'number' && Number.isFinite(record[key]))) {
     const point = new THREE.Vector3(record.x as number, record.y as number, record.z as number).applyMatrix4(matrix)
-    return { ...record, x: point.x, y: point.y, z: point.z }
+    return { ...record, x: point.x, y: point.y, z: point.z, ...(measurement ? { measurement } : {}) }
   }
-  const transformed = Object.fromEntries(Object.entries(record).map(([key, child]) => [key, transformMeasurement(child, matrix)]))
+  const transformed = Object.fromEntries(Object.entries(record).map(([key, child]) => [key,
+    key === 'measurement' ? measurement : transformMeasurement(child, matrix)]))
   if (transformed.start && transformed.end && typeof transformed.distance === 'number') {
     const dx = transformed.end.x - transformed.start.x
     const dy = transformed.end.y - transformed.start.y

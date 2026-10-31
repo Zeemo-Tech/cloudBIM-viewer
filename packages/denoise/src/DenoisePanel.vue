@@ -15,6 +15,9 @@ const props = defineProps<{
   previewLoading: boolean
   visibleClasses: number[]
   visiblePointCount: number
+  comparisonRunning?: boolean
+  comparisonReady?: boolean
+  comparisonError?: string
 }>()
 const emit = defineEmits<{
   run: []
@@ -45,11 +48,13 @@ function showAll(includeNoise: boolean) {
         <h2>钢筋实例分割与去噪</h2>
         <span class="denoise-status" :class="{ 'is-ready': canInspect, 'is-stale': result && !result.fresh }" role="status">{{ status }}</span>
       </div>
-      <p class="denoise-copy">结合设计钢筋与扫描形状识别每根钢筋，保留原始钢筋点用于偏差和间距计算。证据不足的点保留为待定。</p>
       <el-button class="denoise-primary-action" type="primary" :loading="running" :disabled="!canRun || loading" @click="emit('run')">
         {{ result ? '重新分类与去噪' : '开始分类与去噪' }}
       </el-button>
-      <p v-if="running" class="denoise-copy" role="status">正在处理全量点云，大点云可能需要数分钟。</p>
+      <p v-if="running" class="denoise-copy" role="status">正在分类与去噪…</p>
+      <p v-else-if="comparisonRunning" class="denoise-copy" role="status">正在计算偏差…</p>
+      <p v-else-if="comparisonError" class="denoise-copy" role="alert">偏差计算未完成，请到偏差对比重试。</p>
+      <p v-else-if="comparisonReady" class="denoise-copy" role="status">偏差结果已就绪</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <el-alert v-if="result && !result.fresh" :title="result.staleReason || '去噪结果已失效，请重新运行'" type="warning" :closable="false" show-icon />
     </section>
@@ -70,20 +75,13 @@ function showAll(includeNoise: boolean) {
       </section>
 
       <section class="denoise-card denoise-display-card" aria-label="配色与类别">
-        <div class="denoise-heading"><h3>配色与类别</h3><span class="denoise-caption">快速查看</span></div>
-        <div class="denoise-segments" role="group" aria-label="点云预览">
+        <div class="denoise-heading"><h3>配色与类别</h3></div>
+        <div class="denoise-segments" role="group" aria-label="点云显示">
           <button type="button" :aria-pressed="view === 'source'" @click="emit('preview', 'source')">无台面点云</button>
-          <button type="button" :aria-pressed="view !== 'source'" :disabled="!canInspect || previewLoading" @click="emit('preview', colorMode)">去噪结果</button>
+          <button type="button" :aria-pressed="view === 'classes'" :disabled="!canInspect || previewLoading" @click="emit('preview', 'classes')">按类别</button>
+          <button type="button" :aria-pressed="view === 'cleaned'" :disabled="!canInspect || previewLoading" @click="emit('preview', 'cleaned')">按实例</button>
         </div>
         <p v-if="previewLoading" class="denoise-copy" role="status">正在加载结果预览…</p>
-        <p v-else-if="view === 'source'" class="denoise-copy">切换到「去噪结果」即可按类别查看点云。</p>
-        <div class="denoise-color-control">
-          <span>点云配色</span>
-          <div class="denoise-segments" role="group" aria-label="点云配色">
-            <button type="button" :aria-pressed="colorMode === 'classes'" :disabled="!canInspect || previewLoading" @click="emit('preview', 'classes')">按类别</button>
-            <button type="button" :aria-pressed="colorMode === 'cleaned'" :disabled="!canInspect || previewLoading" @click="emit('preview', 'cleaned')">按实例</button>
-          </div>
-        </div>
         <div class="denoise-filter-toolbar">
           <span>类别显隐</span>
           <div>
@@ -97,25 +95,21 @@ function showAll(includeNoise: boolean) {
             <button type="button" class="denoise-class-toggle" role="switch" :aria-checked="visibleClasses.includes(item.id)" :aria-label="`显示${item.name}`" :disabled="controlsDisabled" @click="toggleClass(item.id)">
               <span class="denoise-switch" aria-hidden="true"><i /></span>
               <i class="denoise-swatch" :class="{ 'is-instances': item.id === 3 && colorMode === 'cleaned' }" :style="{ backgroundColor: item.color }" aria-hidden="true" />
-              <span>{{ item.name }}</span>
+              <span class="denoise-class-name">{{ item.name }}</span>
+              <span class="denoise-class-count" :title="`${item.name}全量点数`">{{ (result.result.counts[item.key] ?? 0).toLocaleString() }}</span>
             </button>
-            <span class="denoise-class-count" :title="`${item.name}全量点数`">{{ (result.result.counts[item.key] ?? 0).toLocaleString() }}</span>
-            <button type="button" class="denoise-only-button" :disabled="controlsDisabled" :aria-label="`只看${item.name}`" @click="emit('visibility', [item.id])">只看</button>
           </div>
         </div>
         <p v-if="view !== 'source' && !previewLoading" class="denoise-visible-count" role="status">
-          {{ visibleClasses.length === 0 ? '所有类别已隐藏，可打开开关或点击「全显」。' : visiblePointCount === 0 ? '当前类别没有可显示的采样点。' : `当前显示 ${visiblePointCount.toLocaleString()} 个预览点` }}
+          {{ visibleClasses.length === 0 ? '所有类别已隐藏' : visiblePointCount === 0 ? '当前类别无预览点' : `预览 ${visiblePointCount.toLocaleString()} 点` }}
         </p>
-        <p class="denoise-copy denoise-display-hint">{{ colorMode === 'cleaned' ? '同一根钢筋保持同色，浅灰钢筋点表示归属未定。' : '按类别统一着色，颜色与上方图例一致。' }}类别点数为全量统计，预览最多采样 50 万点。</p>
       </section>
-      <p class="denoise-copy denoise-export-hint">显隐与配色仅影响预览；偏差计算使用全量保留钢筋点。</p>
     </template>
-    <p v-else-if="!running && !loading" class="denoise-copy denoise-empty-hint">处理完成后，可在这里切换配色、单独查看类别。</p>
   </div>
 </template>
 
 <style scoped>
-.denoise-workspace { display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 0; color: var(--text-primary); background: var(--bg-page, #f8fafc); }
+.denoise-workspace { display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 0; color: var(--text-primary); background: var(--bg-page, #f8fafc); container-type: inline-size; }
 .denoise-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--bg-card); border: 0; border-bottom: 1px solid var(--border-color-light); border-radius: 0; }
 .denoise-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .denoise-heading h2, .denoise-heading h3 { margin: 0; font-size: 14px; line-height: 1.5; font-weight: 650; color: var(--text-primary); }
@@ -136,21 +130,20 @@ function showAll(includeNoise: boolean) {
 .denoise-segments { display: flex; min-width: 0; padding: 3px; gap: 3px; background: var(--bg-page, #f1f5f9); border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 8px; }
 .denoise-segments button { flex: 1; min-width: 0; min-height: 30px; padding: 5px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .denoise-segments button[aria-pressed="true"] { background: var(--bg-card, #fff); color: var(--color-primary, #2563eb); box-shadow: 0 1px 4px #0f172a14; font-weight: 600; }
-.denoise-color-control, .denoise-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
-.denoise-color-control .denoise-segments { flex: 0 1 180px; }
-.denoise-filter-toolbar { margin-top: 4px; }
+.denoise-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .denoise-filter-toolbar > div { display: flex; gap: 2px; }
-.denoise-filter-toolbar button, .denoise-only-button { padding: 5px 6px; min-height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--color-primary, #2563eb); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
-.denoise-class-list { border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 8px; overflow: hidden; }
-.denoise-class-row { display: flex; align-items: center; gap: 6px; min-height: 43px; padding: 4px 8px; }
-.denoise-class-row + .denoise-class-row { border-top: 1px solid var(--border-color-light, #e2e8f0); }
-.denoise-class-toggle { display: flex; flex: 1; align-items: center; gap: 7px; min-width: 0; min-height: 32px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
-.denoise-class-toggle > span:last-child { white-space: nowrap; }
-.denoise-switch { display: flex; align-items: center; flex-shrink: 0; width: 26px; height: 15px; padding: 2px; box-sizing: border-box; border-radius: 12px; background: var(--color-primary, #2563eb); }
-.denoise-switch i { width: 11px; height: 11px; border-radius: 50%; background: white; transform: translateX(11px); transition: transform 120ms ease; }
-.denoise-swatch { width: 8px; height: 8px; flex-shrink: 0; border-radius: 2px; }
+.denoise-filter-toolbar button { padding: 5px 6px; min-height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--color-primary, #2563eb); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.denoise-class-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border-color-light, #e2e8f0); border-radius: 8px; overflow: hidden; }
+.denoise-class-row { min-width: 0; }
+.denoise-class-row:nth-child(odd) { border-right: 1px solid var(--border-color-light, #e2e8f0); }
+.denoise-class-row:nth-child(n + 3) { border-top: 1px solid var(--border-color-light, #e2e8f0); }
+.denoise-class-toggle { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; min-height: 32px; padding: 4px 6px; border: 0; color: inherit; background: transparent; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+.denoise-class-name { white-space: nowrap; }
+.denoise-switch { display: flex; align-items: center; flex-shrink: 0; width: 22px; height: 14px; padding: 2px; box-sizing: border-box; border-radius: 12px; background: var(--color-primary, #2563eb); }
+.denoise-switch i { width: 10px; height: 10px; border-radius: 50%; background: white; transform: translateX(8px); transition: transform 120ms ease; }
+.denoise-swatch { width: 6px; height: 8px; flex-shrink: 0; border-radius: 2px; }
 .denoise-swatch.is-instances { background-image: linear-gradient(135deg, #38bdf8 0% 33%, #f472b6 33% 66%, #facc15 66%); }
-.denoise-class-count { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.denoise-class-count { margin-left: auto; color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .is-hidden .denoise-switch { background: #94a3b8; }
 .is-hidden .denoise-switch i { transform: translateX(0); }
 .is-hidden .denoise-swatch { opacity: .4; }
@@ -160,6 +153,11 @@ function showAll(includeNoise: boolean) {
 .denoise-export-hint, .denoise-empty-hint { padding: 16px; font-size: 12px; }
 .denoise-workspace button:disabled { opacity: .45; cursor: not-allowed; }
 .denoise-workspace button:focus-visible { outline: 2px solid var(--color-primary, #2563eb); outline-offset: -2px; }
-.denoise-filter-toolbar button:hover:not(:disabled), .denoise-only-button:hover:not(:disabled) { background: var(--color-primary-soft); }
+.denoise-filter-toolbar button:hover:not(:disabled), .denoise-class-toggle:hover:not(:disabled) { background: var(--color-primary-soft); }
+@container (max-width: 340px) {
+  .denoise-class-list { grid-template-columns: minmax(0, 1fr); }
+  .denoise-class-row:nth-child(odd) { border-right: 0; }
+  .denoise-class-row + .denoise-class-row { border-top: 1px solid var(--border-color-light, #e2e8f0); }
+}
 @media (prefers-reduced-motion: reduce) { .denoise-switch i { transition: none; } }
 </style>

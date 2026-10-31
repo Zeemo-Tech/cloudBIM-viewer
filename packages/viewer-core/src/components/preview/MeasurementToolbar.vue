@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Aim, Delete, Fold, FullScreen, LocationInformation } from '@element-plus/icons-vue'
+import { Aim, Delete, Fold, FullScreen, LocationInformation, SetUp } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import type { AnalysisMode } from './ViewerAnalysisOverlay.vue'
 import ViewportToolGlyph from '@/components/analysis/ViewportToolGlyph.vue'
@@ -46,6 +46,7 @@ const measurementActions: MeasurementAction[] = [
   { mode: 'distance', label: '测距', title: '全局测距', icon: Aim },
   { mode: 'locate', label: '定位', title: '全局定位', icon: LocationInformation },
   { mode: 'area', label: '面积', title: '面积测量', icon: FullScreen },
+  { mode: 'geometry', label: '几何', title: '几何测量', icon: SetUp },
 ]
 
 function select(mode: Exclude<AnalysisMode, 'none'>) {

@@ -1,0 +1,72 @@
+{
+  "verificationMode": "recorded-run-postconditions",
+  "input": {
+    "scanId": 14,
+    "bimId": 13
+  },
+  "injectedMissingCount": 1,
+  "injection": "one latest-result GET after real denoise returns; no stored result is deleted",
+  "requests": [
+    {
+      "path": "/alignments/bim/denoise",
+      "body": {
+        "modelScanFileId": 14,
+        "modelBimFileId": 13
+      }
+    },
+    {
+      "path": "/alignments/bim/c2m",
+      "body": {
+        "modelScanFileId": 14,
+        "modelBimFileId": 13,
+        "profile": "quick",
+        "denoiseVersion": "5738627a95ef330e99f8304e",
+        "voxelSize": 0.002,
+        "downsampleEnabled": false,
+        "normalConstraintEnabled": true,
+        "normalHalfSpaceOnly": false,
+        "normalMaxAngleDeg": 30,
+        "maxSearchDistance": 0.2,
+        "normalFallbackMode": "unknown",
+        "knnK": 32,
+        "maxColormapDistance": 0.0125,
+        "maxHistogramDistance": 0.0125,
+        "histogramBins": 60,
+        "toleranceLimit": 0.01
+      }
+    }
+  ],
+  "timings": [
+    {
+      "path": "/alignments/bim/denoise",
+      "httpSeconds": 64.998862,
+      "status": 200
+    },
+    {
+      "path": "/alignments/bim/c2m",
+      "httpSeconds": 8.01469,
+      "status": 200
+    }
+  ],
+  "serverTimings": {
+    "meshLoad": 4.370878,
+    "distanceQuery": 8.45232,
+    "measurements": 6.273328,
+    "loadAndTransform": 0.309257,
+    "barComparison": 4.99542,
+    "total": 5.492472,
+    "artifactWrite": 0.124811
+  },
+  "denoiseBefore": "4952dcefaacea1b8ec64740c",
+  "denoiseAfter": "5738627a95ef330e99f8304e",
+  "beforeVersion": "29ce1a949af43092006dce960966ec04f43b5fe1c5ae089765935d0befd9ec9e",
+  "afterVersion": "21cad5efeeb8f573cdd0d3ba086519a8255e829af03441400e85b4f554a1ec50",
+  "distancesSha256": "dc6b90e9d50ddcf4eaaf74e12848452b1682c962c3463408be09734e5bc950df",
+  "savedAlignmentUnchanged": true,
+  "oldAndNewInstanceAndControlEvidenceHashesVerified": true,
+  "fullDistancesAndPerBarReportsEqual": true,
+  "originalHistoryAccessible": true,
+  "freshResultReusedAtEntryAndReload": true,
+  "errors": [],
+  "blockedWrites": []
+}

@@ -218,7 +218,6 @@ function formatCount(value: number) {
         ← {{ formatCount(histogram.underflowCount) }} 低于图表下界 · {{ formatCount(histogram.positiveOverflowCount) }} 高于上界 →
       </template>
       <template v-else>图表外 {{ formatCount(histogram.overflowCount) }} 个顶点</template>
-      <span>图表外顶点仍按色标着色，并计入阈值统计。</span>
     </div>
   </section>
 </template>

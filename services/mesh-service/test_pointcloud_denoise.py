@@ -123,6 +123,10 @@ class DenoiseTests(unittest.TestCase):
             self.assertEqual(result['controlNetAlgorithmVersion'], CONTROL_VERSION)
             self.assertEqual(result['controlNetSha256'], __import__('hashlib').sha256((destination/'control-net.json').read_bytes()).hexdigest())
             self.assertEqual(result['matchedInstanceCount'], 1)
+            with np.load(destination/'source-labels.npz') as labels:
+                np.testing.assert_array_equal(labels['classes'], [1, 3, 0, 4])
+                np.testing.assert_array_equal(labels['instances'], fit_arrays['control_instance'])
+                np.testing.assert_array_equal(labels['sceneInstances'], np.zeros(4, np.uint32))
             timings = result['stageTimingsSeconds']
             self.assertEqual(set(timings), {'sourceHash', 'designSnapshot', 'designInputs',
                                            'loadPositions', 'preprocess', 'controlNet', 'exportArtifacts'})

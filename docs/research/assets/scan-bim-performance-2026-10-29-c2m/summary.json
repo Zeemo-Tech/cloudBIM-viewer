@@ -1,0 +1,1166 @@
+{
+  "date": "2026-10-29",
+  "scope": "isolated direct compute_instance_comparison, no business mutations",
+  "baselineCommit": "b32b61a2d7700314cce993223a2eac288fe9935b",
+  "baselineSourceSha256": "743e432f065d5e52212b15c863592713c37b31c73290570a583b3e7e4859f741",
+  "optimizedSourceSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+  "environment": {
+    "python": "3.11.15",
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "logicalCpuCount": 16,
+    "numpy": "1.26.4",
+    "scipy": "1.13.1",
+    "open3d": "0.18.0",
+    "trimesh": "4.6.8"
+  },
+  "preservation": {
+    "savedAlignmentAssetAndDerivativePointersUnchanged": true,
+    "requestScanAndInstanceMapHashesUnchangedAcrossPairedRuns": true,
+    "allRecordedComparisonsExactExcludingTimings": true
+  },
+  "aggregates": {
+    "scan14-bim13": {
+      "baselineWallSeconds": [
+        9.256943225977011,
+        9.158713776036166
+      ],
+      "optimizedFourWorkersWallSeconds": [
+        4.629306431976147,
+        5.020461486070417,
+        4.507974051055498,
+        4.823149334057234
+      ],
+      "baselineMedianSeconds": 9.207828501006588,
+      "optimizedMedianSeconds": 4.726227883016691,
+      "speedup": 1.948240484572096,
+      "wallReductionPercent": 48.67163433267653
+    },
+    "scan5-bim7": {
+      "baselineWallSeconds": [
+        11.713327322970144,
+        11.64705668296665
+      ],
+      "optimizedFourWorkersWallSeconds": [
+        5.437172492034733,
+        5.446106678922661
+      ],
+      "baselineMedianSeconds": 11.680192002968397,
+      "optimizedMedianSeconds": 5.441639585478697,
+      "speedup": 2.1464471910520513,
+      "wallReductionPercent": 53.411385839412894
+    }
+  },
+  "runs": [
+    {
+      "wallSeconds": 9.846341299940832,
+      "moduleSource": ".cloudbim/performance-scan-bim-20261029-c2m/rebar_comparison_baseline.py",
+      "moduleSha256": "743e432f065d5e52212b15c863592713c37b31c73290570a583b3e7e4859f741",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "default",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 1.733283,
+        "distanceQuery": 4.466906,
+        "measurements": 1.025816,
+        "loadAndTransform": 2.243667,
+        "barComparison": 7.537011,
+        "total": 9.780679
+      },
+      "checks": {},
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/baseline-14-1"
+    },
+    {
+      "wallSeconds": 9.256943225977011,
+      "moduleSource": ".cloudbim/performance-scan-bim-20261029-c2m/rebar_comparison_baseline.py",
+      "moduleSha256": "743e432f065d5e52212b15c863592713c37b31c73290570a583b3e7e4859f741",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "default",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 1.695904,
+        "distanceQuery": 4.482833,
+        "measurements": 0.615794,
+        "loadAndTransform": 2.106356,
+        "barComparison": 7.101994,
+        "total": 9.208349
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/baseline-14-2"
+    },
+    {
+      "wallSeconds": 9.158713776036166,
+      "cpuSeconds": 78.77438222800001,
+      "peakRssKiB": 858796,
+      "moduleSource": ".cloudbim/performance-scan-bim-20261029-c2m/rebar_comparison_baseline.py",
+      "moduleSha256": "743e432f065d5e52212b15c863592713c37b31c73290570a583b3e7e4859f741",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "default",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 1.669687,
+        "distanceQuery": 4.47545,
+        "measurements": 0.595728,
+        "loadAndTransform": 2.069308,
+        "barComparison": 7.040458,
+        "total": 9.109767
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/baseline-14-3"
+    },
+    {
+      "wallSeconds": 11.713327322970144,
+      "moduleSource": ".cloudbim/performance-scan-bim-20261029-c2m/rebar_comparison_baseline.py",
+      "moduleSha256": "743e432f065d5e52212b15c863592713c37b31c73290570a583b3e7e4859f741",
+      "requestSha256": "e8dfcac168fbaf9a52e19fb020807d4091a48b4da8d1c0ffe235d5e802b71170",
+      "workerSetting": "default",
+      "scanSha256": "4d283cb39162e5707c97763a429a0069acdb08496b94ccd09747567ce207b9f1",
+      "instanceMapSha256": "61379cb320062ee2da88a25a851a81c54a250905d1765bfb1395eb43912382da",
+      "meshVertexCount": 402812,
+      "knownVertexCount": 300177,
+      "barCount": 70,
+      "timings": {
+        "meshLoad": 1.734138,
+        "distanceQuery": 5.859696,
+        "measurements": 0.999724,
+        "loadAndTransform": 2.687441,
+        "barComparison": 8.976638,
+        "total": 11.66408
+      },
+      "checks": {},
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/baseline-5-1"
+    },
+    {
+      "wallSeconds": 11.64705668296665,
+      "cpuSeconds": 93.174958935,
+      "peakRssKiB": 1083504,
+      "moduleSource": ".cloudbim/performance-scan-bim-20261029-c2m/rebar_comparison_baseline.py",
+      "moduleSha256": "743e432f065d5e52212b15c863592713c37b31c73290570a583b3e7e4859f741",
+      "requestSha256": "e8dfcac168fbaf9a52e19fb020807d4091a48b4da8d1c0ffe235d5e802b71170",
+      "workerSetting": "default",
+      "scanSha256": "4d283cb39162e5707c97763a429a0069acdb08496b94ccd09747567ce207b9f1",
+      "instanceMapSha256": "61379cb320062ee2da88a25a851a81c54a250905d1765bfb1395eb43912382da",
+      "meshVertexCount": 402812,
+      "knownVertexCount": 300177,
+      "barCount": 70,
+      "timings": {
+        "meshLoad": 1.701541,
+        "distanceQuery": 5.889731,
+        "measurements": 1.008278,
+        "loadAndTransform": 2.606172,
+        "barComparison": 8.990295,
+        "total": 11.596467
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            402812
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            805344,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/baseline-5-2"
+    },
+    {
+      "wallSeconds": 5.437172492034733,
+      "cpuSeconds": 72.143711303,
+      "peakRssKiB": 1840688,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "e8dfcac168fbaf9a52e19fb020807d4091a48b4da8d1c0ffe235d5e802b71170",
+      "workerSetting": "4",
+      "scanSha256": "4d283cb39162e5707c97763a429a0069acdb08496b94ccd09747567ce207b9f1",
+      "instanceMapSha256": "61379cb320062ee2da88a25a851a81c54a250905d1765bfb1395eb43912382da",
+      "meshVertexCount": 402812,
+      "knownVertexCount": 300177,
+      "barCount": 70,
+      "timings": {
+        "meshLoad": 3.828503,
+        "distanceQuery": 8.546621,
+        "measurements": 7.277142,
+        "loadAndTransform": 0.243415,
+        "barComparison": 5.143587,
+        "total": 5.387002
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            402812
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            805344,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/final-5-w4-13503"
+    },
+    {
+      "wallSeconds": 5.446106678922661,
+      "cpuSeconds": 72.452924593,
+      "peakRssKiB": 1799360,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "e8dfcac168fbaf9a52e19fb020807d4091a48b4da8d1c0ffe235d5e802b71170",
+      "workerSetting": "4",
+      "scanSha256": "4d283cb39162e5707c97763a429a0069acdb08496b94ccd09747567ce207b9f1",
+      "instanceMapSha256": "61379cb320062ee2da88a25a851a81c54a250905d1765bfb1395eb43912382da",
+      "meshVertexCount": 402812,
+      "knownVertexCount": 300177,
+      "barCount": 70,
+      "timings": {
+        "meshLoad": 3.808556,
+        "distanceQuery": 8.789506,
+        "measurements": 7.435061,
+        "loadAndTransform": 0.243664,
+        "barComparison": 5.152488,
+        "total": 5.396152
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            402812
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            805344,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/final-5-w4-14174"
+    },
+    {
+      "wallSeconds": 5.784585602930747,
+      "cpuSeconds": 75.304344281,
+      "peakRssKiB": 3514840,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "e8dfcac168fbaf9a52e19fb020807d4091a48b4da8d1c0ffe235d5e802b71170",
+      "workerSetting": "8",
+      "scanSha256": "4d283cb39162e5707c97763a429a0069acdb08496b94ccd09747567ce207b9f1",
+      "instanceMapSha256": "61379cb320062ee2da88a25a851a81c54a250905d1765bfb1395eb43912382da",
+      "meshVertexCount": 402812,
+      "knownVertexCount": 300177,
+      "barCount": 70,
+      "timings": {
+        "meshLoad": 8.462864,
+        "distanceQuery": 13.048432,
+        "measurements": 17.682187,
+        "loadAndTransform": 0.247373,
+        "barComparison": 5.485724,
+        "total": 5.733097
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            402812
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            805344,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            402812,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/final-5-w8-26183"
+    },
+    {
+      "wallSeconds": 4.629306431976147,
+      "cpuSeconds": 65.161211686,
+      "peakRssKiB": 1429472,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "default",
+      "effectiveWorkerCount": 4,
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "analysisManifestSha256": "21960adb4bf3fd90d85f97f671839d2d4e09bbe52342250a22d2084905710f0f",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 4.193905,
+        "distanceQuery": 7.07433,
+        "measurements": 5.263494,
+        "loadAndTransform": 0.250207,
+        "barComparison": 4.330302,
+        "total": 4.58051
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/final-default-14"
+    },
+    {
+      "wallSeconds": 8.821575677022338,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "d1204830c54782d0652b95c41cc99f0d270fee1ec65832c3fec6327340aefa40",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "1",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 1.627579,
+        "distanceQuery": 4.451627,
+        "measurements": 0.633237,
+        "loadAndTransform": 2.018745,
+        "barComparison": 6.754432,
+        "total": 8.773177
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/grouped-14-1"
+    },
+    {
+      "wallSeconds": 9.456815281067975,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "1",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 1.672341,
+        "distanceQuery": 4.454655,
+        "measurements": 2.988559,
+        "loadAndTransform": 0.251029,
+        "barComparison": 9.157989,
+        "total": 9.409018
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/prepared-14-w1-1"
+    },
+    {
+      "wallSeconds": 5.820676728035323,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "2",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 2.193505,
+        "distanceQuery": 5.204226,
+        "measurements": 3.447817,
+        "loadAndTransform": 0.248558,
+        "barComparison": 5.522812,
+        "total": 5.77137
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/prepared-14-w2-1"
+    },
+    {
+      "wallSeconds": 5.020461486070417,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "4",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 4.307783,
+        "distanceQuery": 7.658057,
+        "measurements": 6.159203,
+        "loadAndTransform": 0.251525,
+        "barComparison": 4.719604,
+        "total": 4.971129
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/prepared-14-w4-1"
+    },
+    {
+      "wallSeconds": 4.863728499040008,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "8",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 10.150778,
+        "distanceQuery": 11.686923,
+        "measurements": 13.055702,
+        "loadAndTransform": 0.251193,
+        "barComparison": 4.563814,
+        "total": 4.815008
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/prepared-14-w8-1"
+    },
+    {
+      "wallSeconds": 4.507974051055498,
+      "cpuSeconds": 62.848455594,
+      "peakRssKiB": 1327536,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "4",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 3.813145,
+        "distanceQuery": 7.085286,
+        "measurements": 5.397502,
+        "loadAndTransform": 0.250493,
+        "barComparison": 4.208019,
+        "total": 4.458513
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/repeat-14-w4-20406"
+    },
+    {
+      "wallSeconds": 4.823149334057234,
+      "cpuSeconds": 68.632967075,
+      "peakRssKiB": 1377368,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "4",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 4.503029,
+        "distanceQuery": 7.462974,
+        "measurements": 5.348015,
+        "loadAndTransform": 0.250293,
+        "barComparison": 4.524641,
+        "total": 4.774934
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/repeat-14-w4-4286"
+    },
+    {
+      "wallSeconds": 5.015752614010125,
+      "cpuSeconds": 64.25372539,
+      "peakRssKiB": 1794012,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "8",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 10.861557,
+        "distanceQuery": 12.417081,
+        "measurements": 12.600321,
+        "loadAndTransform": 0.251388,
+        "barComparison": 4.715586,
+        "total": 4.966974
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/repeat-14-w8-11539"
+    },
+    {
+      "wallSeconds": 4.739377866033465,
+      "cpuSeconds": 65.116623853,
+      "peakRssKiB": 1724156,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "9779d8e36983f2da1f82d9f73197034c321aca258a3555d3dd55a4a49f5b5aee",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "8",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 10.675595,
+        "distanceQuery": 11.267091,
+        "measurements": 11.79852,
+        "loadAndTransform": 0.247938,
+        "barComparison": 4.442102,
+        "total": 4.690041
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/repeat-14-w8-7348"
+    },
+    {
+      "wallSeconds": 6.437704157084227,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "d1204830c54782d0652b95c41cc99f0d270fee1ec65832c3fec6327340aefa40",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "2",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 2.299404,
+        "distanceQuery": 5.386077,
+        "measurements": 0.869141,
+        "loadAndTransform": 2.01529,
+        "barComparison": 4.373369,
+        "total": 6.38866
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/threaded-14-w2-1"
+    },
+    {
+      "wallSeconds": 5.554701182991266,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "d1204830c54782d0652b95c41cc99f0d270fee1ec65832c3fec6327340aefa40",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "4",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 4.231403,
+        "distanceQuery": 7.348822,
+        "measurements": 1.826281,
+        "loadAndTransform": 2.005528,
+        "barComparison": 3.50099,
+        "total": 5.506519
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/threaded-14-w4-1"
+    },
+    {
+      "wallSeconds": 5.6099035299848765,
+      "moduleSource": "/home/hong/hong_project/cloudBIM-viewer/services/mesh-service/rebar_comparison.py",
+      "moduleSha256": "d1204830c54782d0652b95c41cc99f0d270fee1ec65832c3fec6327340aefa40",
+      "requestSha256": "b5e83621b66d0784fa080176fc2df4a3ca085fd305ebe8c38c07bfb7f1a6b610",
+      "workerSetting": "8",
+      "scanSha256": "f18c8fa16673f0fbf2d4f26ff11c411d2422d2aace282b7ed8a24269d032c41d",
+      "instanceMapSha256": "07162f2d8c1b15ee0f742bc3527c2e22e908014c73586542c2b5156739da4fd8",
+      "meshVertexCount": 405876,
+      "knownVertexCount": 299090,
+      "barCount": 90,
+      "timings": {
+        "meshLoad": 10.238274,
+        "distanceQuery": 11.06625,
+        "measurements": 5.811841,
+        "loadAndTransform": 2.00463,
+        "barComparison": 3.555929,
+        "total": 5.56056
+      },
+      "checks": {
+        "distances": {
+          "shape": [
+            405876
+          ],
+          "exact": true,
+          "nanMaskExact": true,
+          "maxAbsDifference": 0.0
+        },
+        "vertices": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "triangles": {
+          "shape": [
+            811392,
+            3
+          ],
+          "exact": true
+        },
+        "vertex_normals": {
+          "shape": [
+            405876,
+            3
+          ],
+          "exact": true
+        },
+        "reportExcludingTimings": {
+          "exact": true
+        }
+      },
+      "artifactPrefix": ".cloudbim/performance-scan-bim-20261029-c2m/threaded-14-w8-1"
+    }
+  ]
+}

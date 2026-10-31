@@ -1,8 +1,19 @@
 import * as THREE from 'three'
 
 type Renderable = THREE.Mesh | THREE.Points
-type State = { original: THREE.Material | THREE.Material[]; faded: THREE.Material | THREE.Material[]; foreground?: Renderable }
+type State = {
+  original: THREE.Material | THREE.Material[]
+  faded: THREE.Material | THREE.Material[]
+  foreground?: Renderable
+  foregroundMaterial?: THREE.PointsMaterial
+}
 const materials = (value: THREE.Material | THREE.Material[]) => Array.isArray(value) ? value : [value]
+function neutralScanMaterial(material: THREE.Material) {
+  const clone = material.clone() as THREE.PointsMaterial
+  clone.vertexColors = false
+  clone.color.set('#b8b8b8')
+  return clone
+}
 
 /** Separate opaque selected evidence from the translucent context. The original
  * positions, ownership, distances and indices are never edited by this layer.
@@ -17,6 +28,7 @@ export function createInspectionAppearance() {
       state.foreground.removeFromParent()
       state.foreground.geometry.dispose()
     }
+    state.foregroundMaterial?.dispose()
     materials(state.faded).forEach(material => material.dispose())
     states.delete(object)
   }
@@ -27,7 +39,10 @@ export function createInspectionAppearance() {
       let state = states.get(object)
       if (state && object.material !== state.faded) { restore(object); state = undefined }
       if (!state) {
-        const cloned = materials(object.material).map(material => material.clone())
+        // Neutral scan evidence leaves the deviation mesh as the only color scale.
+        // Keep the original materials and vertex colors intact for exit/step changes.
+        const cloned = materials(object.material).map(material => (object as THREE.Points).isPoints
+          ? neutralScanMaterial(material) : material.clone())
         state = { original: object.material, faded: Array.isArray(object.material) ? cloned : cloned[0] }
         states.set(object, state)
         object.material = state.faded
@@ -53,7 +68,8 @@ export function createInspectionAppearance() {
       }
       if (!state.foreground) {
         const geometry = new THREE.BufferGeometry()
-        state.foreground = stride === 1 ? new THREE.Points(geometry, state.original as THREE.PointsMaterial)
+        if (stride === 1) state.foregroundMaterial = neutralScanMaterial(materials(state.original)[0])
+        state.foreground = stride === 1 ? new THREE.Points(geometry, state.foregroundMaterial)
           : new THREE.Mesh(geometry, state.original)
         state.foreground.name = 'Inspection selected evidence'
         state.foreground.userData.__viewerPickIgnore = true
@@ -71,6 +87,7 @@ export function createInspectionAppearance() {
       for (const [object, state] of states) if ((object as THREE.Points).isPoints) {
         materials(state.original).forEach(material => { (material as THREE.PointsMaterial).size = size })
         materials(state.faded).forEach(material => { (material as THREE.PointsMaterial).size = size })
+        if (state.foregroundMaterial) state.foregroundMaterial.size = size
       }
     },
   }

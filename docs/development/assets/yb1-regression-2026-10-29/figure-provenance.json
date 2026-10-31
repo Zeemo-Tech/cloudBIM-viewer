@@ -1,0 +1,20 @@
+{
+  "imageSize": [
+    2052,
+    1692
+  ],
+  "dpi": [
+    180.00979999999998,
+    180.00979999999998
+  ],
+  "mode": "RGBA",
+  "source": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/preprocess/912d79094e68688290599732/cleaned.las",
+  "sourceRowSelection": "All rows whose old or current owner is unit 9; no downsampling",
+  "plottedRows": 66517,
+  "lostRows": 18325,
+  "coordinateProjection": "Subtract saved designStartM, then dot with saved tangent/frameU/frameV; metres to millimetres only for transverse axes",
+  "inference": "Dashed current axis beyond validated intervals is extrapolation, not measured support",
+  "timingScope": "Single paired full classification-function calls; excludes source/model load and artifact export",
+  "uncertainty": "No confidence interval; one paired run",
+  "matplotlibVersion": "3.9.3"
+}

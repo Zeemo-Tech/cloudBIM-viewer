@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "surface": "pointcloud",
+      "layout": {
+        "status": {
+          "x": 16,
+          "y": 268,
+          "width": 395.625,
+          "height": 46,
+          "top": 268,
+          "right": 411.625,
+          "bottom": 314,
+          "left": 16
+        },
+        "toolbar": {
+          "x": 16,
+          "y": 80,
+          "width": 325.03125,
+          "height": 180,
+          "top": 80,
+          "right": 341.03125,
+          "bottom": 260,
+          "left": 16
+        }
+      }
+    },
+    {
+      "surface": "pointcloud",
+      "enabled": true,
+      "rotation": true,
+      "exactRollback": true,
+      "clippedMaterials": 11
+    }
+  ],
+  "errors": [],
+  "blockedWrites": []
+}

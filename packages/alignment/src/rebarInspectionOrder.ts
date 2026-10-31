@@ -1,6 +1,6 @@
 import { Vector3, type Box3 } from 'three'
 
-// Shared with the inspection camera: viewer +X is right, and projected +Y is up.
+// Stable route-ordering view. Per-member framing can rotate independently.
 export const REBAR_INSPECTION_TILT = Math.PI / 10
 const screenUp = new Vector3(0, Math.sin(REBAR_INSPECTION_TILT), -Math.cos(REBAR_INSPECTION_TILT))
 const LENGTH_RELATIVE_TOLERANCE = 0.05

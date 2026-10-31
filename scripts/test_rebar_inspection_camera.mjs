@@ -5,8 +5,9 @@ import test from 'node:test'
 import ts from 'typescript'
 import * as THREE from 'three'
 import { NavigationOrbitControls as OrbitControls } from '../packages/viewer-core/src/viewer/NavigationOrbitControls.ts'
-import { orderRebarInspection, REBAR_INSPECTION_TILT } from '../packages/alignment/src/rebarInspectionOrder.ts'
+import { orderRebarInspection } from '../packages/alignment/src/rebarInspectionOrder.ts'
 import { isRebarInspectionAbnormal } from '../packages/alignment/src/rebarComparison.ts'
+import { appendInspectionMeshPoints, inspectionCameraFrame } from '../packages/alignment/src/rebarInspectionCamera.ts'
 
 // Execute the page's real navigation and animation with the installed controls.
 // Stubbing controls.update would miss the mismatch between its orbit axis and up.
@@ -16,9 +17,10 @@ const ast = ts.createSourceFile('alignment.ts', source, ts.ScriptTarget.Latest, 
 const names = [
   'stopRebarCameraAnimation', 'focusComparisonBar', 'selectInspectionBar', 'stepRebarInspection',
   'resetRebarInspection', 'exitRebarInspection', 'setPresetView', 'orbitPointcloudFromCube',
-  'isPerspectiveCamera', 'isOrthographicCamera',
+  'isPerspectiveCamera', 'isOrthographicCamera', 'updateOrthographicFrustum',
   'setPointcloudViewDirection', 'setProjectionMode', 'mountControls', 'rollPointcloudView', 'fitCameraToBox',
   'lockRebarInspectionOrder', 'selectInspectionBarById', 'onInspectionFilterChange',
+  'stopRebarAutoplay', 'scheduleRebarInspection', 'toggleRebarAutoplay', 'interruptRebarInspection', 'cancelInspectionPointerGesture',
 ]
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text))
 assert.equal(functions.length, names.length)
@@ -32,6 +34,8 @@ const compiled = ts.transpileModule([...functions, ...computedDeclarations].map(
 const ref = value => ({ value })
 const noop = () => {}
 const worldUp = new THREE.Vector3(0, 1, 0)
+const boxPoints = bounds => Array.from({ length: 8 }, (_, i) => new THREE.Vector3(
+  i & 1 ? bounds.max.x : bounds.min.x, i & 2 ? bounds.max.y : bounds.min.y, i & 4 ? bounds.max.z : bounds.min.z))
 
 function fixture(orthographic = false) {
   const perspectiveCamera = new THREE.PerspectiveCamera(50, 1.6, .01, 5000)
@@ -49,26 +53,33 @@ function fixture(orthographic = false) {
     { ifcGlobalId: 'c', bounds: new THREE.Box3(new THREE.Vector3(-.8, .9, .3), new THREE.Vector3(-.5, 1.2, .8)) },
   ]
   let now = 0, frameId = 0
-  const frames = new Map()
+  const frames = new Map(), timers = new Map()
+  const timerDelays = []
   const s = {
-    THREE, OrbitControls, orderRebarInspection, REBAR_INSPECTION_TILT, isRebarInspectionAbnormal,
+    THREE, OrbitControls, orderRebarInspection, isRebarInspectionAbnormal, inspectionCameraFrame,
     computed: callback => ({ get value() { return callback() } }),
     activeCamera: camera, controls, orthoViewSize: 5, activeView: ref(''),
     perspectiveCamera, orthographicCamera, projectionMode: ref(orthographic ? 'orthographic' : 'perspective'),
     renderer: { domElement }, scene: null, tileset: null, syncBoundsHelpers: noop, transformHandleInteraction: null,
-    viewportEl: ref({ clientWidth: 1600, clientHeight: 1000 }),
+    viewportEl: ref({ clientWidth: 1600, clientHeight: 1000, getBoundingClientRect: () => ({ width: 1600, height: 1000 }) }),
     comparisonBars: ref(bars), rebarInspectionOrderIds: ref([]), c2mToleranceMm: ref(10), selectedComparisonBarId: ref(''),
-    rebarInspectionActive: ref(false), rebarInspectionManualSelect: ref(false),
+    rebarInspectionActive: ref(false), rebarInspectionAutoplay: ref(false), rebarInspectionTimer: null, rebarInspectionClickReady: false,
+    comparison: ref({ bars }), c2mSceneLoaded: ref(true), activeWorkflowStep: ref(3), document: { hidden: false },
+    analysisMode: ref('none'), cancelActiveAnalysis: noop,
     rebarInspectionAbnormalOnly: ref(false), rebarCameraAnimationFrame: null, rebarInspectionClick: { cancel: noop },
     rebarCameraControlsWasEnabled: null, performance: { now: () => now },
     window: {
       requestAnimationFrame: cb => { frames.set(++frameId, cb); return frameId },
       cancelAnimationFrame: id => frames.delete(id),
+      setTimeout: (cb, delay) => { timerDelays.push(delay); timers.set(++frameId, cb); return frameId },
+      clearTimeout: id => timers.delete(id),
     },
     comparisonBarBounds: bar => bar.bounds.clone(),
+    comparisonBarPoints: bar => boxPoints(bar.bounds),
+    reportLayout: ref({ members: new Map() }),
     getVisibleContentBox: () => bars.reduce((box, bar) => box.union(bar.bounds), new THREE.Box3()),
     nextTick: cb => cb(), applyComparisonSelection: noop, requestRender: noop,
-    updateOrthographicFrustum: noop, syncPointcloudCameraPose: noop,
+    syncPointcloudCameraPose: noop,
     ElMessage: { info: noop, warning: message => assert.fail(message) },
   }
   const api = runInNewContext(`${compiled}\n({ ${[...names, ...computedNames].join(', ')} })`, s)
@@ -78,8 +89,38 @@ function fixture(orthographic = false) {
     frames.clear()
     pending.forEach(cb => cb(now))
   }
-  return { api, s, bars, advance, pending: () => frames.size }
+  const tickTour = () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(cb => cb()) }
+  return { api, s, bars, advance, pending: () => frames.size, tickTour, timers, timerDelays }
 }
+
+test('autoplay cycles the spatial route, wraps, and exit clears all pending work', () => {
+  const { api, s, advance, tickTour, timers, pending, timerDelays } = fixture()
+  api.toggleRebarAutoplay()
+  const first = s.selectedComparisonBarId.value
+  assert.equal(s.rebarInspectionAutoplay.value, true)
+  assert.equal(timers.size, 1)
+  advance(900); tickTour(); advance(900)
+  assert.notEqual(s.selectedComparisonBarId.value, first)
+  tickTour(); advance(900); tickTour(); advance(900)
+  assert.equal(s.selectedComparisonBarId.value, first)
+  assert.deepEqual(timerDelays, [3000, 3000, 3000, 3000])
+  api.exitRebarInspection()
+  assert.equal(timers.size, 0); assert.equal(pending(), 0)
+  assert.equal(s.controls.enabled, true)
+})
+
+test('manual navigation and hidden documents pause autoplay', () => {
+  for (const reason of ['interrupt', 'hidden', 'step', 'preset']) {
+    const { api, s, tickTour, timers } = fixture()
+    api.toggleRebarAutoplay()
+    if (reason === 'interrupt') api.interruptRebarInspection()
+    if (reason === 'hidden') { s.document.hidden = true; tickTour() }
+    if (reason === 'step') { s.activeWorkflowStep.value = 2; tickTour() }
+    if (reason === 'preset') api.setPresetView('top')
+    assert.equal(s.rebarInspectionAutoplay.value, false)
+    assert.equal(timers.size, 0)
+  }
+})
 
 function assertUpright(camera, target) {
   camera.updateMatrixWorld(true)
@@ -90,39 +131,137 @@ function assertUpright(camera, target) {
   assert.ok(above.y > origin.y, 'engineering +Z must project upward')
 }
 
+function assertFrame(camera, target, axis, points, landscape) {
+  camera.updateMatrixWorld(true)
+  const origin = target.clone().project(camera), along = target.clone().addScaledVector(axis, .1).project(camera)
+  const dx = along.x - origin.x, dy = along.y - origin.y
+  if (landscape !== null) {
+    assert.ok(Math.abs(landscape ? dy : dx) < 1e-7, `axis is not aligned: ${dx}, ${dy}`)
+    assert.ok(Math.abs(landscape ? dx : dy) > 1e-6, 'axis must not point into the camera')
+  }
+  for (const point of points) {
+    const p = point.clone().project(camera)
+    assert.ok(Math.abs(p.x) < 1 && Math.abs(p.y) < 1 && Math.abs(p.z) < 1, `design vertex clipped: ${p.toArray()}`)
+  }
+}
+
+test('design vertex extraction respects ownership and the full metre-scale engineering-to-viewer transform', () => {
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([-8, .2, .3, -2, -.01, -.02, 2, .01, .02, 9, -.3, -.4], 3))
+  const mesh = new THREE.Mesh(geometry)
+  mesh.scale.set(1.5, 2, 3)
+  mesh.rotation.z = Math.PI / 2
+  const pivot = new THREE.Group()
+  pivot.rotation.x = -Math.PI / 2
+  pivot.position.set(17, -29, 43)
+  pivot.add(mesh)
+  const before = geometry.attributes.position.array.slice(), points = []
+  appendInspectionMeshPoints(mesh, points, 1, 2)
+  assert.equal(points.length, 2)
+  // Scale, then Z rotation, then Z-up -> Y-up rotation, then translation.
+  assert.ok(points[0].distanceTo(new THREE.Vector3(17.02, -29.06, 46)) < 1e-7)
+  assert.ok(points[1].distanceTo(new THREE.Vector3(16.98, -28.94, 40)) < 1e-7)
+  assert.deepEqual(geometry.attributes.position.array, before)
+})
+
+test('level framing preserves engineering up and fits members in landscape and portrait projections', () => {
+  for (const axis of [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(2, 5, -3).normalize(), new THREE.Vector3(1, 0, 1).normalize()]) {
+    const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis)
+    const points = boxPoints(new THREE.Box3(new THREE.Vector3(-2, -.012, -.025), new THREE.Vector3(2, .012, .025)))
+      .map(p => p.applyQuaternion(rotation).add(new THREE.Vector3(17, -29, 43)))
+    for (const aspect of [1.8, .65]) for (const ortho of [false, true]) {
+      const frame = inspectionCameraFrame(points, new THREE.Box3().setFromPoints(points), aspect, 50, 1.1)
+      const camera = ortho
+        ? new THREE.OrthographicCamera(-frame.viewSize * aspect, frame.viewSize * aspect, frame.viewSize, -frame.viewSize, .01, 5000)
+        : new THREE.PerspectiveCamera(50, aspect, .01, 5000)
+      camera.position.copy(frame.position); camera.up.copy(frame.up); camera.lookAt(frame.target)
+      assertUpright(camera, frame.target)
+      assert.ok(camera.up.equals(worldUp))
+      assertFrame(camera, frame.target, axis, points, axis.y === 0 ? true : axis.y === 1 ? false : null)
+      const spans = ['x', 'y'].map(component => {
+        const values = points.map(p => p.clone().project(camera)[component])
+        return Math.max(...values) - Math.min(...values)
+      })
+      assert.ok(Math.max(...spans) > 1.5, 'fit the available viewport without rolling the member')
+    }
+  }
+})
+
+test('wide stirrups use a front elevation even when their longest extent is horizontal', () => {
+  for (const aspect of [1.8, .65]) {
+    const bounds = new THREE.Box3(new THREE.Vector3(-2, .7, -.01), new THREE.Vector3(2, 1.7, .01))
+    const points = boxPoints(bounds)
+    const frame = inspectionCameraFrame(points, bounds, aspect, 50, 1.1, { upright: true })
+    const camera = new THREE.PerspectiveCamera(50, aspect, .01, 5000)
+    camera.position.copy(frame.position); camera.up.copy(frame.up); camera.lookAt(frame.target)
+    assert.equal(camera.position.y, frame.target.y, 'stirrup elevation has no top-down pitch')
+    assertUpright(camera, frame.target)
+    assertFrame(camera, frame.target, worldUp, points, false)
+    // Asymmetric points on a front face retain a rectangular screen frame.
+    camera.updateMatrixWorld(true)
+    const a = new THREE.Vector3(-1, .8, .01).project(camera)
+    const b = new THREE.Vector3(1.4, .8, .01).project(camera)
+    const c = new THREE.Vector3(1.4, 1.6, .01).project(camera)
+    assert.ok(Math.abs(a.y - b.y) < 1e-10)
+    assert.ok(Math.abs(b.x - c.x) < 1e-10)
+  }
+})
+
 for (const orthographic of [false, true]) {
   const mode = orthographic ? 'orthographic' : 'perspective'
-  test(`${mode}: next/previous inspection keeps world up throughout animation`, () => {
+  test(`${mode}: next/previous frames each complete member horizontally`, () => {
     const { api, s, bars, advance } = fixture(orthographic)
     for (const direction of [1, 1, 1, -1]) {
       api.stepRebarInspection(direction)
       assert.equal(s.controls.enabled, false)
       for (const ms of [200, 230, 430]) {
         advance(ms)
-        assert.ok(s.activeCamera.up.distanceTo(worldUp) < 1e-10, `up changed to ${s.activeCamera.up.toArray()}`)
+        assert.ok([...s.activeCamera.position.toArray(), ...s.activeCamera.up.toArray(), ...s.activeCamera.quaternion.toArray()].every(Number.isFinite))
+        assert.ok(s.activeCamera.up.equals(worldUp))
+        assertUpright(s.activeCamera, s.controls.target)
       }
       assert.equal(s.controls.enabled, true)
-      const center = bars.find(bar => bar.ifcGlobalId === s.selectedComparisonBarId.value).bounds.getCenter(new THREE.Vector3())
+      const bar = bars.find(bar => bar.ifcGlobalId === s.selectedComparisonBarId.value)
+      const center = bar.bounds.getCenter(new THREE.Vector3())
       assert.ok(s.controls.target.distanceTo(center) < 1e-10)
-      const directionToCamera = s.activeCamera.position.clone().sub(center).normalize()
-      assert.ok(directionToCamera.distanceTo(new THREE.Vector3(0, Math.cos(Math.PI / 10), Math.sin(Math.PI / 10))) < 1e-8)
+      const axis = bar.ifcGlobalId === 'a' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1)
+      assertFrame(s.activeCamera, center, axis, boxPoints(bar.bounds), true)
     }
   })
 
-  test(`${mode}: orbit and preset views after next keep engineering Z upright`, () => {
+  test(`${mode}: inspection and subsequent orbit remain upright`, () => {
     const { api, s, advance } = fixture(orthographic)
     api.stepRebarInspection(1)
     advance(860)
     // Use the same angular input consumed by the real mouse-drag path.
+    const expectedOffset = s.activeCamera.position.clone().sub(s.controls.target).applyAxisAngle(worldUp, -Math.PI / 3)
     s.controls._rotateLeft(Math.PI / 3)
-    s.controls._rotateUp(-Math.PI / 6)
     s.controls.update()
+    assert.ok(s.activeCamera.position.clone().sub(s.controls.target).distanceTo(expectedOffset) < 1e-8)
     assertUpright(s.activeCamera, s.controls.target)
     api.orbitPointcloudFromCube({ lon: 35, lat: -10 })
     assertUpright(s.activeCamera, s.controls.target)
     for (const preset of ['front', 'side']) {
       api.setPresetView(preset)
       assertUpright(s.activeCamera, s.controls.target)
+    }
+  })
+
+  test(`${mode}: manual and autoplay stirrup focus stay level throughout the transition`, () => {
+    for (const manual of [true, false]) {
+      const { api, s, bars, advance } = fixture(orthographic)
+      bars[2].bounds.set(new THREE.Vector3(-.12, .3, -.02), new THREE.Vector3(.12, 2.5, .02))
+      s.reportLayout.value.members.set('c', { chapterId: 'connector' })
+      if (manual) api.focusComparisonBar(bars[2], { manual: true })
+      else { api.selectInspectionBarById('c'); api.toggleRebarAutoplay() }
+      for (const ms of [100, 200, 200, 360]) {
+        advance(ms)
+        assert.ok(s.activeCamera.up.equals(worldUp))
+        assertUpright(s.activeCamera, s.controls.target)
+      }
+      assert.ok(Math.abs(s.activeCamera.position.y - s.controls.target.y) < 1e-10)
+      assertFrame(s.activeCamera, s.controls.target, worldUp, boxPoints(bars[2].bounds), false)
     }
   })
 }
@@ -138,6 +277,17 @@ for (const action of ['fit', 'top']) {
   })
 }
 
+for (const orthographic of [false, true]) {
+  test(`${orthographic ? 'orthographic' : 'perspective'}: focus resets an extreme zoom and fits the whole member`, () => {
+    const { api, s, bars, advance } = fixture(orthographic)
+    s.activeCamera.zoom = 1000
+    s.activeCamera.updateProjectionMatrix()
+    api.focusComparisonBar(bars[0], { manual: true }); advance(680)
+    assert.equal(s.activeCamera.zoom, 1)
+    assertFrame(s.activeCamera, s.controls.target, new THREE.Vector3(1, 0, 0), boxPoints(bars[0].bounds), true)
+  })
+}
+
 test('rapid next/previous and exiting mid-animation release controls and pending frames', () => {
   const { api, s, advance, pending } = fixture()
   api.stepRebarInspection(1)
@@ -150,18 +300,19 @@ test('rapid next/previous and exiting mid-animation release controls and pending
   api.exitRebarInspection()
   assert.equal(pending(), 0)
   assert.equal(s.controls.enabled, true)
-  assert.ok(s.activeCamera.up.distanceTo(worldUp) < 1e-10)
+  assert.ok(s.activeCamera.up.toArray().every(Number.isFinite))
 })
 
-test('manual focus recovers world up after a rolled or top cube view', () => {
+test('manual focus aligns the member after a rolled or top cube view without changing the orbit axis', () => {
   const { api, s, bars, advance } = fixture()
   s.activeCamera.up.set(0, 0, -1)
   api.focusComparisonBar(bars[1], { manual: true })
   advance(680)
-  assert.ok(s.activeCamera.up.distanceTo(worldUp) < 1e-10)
+  assertFrame(s.activeCamera, s.controls.target, new THREE.Vector3(0, 0, 1), boxPoints(bars[1].bounds), true)
+  const expectedOffset = s.activeCamera.position.clone().sub(s.controls.target).applyAxisAngle(worldUp, -.7)
   s.controls._rotateLeft(.7)
   s.controls.update()
-  assertUpright(s.activeCamera, s.controls.target)
+  assert.ok(s.activeCamera.position.clone().sub(s.controls.target).distanceTo(expectedOffset) < 1e-8)
 })
 
 test('manual member selection keeps the current camera and starts no flight', () => {

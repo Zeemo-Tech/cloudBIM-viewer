@@ -39,6 +39,21 @@ const emit = defineEmits<ViewerPageEmits>()
 
 const pointcloudPanelRef = ref<any>(null)
 const pointcloudStageRef = ref<HTMLElement | null>(null)
+const pointcloudToolbarRef = ref<HTMLElement | null>(null)
+let toolbarResizeObserver: ResizeObserver | null = null
+
+// Keep section feedback below the display controls, including wrapped controls
+// and resource notices, rather than covering the home/fullscreen buttons.
+watch(pointcloudToolbarRef, toolbar => {
+  toolbarResizeObserver?.disconnect()
+  if (!toolbar) return
+  const placeSectionFeedback = () => pointcloudStageRef.value?.style.setProperty(
+    '--section-box-top', `${toolbar.offsetTop + toolbar.offsetHeight + 8}px`,
+  )
+  toolbarResizeObserver = new ResizeObserver(placeSectionFeedback)
+  toolbarResizeObserver.observe(toolbar)
+  placeSectionFeedback()
+})
 
 const backgroundTheme = ref<PreviewBackgroundTheme>('deep')
 const analysisToolbarCollapsed = ref(false)
@@ -89,6 +104,7 @@ const {
 } = useViewerMeasurements({
   assetId,
   panelRef: pointcloudPanelRef,
+  contextKey: () => `preview:pointcloud:${assetId.value ?? 0}`,
   // Historical records use the original source-viewer frame. Leveling includes
   // both translation and rotation; retain the complete forward/inverse matrices.
   toStoredPayload: (payload) => transformMeasurement(payload,
@@ -149,7 +165,7 @@ function applyPanelSettings() {
   // viewport triad, not an additional world-space AxesHelper in the scene.
   panel.setShowAxes?.(false)
   panel.setShowGrid?.(pointcloudControls.showGrid)
-  panel.setSectionState?.(pointcloudControls.sectionEnabled)
+  panel.setSectionState?.({ enabled: pointcloudControls.sectionEnabled })
   if (pointcloudDisplayColorMode.value === 'custom') {
     panel.setPointColor?.(pointcloudControls.pointColor)
   } else {
@@ -349,6 +365,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  toolbarResizeObserver?.disconnect()
   pointcloudResourceLoadToken++
   pointcloudAppearanceLoadToken++
   resetAnalysisState()
@@ -453,7 +470,7 @@ watch(
         @clear="clearAnalysis"
       />
 
-      <div class="pointcloud-viewport-toolbar">
+      <div ref="pointcloudToolbarRef" class="pointcloud-viewport-toolbar">
         <div class="pointcloud-toolbar-cluster">
           <el-tooltip content="重置视角" placement="bottom">
             <button type="button" aria-label="重置视角" @click="resetView">

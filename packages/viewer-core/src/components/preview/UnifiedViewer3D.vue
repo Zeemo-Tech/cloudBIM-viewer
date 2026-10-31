@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import MeasurementAssistPanel from './MeasurementAssistPanel.vue'
+import { MeasurementAssistant } from '@/viewer/measurement/MeasurementAssistant'
+import { defaultMeasurementState } from '@/viewer/measurement/types'
+import { measurementPresentation } from '@/viewer/measurement/evidence'
+import { SectionBoxController } from '@/viewer/clipping/SectionBoxController'
 import { InfiniteGroundGrid, getTilesetWorldBounds } from './InfiniteGroundGrid'
 import { NavigationOrbitControls as OrbitControls } from '../../viewer/NavigationOrbitControls'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
@@ -378,23 +383,11 @@ let pointcloudHasRgb = false
 
 // 剖切盒状态
 let sectionEnabled = false
-let sectionRatio = 50
-let boundsBoxHelper: THREE.Box3Helper | null = null
-let clipHandlesGroup: THREE.Group | null = null
-
-let clipState: ClipBoxState = {
-  baseBox: new THREE.Box3(new THREE.Vector3(-10, -10, -10), new THREE.Vector3(10, 10, 10)),
-  offsets: { xMin: 0, xMax: 0, yMin: 0, yMax: 0, zMin: 0, zMax: 0 },
-}
-
-const clipPlanes = [
-  new THREE.Plane(new THREE.Vector3(1, 0, 0), 0),
-  new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
-  new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
-  new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
-  new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
-  new THREE.Plane(new THREE.Vector3(0, 0, -1), 0),
-]
+const sectionActive = ref(false)
+const sectionFeedback = ref<string | null>(null)
+let sectionBox: SectionBoxController | null = null
+let sectionContentBounds: THREE.Box3 | null = null
+const clipPlanes: THREE.Plane[] = []
 
 // 测量分析状态
 let analysisAnchorPoint: THREE.Vector3 | null = null
@@ -450,6 +443,36 @@ const rebarInstancePalette = computed(() => buildInstancePalette(
   })),
 ))
 
+const measurementAssistState = ref(defaultMeasurementState())
+const measurementAssistPanel = ref<InstanceType<typeof MeasurementAssistPanel> | null>(null)
+const measurementAssistant = new MeasurementAssistant({
+  contextKey: () => `preview:${props.type}:${props.assetId ?? props.pointcloudAssetId ?? props.bimAssetId ?? 0}`,
+  element: () => viewportEl.value, camera: () => camera, scene: () => scene, orbit: () => controls,
+  targets: () => [
+    ...(bimRoot ? [{ object: bimRoot, kind: 'bim' as const, assetId: props.bimAssetId ?? props.assetId }] : []),
+    ...(tileset?.group ? [{ object: tileset.group, kind: 'pointcloud' as const, assetId: props.pointcloudAssetId ?? props.assetId }] : []),
+    ...(c2mMeshRoot ? [{ object: c2mMeshRoot, kind: 'pointcloud' as const, assetId: props.scanAssetId ?? props.assetId }] : []),
+  ],
+  contains: point => sectionBox?.contains(point) ?? true,
+  references: () => [...props.analysisPoints, ...props.analysisDistances.flatMap(r => [r.start, r.end]),
+    ...props.analysisAreas.flatMap(r => r.points), ...analysisAreaPoints],
+  anchor: () => analysisAnchorPoint ?? analysisAreaPoints.at(-1) ?? null,
+  onState: state => { measurementAssistState.value = state },
+  onRecord: (kind, record) => {
+    if (kind === 'point') emit('analysis-point', record as AnalysisPoint)
+    else emit('analysis-distance', record as AnalysisDistance)
+  },
+  onCoordinates: point => { commitAnalysisPoint(point); measurementAssistant.refresh() },
+  onUndo: () => {
+    if (analysisAreaPoints.length) { analysisAreaPoints.pop(); updateAreaVisuals(analysisAreaPoints) }
+    else cancelActiveAnalysis()
+  },
+  requestRender,
+})
+function resetMeasurementSession() { cancelActiveAnalysis(); measurementAssistant.reset() }
+function leaveMeasurementViewport() { measurementAssistant.leave() }
+watch(() => props.analysisMode, mode => { cancelActiveAnalysis(); measurementAssistant.setMode(mode) })
+
 // ---------------------------
 // 基础渲染流程（平滑 60FPS 连续渲染环，对齐校准页机制）
 // ---------------------------
@@ -468,6 +491,7 @@ function requestRender() {
       tileset.setResolutionFromRenderer?.(camera, renderer)
       tileset.update()
     }
+    sectionBox?.update()
     syncMeasurementMarkerScales()
 
     // EDL 渲染管线判断：仅在开启 EDL 且含点云场景时应用
@@ -486,6 +510,7 @@ function requestRender() {
     } else {
       renderer.render(scene, camera)
     }
+    measurementAssistPanel.value?.drawLens(renderer.domElement)
   }
 
   renderFrame()
@@ -563,77 +588,58 @@ function initLights() {
 // ---------------------------
 // 剖切盒交互系统 (Section Box)
 // ---------------------------
-function updateClipPlanes() {
-  const box = getEffectiveBox(clipState)
-  clipPlanes[0].set(new THREE.Vector3(1, 0, 0), -box.min.x)
-  clipPlanes[1].set(new THREE.Vector3(-1, 0, 0), box.max.x)
-  clipPlanes[2].set(new THREE.Vector3(0, 1, 0), -box.min.y)
-  clipPlanes[3].set(new THREE.Vector3(0, -1, 0), box.max.y)
-  clipPlanes[4].set(new THREE.Vector3(0, 0, 1), -box.min.z)
-  clipPlanes[5].set(new THREE.Vector3(0, 0, -1), box.max.z)
-
-  if (boundsBoxHelper) {
-    boundsBoxHelper.box.copy(box)
-  }
-  syncClippingToMaterials()
-}
-
-function getEffectiveBox(state: ClipBoxState): THREE.Box3 {
-  const { baseBox, offsets } = state
-  return new THREE.Box3(
-    new THREE.Vector3(baseBox.min.x + offsets.xMin, baseBox.min.y + offsets.yMin, baseBox.min.z + offsets.zMin),
-    new THREE.Vector3(baseBox.max.x + offsets.xMax, baseBox.max.y + offsets.yMax, baseBox.max.z + offsets.zMax),
-  )
-}
-
 function syncClippingToMaterials() {
-  if (!renderer) return
-  renderer.clippingPlanes = sectionEnabled ? clipPlanes : []
-  renderer.localClippingEnabled = sectionEnabled
+  if (!renderer || !scene) return
+  renderer.clippingPlanes = [] // Keep the gizmo and navigation chrome outside the clipped content.
+  renderer.localClippingEnabled = true
+  for (const root of scene.children) {
+    if (root === sectionBox?.gizmo.group || root === gridHelper || root === axesHelper) continue
+    root.traverse((object: any) => {
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      for (const material of materials) {
+        if (!material) continue
+        material.clippingPlanes = sectionEnabled ? clipPlanes : null
+        material.needsUpdate = true
+      }
+    })
+  }
 }
 
 function buildClipHandles() {
-  if (!scene) return
-  if (clipHandlesGroup) {
-    scene.remove(clipHandlesGroup)
-    clipHandlesGroup.traverse((c: any) => {
-      c.geometry?.dispose?.()
-      c.material?.dispose?.()
-    })
-  }
-
-  clipHandlesGroup = new THREE.Group()
-  clipHandlesGroup.name = 'clip-handles'
-
-  boundsBoxHelper = new THREE.Box3Helper(getEffectiveBox(clipState), new THREE.Color(0x00ffff))
-  ;(boundsBoxHelper.material as THREE.Material).clippingPlanes = null
-  clipHandlesGroup.add(boundsBoxHelper)
-
-  clipHandlesGroup.visible = sectionEnabled
-  scene.add(clipHandlesGroup)
+  if (!scene || !renderer) return
+  sectionBox?.dispose()
+  sectionBox = new SectionBoxController({
+    element: renderer.domElement, scene, camera: () => camera, orbit: () => controls,
+    bounds: () => sectionContentBounds,
+    canInteract: () => props.analysisMode === 'none',
+    onFeedback: text => { sectionFeedback.value = text },
+    onChange: planes => { clipPlanes.splice(0, clipPlanes.length, ...planes); syncClippingToMaterials(); requestRender() },
+  })
+  sectionBox.setEnabled(sectionEnabled)
+  renderer.domElement.tabIndex = 0
 }
 
-function setSectionState(state: { enabled?: boolean; ratio?: number; box?: THREE.Box3 }) {
+function resetSectionBox() { sectionBox?.fit() }
+
+function setSectionState(state: { enabled?: boolean; ratio?: number; box?: THREE.Box3; reset?: boolean }) {
+  if (state.box) {
+    const combined = state.box.clone()
+    if (bimRoot?.visible) combined.expandByObject(bimRoot)
+    const cloud = tileset ? getTilesetWorldBounds(tileset) : null
+    if (cloud) combined.union(cloud)
+    sectionContentBounds = combined
+    syncGroundGrid(combined)
+    const diagonal = combined.getSize(new THREE.Vector3()).length()
+    if (Number.isFinite(diagonal) && diagonal > 0) measurementModelDiagonal = diagonal
+    if (!sectionEnabled || !sectionBox?.bounds) sectionBox?.fit(combined)
+  }
   if (state.enabled !== undefined) {
     sectionEnabled = state.enabled
-    if (clipHandlesGroup) clipHandlesGroup.visible = sectionEnabled
-    syncClippingToMaterials()
+    sectionActive.value = sectionEnabled
+    sectionBox?.setEnabled(sectionEnabled)
   }
-  if (state.box) {
-    clipState.baseBox.copy(state.box)
-    syncGroundGrid(state.box)
-    const diagonal = state.box.getSize(new THREE.Vector3()).length()
-    if (Number.isFinite(diagonal) && diagonal > 0) measurementModelDiagonal = diagonal
-    clipState.offsets = { xMin: 0, xMax: 0, yMin: 0, yMax: 0, zMin: 0, zMax: 0 }
-    updateClipPlanes()
-  }
-  if (state.ratio !== undefined) {
-    sectionRatio = Math.max(1, Math.min(100, state.ratio))
-    const size = clipState.baseBox.getSize(new THREE.Vector3())
-    const fraction = (100 - sectionRatio) / 100
-    clipState.offsets.zMax = -size.z * fraction
-    updateClipPlanes()
-  }
+  if (state.reset) resetSectionBox()
+  if (state.ratio !== undefined) sectionBox?.setRatio(state.ratio)
 }
 
 // ---------------------------
@@ -968,6 +974,7 @@ function createMeasurementId() {
 }
 
 function syncMeasurementBadges() {
+  measurementAssistant.syncSaved([...props.analysisPoints, ...props.analysisDistances].filter(r => !hiddenMeasurementIds.has(r.id ?? "")))
   const next: typeof measurementBadges.value = []
   props.analysisPoints.forEach((point, index) => {
     const id = getMeasurementId('point', index, point.id)
@@ -981,9 +988,10 @@ function syncMeasurementBadges() {
       title: `定位 #${index + 1}`,
       rows: [
         { label: 'X', value: formatMeasurementMeters(point.x) },
-        { label: 'Y', value: formatMeasurementMeters(point.z) },
-        { label: 'Z', value: formatMeasurementMeters(point.y) },
+        { label: 'Y', value: formatMeasurementMeters(point.y) },
+        { label: 'Z', value: formatMeasurementMeters(point.z) },
       ],
+      ...(measurementPresentation(point.measurement) ?? {}),
       overlay: { visible: true, x: screenPoint.x + 14 + offset.x, y: screenPoint.y - 18 + offset.y },
     })
   })
@@ -1011,6 +1019,7 @@ function syncMeasurementBadges() {
         { label: '垂直距离', value: formatMeasurementMeters(Math.abs(dy)) },
         { label: '坡度', value: `${slope.toFixed(2)}°` },
       ],
+      ...(measurementPresentation(record.measurement) ?? {}),
       overlay: { visible: true, x: screenPoint.x + 14 + offset.x, y: screenPoint.y - 18 + offset.y },
     })
   })
@@ -1189,7 +1198,7 @@ function updateAreaVisuals(points: THREE.Vector3[], previewPoint: THREE.Vector3 
 function completeAreaSelection() {
   const metrics = createPolygonMetrics(analysisAreaPoints)
   if (!metrics) return
-  emit('analysis-area', { id: createMeasurementId(), points: analysisAreaPoints.map((point) => ({ x: point.x, y: point.y, z: point.z })), area: metrics.area, perimeter: metrics.perimeter })
+  emit('analysis-area', measurementAssistant.annotate({ id: createMeasurementId(), points: analysisAreaPoints.map((point) => ({ x: point.x, y: point.y, z: point.z })), area: metrics.area, perimeter: metrics.perimeter }, 'area'))
   updateAreaVisuals(analysisAreaPoints)
   if (analysisVisualGroup) archivedAnalysisGroups.push(analysisVisualGroup)
   analysisVisualGroup = null
@@ -1200,54 +1209,7 @@ function completeAreaSelection() {
 }
 
 function pickAnalysisPoint(event: PointerEvent) {
-  if (!camera || !scene) return null
-  const rect = viewportEl.value?.getBoundingClientRect()
-  if (!rect) return null
-  const mouse = new THREE.Vector2(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -((event.clientY - rect.top) / rect.height) * 2 + 1,
-  )
-
-  raycaster = raycaster || new THREE.Raycaster()
-  raycaster.setFromCamera(mouse, camera)
-
-  const targets: THREE.Object3D[] = []
-  if (bimRoot) targets.push(bimRoot)
-  if (tileset?.group) targets.push(tileset.group)
-  if (c2mMeshRoot) targets.push(c2mMeshRoot)
-  const intersects = raycaster.intersectObjects(targets, true)
-  const picked = intersects[0]?.point.clone() ?? null
-  if (!picked) return null
-
-  const screenX = event.clientX - rect.left
-  const screenY = event.clientY - rect.top
-  const candidates: THREE.Vector3[] = []
-  const addPoint = (point: AnalysisPoint | null | undefined) => {
-    if (point) candidates.push(new THREE.Vector3(point.x, point.y, point.z))
-  }
-  props.analysisPoints.forEach(addPoint)
-  props.analysisDistances.forEach((record) => {
-    addPoint(record.start)
-    addPoint(record.end)
-  })
-  props.analysisAreas.forEach((record) => record.points.forEach(addPoint))
-  analysisAreaPoints.forEach((point) => candidates.push(point.clone()))
-  if (analysisAnchorPoint) candidates.push(analysisAnchorPoint.clone())
-
-  let snappedPoint: THREE.Vector3 | null = null
-  let minDistance = 18
-  candidates.forEach((candidate) => {
-    const projected = candidate.clone().project(camera!)
-    if (projected.z < -1 || projected.z > 1) return
-    const candidateX = ((projected.x + 1) * .5) * rect.width
-    const candidateY = ((-projected.y + 1) * .5) * rect.height
-    const distance = Math.hypot(candidateX - screenX, candidateY - screenY)
-    if (distance <= minDistance) {
-      minDistance = distance
-      snappedPoint = candidate
-    }
-  })
-  return snappedPoint ?? picked
+  return measurementAssistant.pick(event)
 }
 
 function updateDistanceVisuals(start: THREE.Vector3, end: THREE.Vector3 | null, preview = false) {
@@ -1298,7 +1260,7 @@ function completeDistanceSelection(end: THREE.Vector3) {
     ? (verticalDistance <= 1e-8 ? 0 : 90)
     : Math.atan2(verticalDistance, horizontalDistance) * 180 / Math.PI
   updateDistanceVisuals(start, end)
-  emit('analysis-distance', {
+  emit('analysis-distance', measurementAssistant.annotate({
     id: createMeasurementId(),
     distance: start.distanceTo(end),
     start: { x: start.x, y: start.y, z: start.z },
@@ -1307,7 +1269,7 @@ function completeDistanceSelection(end: THREE.Vector3) {
     horizontalDistance,
     verticalDistance,
     slopeDegrees,
-  })
+  }, 'distance'))
   if (analysisVisualGroup) archivedAnalysisGroups.push(analysisVisualGroup)
   analysisVisualGroup = null
   analysisAnchorPoint = null
@@ -1326,7 +1288,7 @@ function commitAnalysisPoint(hitPoint: THREE.Vector3) {
     marker.visible = true
     scaleMeasurementMarker(marker)
     group.add(marker)
-    emit('analysis-point', { id: createMeasurementId(), x: hitPoint.x, y: hitPoint.y, z: hitPoint.z })
+    emit('analysis-point', measurementAssistant.annotate({ id: createMeasurementId(), x: hitPoint.x, y: hitPoint.y, z: hitPoint.z }, 'locate'))
     archivedAnalysisGroups.push(group)
     analysisVisualGroup = null
     return
@@ -1364,7 +1326,7 @@ function handleAnalysisPointerDown(event: PointerEvent) {
 
 function handleAnalysisPointerMove(event: PointerEvent) {
   if (props.analysisMode === 'none' || event.buttons !== 0) return
-  const hitPoint = pickAnalysisPoint(event)
+  const hitPoint = measurementAssistant.hover(event)
   if (!hitPoint) return
   if (props.analysisMode === 'distance' && analysisAnchorPoint) updateDistanceVisuals(analysisAnchorPoint, hitPoint, true)
   if (props.analysisMode === 'area' && analysisAreaPoints.length) updateAreaVisuals(analysisAreaPoints, hitPoint)
@@ -1386,11 +1348,12 @@ function handleAnalysisPointerUp(event: PointerEvent) {
   analysisPointerDown = null
   const rebarDown = rebarPointerDown
   rebarPointerDown = null
-  if (rebarDown && Math.hypot(event.clientX - rebarDown.x, event.clientY - rebarDown.y) <= 6 && pickRebarIntersection(event)) return
+  if (props.analysisMode === 'none' && rebarDown && Math.hypot(event.clientX - rebarDown.x, event.clientY - rebarDown.y) <= 6 && pickRebarIntersection(event)) return
   if (!pointerDown || props.analysisMode === 'none') return
   if (Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 6) return
+  if (props.analysisMode === 'geometry') { measurementAssistant.commit(event); return }
   const hitPoint = pickAnalysisPoint(event)
-  if (hitPoint) commitAnalysisPoint(hitPoint)
+  if (hitPoint) { commitAnalysisPoint(hitPoint); measurementAssistant.refresh() }
 }
 
 function pickRebarIntersection(event: PointerEvent) {
@@ -1437,6 +1400,8 @@ function pickC2MDeviation(event: PointerEvent) {
 }
 
 function handleAnalysisKeydown(event: KeyboardEvent) {
+  if ((event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true]')) return
+  if (event.key === 'Backspace' && props.analysisMode !== 'none') { event.preventDefault(); measurementAssistant.undo() }
   if (event.key === 'Enter' && props.analysisMode === 'area') completeAreaSelection()
   if (event.key === 'Escape') {
     cancelActiveAnalysis()
@@ -1463,6 +1428,8 @@ function cancelActiveAnalysis() {
 // 资源加载：BIM / 点云 / C2M
 // ---------------------------
 function cleanCurrentSceneModels() {
+  sectionBox?.clear()
+  sectionContentBounds = null
   if (gridHelper) gridHelper.visible = false
   clearBimRemesh()
   disposeRebarOverlay(rebarOverlay)
@@ -1647,6 +1614,7 @@ async function loadPointcloudModel(assetId: number, expectedToken: number) {
     ) return
     attachPointcloudBatchAttributes(tileScene)
     applyPointcloudMaterial(tileScene)
+    if (sectionEnabled) syncClippingToMaterials()
     applyPointcloudSourceVisibility()
     if (loadLifecycle.markModelReady()) {
       loaded.value = true
@@ -2573,6 +2541,7 @@ function initViewer() {
   renderer.domElement.addEventListener('pointerdown', handleAnalysisPointerDown)
   renderer.domElement.addEventListener('pointermove', handleAnalysisPointerMove)
   renderer.domElement.addEventListener('pointerup', handleAnalysisPointerUp)
+  renderer.domElement.addEventListener('pointerleave', leaveMeasurementViewport)
   renderer.domElement.addEventListener('contextmenu', restoreMeasurementAt)
   window.addEventListener('keydown', handleAnalysisKeydown)
 
@@ -2611,12 +2580,17 @@ function initViewer() {
 }
 
 function cleanup() {
-  stopRenderLoop()
+  measurementAssistant.dispose()
   resizeObserver?.disconnect()
   cleanCurrentSceneModels()
 
   edlPipeline?.dispose()
   edlPipeline = null
+  sectionBox?.dispose()
+  sectionBox = null
+  // Clearing/cancelling a section publishes its last state and can request a
+  // frame. Stop after these callbacks so unmounted previews cannot restart it.
+  stopRenderLoop()
   controls?.dispose()
   gridHelper?.dispose()
   gridHelper = null
@@ -2627,6 +2601,7 @@ function cleanup() {
     renderer.domElement.removeEventListener('pointerdown', handleAnalysisPointerDown)
     renderer.domElement.removeEventListener('pointermove', handleAnalysisPointerMove)
     renderer.domElement.removeEventListener('pointerup', handleAnalysisPointerUp)
+    renderer.domElement.removeEventListener('pointerleave', leaveMeasurementViewport)
     renderer.domElement.removeEventListener('contextmenu', restoreMeasurementAt)
     renderer.dispose()
     renderer.domElement.remove()
@@ -3116,6 +3091,8 @@ watch(
 watch(
   () => [props.assetId, props.bimAssetId, props.scanAssetId, props.pointcloudAssetId, props.type] as const,
   () => {
+    measurementAssistant.clearFrame()
+    resetMeasurementSession()
     if (isMountedReady) reload()
   },
 )
@@ -3201,6 +3178,7 @@ watch(
 onMounted(() => {
   isMountedReady = true
   initViewer()
+  measurementAssistant.setMode(props.analysisMode)
   reload()
 })
 
@@ -3212,7 +3190,17 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="unified-viewer-3d">
+    <div v-if="sectionActive" class="section-box-status" role="status">
+      <span>{{ sectionFeedback || '剖切框 · 拖面调整范围，拖边旋转 · Shift 选择背面' }}</span>
+      <button type="button" aria-label="重新贴合模型" @click="resetSectionBox">重置剖切框</button>
+    </div>
     <div ref="viewportEl" class="unified-viewer-viewport" />
+    <MeasurementAssistPanel ref="measurementAssistPanel" :state="measurementAssistState"
+      @settings="measurementAssistant.setSettings($event)" @tool="measurementAssistant.setTool($event)"
+      @undo="measurementAssistant.undo()" @reset="resetMeasurementSession"
+      @flip="measurementAssistant.flip()" @face-on="measurementAssistant.faceOn()"
+      @restore-view="measurementAssistant.restoreView()" @clear-frame="measurementAssistant.clearFrame()"
+      @coordinates="measurementAssistant.coordinates($event)" />
 
     <div v-if="rebarIntersectionPick" class="rebar-intersection-popover" role="status">
       <strong>交点 {{ rebarIntersectionPick.id }}</strong>

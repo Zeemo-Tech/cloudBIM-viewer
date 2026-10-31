@@ -1,0 +1,103 @@
+{
+  "sourceRows": 3900373,
+  "scanAssetId": 5,
+  "bimAssetId": 7,
+  "branch": "dev-hong",
+  "baselineVersion": "1498fc61f3195f01ab74b16c",
+  "currentVersion": "768e44bbbcd504bd6153d412",
+  "maximumSavedTransformDifference": 6.938893903907228e-18,
+  "transformComparison": "not byte-identical; 6.94e-18 translation difference; mapped steel geometry agrees within 2.23e-16 m",
+  "historicalModelFingerprintsEqual": false,
+  "fingerprintCaution": "Historic model/design fingerprints differ. Compare actual transformed unit geometry; isolate causal test on identical CURRENT inputs.",
+  "artifactChecks": [
+    {
+      "version": "1498fc61f3195f01ab74b16c",
+      "file": "control-net.json",
+      "manifestHashMatches": true
+    },
+    {
+      "version": "1498fc61f3195f01ab74b16c",
+      "file": "instance-map.json",
+      "manifestHashMatches": true
+    },
+    {
+      "version": "768e44bbbcd504bd6153d412",
+      "file": "control-net.json",
+      "manifestHashMatches": true
+    },
+    {
+      "version": "768e44bbbcd504bd6153d412",
+      "file": "instance-map.json",
+      "manifestHashMatches": true
+    }
+  ],
+  "history": [
+    {
+      "version": "1498fc61f3195f01ab74b16c",
+      "seconds": 27.276667473000998,
+      "steel": 1836747,
+      "algorithm": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v24",
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00"
+    },
+    {
+      "version": "7bfbbdec23af118d631a0022",
+      "seconds": 67.39245803200174,
+      "steel": 1819160,
+      "algorithm": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00"
+    },
+    {
+      "version": "b63db1d252c43e95cac82e81",
+      "seconds": 67.16909002501052,
+      "steel": 1818971,
+      "algorithm": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00"
+    },
+    {
+      "version": "0907583488bc00e82d943f8d",
+      "seconds": 65.37209877697751,
+      "steel": 1818971,
+      "algorithm": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00"
+    },
+    {
+      "version": "a2a6bb145091e1ce35e5c693",
+      "seconds": 67.25977539399173,
+      "steel": 1818971,
+      "algorithm": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00"
+    },
+    {
+      "version": "768e44bbbcd504bd6153d412",
+      "seconds": 73.14963329397142,
+      "steel": 1818971,
+      "algorithm": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+      "sourceSha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00"
+    }
+  ],
+  "validation": {
+    "currentReplayPublishedClassDifferences": 0,
+    "currentReplayPublishedInstanceDifferences": 0,
+    "currentReplayPublishedSceneDifferences": 0,
+    "currentFixedTailProbe": "FAIL expected; 14476 of 14476 become unknown",
+    "withoutExtraBentFixedTailProbe": "PASS; 14476 of 14476 retain owner 9"
+  },
+  "mutationScope": "Added audit documentation, figures, and isolated .cloudbim artifacts only; no algorithm, service lifecycle, database/latest, source, or saved-alignment mutation",
+  "agentMission": {
+    "name": "version_audit",
+    "role": "read-only version history and acceptance coverage",
+    "delivered": true,
+    "accepted": true,
+    "backgroundProcesses": false,
+    "terminalState": "done",
+    "closure": "no native close tool; release unconfirmed"
+  },
+  "scripts": {
+    "assemble_evidence.py": "56503550005babc635f01f7dfa7b4d42a7d0b0f9f57eee5647f4f21becfc32a1",
+    "plot_audit.py": "3bbd3aa34fd0b44ff9e678a0d0ef4d31d077880e70514467dc31f85c5372a976",
+    "regression_probe.py": "be6486690222a1e3ee9fbf6f82943984cc33dcb658746d01c4c5484cdc02a785",
+    "audit_surface.py": "39b4247fc022967e2b16214b4538eb8be51d8e577985be01aaa931818ceb0f26",
+    "audit_rows.py": "55409b3786371b8af1e7851efb3b2f4def21b0dde1860ab5803285e60629a3eb",
+    "replay.py": "999b914bedebbc7448f7dddf8ff1da7f0dbdae3ba94f1baf679875dee36485d6"
+  }
+}

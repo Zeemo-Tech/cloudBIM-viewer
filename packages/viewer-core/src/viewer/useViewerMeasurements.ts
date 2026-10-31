@@ -18,6 +18,7 @@ export interface UseViewerMeasurementsOptions {
   toStoredPayload?: (payload: unknown) => unknown
   /** 持久化坐标 → 当前显示坐标。 */
   toDisplayPayload?: (payload: unknown) => unknown
+  contextKey?: () => string
 }
 
 /**
@@ -151,6 +152,8 @@ export function useViewerMeasurements(options: UseViewerMeasurementsOptions) {
       const response = await listMeasurements(assetId)
       if (token !== measurementLoadToken) return
       response.data.forEach((record) => {
+        const context = (record.payload as AnalysisPoint | undefined)?.measurement?.contextKey
+        if (context && options.contextKey && context !== options.contextKey()) return
         const displayPayload = options.toDisplayPayload ? options.toDisplayPayload(record.payload) : record.payload
         const payload = displayPayload && typeof displayPayload === 'object'
           ? { ...(displayPayload as Record<string, unknown>) }

@@ -230,6 +230,10 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
             if any(b.get('productType') == 'IfcReinforcingBar' for b in inputs.inventory['bars']):
                 scene = run('sceneGeometry', load_scene_geometry, ifc, model, transform,
                             workers=min(8, workers), cache_directory=design_cache)
+                # A pure rebar IFC has no non-rebar scene to classify. Retain
+                # the control-net path rather than inventing fixture evidence.
+                if not scene['objects']:
+                    scene = None
             inventory = inputs.inventory
             scene_report = None
             with threadpool_limits(limits=1):
@@ -262,9 +266,9 @@ def build_denoise(source, ifc, model, transform, destination, k=32):
                 scene_report.update(sourceSha256=digest, pointCount=len(positions),
                                     scanToBim=list(transform), sourceRowContract='source-labels.npz row i equals source LAS record i')
                 atomic_json(destination/'scene-classification.json', scene_report)
-                np.savez_compressed(destination/'source-labels.npz',
-                    classes=stages.context.complete_class, instances=stages.context.complete_instance,
-                    sceneInstances=arrays['scene_instance'])
+            np.savez_compressed(destination/'source-labels.npz',
+                classes=stages.context.complete_class, instances=stages.context.complete_instance,
+                sceneInstances=arrays.get('scene_instance', np.zeros(len(positions), dtype=np.uint32)))
             control_hash = source_hash(destination/'control-net.json')
             instances_hash = source_hash(destination/'instance-map.json')
             timings['exportArtifacts'] = time.perf_counter()-export_started

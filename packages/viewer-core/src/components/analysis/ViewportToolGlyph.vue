@@ -12,6 +12,7 @@ type ViewportToolGlyphName =
   | 'pointCloud'
   | 'solidModel'
   | 'clipping'
+  | 'freeTransform'
 
 withDefaults(defineProps<{
   name: ViewportToolGlyphName
@@ -74,6 +75,10 @@ withDefaults(defineProps<{
       <path d="M3.5 4.5h5.5v7H3.5z" fill="currentColor" opacity="0.22" />
       <path d="M3.5 4.5h5.5v7H3.5zM9 3.5v9" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round" stroke-linecap="round" />
       <path d="M9.8 4.8h3.2v2.4M9.8 8.8h3.2v2.4M10.2 4.5v7M13.4 4.5v7" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-dasharray="1.5 1.3" />
+    </g>
+    <g v-else-if="name === 'freeTransform'">
+      <path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" />
+      <path d="M8 3l-1.2 1.4h2.4zM8 13l-1.2-1.4h2.4zM3.5 8l1.4-1.2v2.4zM12.5 8l-1.4-1.2v2.4z" fill="currentColor" />
     </g>
     <path v-if="hidden" d="M3 13L13 3" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
   </svg>

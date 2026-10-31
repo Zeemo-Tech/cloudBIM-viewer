@@ -37,6 +37,7 @@ function renderFixture() {
     edlPipeline: null, edlEnabled: ref(true), isPerspectiveCamera: () => true,
     pointcloudLoadLifecycle: { allowEdl: false },
     transformHandleInteraction: null,
+    measurementAssistPanel: ref(null),
     runWithSuppressedConsoleAssert: callback => callback(), applyTilesErrorTarget: noop,
     updateTilesetResolution: noop, syncDenoisePreviewTransform: noop, syncBoundsHelpers: noop,
     syncAnalysisLineResolutions: noop, syncMeasurementBadges: noop, syncPointcloudCameraPose: noop,
@@ -155,11 +156,12 @@ test('startup requests geometry and saved pose without waiting for remesh status
   let releaseMesh
   const pendingMesh = new Promise(resolve => { releaseMesh = resolve })
   const startup = runInNewContext(code, {
-    window: { addEventListener: noop }, onAnalysisKeydown: noop, cancelInspectionPointerGesture: noop,
+    window: { addEventListener: noop }, document: { addEventListener: noop }, onAnalysisKeydown: noop, interruptRebarInspection: noop,
     syncPositionStepPreset: noop, syncRotationStepPreset: noop,
     refreshMeshStatus: () => { calls.push('mesh'); return pendingMesh },
     initScene: async () => {}, preloadFromRoute: async () => { calls.push('geometry') },
     loadLatestDenoise: async () => { calls.push('denoise') },
+    loadStoredMeasurements: async () => { calls.push('measurements') },
     loadLatestC2M: async () => { calls.push('c2m') },
     fetchAndLogSavedAlignmentIfExists: async () => { calls.push('pose') }, workflowRouteReady: ref(false),
   })

@@ -83,7 +83,7 @@ export class NavigationOrbitControls extends OrbitControls {
   }
 
   override dispose() {
-    this.domElement?.removeEventListener('wheel', this.navigateNearTarget)
+    this.domElement?.removeEventListener('wheel', this.navigateNearTarget as EventListener)
     this.domElement?.removeEventListener('pointerdown', this.prepareNavigation)
     super.dispose()
   }

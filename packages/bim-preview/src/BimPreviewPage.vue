@@ -47,7 +47,7 @@ const {
   handleAnalysisArea,
   loadMeasurements,
   resetAnalysisState,
-} = useViewerMeasurements({ assetId, panelRef: bimPanelRef })
+} = useViewerMeasurements({ assetId, panelRef: bimPanelRef, contextKey: () => `preview:bim:${assetId.value ?? 0}` })
 
 const bimRemeshReady = computed(() =>
   bimRemeshStatus.value?.status === 'succeeded' &&
@@ -356,7 +356,7 @@ watch(
               <span>启用剖切</span>
               <el-switch v-model="bimControls.sectionEnabled" aria-label="启用剖切" />
             </label>
-            <p class="section-note">开启后拖拽模型外侧的 6 个方向箭头，调整剖切范围。</p>
+            <p class="section-note">拖动面或箭头调整范围，拖动边线旋转；按 Esc 取消本次拖动。</p>
           </section>
           <section class="tool-section" aria-labelledby="scene-heading">
             <h3 id="scene-heading">辅助显示</h3>

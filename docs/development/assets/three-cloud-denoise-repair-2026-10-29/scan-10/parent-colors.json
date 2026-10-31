@@ -1,0 +1,792 @@
+{
+  "1CJr9uqYP9cwEhmNPo8y0a": {
+    "code": "P-ecd24",
+    "color": "#f85aa1",
+    "name": "No.1 transverse bottom bar 01, Ø8, schematic",
+    "designBarIds": [
+      "1CJr9uqYP9cwEhmNPo8y0a:representation0/item0:48"
+    ],
+    "baselineInstances": [
+      1
+    ],
+    "newInstances": [
+      1
+    ]
+  },
+  "28n3aZacLCCf0pYI8g3ctT": {
+    "code": "P-59a6a",
+    "color": "#68f376",
+    "name": "No.1 transverse bottom bar 02, Ø8, schematic",
+    "designBarIds": [
+      "28n3aZacLCCf0pYI8g3ctT:representation0/item0:65"
+    ],
+    "baselineInstances": [
+      2
+    ],
+    "newInstances": [
+      2
+    ]
+  },
+  "2A9KJ1X6T1SfSm6ajgu__w": {
+    "code": "P-4fea3",
+    "color": "#83f173",
+    "name": "No.1 transverse bottom bar 03, Ø8, schematic",
+    "designBarIds": [
+      "2A9KJ1X6T1SfSm6ajgu__w:representation0/item0:82"
+    ],
+    "baselineInstances": [
+      3
+    ],
+    "newInstances": [
+      3
+    ]
+  },
+  "1SKREThHzE8RsCiPQDE59I": {
+    "code": "P-8d986",
+    "color": "#61c9fa",
+    "name": "No.1 transverse bottom bar 04, Ø8, schematic",
+    "designBarIds": [
+      "1SKREThHzE8RsCiPQDE59I:representation0/item0:99"
+    ],
+    "baselineInstances": [
+      4
+    ],
+    "newInstances": [
+      4
+    ]
+  },
+  "3W4x4rV2v4reB5Nnn5GG8L": {
+    "code": "P-cbf06",
+    "color": "#cb45f1",
+    "name": "No.1 transverse bottom bar 05, Ø8, schematic",
+    "designBarIds": [
+      "3W4x4rV2v4reB5Nnn5GG8L:representation0/item0:116"
+    ],
+    "baselineInstances": [
+      5
+    ],
+    "newInstances": [
+      5
+    ]
+  },
+  "0Qo$apdBv1lBjexmjiY81M": {
+    "code": "P-7482c",
+    "color": "#40efc0",
+    "name": "No.1 transverse bottom bar 06, Ø8, schematic",
+    "designBarIds": [
+      "0Qo$apdBv1lBjexmjiY81M:representation0/item0:133"
+    ],
+    "baselineInstances": [
+      6
+    ],
+    "newInstances": [
+      6
+    ]
+  },
+  "2A_cbG_tL3L8OqywJKRO95": {
+    "code": "P-79bc5",
+    "color": "#45fde2",
+    "name": "No.1 transverse bottom bar 07, Ø8, schematic",
+    "designBarIds": [
+      "2A_cbG_tL3L8OqywJKRO95:representation0/item0:150"
+    ],
+    "baselineInstances": [
+      7
+    ],
+    "newInstances": [
+      7
+    ]
+  },
+  "1YQ9mW0mn3jQxig9vkvsQ3": {
+    "code": "P-46af8",
+    "color": "#9ffe6d",
+    "name": "No.1 transverse bottom bar 08, Ø8, schematic",
+    "designBarIds": [
+      "1YQ9mW0mn3jQxig9vkvsQ3:representation0/item0:167"
+    ],
+    "baselineInstances": [
+      8
+    ],
+    "newInstances": [
+      8
+    ]
+  },
+  "1pI7O1LrXACeYchfZW$7pg": {
+    "code": "P-0f76e",
+    "color": "#ec8246",
+    "name": "No.1 transverse bottom bar 09, Ø8, schematic",
+    "designBarIds": [
+      "1pI7O1LrXACeYchfZW$7pg:representation0/item0:184"
+    ],
+    "baselineInstances": [
+      9
+    ],
+    "newInstances": [
+      9
+    ]
+  },
+  "2MrTff7oLE7QH5W_pT9fU$": {
+    "code": "P-823f5",
+    "color": "#4ff3fc",
+    "name": "No.1 transverse bottom bar 10, Ø8, schematic",
+    "designBarIds": [
+      "2MrTff7oLE7QH5W_pT9fU$:representation0/item0:201"
+    ],
+    "baselineInstances": [
+      10
+    ],
+    "newInstances": [
+      10
+    ]
+  },
+  "0wc3EyuUX0HukbTMC7$czu": {
+    "code": "P-e9ea0",
+    "color": "#ef4fa2",
+    "name": "No.1 transverse bottom bar 11, Ø8, schematic",
+    "designBarIds": [
+      "0wc3EyuUX0HukbTMC7$czu:representation0/item0:218"
+    ],
+    "baselineInstances": [
+      11
+    ],
+    "newInstances": [
+      11
+    ]
+  },
+  "2gk9Rc2qjBiOhgVz0tn4ED": {
+    "code": "P-007c1",
+    "color": "#f16c6a",
+    "name": "No.1 transverse bottom bar 12, Ø8, schematic",
+    "designBarIds": [
+      "2gk9Rc2qjBiOhgVz0tn4ED:representation0/item0:235"
+    ],
+    "baselineInstances": [
+      12
+    ],
+    "newInstances": [
+      12
+    ]
+  },
+  "0jxsQxBWTCevhwCjkDWkLx": {
+    "code": "P-b6c1b",
+    "color": "#9f79fe",
+    "name": "No.1 transverse bottom bar 13, Ø8, schematic",
+    "designBarIds": [
+      "0jxsQxBWTCevhwCjkDWkLx:representation0/item0:252"
+    ],
+    "baselineInstances": [
+      13
+    ],
+    "newInstances": [
+      13
+    ]
+  },
+  "1oT6$1Bw13l982WKZCoU6V": {
+    "code": "P-4a925",
+    "color": "#8bec6a",
+    "name": "No.2 longitudinal bottom bar 01, Ø8, schematic",
+    "designBarIds": [
+      "1oT6$1Bw13l982WKZCoU6V:representation0/item0:269"
+    ],
+    "baselineInstances": [
+      14
+    ],
+    "newInstances": [
+      14
+    ]
+  },
+  "1YmpKRcdT5YvtTyBml9L92": {
+    "code": "P-e3739",
+    "color": "#fb6fcd",
+    "name": "No.2 longitudinal bottom bar 02, Ø8, schematic",
+    "designBarIds": [
+      "1YmpKRcdT5YvtTyBml9L92:representation0/item0:286"
+    ],
+    "baselineInstances": [
+      15
+    ],
+    "newInstances": [
+      15
+    ]
+  },
+  "2j9od1H$10axjBt2zaza6n": {
+    "code": "P-46488",
+    "color": "#a1fc70",
+    "name": "No.2 longitudinal bottom bar 03, Ø8, schematic",
+    "designBarIds": [
+      "2j9od1H$10axjBt2zaza6n:representation0/item0:303"
+    ],
+    "baselineInstances": [
+      16
+    ],
+    "newInstances": [
+      16
+    ]
+  },
+  "2syU29EnLB_fGKnKJSwqPc": {
+    "code": "P-5e93c",
+    "color": "#68e984",
+    "name": "No.2 longitudinal bottom bar 04, Ø8, schematic",
+    "designBarIds": [
+      "2syU29EnLB_fGKnKJSwqPc:representation0/item0:320"
+    ],
+    "baselineInstances": [
+      17
+    ],
+    "newInstances": [
+      17
+    ]
+  },
+  "3KKirMvvb13gRG1M_4hyih": {
+    "code": "P-2aaa3",
+    "color": "#eded3e",
+    "name": "No.2 longitudinal bottom bar 05, Ø8, schematic",
+    "designBarIds": [
+      "3KKirMvvb13gRG1M_4hyih:representation0/item0:337"
+    ],
+    "baselineInstances": [
+      18
+    ],
+    "newInstances": [
+      18
+    ]
+  },
+  "3N5lwp0Rv64f6IhYckfooc": {
+    "code": "P-20419",
+    "color": "#ecca61",
+    "name": "No.2 longitudinal bottom bar 06, Ø8, schematic",
+    "designBarIds": [
+      "3N5lwp0Rv64f6IhYckfooc:representation0/item0:354"
+    ],
+    "baselineInstances": [
+      19
+    ],
+    "newInstances": [
+      19
+    ]
+  },
+  "0WGWB42eD2BOscYodhidkV": {
+    "code": "P-e9b0d",
+    "color": "#e959a4",
+    "name": "No.2 longitudinal bottom bar 07, Ø8, schematic",
+    "designBarIds": [
+      "0WGWB42eD2BOscYodhidkV:representation0/item0:371"
+    ],
+    "baselineInstances": [
+      20
+    ],
+    "newInstances": [
+      20
+    ]
+  },
+  "1mxlNTgv99Nxetb5NiDxBP": {
+    "code": "P-1cbe8",
+    "color": "#ecb951",
+    "name": "No.2 longitudinal bottom bar 08, Ø8, schematic",
+    "designBarIds": [
+      "1mxlNTgv99Nxetb5NiDxBP:representation0/item0:388"
+    ],
+    "baselineInstances": [
+      21
+    ],
+    "newInstances": [
+      21
+    ]
+  },
+  "2wrMqeQnz6AeA_LY$_ZWn2": {
+    "code": "P-9a6bc",
+    "color": "#6698e8",
+    "name": "No.2 longitudinal bottom bar 09, Ø8, schematic",
+    "designBarIds": [
+      "2wrMqeQnz6AeA_LY$_ZWn2:representation0/item0:405"
+    ],
+    "baselineInstances": [
+      22
+    ],
+    "newInstances": [
+      22
+    ]
+  },
+  "1xqI$i6pDBfPOsPnoPcIiO": {
+    "code": "P-a997c",
+    "color": "#6a6ef6",
+    "name": "No.2 longitudinal bottom bar 10, Ø8, schematic",
+    "designBarIds": [
+      "1xqI$i6pDBfPOsPnoPcIiO:representation0/item0:422"
+    ],
+    "baselineInstances": [
+      23
+    ],
+    "newInstances": [
+      23
+    ]
+  },
+  "1PB0f7lCr15xyTiNYbqSRE": {
+    "code": "P-e204b",
+    "color": "#ff57cd",
+    "name": "No.2 longitudinal bottom bar 11, Ø8, schematic",
+    "designBarIds": [
+      "1PB0f7lCr15xyTiNYbqSRE:representation0/item0:439"
+    ],
+    "baselineInstances": [
+      24
+    ],
+    "newInstances": [
+      24
+    ]
+  },
+  "2mVjcS$NX0yeazgL8mwgn7": {
+    "code": "P-8b772",
+    "color": "#4bcdfd",
+    "name": "No.2 longitudinal bottom bar 12, Ø8, schematic",
+    "designBarIds": [
+      "2mVjcS$NX0yeazgL8mwgn7:representation0/item0:456"
+    ],
+    "baselineInstances": [
+      25
+    ],
+    "newInstances": [
+      25
+    ]
+  },
+  "1tbEeunRH9xef_gzZtNh8k": {
+    "code": "P-b5cae",
+    "color": "#8a64f6",
+    "name": "No.4 A70 steel lattice truss 01",
+    "designBarIds": [
+      "1tbEeunRH9xef_gzZtNh8k:representation0/item0:473",
+      "1tbEeunRH9xef_gzZtNh8k:representation0/item1:477",
+      "1tbEeunRH9xef_gzZtNh8k:representation0/item2:502",
+      "1tbEeunRH9xef_gzZtNh8k:representation0/item3:506",
+      "1tbEeunRH9xef_gzZtNh8k:representation0/item4:531"
+    ],
+    "baselineInstances": [
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72
+    ],
+    "newInstances": [
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72
+    ]
+  },
+  "1UyGut7AzEJAR5CoBD47jW": {
+    "code": "P-b7eea",
+    "color": "#9c72f8",
+    "name": "No.4 A70 steel lattice truss 02",
+    "designBarIds": [
+      "1UyGut7AzEJAR5CoBD47jW:representation0/item0:548",
+      "1UyGut7AzEJAR5CoBD47jW:representation0/item1:552",
+      "1UyGut7AzEJAR5CoBD47jW:representation0/item2:577",
+      "1UyGut7AzEJAR5CoBD47jW:representation0/item3:581",
+      "1UyGut7AzEJAR5CoBD47jW:representation0/item4:606"
+    ],
+    "baselineInstances": [
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119
+    ],
+    "newInstances": [
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119
+    ]
+  },
+  "033aPbR0z7MR6PleSVsOq$": {
+    "code": "P-ca7b1",
+    "color": "#d253fd",
+    "name": "No.4 A70 steel lattice truss 03",
+    "designBarIds": [
+      "033aPbR0z7MR6PleSVsOq$:representation0/item0:623",
+      "033aPbR0z7MR6PleSVsOq$:representation0/item1:627",
+      "033aPbR0z7MR6PleSVsOq$:representation0/item2:652",
+      "033aPbR0z7MR6PleSVsOq$:representation0/item3:656",
+      "033aPbR0z7MR6PleSVsOq$:representation0/item4:681"
+    ],
+    "baselineInstances": [
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166
+    ],
+    "newInstances": [
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166
+    ]
+  },
+  "0w3CcNtFrCqxRo3TKsNbQ0": {
+    "code": "P-782a4",
+    "color": "#63ead2",
+    "name": "No.4 A70 steel lattice truss 04",
+    "designBarIds": [
+      "0w3CcNtFrCqxRo3TKsNbQ0:representation0/item0:698",
+      "0w3CcNtFrCqxRo3TKsNbQ0:representation0/item1:702",
+      "0w3CcNtFrCqxRo3TKsNbQ0:representation0/item2:727",
+      "0w3CcNtFrCqxRo3TKsNbQ0:representation0/item3:731",
+      "0w3CcNtFrCqxRo3TKsNbQ0:representation0/item4:756"
+    ],
+    "baselineInstances": [
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174,
+      175,
+      176,
+      177,
+      178,
+      179,
+      180,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210,
+      211,
+      212,
+      213
+    ],
+    "newInstances": [
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174,
+      175,
+      176,
+      177,
+      178,
+      179,
+      180,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210,
+      211,
+      212,
+      213
+    ]
+  }
+}

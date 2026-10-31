@@ -1,0 +1,664 @@
+{
+  "schema": "source-row-denoise-phone-album-v1",
+  "createdAt": "2026-10-29T12:05:27.170235+00:00",
+  "scanId": "5",
+  "comparisonIsSameResultDemo": false,
+  "name": "YB-1",
+  "source": {
+    "path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/preprocess/912d79094e68688290599732/cleaned.las",
+    "sha256": "8138101e5baab151572f976f11c1bc33bac8e76e26c40c8f3a476506e939af00",
+    "size": 163817908,
+    "mtimeNs": 1789218432884182651,
+    "pointFormat": 0,
+    "version": "1.2",
+    "scales": [
+      1.1667120338812294e-09,
+      4.5338431725638176e-10,
+      2.917035403853302e-11
+    ],
+    "offsets": [
+      4.306455694908849,
+      -1.7353610885502901,
+      0.06197251672325762
+    ],
+    "crs": "None",
+    "pointCount": 3900373,
+    "boundsM": [
+      [
+        1.9951574726692995,
+        -2.550475902097726,
+        0.011731672672900942
+      ],
+      [
+        6.52081188425593,
+        -0.9058134163739673,
+        0.12031322480032366
+      ]
+    ]
+  },
+  "coordinatePolicy": {
+    "frame": "original source LAS XYZ",
+    "units": "meters, matching mesh-service source-space contract; LAS CRS is recorded separately",
+    "savedAlignmentMatrixAsSupplied": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      2.220446049250313e-16,
+      -1,
+      0,
+      0,
+      1,
+      2.220446049250313e-16,
+      0,
+      0.0036891412734982865,
+      -0.007170554220676695,
+      -1.246452331549186e-05,
+      1
+    ],
+    "alignmentAppliedToPoints": false,
+    "alignmentExplanation": "The saved matrix is retained verbatim only. No BIM is overlaid, so no alignment/axis flip/unit conversion is applied. Camera projections are orthonormal and separately recorded.",
+    "geometryOperations": "orthographic projection/crop/depth ordering only; no smoothing, interpolation, point generation, coordinate edits, or re-registration"
+  },
+  "baseline": {
+    "resultDirectory": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/768e44bbbcd504bd6153d412",
+    "resultVersion": "768e44bbbcd504bd6153d412",
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+    "manifestSha256": "8e0b778d0f9ba562008f0d505ed4c5661286b63ab73d3fe2297dcb9bbcd5b1b4",
+    "instanceMapSha256": "67a7f97474f4e535a861e5a25ee0abf8d60abff1f0e395f968d870bf0ac7206b",
+    "coverage": "all-source-rows",
+    "labelArtifact": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/768e44bbbcd504bd6153d412/source-labels.npz",
+    "labelSha256": "e00687055aa9ec9f17fe760fdbbf3ef82dd12a89b34f169fe0c62d9a1e77d016",
+    "mapping": "source-labels.npz row i equals original LAS record i",
+    "labeledRows": 3900373,
+    "classCountsOnLabeledRows": {
+      "unknown": 2081373,
+      "table": 0,
+      "fixture": 0,
+      "steel": 1818971,
+      "noise": 29,
+      "embedded": 0,
+      "pipe": 0
+    }
+  },
+  "new": {
+    "resultDirectory": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/44f70eab06324411c835d262",
+    "resultVersion": "44f70eab06324411c835d262",
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v9+bim-embedded-extent-v2+execution-v4",
+    "manifestSha256": "43c5cd0d00c2982e964ba769f9d54c6fcd1ae3bdb02da107820899ec92a7553b",
+    "instanceMapSha256": "61379cb320062ee2da88a25a851a81c54a250905d1765bfb1395eb43912382da",
+    "coverage": "all-source-rows",
+    "labelArtifact": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/95b6b41c5857d9eb3407b155/denoise/7/44f70eab06324411c835d262/source-labels.npz",
+    "labelSha256": "42d7be9cb434547388bb6d0398844d812ea32d4ab060c7a97dbd340f8ad0d416",
+    "mapping": "source-labels.npz row i equals original LAS record i",
+    "labeledRows": 3900373,
+    "classCountsOnLabeledRows": {
+      "unknown": 2063591,
+      "table": 0,
+      "fixture": 0,
+      "steel": 1836753,
+      "noise": 29,
+      "embedded": 0,
+      "pipe": 0
+    }
+  },
+  "samples": {
+    "overview": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "83e44f2b869b1c9b85b31d415293429ea09cff2f5f05058f803b2b0164c84ae4"
+    },
+    "comparison": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "83e44f2b869b1c9b85b31d415293429ea09cff2f5f05058f803b2b0164c84ae4"
+    },
+    "steel_only": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "a06093eafbd1db7cf0cf3675a923e5f8a94aadb48b37a1ab59fa2ab4a7c35a97"
+    },
+    "local1_all_source": {
+      "count": 252777,
+      "sha256Int64LittleEndian": "c141f434a879d67e815966774c09676124ee0397dff29c004377e127beb1b777"
+    },
+    "local1_comparison": {
+      "count": 252777,
+      "sha256Int64LittleEndian": "c141f434a879d67e815966774c09676124ee0397dff29c004377e127beb1b777"
+    },
+    "local2_all_source": {
+      "count": 120645,
+      "sha256Int64LittleEndian": "a86d809d5352a311f9d660da8a7bd4d0d81dad08a8b40188450d9d9949731ce1"
+    },
+    "local2_comparison": {
+      "count": 120645,
+      "sha256Int64LittleEndian": "a86d809d5352a311f9d660da8a7bd4d0d81dad08a8b40188450d9d9949731ce1"
+    }
+  },
+  "sampling": {
+    "seed": null,
+    "randomSampling": false,
+    "overviewMethod": "linspace indices over original source row order",
+    "comparisonMethod": "linspace subset of baseline verified labeled source rows, identically used in both panels",
+    "steelMethod": "linspace subset of new class=3 original source rows; all nonsteel excluded only in explicitly titled steel-only figure",
+    "maxOverviewPoints": 240000,
+    "sourceRowsFile": "source-rows.npz",
+    "sourceRowsFileSha256": "5ae2522de73dd6332c7433b58ce95a233f132c3a76d11019777131317e86633f"
+  },
+  "localCrops": [
+    {
+      "selection": "predeclared baseline instance axis, independent of repaired classification",
+      "baselineInstance": 9,
+      "baselineDesignBarId": "1b9YNqdvPA1AzGxyF9pv5f:representation0/item0:343",
+      "baselineChordLengthM": 4.121193012142276,
+      "sRangeM": [
+        3.0,
+        4.0
+      ],
+      "tRangeM": [
+        -0.15,
+        0.15
+      ],
+      "depthRangeM": [
+        -0.11,
+        0.11
+      ],
+      "axisReference": "baseline fitted centerline endpoint chord used only as camera/crop, never drawn as measured points",
+      "originM": [
+        6.306102465745953,
+        -2.193514112164144,
+        0.037105496359348934
+      ],
+      "basis": [
+        [
+          -0.9999688145346111,
+          -0.006088677816558685,
+          -0.005029707813662544
+        ],
+        [
+          0.0060886007976502995,
+          -0.9999814638294283,
+          3.0624838056040956e-05
+        ],
+        [
+          -0.005029801046912691,
+          -2.579726240048803e-21,
+          0.9999873504707091
+        ]
+      ],
+      "allSourceRowsInCrop": 252777,
+      "commonLabeledRows": 252777,
+      "comparisonSampling": "all shared labeled rows in the crop; no subsampling"
+    },
+    {
+      "selection": "predeclared baseline instance axis, independent of repaired classification",
+      "baselineInstance": 9,
+      "baselineDesignBarId": "1b9YNqdvPA1AzGxyF9pv5f:representation0/item0:343",
+      "baselineChordLengthM": 4.121193012142276,
+      "sRangeM": [
+        3.82,
+        4.25
+      ],
+      "tRangeM": [
+        -0.16,
+        0.16
+      ],
+      "depthRangeM": [
+        -0.11,
+        0.11
+      ],
+      "axisReference": "baseline fitted centerline endpoint chord used only as camera/crop, never drawn as measured points",
+      "originM": [
+        6.306102465745953,
+        -2.193514112164144,
+        0.037105496359348934
+      ],
+      "basis": [
+        [
+          -0.9999688145346111,
+          -0.006088677816558685,
+          -0.005029707813662544
+        ],
+        [
+          0.0060886007976502995,
+          -0.9999814638294283,
+          3.0624838056040956e-05
+        ],
+        [
+          -0.005029801046912691,
+          -2.579726240048803e-21,
+          0.9999873504707091
+        ]
+      ],
+      "allSourceRowsInCrop": 120645,
+      "commonLabeledRows": 120645,
+      "comparisonSampling": "all shared labeled rows in the crop; no subsampling"
+    }
+  ],
+  "classContract": [
+    {
+      "id": 0,
+      "key": "unknown",
+      "nameZh": "未知 / 待判",
+      "color": "#A0A7B2"
+    },
+    {
+      "id": 1,
+      "key": "table",
+      "nameZh": "台面",
+      "color": "#BF986A"
+    },
+    {
+      "id": 2,
+      "key": "fixture",
+      "nameZh": "夹具",
+      "color": "#F2AA38"
+    },
+    {
+      "id": 3,
+      "key": "steel",
+      "nameZh": "钢筋",
+      "color": "#36C9F2"
+    },
+    {
+      "id": 4,
+      "key": "noise",
+      "nameZh": "显式噪声",
+      "color": "#F15B82"
+    },
+    {
+      "id": 5,
+      "key": "embedded",
+      "nameZh": "预埋件",
+      "color": "#39D6A3"
+    },
+    {
+      "id": 6,
+      "key": "pipe",
+      "nameZh": "管件",
+      "color": "#C397F8"
+    }
+  ],
+  "physicalParentColorPolicy": "SHA256(IFC GlobalId) -> fixed HSV color, same physical parent across matching units and result versions; close colors remain possible, use parent map/target counts",
+  "figures": [
+    {
+      "file": "01-semantic-top.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 338020,
+      "sha256": "fb72cde0042828cb7fde0fca9eac3fad78b80fa91ce8b3355aa4bb893530b41e",
+      "encoding": "RGB PNG, lossless",
+      "title": "YB-1 · 修复后整体语义",
+      "caption": "原坐标俯视 · 原始源点 3,900,373，等源行抽样 240,000 · 单位 m",
+      "sourceRows": 240000,
+      "rowsSha256": "83e44f2b869b1c9b85b31d415293429ea09cff2f5f05058f803b2b0164c84ae4",
+      "semanticCounts": {
+        "unknown": 126975,
+        "table": 0,
+        "fixture": 0,
+        "steel": 113024,
+        "noise": 1,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          1.8367595682637674,
+          6.679209788661462,
+          -2.6080390890980576,
+          -0.8482502293736357
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "steelOnly": false
+    },
+    {
+      "file": "02-semantic-oblique.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 222834,
+      "sha256": "dfaffbc797daae1f16fed45ff576f65b4085c4c6a723c6a8d2a2a4f3889709b6",
+      "encoding": "RGB PNG, lossless",
+      "title": "YB-1 · 修复后整体语义",
+      "caption": "斜视 · 原始源点 3,900,373，等源行抽样 240,000 · 单位 m",
+      "sourceRows": 240000,
+      "rowsSha256": "83e44f2b869b1c9b85b31d415293429ea09cff2f5f05058f803b2b0164c84ae4",
+      "semanticCounts": {
+        "unknown": 126975,
+        "table": 0,
+        "fixture": 0,
+        "steel": 113024,
+        "noise": 1,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "oblique",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            0.9510565162951536,
+            -0.14029077970429507,
+            0.27533615807315837
+          ],
+          [
+            0.30901699437494745,
+            0.43177062311338915,
+            -0.8473975608908427
+          ],
+          [
+            0.0,
+            0.8910065241883679,
+            0.4539904997395468
+          ]
+        ],
+        "projectedBoundsM": [
+          1.0207411868222644,
+          5.862557143283194,
+          -1.9595213984174933,
+          -0.6292095095368652
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "steelOnly": false
+    },
+    {
+      "file": "03-physical-parents.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 231103,
+      "sha256": "4c75b971bb8b529132d5173ab1607a6182ebc4694bd11fad579e4f376f8d5df6",
+      "encoding": "RGB PNG, lossless",
+      "title": "YB-1 · 钢筋物理实例",
+      "caption": "仅绘钢筋，按 IFC 物理父构件固定配色；弯钩 / 直段单元共享父构件颜色。",
+      "sourceRows": 240000,
+      "rowsSha256": "a06093eafbd1db7cf0cf3675a923e5f8a94aadb48b37a1ab59fa2ab4a7c35a97",
+      "semanticCounts": {
+        "unknown": 0,
+        "table": 0,
+        "fixture": 0,
+        "steel": 240000,
+        "noise": 0,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "oblique",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            0.9510565162951536,
+            -0.14029077970429507,
+            0.27533615807315837
+          ],
+          [
+            0.30901699437494745,
+            0.43177062311338915,
+            -0.8473975608908427
+          ],
+          [
+            0.0,
+            0.8910065241883679,
+            0.4539904997395468
+          ]
+        ],
+        "projectedBoundsM": [
+          1.2231862123565675,
+          5.773720478637814,
+          -1.8915346783908853,
+          -0.8209302360857633
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "steelOnly": true
+    },
+    {
+      "file": "04-before-after.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 640016,
+      "sha256": "a3a71b258956b82645c03d539b545e2698653c407ba1ae20d582c025007dc124",
+      "encoding": "RGB PNG, lossless",
+      "title": "YB-1 · 整体修复前后",
+      "caption": "相同源行 240,000 / 3,900,373 · 相同俯视范围 · 标签覆盖：全源",
+      "sourceRows": 240000,
+      "rowsSha256": "83e44f2b869b1c9b85b31d415293429ea09cff2f5f05058f803b2b0164c84ae4",
+      "baselineCounts": {
+        "unknown": 128026,
+        "table": 0,
+        "fixture": 0,
+        "steel": 111973,
+        "noise": 1,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 126975,
+        "table": 0,
+        "fixture": 0,
+        "steel": 113024,
+        "noise": 1,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          1.8367595682637674,
+          6.679209788661462,
+          -2.6080390890980576,
+          -0.8482502293736357
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "targetPhysicalParent": null
+    },
+    {
+      "file": "05-local-1.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 411877,
+      "sha256": "3c9120eb9d6c196c9e82477273b05886e13933b06e33e778a90684409aa12cf0",
+      "encoding": "RGB PNG, lossless",
+      "title": "YB-1 · 实例9：轴向3–4 m",
+      "caption": "裁剪内原源点 252,777，同源行对照 252,777 · 局部全标签行绘制 · 单位 m",
+      "sourceRows": 252777,
+      "rowsSha256": "c141f434a879d67e815966774c09676124ee0397dff29c004377e127beb1b777",
+      "baselineCounts": {
+        "unknown": 117929,
+        "table": 0,
+        "fixture": 0,
+        "steel": 134847,
+        "noise": 1,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 100077,
+        "table": 0,
+        "fixture": 0,
+        "steel": 152699,
+        "noise": 1,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-axis",
+        "type": "orthographic",
+        "originM": [
+          6.306102465745953,
+          -2.193514112164144,
+          0.037105496359348934
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            -0.9999688145346111,
+            -0.006088677816558685,
+            -0.005029707813662544
+          ],
+          [
+            0.0060886007976502995,
+            -0.9999814638294283,
+            3.0624838056040956e-05
+          ],
+          [
+            -0.005029801046912691,
+            -2.579726240048803e-21,
+            0.9999873504707091
+          ]
+        ],
+        "projectedBoundsM": [
+          3.0,
+          4.0,
+          -0.15,
+          0.15
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "targetPhysicalParent": "1b9YNqdvPA1AzGxyF9pv5f"
+    },
+    {
+      "file": "06-local-2.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 407282,
+      "sha256": "0c5db5a6cb349e97753400b81d770aa8fc836fc4de7aa492083b60a34b4d273a",
+      "encoding": "RGB PNG, lossless",
+      "title": "YB-1 · 实例9：轴向末端",
+      "caption": "裁剪内原源点 120,645，同源行对照 120,645 · 局部全标签行绘制 · 单位 m",
+      "sourceRows": 120645,
+      "rowsSha256": "a86d809d5352a311f9d660da8a7bd4d0d81dad08a8b40188450d9d9949731ce1",
+      "baselineCounts": {
+        "unknown": 99855,
+        "table": 0,
+        "fixture": 0,
+        "steel": 20790,
+        "noise": 0,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 94838,
+        "table": 0,
+        "fixture": 0,
+        "steel": 25807,
+        "noise": 0,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-axis",
+        "type": "orthographic",
+        "originM": [
+          6.306102465745953,
+          -2.193514112164144,
+          0.037105496359348934
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            -0.9999688145346111,
+            -0.006088677816558685,
+            -0.005029707813662544
+          ],
+          [
+            0.0060886007976502995,
+            -0.9999814638294283,
+            3.0624838056040956e-05
+          ],
+          [
+            -0.005029801046912691,
+            -2.579726240048803e-21,
+            0.9999873504707091
+          ]
+        ],
+        "projectedBoundsM": [
+          3.82,
+          4.25,
+          -0.16,
+          0.16
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "targetPhysicalParent": "1b9YNqdvPA1AzGxyF9pv5f"
+    }
+  ],
+  "runtimeSeconds": 6.111375365057029,
+  "runtime": {
+    "python": "3.11.15",
+    "numpy": "1.26.4",
+    "matplotlib": "3.9.3",
+    "laspy": "2.5.4"
+  },
+  "script": {
+    "path": "/home/hong/hong_project/cloudBIM-viewer/scripts/qa/render_denoise_comparison.py",
+    "sha256": "e84d736f90dcf3b98b95c3affa31cd62c1cf0b40e70ff906d39deb97fffac10a"
+  },
+  "interpretation": "A real-data rendering for visual inspection, not independent ground truth or proof that every colored point is correctly classified; unknown is retained and never relabeled noise for display."
+}

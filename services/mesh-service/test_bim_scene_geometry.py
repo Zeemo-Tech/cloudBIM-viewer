@@ -64,6 +64,33 @@ def fixture(folder, malformed=False):
 
 
 class SceneGeometryTests(unittest.TestCase):
+    def test_pure_rebar_model_has_an_empty_scene_not_a_coordinate_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, glb, _, _, _ = fixture(root)
+            model = ifcopenshell.open(str(path))
+            for product in model.by_type('IfcProduct'):
+                if not product.is_a('IfcReinforcingBar'):
+                    model.remove(product)
+            model.write(str(path))
+            for _ in range(2):
+                result = load_scene_geometry(path, glb, IDENTITY, cache_directory=root/'cache')
+                self.assertEqual(result['objects'], [])
+                self.assertEqual(result['diagnostics']['representedNonRebarProducts'], 0)
+                self.assertEqual(result['diagnostics']['coordinateValidation']['status'],
+                                 'not-applicable-no-scene-products')
+
+    def test_all_scene_parse_failures_are_not_treated_as_a_pure_rebar_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, glb, _, _, failed_guid = fixture(Path(directory), malformed=True)
+            model = ifcopenshell.open(str(path))
+            for product in model.by_type('IfcProduct'):
+                if not product.is_a('IfcReinforcingBar') and product.GlobalId != failed_guid:
+                    model.remove(product)
+            model.write(str(path))
+            with self.assertRaisesRegex(ValueError, 'coordinate validation failed'):
+                load_scene_geometry(path, glb, IDENTITY)
+
     def test_opening_subtraction_is_not_a_physical_glb_object(self):
         with tempfile.TemporaryDirectory() as directory:
             path, glb, _, rows, _ = fixture(Path(directory))

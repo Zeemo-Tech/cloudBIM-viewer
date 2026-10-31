@@ -1,0 +1,56 @@
+         2452622 function calls (2442973 primitive calls) in 9.840 seconds
+
+   Ordered by: cumulative time
+   List reduced from 883 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.133    0.133    9.841    9.841 rebar_comparison_baseline.py:196(compute_instance_comparison)
+       74    2.620    0.035    4.455    0.060 rebar_control_comparison.py:197(match)
+      417    2.202    0.005    2.867    0.007 rebar_control_comparison.py:45(_polyline_projection)
+        1    0.003    0.003    1.801    1.801 rebar_control_comparison.py:107(build_control_units)
+       89    0.059    0.001    1.797    0.020 rebar_control_comparison.py:122(add)
+       90    0.024    0.000    1.635    0.018 rebar_solid.py:15(__init__)
+3134/1424    0.004    0.000    1.287    0.001 caching.py:121(get_cached)
+       90    0.081    0.001    1.022    0.011 rebar_metrics.py:80(measure_bar)
+     3291    0.174    0.000    0.926    0.000 rebar_metrics.py:6(fit_section)
+       90    0.000    0.000    0.671    0.007 base.py:1840(fix_normals)
+       90    0.000    0.000    0.671    0.007 repair.py:143(fix_normals)
+     1541    0.001    0.000    0.667    0.000 einsumfunc.py:1009(einsum)
+     1541    0.666    0.000    0.666    0.000 {built-in method numpy.core._multiarray_umath.c_einsum}
+      180    0.000    0.000    0.636    0.004 base.py:662(volume)
+      180    0.001    0.000    0.634    0.004 base.py:2683(mass_properties)
+      180    0.572    0.003    0.581    0.003 triangles.py:214(mass_properties)
+    57282    0.538    0.000    0.538    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       90    0.000    0.000    0.514    0.006 repair.py:89(fix_inversion)
+    10279    0.075    0.000    0.424    0.000 linalg.py:2383(norm)
+      180    0.001    0.000    0.304    0.002 base.py:1595(is_watertight)
+     8775    0.013    0.000    0.270    0.000 function_base.py:3763(_ureduce)
+      181    0.000    0.000    0.251    0.001 arraysetops.py:766(isin)
+      181    0.046    0.000    0.250    0.001 arraysetops.py:524(in1d)
+     8400    0.005    0.000    0.243    0.000 function_base.py:3845(median)
+     7735    0.005    0.000    0.224    0.000 fromnumeric.py:53(_wrapfunc)
+     8400    0.031    0.000    0.222    0.000 function_base.py:3931(_median)
+     7338    0.195    0.000    0.195    0.000 {method 'ravel' of 'numpy.ndarray' objects}
+      450    0.185    0.000    0.185    0.000 {method 'argsort' of 'numpy.ndarray' objects}
+      180    0.053    0.000    0.161    0.001 graph.py:833(is_watertight)
+      270    0.035    0.000    0.158    0.001 grouping.py:547(group_rows)
+       90    0.000    0.000    0.157    0.002 repair.py:32(fix_winding)
+       90    0.000    0.000    0.156    0.002 base.py:484(vertex_normals)
+       90    0.000    0.000    0.156    0.002 base.py:1577(is_winding_consistent)
+        1    0.002    0.002    0.154    0.154 core.py:67(load_analysis_mesh)
+     1947    0.154    0.000    0.154    0.000 {method 'sort' of 'numpy.ndarray' objects}
+      556    0.001    0.000    0.151    0.000 arraysetops.py:138(unique)
+      556    0.018    0.000    0.146    0.000 arraysetops.py:323(_unique1d)
+     1119    0.003    0.000    0.142    0.000 core.py:54(_regular_under)
+     5474    0.002    0.000    0.123    0.000 caching.py:364(verify)
+      890    0.001    0.000    0.119    0.000 fromnumeric.py:2100(clip)
+    12216    0.029    0.000    0.119    0.000 _methods.py:101(_mean)
+     5204    0.007    0.000    0.118    0.000 caching.py:679(__hash__)
+      890    0.000    0.000    0.118    0.000 {method 'clip' of 'numpy.ndarray' objects}
+      890    0.117    0.000    0.117    0.000 _methods.py:90(_clip)
+      270    0.001    0.000    0.116    0.000 base.py:359(face_normals)
+    10898    0.009    0.000    0.115    0.000 fromnumeric.py:3385(mean)
+     1391    0.001    0.000    0.113    0.000 fromnumeric.py:865(sort)
+       90    0.018    0.000    0.110    0.001 graph.py:375(connected_components)
+       90    0.000    0.000    0.109    0.001 base.py:1346(face_adjacency)
+     2590    0.036    0.000    0.108    0.000 numeric.py:1468(cross)

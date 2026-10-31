@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { MeasurementEvidence } from '@/viewer/measurement/types'
 
-export type AnalysisMode = 'none' | 'distance' | 'locate' | 'area'
-export type AnalysisPoint = { id?: string; x: number; y: number; z: number }
+export type AnalysisMode = 'none' | 'distance' | 'locate' | 'area' | 'geometry'
+export type AnalysisPoint = { id?: string; x: number; y: number; z: number; measurement?: MeasurementEvidence }
 export type AnalysisDistance = {
   id?: string
   start: AnalysisPoint
@@ -12,12 +13,14 @@ export type AnalysisDistance = {
   horizontalDistance?: number
   verticalDistance?: number
   slopeDegrees?: number
+  measurement?: MeasurementEvidence
 }
 export type AnalysisArea = {
   id?: string
   points: AnalysisPoint[]
   area: number
   perimeter: number
+  measurement?: MeasurementEvidence
 }
 
 const props = defineProps<{
@@ -66,8 +69,9 @@ const areaRecords = computed(() => props.areas ?? [])
 <template>
   <div v-if="props.mode !== 'none'" class="analysis-overlay">
     <div class="analysis-toolbar">
-      <strong>{{ props.mode === 'distance' ? '全局测距' : props.mode === 'area' ? '面积测量' : '全局定位' }}</strong>
-      <span v-if="props.mode === 'distance' && distanceRecords.length === 0">依次点击两点完成一段测距</span>
+      <strong>{{ props.mode === 'distance' ? '全局测距' : props.mode === 'area' ? '面积测量' : props.mode === 'geometry' ? '几何测量' : '全局定位' }}</strong>
+      <span v-if="props.mode === 'geometry'">在辅助面板选择平面、角点或圆柱工具</span>
+      <span v-else-if="props.mode === 'distance' && distanceRecords.length === 0">依次点击两点完成一段测距</span>
       <span v-else-if="props.mode === 'locate' && pointRecords.length === 0">点击 BIM 或点云中的任意位置拾取坐标</span>
       <span v-else-if="props.mode === 'area' && areaRecords.length === 0">连续点击至少三个点，双击首点闭合区域</span>
       <span v-else-if="props.mode === 'distance'" class="analysis-value">

@@ -1,0 +1,106 @@
+{
+  "checks": [
+    {
+      "surface": "alignment",
+      "projection": "perspective",
+      "kind": "face",
+      "cameraUnchanged": true,
+      "sourceUnchanged": true,
+      "exactRollback": true,
+      "clippedMaterials": 634
+    },
+    {
+      "surface": "alignment",
+      "projection": "perspective",
+      "kind": "edge",
+      "cameraUnchanged": true,
+      "sourceUnchanged": true,
+      "exactRollback": true,
+      "clippedMaterials": 640
+    },
+    {
+      "surface": "alignment",
+      "projection": "orthographic",
+      "kind": "face",
+      "cameraUnchanged": true,
+      "sourceUnchanged": true,
+      "exactRollback": true,
+      "clippedMaterials": 640
+    },
+    {
+      "surface": "alignment",
+      "projection": "orthographic",
+      "kind": "edge",
+      "cameraUnchanged": true,
+      "sourceUnchanged": true,
+      "exactRollback": true,
+      "clippedMaterials": 640
+    },
+    {
+      "width": 2560,
+      "height": 1440,
+      "overflow": false,
+      "feedback": {
+        "x": 66,
+        "y": 72,
+        "width": 305.609375,
+        "height": 36,
+        "top": 72,
+        "right": 371.609375,
+        "bottom": 108,
+        "left": 66
+      },
+      "icon": {
+        "x": 15.5,
+        "y": 119,
+        "width": 18,
+        "height": 18,
+        "top": 119,
+        "right": 33.5,
+        "bottom": 137,
+        "left": 15.5
+      }
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "overflow": false,
+      "feedback": {
+        "x": 66,
+        "y": 72,
+        "width": 305.609375,
+        "height": 36,
+        "top": 72,
+        "right": 371.609375,
+        "bottom": 108,
+        "left": 66
+      },
+      "icon": {
+        "x": 15.5,
+        "y": 119,
+        "width": 18,
+        "height": 18,
+        "top": 119,
+        "right": 33.5,
+        "bottom": 137,
+        "left": 15.5
+      }
+    },
+    {
+      "surface": "bim",
+      "enabled": true,
+      "rotation": true,
+      "exactRollback": true,
+      "clippedMaterials": 1
+    },
+    {
+      "surface": "pointcloud",
+      "enabled": true,
+      "rotation": true,
+      "exactRollback": true,
+      "clippedMaterials": 37
+    }
+  ],
+  "errors": [],
+  "blockedWrites": []
+}

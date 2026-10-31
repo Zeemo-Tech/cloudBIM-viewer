@@ -81,7 +81,7 @@ function startDrag(event: PointerEvent) {
         </div>
         <div class="measurement-badge__actions">
           <button v-if="resettable" type="button" title="重置卡片位置" @click.stop="emit('resetPosition')">重置</button>
-          <button v-if="closable" type="button" class="measurement-badge__close" title="隐藏测量结果" @click.stop="emit('close')">×</button>
+          <button v-if="closable" type="button" class="measurement-badge__close" title="隐藏测量结果" aria-label="隐藏测量结果" @click.stop="emit('close')">×</button>
         </div>
       </header>
 

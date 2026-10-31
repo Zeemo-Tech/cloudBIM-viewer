@@ -115,6 +115,11 @@ export type {
 export { default as BimPreviewPanel } from '@/components/preview/BimPreviewPanel.vue'
 export { default as PointcloudPreviewPanel } from '@/components/preview/PointcloudPreviewPanel.vue'
 export { default as MeasurementToolbar } from '@/components/preview/MeasurementToolbar.vue'
+export { default as MeasurementAssistPanel } from '@/components/preview/MeasurementAssistPanel.vue'
+export { MeasurementAssistant } from '@/viewer/measurement/MeasurementAssistant'
+export { defaultMeasurementState } from '@/viewer/measurement/types'
+export type { MeasurementAssistState, MeasurementEvidence, MeasurementSettings, MeasurementTool } from '@/viewer/measurement/types'
+export { measurementPresentation, transformMeasurementEvidence } from '@/viewer/measurement/evidence'
 export { default as MeasurementResultsPanel } from '@/components/preview/MeasurementResultsPanel.vue'
 export { default as PointcloudAxesTriad } from '@/components/preview/PointcloudAxesTriad.vue'
 export { default as PointcloudViewCube } from '@/components/preview/PointcloudViewCube.vue'
@@ -137,3 +142,6 @@ export { InfiniteGroundGrid, getTilesetWorldBounds } from '@/components/preview/
 // ── 查看器底层工具 ───────────────────────────────────────────────────────────
 export * from '@/components/preview/edlPipeline'
 export * from '@/components/preview/pointcloudLoadLifecycle'
+
+// Shared tunnel-style section-box interaction.
+export { SectionBoxController } from '@/viewer/clipping/SectionBoxController'

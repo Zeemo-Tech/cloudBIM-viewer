@@ -63,7 +63,7 @@ function fixture(savedColor = '') {
     DRACOLoader: class { setDecoderPath() {} preload() {} }, GLTFExtensionsPlugin: class {},
     updateTilesetResolution: noop, clearDenoisePreview: noop, ensureInitialTransformState: noop,
     recenterLoadedContentAsWhole: noop, applySceneVisibility: noop, updateClipRangeFromContent: noop,
-    applyClippingState: noop, requestRender: noop,
+    enableClipping: ref(false), applyClippingState: noop, requestRender: noop,
     clearPointcloudColorSaveTimer: noop,
     ElMessage: { error: message => assert.fail(message) },
   }

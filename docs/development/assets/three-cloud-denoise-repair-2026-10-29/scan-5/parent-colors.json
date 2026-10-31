@@ -1,0 +1,1262 @@
+{
+  "1b9YNqdvPA1AzGxyF9pvxA": {
+    "code": "P-fef51",
+    "color": "#f9565a",
+    "name": "钢筋:8 HRB400 : 形状 01:554573: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvxA:representation0/item0:118"
+    ],
+    "baselineInstances": [
+      1
+    ],
+    "newInstances": [
+      1
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvys": {
+    "code": "P-6af83",
+    "color": "#72f7b6",
+    "name": "钢筋:8 HRB400 : 形状 23:554929: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvys:representation0/item0:154"
+    ],
+    "baselineInstances": [
+      2
+    ],
+    "newInstances": [
+      2
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv4t": {
+    "code": "P-92172",
+    "color": "#59adeb",
+    "name": "钢筋:8 HRB400 : 形状 23:555440: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv4t:representation0/item0:181"
+    ],
+    "baselineInstances": [
+      3
+    ],
+    "newInstances": [
+      3
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv4_": {
+    "code": "P-b74c0",
+    "color": "#8556f4",
+    "name": "钢筋:8 HRB400 : 形状 23:555449: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv4_:representation0/item0:208"
+    ],
+    "baselineInstances": [
+      4
+    ],
+    "newInstances": [
+      4
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv53": {
+    "code": "P-c5acf",
+    "color": "#c157fe",
+    "name": "钢筋:8 HRB400 : 形状 23:555460: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv53:representation0/item0:235"
+    ],
+    "baselineInstances": [
+      5
+    ],
+    "newInstances": [
+      5
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv58": {
+    "code": "P-7add9",
+    "color": "#47eeda",
+    "name": "钢筋:8 HRB400 : 形状 23:555471: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv58:representation0/item0:262"
+    ],
+    "baselineInstances": [
+      6
+    ],
+    "newInstances": [
+      6
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv5V": {
+    "code": "P-9d582",
+    "color": "#739af0",
+    "name": "钢筋:8 HRB400 : 形状 23:555480: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv5V:representation0/item0:289"
+    ],
+    "baselineInstances": [
+      7
+    ],
+    "newInstances": [
+      7
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv5a": {
+    "code": "P-51274",
+    "color": "#73fa64",
+    "name": "钢筋:8 HRB400 : 形状 23:555491: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv5a:representation0/item0:316"
+    ],
+    "baselineInstances": [
+      8
+    ],
+    "newInstances": [
+      8
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv5f": {
+    "code": "P-dba65",
+    "color": "#f545db",
+    "name": "钢筋:8 HRB400 : 形状 23:555502: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv5f:representation0/item0:343"
+    ],
+    "baselineInstances": [
+      9
+    ],
+    "newInstances": [
+      9
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv5_": {
+    "code": "P-805fc",
+    "color": "#6cf4f5",
+    "name": "钢筋:8 HRB400 : 形状 23:555513: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv5_:representation0/item0:370"
+    ],
+    "baselineInstances": [
+      10
+    ],
+    "newInstances": [
+      10
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvAT": {
+    "code": "P-d3de0",
+    "color": "#f14ef6",
+    "name": "钢筋:8 HRB400 : 形状 23:555546: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvAT:representation0/item0:397"
+    ],
+    "baselineInstances": [
+      11
+    ],
+    "newInstances": [
+      11
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvA_": {
+    "code": "P-99d13",
+    "color": "#4c90f9",
+    "name": "钢筋:8 HRB400 : 形状 01:555577: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvA_:representation0/item0:413"
+    ],
+    "baselineInstances": [
+      12
+    ],
+    "newInstances": [
+      12
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvB7": {
+    "code": "P-9aa0f",
+    "color": "#6c9ff3",
+    "name": "钢筋:8 HRB400 : 形状 01:555584: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvB7:representation0/item0:429"
+    ],
+    "baselineInstances": [
+      13
+    ],
+    "newInstances": [
+      13
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvBE": {
+    "code": "P-9f4e4",
+    "color": "#4170f2",
+    "name": "钢筋:8 HRB400 : 形状 01:555593: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvBE:representation0/item0:445"
+    ],
+    "baselineInstances": [
+      14
+    ],
+    "newInstances": [
+      14
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvBL": {
+    "code": "P-3fc55",
+    "color": "#afef6d",
+    "name": "钢筋:8 HRB400 : 形状 01:555602: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvBL:representation0/item0:461"
+    ],
+    "baselineInstances": [
+      15
+    ],
+    "newInstances": [
+      15
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvBS": {
+    "code": "P-308a8",
+    "color": "#d9ec64",
+    "name": "钢筋:8 HRB400 : 形状 01:555611: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvBS:representation0/item0:477"
+    ],
+    "baselineInstances": [
+      16
+    ],
+    "newInstances": [
+      16
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv87": {
+    "code": "P-72ab1",
+    "color": "#52edbd",
+    "name": "钢筋:8 HRB400 : 形状 01:555648: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv87:representation0/item0:493"
+    ],
+    "baselineInstances": [
+      17
+    ],
+    "newInstances": [
+      17
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv86": {
+    "code": "P-7e1c1",
+    "color": "#61f1ea",
+    "name": "钢筋:8 HRB400 : 形状 01:555649: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv86:representation0/item0:509"
+    ],
+    "baselineInstances": [
+      18
+    ],
+    "newInstances": [
+      18
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv85": {
+    "code": "P-ecae6",
+    "color": "#eb3e8c",
+    "name": "钢筋:8 HRB400 : 形状 01:555650: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv85:representation0/item0:525"
+    ],
+    "baselineInstances": [
+      19
+    ],
+    "newInstances": [
+      19
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8C": {
+    "code": "P-d2d7b",
+    "color": "#e961f1",
+    "name": "钢筋:8 HRB400 : 形状 01:555659: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8C:representation0/item0:541"
+    ],
+    "baselineInstances": [
+      20
+    ],
+    "newInstances": [
+      20
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8B": {
+    "code": "P-61f0d",
+    "color": "#4bec7a",
+    "name": "钢筋:8 HRB400 : 形状 01:555660: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8B:representation0/item0:557"
+    ],
+    "baselineInstances": [
+      21
+    ],
+    "newInstances": [
+      21
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8A": {
+    "code": "P-2f123",
+    "color": "#dbec45",
+    "name": "钢筋:8 HRB400 : 形状 01:555661: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8A:representation0/item0:573"
+    ],
+    "baselineInstances": [
+      22
+    ],
+    "newInstances": [
+      22
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8H": {
+    "code": "P-b5df5",
+    "color": "#764af3",
+    "name": "钢筋:8 HRB400 : 形状 01:555670: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8H:representation0/item0:589"
+    ],
+    "baselineInstances": [
+      23
+    ],
+    "newInstances": [
+      23
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8G": {
+    "code": "P-5b9bf",
+    "color": "#62f378",
+    "name": "钢筋:8 HRB400 : 形状 01:555671: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8G:representation0/item0:605"
+    ],
+    "baselineInstances": [
+      24
+    ],
+    "newInstances": [
+      24
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8V": {
+    "code": "P-a89ce",
+    "color": "#7278ee",
+    "name": "钢筋:8 HRB400 : 形状 01:555672: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8V:representation0/item0:621"
+    ],
+    "baselineInstances": [
+      25
+    ],
+    "newInstances": [
+      25
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8O": {
+    "code": "P-4a57b",
+    "color": "#72f843",
+    "name": "钢筋:8 HRB400 : 形状 01:555679: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8O:representation0/item0:637"
+    ],
+    "baselineInstances": [
+      26
+    ],
+    "newInstances": [
+      26
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8d": {
+    "code": "P-e9704",
+    "color": "#ed4aa0",
+    "name": "钢筋:8 HRB400 : 形状 01:555680: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8d:representation0/item0:653"
+    ],
+    "baselineInstances": [
+      27
+    ],
+    "newInstances": [
+      27
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8c": {
+    "code": "P-b1a7d",
+    "color": "#7359f5",
+    "name": "钢筋:8 HRB400 : 形状 01:555681: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8c:representation0/item0:669"
+    ],
+    "baselineInstances": [
+      28
+    ],
+    "newInstances": [
+      28
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8j": {
+    "code": "P-9ea98",
+    "color": "#698eee",
+    "name": "钢筋:8 HRB400 : 形状 01:555690: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8j:representation0/item0:685"
+    ],
+    "baselineInstances": [
+      29
+    ],
+    "newInstances": [
+      29
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8i": {
+    "code": "P-619ec",
+    "color": "#44fb78",
+    "name": "钢筋:8 HRB400 : 形状 01:555691: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8i:representation0/item0:701"
+    ],
+    "baselineInstances": [
+      30
+    ],
+    "newInstances": [
+      30
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8h": {
+    "code": "P-42220",
+    "color": "#9dfb51",
+    "name": "钢筋:8 HRB400 : 形状 01:555692: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8h:representation0/item0:717"
+    ],
+    "baselineInstances": [
+      31
+    ],
+    "newInstances": [
+      31
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8o": {
+    "code": "P-e4202",
+    "color": "#ff55c4",
+    "name": "钢筋:8 HRB400 : 形状 01:555701: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8o:representation0/item0:733"
+    ],
+    "baselineInstances": [
+      32
+    ],
+    "newInstances": [
+      32
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8n": {
+    "code": "P-c40eb",
+    "color": "#b051f0",
+    "name": "钢筋:8 HRB400 : 形状 01:555702: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8n:representation0/item0:749"
+    ],
+    "baselineInstances": [
+      33
+    ],
+    "newInstances": [
+      33
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8m": {
+    "code": "P-0dc2a",
+    "color": "#fb9e71",
+    "name": "钢筋:8 HRB400 : 形状 01:555703: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8m:representation0/item0:765"
+    ],
+    "baselineInstances": [
+      34
+    ],
+    "newInstances": [
+      34
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8v": {
+    "code": "P-7955f",
+    "color": "#4efee2",
+    "name": "钢筋:8 HRB400 : 形状 01:555710: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8v:representation0/item0:781"
+    ],
+    "baselineInstances": [
+      35
+    ],
+    "newInstances": [
+      35
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv8u": {
+    "code": "P-4d92c",
+    "color": "#88ee72",
+    "name": "钢筋:8 HRB400 : 形状 01:555711: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv8u:representation0/item0:797"
+    ],
+    "baselineInstances": [
+      36
+    ],
+    "newInstances": [
+      36
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv97": {
+    "code": "P-3cf2d",
+    "color": "#affe45",
+    "name": "钢筋:8 HRB400 : 形状 01:555712: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv97:representation0/item0:813"
+    ],
+    "baselineInstances": [
+      37
+    ],
+    "newInstances": [
+      37
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9E": {
+    "code": "P-973b0",
+    "color": "#4791e9",
+    "name": "钢筋:8 HRB400 : 形状 01:555721: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9E:representation0/item0:829"
+    ],
+    "baselineInstances": [
+      38
+    ],
+    "newInstances": [
+      38
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9D": {
+    "code": "P-3a361",
+    "color": "#cbfe73",
+    "name": "钢筋:8 HRB400 : 形状 01:555722: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9D:representation0/item0:845"
+    ],
+    "baselineInstances": [
+      39
+    ],
+    "newInstances": [
+      39
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9C": {
+    "code": "P-20edf",
+    "color": "#ebc544",
+    "name": "钢筋:8 HRB400 : 形状 01:555723: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9C:representation0/item0:861"
+    ],
+    "baselineInstances": [
+      40
+    ],
+    "newInstances": [
+      40
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9J": {
+    "code": "P-ea057",
+    "color": "#ee489d",
+    "name": "钢筋:8 HRB400 : 形状 01:555732: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9J:representation0/item0:877"
+    ],
+    "baselineInstances": [
+      41
+    ],
+    "newInstances": [
+      41
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9I": {
+    "code": "P-4406b",
+    "color": "#98fd53",
+    "name": "钢筋:8 HRB400 : 形状 01:555733: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9I:representation0/item0:893"
+    ],
+    "baselineInstances": [
+      42
+    ],
+    "newInstances": [
+      42
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9H": {
+    "code": "P-2b62f",
+    "color": "#f9fb55",
+    "name": "钢筋:8 HRB400 : 形状 01:555734: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9H:representation0/item0:909"
+    ],
+    "baselineInstances": [
+      43
+    ],
+    "newInstances": [
+      43
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9O": {
+    "code": "P-d449b",
+    "color": "#e952ed",
+    "name": "钢筋:8 HRB400 : 形状 01:555743: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9O:representation0/item0:925"
+    ],
+    "baselineInstances": [
+      44
+    ],
+    "newInstances": [
+      44
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9d": {
+    "code": "P-044e4",
+    "color": "#fc6250",
+    "name": "钢筋:8 HRB400 : 形状 01:555744: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9d:representation0/item0:941"
+    ],
+    "baselineInstances": [
+      45
+    ],
+    "newInstances": [
+      45
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9c": {
+    "code": "P-1b803",
+    "color": "#eeb651",
+    "name": "钢筋:8 HRB400 : 形状 01:555745: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9c:representation0/item0:957"
+    ],
+    "baselineInstances": [
+      46
+    ],
+    "newInstances": [
+      46
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pv9u": {
+    "code": "P-3dd0c",
+    "color": "#affd4f",
+    "name": "钢筋:8 HRB400 : 形状 01:555775: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pv9u:representation0/item0:973"
+    ],
+    "baselineInstances": [
+      47
+    ],
+    "newInstances": [
+      47
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvE7": {
+    "code": "P-919db",
+    "color": "#41a5ec",
+    "name": "钢筋:8 HRB400 : 形状 01:555776: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvE7:representation0/item0:989"
+    ],
+    "baselineInstances": [
+      48
+    ],
+    "newInstances": [
+      48
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvFS": {
+    "code": "P-8bca7",
+    "color": "#4fcefe",
+    "name": "钢筋:8 HRB400 : 形状 01:555867: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvFS:representation0/item0:1005"
+    ],
+    "baselineInstances": [
+      49
+    ],
+    "newInstances": [
+      49
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvCV": {
+    "code": "P-af64c",
+    "color": "#5945f5",
+    "name": "钢筋:8 HRB400 : 形状 01:555928: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvCV:representation0/item0:1021"
+    ],
+    "baselineInstances": [
+      50
+    ],
+    "newInstances": [
+      50
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvCr": {
+    "code": "P-d2519",
+    "color": "#e549f1",
+    "name": "钢筋:8 HRB400 : 形状 01:555954: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvCr:representation0/item0:1037"
+    ],
+    "baselineInstances": [
+      51
+    ],
+    "newInstances": [
+      51
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvCq": {
+    "code": "P-ce8ad",
+    "color": "#d53ff2",
+    "name": "钢筋:8 HRB400 : 形状 01:555955: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvCq:representation0/item0:1053"
+    ],
+    "baselineInstances": [
+      52
+    ],
+    "newInstances": [
+      52
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvD7": {
+    "code": "P-5a891",
+    "color": "#66f277",
+    "name": "钢筋:8 HRB400 : 形状 01:555968: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvD7:representation0/item0:1069"
+    ],
+    "baselineInstances": [
+      53
+    ],
+    "newInstances": [
+      53
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvD6": {
+    "code": "P-c6c0a",
+    "color": "#b445ed",
+    "name": "钢筋:8 HRB400 : 形状 01:555969: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvD6:representation0/item0:1085"
+    ],
+    "baselineInstances": [
+      54
+    ],
+    "newInstances": [
+      54
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvDL": {
+    "code": "P-c6edc",
+    "color": "#ca6df9",
+    "name": "钢筋:8 HRB400 : 形状 01:555986: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvDL:representation0/item0:1101"
+    ],
+    "baselineInstances": [
+      55
+    ],
+    "newInstances": [
+      55
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvDK": {
+    "code": "P-546cf",
+    "color": "#46f842",
+    "name": "钢筋:8 HRB400 : 形状 01:555987: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvDK:representation0/item0:1117"
+    ],
+    "baselineInstances": [
+      56
+    ],
+    "newInstances": [
+      56
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvDP": {
+    "code": "P-d5424",
+    "color": "#ec5aec",
+    "name": "钢筋:8 HRB400 : 形状 01:555998: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvDP:representation0/item0:1133"
+    ],
+    "baselineInstances": [
+      57
+    ],
+    "newInstances": [
+      57
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvDO": {
+    "code": "P-0c7a3",
+    "color": "#ec8b63",
+    "name": "钢筋:8 HRB400 : 形状 01:555999: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvDO:representation0/item0:1149"
+    ],
+    "baselineInstances": [
+      58
+    ],
+    "newInstances": [
+      58
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvDf": {
+    "code": "P-474ce",
+    "color": "#9ff873",
+    "name": "钢筋:8 HRB400 : 形状 01:556014: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvDf:representation0/item0:1165"
+    ],
+    "baselineInstances": [
+      59
+    ],
+    "newInstances": [
+      59
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvDe": {
+    "code": "P-d6ff8",
+    "color": "#f26fed",
+    "name": "钢筋:8 HRB400 : 形状 01:556015: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvDe:representation0/item0:1181"
+    ],
+    "baselineInstances": [
+      60
+    ],
+    "newInstances": [
+      60
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvG1": {
+    "code": "P-c60a3",
+    "color": "#c373f0",
+    "name": "钢筋:8 HRB400 : 形状 01:556166: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvG1:representation0/item0:1197"
+    ],
+    "baselineInstances": [
+      61
+    ],
+    "newInstances": [
+      61
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvHx": {
+    "code": "P-b93ea",
+    "color": "#8e5cee",
+    "name": "钢筋:8 HRB400 : 形状 01:556284: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvHx:representation0/item0:1213"
+    ],
+    "baselineInstances": [
+      62
+    ],
+    "newInstances": [
+      62
+    ]
+  },
+  "1b9YNqdvPA1AzGxyF9pvM0": {
+    "code": "P-5ffd2",
+    "color": "#5aec7f",
+    "name": "钢筋:8 HRB400 : 形状 01:556295: 1",
+    "designBarIds": [
+      "1b9YNqdvPA1AzGxyF9pvM0:representation0/item0:1229"
+    ],
+    "baselineInstances": [
+      63
+    ],
+    "newInstances": [
+      63
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqSul": {
+    "code": "P-6ab17",
+    "color": "#6bfdb4",
+    "name": "钢筋:6 HRB335 : 形状 钢筋形状 1:558730: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqSul:representation0/item0:1665"
+    ],
+    "baselineInstances": [
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ],
+    "newInstances": [
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqS_B": {
+    "code": "P-d4c62",
+    "color": "#e643e9",
+    "name": "钢筋:6 HRB335 : 形状 钢筋形状 1:558894: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqS_B:representation0/item0:2110"
+    ],
+    "baselineInstances": [
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135
+    ],
+    "newInstances": [
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqS0a": {
+    "code": "P-d93a6",
+    "color": "#fc69ef",
+    "name": "钢筋:8 HRB400 : 形状 01:559233: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqS0a:representation0/item0:2126"
+    ],
+    "baselineInstances": [
+      136
+    ],
+    "newInstances": [
+      136
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqS0d": {
+    "code": "P-2d06b",
+    "color": "#eaf171",
+    "name": "钢筋:8 HRB400 : 形状 01:559234: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqS0d:representation0/item0:2142"
+    ],
+    "baselineInstances": [
+      137
+    ],
+    "newInstances": [
+      137
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqS0c": {
+    "code": "P-aea20",
+    "color": "#6e61e8",
+    "name": "钢筋:8 HRB400 : 形状 01:559235: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqS0c:representation0/item0:2158"
+    ],
+    "baselineInstances": [
+      138
+    ],
+    "newInstances": [
+      138
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqS0X": {
+    "code": "P-35be6",
+    "color": "#d1f66a",
+    "name": "钢筋:6 HRB335 : 形状 钢筋形状 1:559236: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqS0X:representation0/item0:2594"
+    ],
+    "baselineInstances": [
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174
+    ],
+    "newInstances": [
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174
+    ]
+  },
+  "2o97Tbskf2JPl1QtzNqS0W": {
+    "code": "P-3b270",
+    "color": "#b8f950",
+    "name": "钢筋:6 HRB335 : 形状 钢筋形状 1:559237: 1",
+    "designBarIds": [
+      "2o97Tbskf2JPl1QtzNqS0W:representation0/item0:3030"
+    ],
+    "baselineInstances": [
+      175,
+      176,
+      177,
+      178,
+      179,
+      180,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ],
+    "newInstances": [
+      175,
+      176,
+      177,
+      178,
+      179,
+      180,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ]
+  }
+}

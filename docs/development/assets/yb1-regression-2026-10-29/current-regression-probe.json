@@ -1,0 +1,13 @@
+{
+  "tag": "current",
+  "regionAxialM": [
+    3.0,
+    4.0
+  ],
+  "sourceRows": 14476,
+  "sourceSelection": "baseline owner 9 and baseline tube error <= 1.44mm; independent of current labels",
+  "sameOwnerFraction": 0.0,
+  "minimumSameOwnerFraction": 0.95,
+  "unknown": 14476,
+  "passed": false
+}

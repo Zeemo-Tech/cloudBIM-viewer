@@ -1,0 +1,664 @@
+{
+  "schema": "source-row-denoise-phone-album-v1",
+  "createdAt": "2026-10-29T12:05:38.345034+00:00",
+  "scanId": "14",
+  "comparisonIsSameResultDemo": false,
+  "name": "夹具双层钢筋",
+  "source": {
+    "path": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/preprocess/145ef34ad531af851f1b013c/cleaned.las",
+    "sha256": "5df73d4ebfd01e13cd26cdb1a2acef40b7ea76ce99f4a38dd9ef35ca687c44df",
+    "size": 258443456,
+    "mtimeNs": 1792599932248453319,
+    "pointFormat": 3,
+    "version": "1.2",
+    "scales": [
+      1e-06,
+      1e-06,
+      1e-06
+    ],
+    "offsets": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "crs": "None",
+    "pointCount": 4038141,
+    "boundsM": [
+      [
+        -0.868629,
+        -0.327943,
+        -0.005484
+      ],
+      [
+        2.8738989999999998,
+        3.546518,
+        0.377225
+      ]
+    ]
+  },
+  "coordinatePolicy": {
+    "frame": "original source LAS XYZ",
+    "units": "meters, matching mesh-service source-space contract; LAS CRS is recorded separately",
+    "savedAlignmentMatrixAsSupplied": [
+      0.9999886640635599,
+      0.0047547692020307826,
+      0.0002528126026517248,
+      0,
+      0.0002533272435929967,
+      -0.00010763483873343915,
+      -0.9999999621200238,
+      0,
+      -0.0047547418104765225,
+      0.9999886902283329,
+      -0.00010883813116757679,
+      0,
+      0.0040034419398021215,
+      0.00214138085007991,
+      -0.0037418881279510097,
+      1
+    ],
+    "alignmentAppliedToPoints": false,
+    "alignmentExplanation": "The saved matrix is retained verbatim only. No BIM is overlaid, so no alignment/axis flip/unit conversion is applied. Camera projections are orthonormal and separately recorded.",
+    "geometryOperations": "orthographic projection/crop/depth ordering only; no smoothing, interpolation, point generation, coordinate edits, or re-registration"
+  },
+  "baseline": {
+    "resultDirectory": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/5d33f4366ae247837caac71f",
+    "resultVersion": "5d33f4366ae247837caac71f",
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v8+bim-embedded-extent-v2+execution-v4",
+    "manifestSha256": "38a0730056aef524dc1cc3a40bf11cb83536912aa0286c01f91e7198f26996df",
+    "instanceMapSha256": "504970f15b1a55cb928943c6b191c38dde08eb841775fdca317b7ab04459f2e9",
+    "coverage": "all-source-rows",
+    "labelArtifact": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/5d33f4366ae247837caac71f/source-labels.npz",
+    "labelSha256": "67996aac4391c56fd50b5423c7b6cca2dea87ec094c37ea10cf70ba820b6636d",
+    "mapping": "source-labels.npz row i equals original LAS record i",
+    "labeledRows": 4038141,
+    "classCountsOnLabeledRows": {
+      "unknown": 1328541,
+      "table": 0,
+      "fixture": 1707246,
+      "steel": 886617,
+      "noise": 76324,
+      "embedded": 39413,
+      "pipe": 0
+    }
+  },
+  "new": {
+    "resultDirectory": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/64f34a48d494bb3c7c848ca5",
+    "resultVersion": "64f34a48d494bb3c7c848ca5",
+    "algorithmVersion": "denoise-v4-control-net+shared-segmentation-v31-measured-layer-mass+workbench-design-inputs-v1+design-control-net-v26+bim-scene-surface-v2+short-observed-tubes-v4+bim-flexible-axis-v9+bim-embedded-extent-v2+execution-v4",
+    "manifestSha256": "93dc15cb0f7bb6773b318ee235ef299d89c26f82e2e4c868cf7da071da6f88b1",
+    "instanceMapSha256": "cf4100d38bc418fffcb8737ddff73546065cb8659d4c972f51bb07b9db10dde3",
+    "coverage": "all-source-rows",
+    "labelArtifact": "/home/hong/hong_project/cloudBIM-viewer/backend/data/assets/760731a0111181486425f189/denoise/13/64f34a48d494bb3c7c848ca5/source-labels.npz",
+    "labelSha256": "c76c0af34afdc48fb9815a6831caa08edf8be35700184dcd64bd0d1c7c8bf58d",
+    "mapping": "source-labels.npz row i equals original LAS record i",
+    "labeledRows": 4038141,
+    "classCountsOnLabeledRows": {
+      "unknown": 1326967,
+      "table": 0,
+      "fixture": 1707247,
+      "steel": 887740,
+      "noise": 76782,
+      "embedded": 39405,
+      "pipe": 0
+    }
+  },
+  "samples": {
+    "overview": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "057b295953f530b4810ef1c5c1f22d1ed61dc70a3eceecfbc87e21c5e17e3077"
+    },
+    "comparison": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "057b295953f530b4810ef1c5c1f22d1ed61dc70a3eceecfbc87e21c5e17e3077"
+    },
+    "steel_only": {
+      "count": 240000,
+      "sha256Int64LittleEndian": "9175e0cc0895794c3dc8231329c687cbfaf2e0801721cc797d3e1a07e08665ea"
+    },
+    "local1_all_source": {
+      "count": 41660,
+      "sha256Int64LittleEndian": "87471b299d86e322f8405e25cfb0b914a4b3519c4da703ae1b2529618602a45d"
+    },
+    "local1_comparison": {
+      "count": 41660,
+      "sha256Int64LittleEndian": "87471b299d86e322f8405e25cfb0b914a4b3519c4da703ae1b2529618602a45d"
+    },
+    "local2_all_source": {
+      "count": 66727,
+      "sha256Int64LittleEndian": "adcffe18084406bed357587b56618a3aed8e16d0f60d3ace12c72f681c448904"
+    },
+    "local2_comparison": {
+      "count": 66727,
+      "sha256Int64LittleEndian": "adcffe18084406bed357587b56618a3aed8e16d0f60d3ace12c72f681c448904"
+    }
+  },
+  "sampling": {
+    "seed": null,
+    "randomSampling": false,
+    "overviewMethod": "linspace indices over original source row order",
+    "comparisonMethod": "linspace subset of baseline verified labeled source rows, identically used in both panels",
+    "steelMethod": "linspace subset of new class=3 original source rows; all nonsteel excluded only in explicitly titled steel-only figure",
+    "maxOverviewPoints": 240000,
+    "sourceRowsFile": "source-rows.npz",
+    "sourceRowsFileSha256": "10f32077c0af570b94773fd1e432303056976829f75f9d9626f5111c9c066166"
+  },
+  "localCrops": [
+    {
+      "selection": "predeclared baseline instance axis, independent of repaired classification",
+      "baselineInstance": 70,
+      "baselineDesignBarId": "31bnwHAyv1YeKV9LeVK8mW:representation0/item0:970578",
+      "baselineChordLengthM": 1.622068427957217,
+      "sRangeM": [
+        -0.09,
+        0.31
+      ],
+      "tRangeM": [
+        -0.15,
+        0.15
+      ],
+      "depthRangeM": [
+        -0.12,
+        0.12
+      ],
+      "axisReference": "baseline fitted centerline endpoint chord used only as camera/crop, never drawn as measured points",
+      "originM": [
+        1.874876152833904,
+        2.4883359986744367,
+        0.15237909778896935
+      ],
+      "basis": [
+        [
+          -0.9999359082952367,
+          -0.005465276470959804,
+          0.009915142705782056
+        ],
+        [
+          0.005465007810517064,
+          -0.9999850652650248,
+          -5.418980544650209e-05
+        ],
+        [
+          0.009915290788022177,
+          5.193085626161945e-21,
+          0.9999508422960547
+        ]
+      ],
+      "allSourceRowsInCrop": 41660,
+      "commonLabeledRows": 41660,
+      "comparisonSampling": "all shared labeled rows in the crop; no subsampling"
+    },
+    {
+      "selection": "predeclared baseline instance axis, independent of repaired classification",
+      "baselineInstance": 168,
+      "baselineDesignBarId": "3gc5gdEqr4GA_MqP$W341H:representation0/item0:971888",
+      "baselineChordLengthM": 1.622552641550251,
+      "sRangeM": [
+        -0.09,
+        0.31
+      ],
+      "tRangeM": [
+        -0.15,
+        0.15
+      ],
+      "depthRangeM": [
+        -0.12,
+        0.12
+      ],
+      "axisReference": "baseline fitted centerline endpoint chord used only as camera/crop, never drawn as measured points",
+      "originM": [
+        1.8751645027674708,
+        2.0875023613568975,
+        0.1519050865315087
+      ],
+      "basis": [
+        [
+          -0.9999195154069549,
+          -0.00809330972935601,
+          0.009770416876739125
+        ],
+        [
+          0.008092923396924486,
+          -0.9999672486324863,
+          -7.907759986791228e-05
+        ],
+        [
+          0.009770736881733617,
+          1.1478786036512808e-21,
+          0.9999522652110889
+        ]
+      ],
+      "allSourceRowsInCrop": 66727,
+      "commonLabeledRows": 66727,
+      "comparisonSampling": "all shared labeled rows in the crop; no subsampling"
+    }
+  ],
+  "classContract": [
+    {
+      "id": 0,
+      "key": "unknown",
+      "nameZh": "未知 / 待判",
+      "color": "#A0A7B2"
+    },
+    {
+      "id": 1,
+      "key": "table",
+      "nameZh": "台面",
+      "color": "#BF986A"
+    },
+    {
+      "id": 2,
+      "key": "fixture",
+      "nameZh": "夹具",
+      "color": "#F2AA38"
+    },
+    {
+      "id": 3,
+      "key": "steel",
+      "nameZh": "钢筋",
+      "color": "#36C9F2"
+    },
+    {
+      "id": 4,
+      "key": "noise",
+      "nameZh": "显式噪声",
+      "color": "#F15B82"
+    },
+    {
+      "id": 5,
+      "key": "embedded",
+      "nameZh": "预埋件",
+      "color": "#39D6A3"
+    },
+    {
+      "id": 6,
+      "key": "pipe",
+      "nameZh": "管件",
+      "color": "#C397F8"
+    }
+  ],
+  "physicalParentColorPolicy": "SHA256(IFC GlobalId) -> fixed HSV color, same physical parent across matching units and result versions; close colors remain possible, use parent map/target counts",
+  "figures": [
+    {
+      "file": "01-semantic-top.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 341457,
+      "sha256": "c225fc3ab04ff8ccccddd9b3584475bb9d5850268229d91c5537d2a0191387cd",
+      "encoding": "RGB PNG, lossless",
+      "title": "夹具双层钢筋 · 修复后整体语义",
+      "caption": "原坐标俯视 · 原始源点 4,038,141，等源行抽样 240,000 · 单位 m",
+      "sourceRows": 240000,
+      "rowsSha256": "057b295953f530b4810ef1c5c1f22d1ed61dc70a3eceecfbc87e21c5e17e3077",
+      "semanticCounts": {
+        "unknown": 78739,
+        "table": 0,
+        "fixture": 101453,
+        "steel": 52806,
+        "noise": 4649,
+        "embedded": 2353,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.99961748,
+          3.00488748,
+          -0.463549135,
+          3.682124135
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "steelOnly": false
+    },
+    {
+      "file": "02-semantic-oblique.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 486812,
+      "sha256": "1d1651634189a8c7e50ab53fab08dbd45c7661396ed9977c0ee850d0707d2d06",
+      "encoding": "RGB PNG, lossless",
+      "title": "夹具双层钢筋 · 修复后整体语义",
+      "caption": "斜视 · 原始源点 4,038,141，等源行抽样 240,000 · 单位 m",
+      "sourceRows": 240000,
+      "rowsSha256": "057b295953f530b4810ef1c5c1f22d1ed61dc70a3eceecfbc87e21c5e17e3077",
+      "semanticCounts": {
+        "unknown": 78739,
+        "table": 0,
+        "fixture": 101453,
+        "steel": 52806,
+        "noise": 4649,
+        "embedded": 2353,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "oblique",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            0.9510565162951536,
+            -0.14029077970429507,
+            0.27533615807315837
+          ],
+          [
+            0.30901699437494745,
+            0.43177062311338915,
+            -0.8473975608908427
+          ],
+          [
+            0.0,
+            0.8910065241883679,
+            0.4539904997395468
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.9113064904318243,
+          3.9005291220996985,
+          -0.34697222344462364,
+          1.5898280268791114
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "steelOnly": false
+    },
+    {
+      "file": "03-physical-parents.png",
+      "width": 1302,
+      "height": 1007,
+      "bytes": 338757,
+      "sha256": "963366d09c728a2ea8a95d87c7a9e5d1f8a22f65ab31756dad345646dfc7ea1b",
+      "encoding": "RGB PNG, lossless",
+      "title": "夹具双层钢筋 · 钢筋物理实例",
+      "caption": "仅绘钢筋，按 IFC 物理父构件固定配色；弯钩 / 直段单元共享父构件颜色。",
+      "sourceRows": 240000,
+      "rowsSha256": "9175e0cc0895794c3dc8231329c687cbfaf2e0801721cc797d3e1a07e08665ea",
+      "semanticCounts": {
+        "unknown": 0,
+        "table": 0,
+        "fixture": 0,
+        "steel": 240000,
+        "noise": 0,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "oblique",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            0.9510565162951536,
+            -0.14029077970429507,
+            0.27533615807315837
+          ],
+          [
+            0.30901699437494745,
+            0.43177062311338915,
+            -0.8473975608908427
+          ],
+          [
+            0.0,
+            0.8910065241883679,
+            0.4539904997395468
+          ]
+        ],
+        "projectedBoundsM": [
+          0.15916901526491894,
+          2.644405665563168,
+          -0.2350252966864362,
+          1.4223073559074326
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "steelOnly": true
+    },
+    {
+      "file": "04-before-after.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 447435,
+      "sha256": "314c2bec37dcd07d02c5943f0ca1285f8e1f77458fe6222f9bdefe9f1004fffc",
+      "encoding": "RGB PNG, lossless",
+      "title": "夹具双层钢筋 · 整体修复前后",
+      "caption": "相同源行 240,000 / 4,038,141 · 相同俯视范围 · 标签覆盖：全源",
+      "sourceRows": 240000,
+      "rowsSha256": "057b295953f530b4810ef1c5c1f22d1ed61dc70a3eceecfbc87e21c5e17e3077",
+      "baselineCounts": {
+        "unknown": 78835,
+        "table": 0,
+        "fixture": 101453,
+        "steel": 52728,
+        "noise": 4631,
+        "embedded": 2353,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 78739,
+        "table": 0,
+        "fixture": 101453,
+        "steel": 52806,
+        "noise": 4649,
+        "embedded": 2353,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "top",
+        "type": "orthographic",
+        "originM": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.99961748,
+          3.00488748,
+          -0.463549135,
+          3.682124135
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "semantic",
+      "targetPhysicalParent": null
+    },
+    {
+      "file": "05-local-1.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 683593,
+      "sha256": "b04a50f2697d317ad408220217efba8757b3959b3a91ffcce5d8e7feaefe3791",
+      "encoding": "RGB PNG, lossless",
+      "title": "夹具双层钢筋 · 实例70：基线起端",
+      "caption": "裁剪内原源点 41,660，同源行对照 41,660 · 局部全标签行绘制 · 单位 m",
+      "sourceRows": 41660,
+      "rowsSha256": "87471b299d86e322f8405e25cfb0b914a4b3519c4da703ae1b2529618602a45d",
+      "baselineCounts": {
+        "unknown": 8715,
+        "table": 0,
+        "fixture": 26754,
+        "steel": 5107,
+        "noise": 1084,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 8715,
+        "table": 0,
+        "fixture": 26754,
+        "steel": 5107,
+        "noise": 1084,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-axis",
+        "type": "orthographic",
+        "originM": [
+          1.874876152833904,
+          2.4883359986744367,
+          0.15237909778896935
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            -0.9999359082952367,
+            -0.005465276470959804,
+            0.009915142705782056
+          ],
+          [
+            0.005465007810517064,
+            -0.9999850652650248,
+            -5.418980544650209e-05
+          ],
+          [
+            0.009915290788022177,
+            5.193085626161945e-21,
+            0.9999508422960547
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.09,
+          0.31,
+          -0.15,
+          0.15
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "targetPhysicalParent": "31bnwHAyv1YeKV9LeVK8mW"
+    },
+    {
+      "file": "06-local-2.png",
+      "width": 1302,
+      "height": 1612,
+      "bytes": 944350,
+      "sha256": "e17f176f43a2d41cbb89b2f4835e6e528ffe0332c61b4167a72b56891d0a4cef",
+      "encoding": "RGB PNG, lossless",
+      "title": "夹具双层钢筋 · 实例168：基线起端",
+      "caption": "裁剪内原源点 66,727，同源行对照 66,727 · 局部全标签行绘制 · 单位 m",
+      "sourceRows": 66727,
+      "rowsSha256": "adcffe18084406bed357587b56618a3aed8e16d0f60d3ace12c72f681c448904",
+      "baselineCounts": {
+        "unknown": 18780,
+        "table": 0,
+        "fixture": 39667,
+        "steel": 7235,
+        "noise": 1045,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "newCounts": {
+        "unknown": 18782,
+        "table": 0,
+        "fixture": 39667,
+        "steel": 7232,
+        "noise": 1046,
+        "embedded": 0,
+        "pipe": 0
+      },
+      "camera": {
+        "name": "local-baseline-axis",
+        "type": "orthographic",
+        "originM": [
+          1.8751645027674708,
+          2.0875023613568975,
+          0.1519050865315087
+        ],
+        "columnsRightUpTowardViewer": [
+          [
+            -0.9999195154069549,
+            -0.00809330972935601,
+            0.009770416876739125
+          ],
+          [
+            0.008092923396924486,
+            -0.9999672486324863,
+            -7.907759986791228e-05
+          ],
+          [
+            0.009770736881733617,
+            1.1478786036512808e-21,
+            0.9999522652110889
+          ]
+        ],
+        "projectedBoundsM": [
+          -0.09,
+          0.31,
+          -0.15,
+          0.15
+        ],
+        "mapping": "projected=(originalLAS_XYZ-originM) @ basis; sort by depth only for occlusion",
+        "scale": "orthonormal basis; 1 projected meter equals 1 source meter; no vertical exaggeration"
+      },
+      "displayMode": "parents",
+      "targetPhysicalParent": "3gc5gdEqr4GA_MqP$W341H"
+    }
+  ],
+  "runtimeSeconds": 5.23218857194297,
+  "runtime": {
+    "python": "3.11.15",
+    "numpy": "1.26.4",
+    "matplotlib": "3.9.3",
+    "laspy": "2.5.4"
+  },
+  "script": {
+    "path": "/home/hong/hong_project/cloudBIM-viewer/scripts/qa/render_denoise_comparison.py",
+    "sha256": "e84d736f90dcf3b98b95c3affa31cd62c1cf0b40e70ff906d39deb97fffac10a"
+  },
+  "interpretation": "A real-data rendering for visual inspection, not independent ground truth or proof that every colored point is correctly classified; unknown is retained and never relabeled noise for display."
+}
